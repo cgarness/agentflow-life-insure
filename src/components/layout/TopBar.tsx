@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
-  User, Keyboard, LogOut, X,
+  User, Keyboard, LogOut, X, Megaphone,
 } from "lucide-react";
 import { useSidebarContext } from "@/contexts/SidebarContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const pageTitles: Record<string, string> = {
@@ -31,6 +32,8 @@ const statusOptions = [
 
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -143,14 +146,18 @@ const TopBar: React.FC = () => {
           {/* User Avatar */}
           <div className="relative">
             <button onClick={() => setUserDropdown(!userDropdown)} className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold hover:ring-2 hover:ring-primary/30 sidebar-transition">
-              CG
+              {user ? `${user.firstName[0]}${user.lastName[0]}` : "??"}
             </button>
             {userDropdown && (
               <div className="absolute right-0 top-full mt-2 w-48 bg-card border rounded-lg shadow-lg py-1 z-50">
+                <div className="px-3 py-2 border-b">
+                  <p className="text-sm font-medium text-foreground">{user?.firstName} {user?.lastName}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                </div>
                 <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
                 <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><Keyboard className="w-4 h-4" />Keyboard Shortcuts</button>
                 <div className="border-t my-1" />
-                <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-destructive"><LogOut className="w-4 h-4" />Logout</button>
+                <button onClick={() => { logout(); navigate("/login"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-destructive"><LogOut className="w-4 h-4" />Logout</button>
               </div>
             )}
           </div>
@@ -197,8 +204,5 @@ const TopBar: React.FC = () => {
     </>
   );
 };
-
-// Need this import for the search dropdown
-import { Megaphone } from "lucide-react";
 
 export default TopBar;
