@@ -295,14 +295,16 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      default:
+      default: {
+        const Icon = sections[active].icon;
         return (
           <div className="bg-accent/50 rounded-xl p-8 text-center">
-            <sections[active].icon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <Icon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
             <h3 className="font-semibold text-foreground mb-1">{sections[active].label}</h3>
             <p className="text-sm text-muted-foreground">This settings section is ready for configuration.</p>
           </div>
         );
+      }
     }
   };
 
