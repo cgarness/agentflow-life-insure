@@ -1,0 +1,280 @@
+import { mockLeads, mockClients, mockRecruits, mockUsers, mockProfiles, mockNotes, mockActivities, mockAppointments, mockCampaigns, mockCalls, mockNotifications, mockWins, getAgentName, calcAging } from "./mock-data";
+import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry } from "./types";
+
+// Simulate network delay
+const delay = (ms = 300) => new Promise(r => setTimeout(r, ms));
+
+// ---- In-memory stores (mutable copies) ----
+let leads = [...mockLeads];
+let clients = [...mockClients];
+let recruits = [...mockRecruits];
+let notes = [...mockNotes];
+let activities = [...mockActivities];
+let notifications = [...mockNotifications];
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+// ---- AUTH ----
+export const authApi = {
+  async login(email: string, password: string) {
+    await delay(500);
+    const user = mockUsers.find(u => u.email === email);
+    if (!user || password.length < 4) throw new Error("Invalid email or password");
+    return { user, profile: mockProfiles.find(p => p.userId === user.id)! };
+  },
+  async forgotPassword(email: string) {
+    await delay(500);
+    const exists = mockUsers.some(u => u.email === email);
+    if (!exists) throw new Error("No account found with that email");
+    return { message: "Reset link sent to your email" };
+  },
+  async resetPassword(_token: string, _newPassword: string) {
+    await delay(500);
+    return { message: "Password reset successful" };
+  },
+  async updateProfile(userId: string, data: Partial<{ firstName: string; lastName: string; email: string }>) {
+    await delay(300);
+    const user = mockUsers.find(u => u.id === userId);
+    if (user) Object.assign(user, data);
+    return user;
+  },
+};
+
+// ---- DASHBOARD ----
+export const dashboardApi = {
+  async getStats(): Promise<DashboardStats> {
+    await delay(200);
+    return {
+      totalCallsToday: 47,
+      callsTrend: "+12% vs yesterday",
+      policiesSoldThisMonth: 23,
+      policiesTrend: "+8% vs last month",
+      appointmentsThisWeek: 8,
+      appointmentsTrend: "Same as last week",
+      activeCampaigns: mockCampaigns.filter(c => c.status === "Active").length,
+    };
+  },
+  async getLeaderboard(period = "today"): Promise<LeaderboardEntry[]> {
+    await delay(200);
+    return [
+      { rank: 1, userId: "u1", name: "Chris G.", avatar: "CG", calls: 47, policies: 5, appointments: 8, talkTime: "3.2hrs", conversionRate: "10.6%", goalProgress: 95 },
+      { rank: 2, userId: "u2", name: "Sarah J.", avatar: "SJ", calls: 42, policies: 4, appointments: 6, talkTime: "2.8hrs", conversionRate: "9.5%", goalProgress: 88 },
+      { rank: 3, userId: "u3", name: "Mike T.", avatar: "MT", calls: 38, policies: 3, appointments: 5, talkTime: "2.5hrs", conversionRate: "7.9%", goalProgress: 75 },
+      { rank: 4, userId: "u4", name: "Lisa R.", avatar: "LR", calls: 35, policies: 3, appointments: 4, talkTime: "2.1hrs", conversionRate: "8.6%", goalProgress: 70 },
+      { rank: 5, userId: "u5", name: "James W.", avatar: "JW", calls: 29, policies: 2, appointments: 3, talkTime: "1.6hrs", conversionRate: "6.9%", goalProgress: 58 },
+    ];
+  },
+  async getFollowUps() {
+    await delay(200);
+    return leads
+      .filter(l => ["Follow Up", "Hot", "Interested", "Contacted"].includes(l.status))
+      .map(l => ({ ...l, aging: calcAging(l.lastContactedAt) }))
+      .sort((a, b) => b.aging - a.aging)
+      .slice(0, 10);
+  },
+  async getMissedCalls() {
+    await delay(200);
+    return [
+      { id: "mc1", name: "Unknown (555) 987-6543", phone: "(555) 987-6543", time: "9:15 AM" },
+      { id: "mc2", name: "Sarah Williams", phone: "(555) 234-5678", time: "8:42 AM" },
+    ];
+  },
+  async getAnniversaries() {
+    await delay(200);
+    return clients.map(c => {
+      const issue = new Date(c.issueDate);
+      const now = new Date();
+      const anniv = new Date(now.getFullYear(), issue.getMonth(), issue.getDate());
+      if (anniv < now) anniv.setFullYear(anniv.getFullYear() + 1);
+      const days = Math.ceil((anniv.getTime() - now.getTime()) / 86400000);
+      return { ...c, daysUntilAnniversary: days };
+    }).filter(c => c.daysUntilAnniversary <= 30).sort((a, b) => a.daysUntilAnniversary - b.daysUntilAnniversary);
+  },
+  async getWins() {
+    await delay(200);
+    return mockWins;
+  },
+  async getRecentActivity() {
+    await delay(200);
+    return [
+      { id: "ra1", type: "call", desc: "Called John Martinez", agent: "Chris G.", time: "10 min ago" },
+      { id: "ra2", type: "policy", desc: "Sold Term Life to Amy L.", agent: "Sarah J.", time: "2 hrs ago" },
+      { id: "ra3", type: "lead", desc: "New lead assigned: Tom Harris", agent: "Mike T.", time: "3 hrs ago" },
+      { id: "ra4", type: "appt", desc: "Appointment set with Lisa Park", agent: "Chris G.", time: "4 hrs ago" },
+      { id: "ra5", type: "call", desc: "Left voicemail for David Brown", agent: "James W.", time: "5 hrs ago" },
+      { id: "ra6", type: "sms", desc: "SMS sent to Maria Lopez", agent: "Lisa R.", time: "6 hrs ago" },
+      { id: "ra7", type: "call", desc: "Called Robert Taylor", agent: "Chris G.", time: "7 hrs ago" },
+      { id: "ra8", type: "lead", desc: "Lead Jennifer Davis marked Interested", agent: "Sarah J.", time: "8 hrs ago" },
+    ];
+  },
+};
+
+// ---- LEADS ----
+export const leadsApi = {
+  async getAll(filters?: { status?: string; source?: string; search?: string }): Promise<Lead[]> {
+    await delay(200);
+    let result = [...leads];
+    if (filters?.status) result = result.filter(l => l.status === filters.status);
+    if (filters?.source) result = result.filter(l => l.leadSource === filters.source);
+    if (filters?.search) {
+      const q = filters.search.toLowerCase();
+      result = result.filter(l =>
+        `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
+        l.phone.includes(q) ||
+        l.email.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  },
+  async getById(id: string) {
+    await delay(100);
+    const lead = leads.find(l => l.id === id);
+    if (!lead) throw new Error("Lead not found");
+    const leadNotes = notes.filter(n => n.contactId === id);
+    const leadActivities = activities.filter(a => a.contactId === id);
+    const leadCalls = mockCalls.filter(c => c.contactId === id);
+    return { lead, notes: leadNotes, activities: leadActivities, calls: leadCalls };
+  },
+  async create(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): Promise<Lead> {
+    await delay(300);
+    // Duplicate check
+    const dupe = leads.find(l => l.phone === data.phone || l.email === data.email);
+    if (dupe) throw new Error(`Duplicate detected: ${dupe.firstName} ${dupe.lastName} (${dupe.phone})`);
+    const newLead: Lead = { ...data, id: `l${uid()}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    leads.unshift(newLead);
+    return newLead;
+  },
+  async update(id: string, data: Partial<Lead>): Promise<Lead> {
+    await delay(200);
+    const idx = leads.findIndex(l => l.id === id);
+    if (idx === -1) throw new Error("Lead not found");
+    leads[idx] = { ...leads[idx], ...data, updatedAt: new Date().toISOString() };
+    return leads[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(200);
+    leads = leads.filter(l => l.id !== id);
+  },
+  async import(data: Partial<Lead>[]): Promise<{ imported: number; duplicates: number; errors: number }> {
+    await delay(500);
+    let imported = 0, duplicates = 0, errors = 0;
+    for (const row of data) {
+      const dupe = leads.find(l => l.phone === row.phone || l.email === row.email);
+      if (dupe) { duplicates++; continue; }
+      try {
+        leads.push({ ...row as Lead, id: `l${uid()}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+        imported++;
+      } catch { errors++; }
+    }
+    return { imported, duplicates, errors };
+  },
+  async getSourceStats() {
+    await delay(200);
+    const sources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"];
+    return sources.map(source => {
+      const srcLeads = leads.filter(l => l.leadSource === source);
+      const contacted = srcLeads.filter(l => l.status !== "New").length;
+      const won = srcLeads.filter(l => l.status === "Closed Won").length;
+      return {
+        source,
+        leads: srcLeads.length,
+        contacted: srcLeads.length ? `${Math.round(contacted / srcLeads.length * 100)}%` : "0%",
+        conversion: srcLeads.length ? `${Math.round(won / srcLeads.length * 100)}%` : "0%",
+        sold: won,
+      };
+    });
+  },
+};
+
+// ---- CLIENTS ----
+export const clientsApi = {
+  async getAll(search?: string): Promise<Client[]> {
+    await delay(200);
+    if (!search) return [...clients];
+    const q = search.toLowerCase();
+    return clients.filter(c => `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) || c.phone.includes(q));
+  },
+  async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">): Promise<Client> {
+    await delay(300);
+    const newClient: Client = { ...data, id: `c${uid()}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    clients.unshift(newClient);
+    return newClient;
+  },
+  async update(id: string, data: Partial<Client>): Promise<Client> {
+    await delay(200);
+    const idx = clients.findIndex(c => c.id === id);
+    if (idx === -1) throw new Error("Client not found");
+    clients[idx] = { ...clients[idx], ...data, updatedAt: new Date().toISOString() };
+    return clients[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(200);
+    clients = clients.filter(c => c.id !== id);
+  },
+};
+
+// ---- RECRUITS ----
+export const recruitsApi = {
+  async getAll(): Promise<Recruit[]> {
+    await delay(200);
+    return [...recruits];
+  },
+  async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">): Promise<Recruit> {
+    await delay(300);
+    const r: Recruit = { ...data, id: `r${uid()}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    recruits.unshift(r);
+    return r;
+  },
+  async update(id: string, data: Partial<Recruit>): Promise<Recruit> {
+    await delay(200);
+    const idx = recruits.findIndex(r => r.id === id);
+    if (idx === -1) throw new Error("Recruit not found");
+    recruits[idx] = { ...recruits[idx], ...data, updatedAt: new Date().toISOString() };
+    return recruits[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(200);
+    recruits = recruits.filter(r => r.id !== id);
+  },
+};
+
+// ---- NOTES ----
+export const notesApi = {
+  async add(contactId: string, contactType: string, note: string, agentId: string): Promise<ContactNote> {
+    await delay(200);
+    const n: ContactNote = {
+      id: `n${uid()}`, contactId, contactType: contactType as any, note,
+      pinned: false, agentId, agentName: getAgentName(agentId),
+      createdAt: new Date().toISOString(),
+    };
+    notes.unshift(n);
+    return n;
+  },
+  async togglePin(id: string): Promise<ContactNote> {
+    await delay(100);
+    const n = notes.find(n => n.id === id);
+    if (!n) throw new Error("Note not found");
+    n.pinned = !n.pinned;
+    return n;
+  },
+};
+
+// ---- NOTIFICATIONS ----
+export const notificationsApi = {
+  async getAll() {
+    await delay(100);
+    return [...notifications];
+  },
+  async markAllRead() {
+    await delay(100);
+    notifications.forEach(n => n.read = true);
+  },
+  async markRead(id: string) {
+    await delay(50);
+    const n = notifications.find(n => n.id === id);
+    if (n) n.read = true;
+  },
+  getUnreadCount() {
+    return notifications.filter(n => !n.read).length;
+  },
+};
