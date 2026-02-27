@@ -33,6 +33,7 @@ export interface OnboardingItem {
 export interface UserProfile {
   userId: string;
   licensedStates: string[];
+  residentState?: string;
   commissionLevel: string;
   uplineId?: string;
   onboardingComplete: boolean;
