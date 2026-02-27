@@ -134,6 +134,17 @@ export const usersApi = {
     const user = users.find(u => u.id === id);
     if (!user) throw new Error("User not found");
   },
+  async resetPassword(id: string): Promise<{ email: string }> {
+    await delay(500);
+    const user = users.find(u => u.id === id);
+    if (!user) throw new Error("User not found");
+    return { email: user.email };
+  },
+  async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole }): Promise<string> {
+    await delay(300);
+    const token = Math.random().toString(36).slice(2, 14);
+    return `${window.location.origin}/invite/${token}`;
+  },
   async getPerformance(userId: string) {
     await delay(200);
     const userCalls = mockCalls.filter(c => c.agentId === userId);

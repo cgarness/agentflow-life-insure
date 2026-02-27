@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
-  Plus, Search, MoreHorizontal, X, Check, ChevronDown,
+  Plus, Search, MoreHorizontal, X, ChevronDown,
   Shield, User as UserIcon, Users, Pencil, Ban, RefreshCw, Mail,
+  Lock, Copy, Camera, ZoomIn,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,10 +13,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersApi } from "@/lib/mock-api";
@@ -26,6 +30,17 @@ const US_STATES = [
   "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
   "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
 ];
+
+const US_STATE_NAMES: Record<string, string> = {
+  AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",
+  DE:"Delaware",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",
+  KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",
+  MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",
+  NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",
+  OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",
+  TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",
+  WI:"Wisconsin",WY:"Wyoming",
+};
 
 const AVAIL_COLORS: Record<string, string> = {
   Available: "bg-success",
@@ -59,7 +74,7 @@ function goalColor(pct: number): string {
   return "bg-destructive";
 }
 
-// ---- STATE MULTI-SELECT ----
+// ---- STATE MULTI-SELECT (FIXED: scrollable, removable badges) ----
 const StateMultiSelect: React.FC<{
   selected: string[];
   onChange: (v: string[]) => void;
@@ -68,48 +83,242 @@ const StateMultiSelect: React.FC<{
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const filtered = useMemo(() =>
-    search ? US_STATES.filter(s => s.toLowerCase().includes(search.toLowerCase())) : US_STATES
+    search
+      ? US_STATES.filter(s =>
+          s.toLowerCase().includes(search.toLowerCase()) ||
+          (US_STATE_NAMES[s] || "").toLowerCase().includes(search.toLowerCase())
+        )
+      : US_STATES
   , [search]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className="w-full justify-between h-auto min-h-[2.5rem] py-1.5" disabled={disabled}>
-          <div className="flex flex-wrap gap-1 flex-1">
-            {selected.length === 0 && <span className="text-muted-foreground text-sm">Select states...</span>}
-            {selected.map(s => (
-              <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
-            ))}
+    <div>
+      {/* Selected badges */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {selected.map(s => (
+            <Badge key={s} variant="secondary" className="text-xs gap-1 pr-1">
+              {s}
+              {!disabled && (
+                <button
+                  type="button"
+                  className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                  onClick={(e) => { e.stopPropagation(); onChange(selected.filter(x => x !== s)); }}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </Badge>
+          ))}
+        </div>
+      )}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" className="w-full justify-between h-10" disabled={disabled}>
+            <span className="text-muted-foreground text-sm">
+              {selected.length === 0 ? "Select states..." : `${selected.length} state${selected.length > 1 ? "s" : ""} selected`}
+            </span>
+            <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 ml-2" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 p-0" align="start">
+          <div className="p-2 border-b">
+            <Input
+              placeholder="Search states..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-8"
+              autoFocus
+            />
           </div>
-          <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 ml-2" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start">
-        <Input placeholder="Search states..." value={search} onChange={e => setSearch(e.target.value)} className="mb-2 h-8" />
-        <ScrollArea className="h-48">
-          <div className="space-y-1">
+          <div className="max-h-[300px] overflow-y-auto p-1">
             {filtered.map(st => (
-              <label key={st} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent cursor-pointer text-sm">
+              <label key={st} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-sm">
                 <Checkbox
                   checked={selected.includes(st)}
                   onCheckedChange={(checked) => {
                     onChange(checked ? [...selected, st] : selected.filter(s => s !== st));
                   }}
                 />
-                {st}
+                <span className="font-medium">{st}</span>
+                <span className="text-muted-foreground text-xs">{US_STATE_NAMES[st]}</span>
               </label>
             ))}
+            {filtered.length === 0 && (
+              <p className="text-sm text-muted-foreground p-2 text-center">No states found</p>
+            )}
           </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 };
 
-// ---- INVITE MODAL ----
+// ---- SINGLE STATE SELECT ----
+const SingleStateSelect: React.FC<{
+  value?: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}> = ({ value, onChange, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() =>
+    search
+      ? US_STATES.filter(s =>
+          s.toLowerCase().includes(search.toLowerCase()) ||
+          (US_STATE_NAMES[s] || "").toLowerCase().includes(search.toLowerCase())
+        )
+      : US_STATES
+  , [search]);
+
+  return (
+    <div>
+      {value && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          <Badge variant="secondary" className="text-xs gap-1 pr-1">
+            {value} - {US_STATE_NAMES[value]}
+            {!disabled && (
+              <button
+                type="button"
+                className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                onClick={() => onChange("")}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </Badge>
+        </div>
+      )}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" className="w-full justify-between h-10" disabled={disabled}>
+            <span className="text-muted-foreground text-sm">
+              {value ? `${value} - ${US_STATE_NAMES[value]}` : "Select resident state..."}
+            </span>
+            <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 ml-2" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 p-0" align="start">
+          <div className="p-2 border-b">
+            <Input placeholder="Search states..." value={search} onChange={e => setSearch(e.target.value)} className="h-8" autoFocus />
+          </div>
+          <div className="max-h-[300px] overflow-y-auto p-1">
+            {filtered.map(st => (
+              <button
+                key={st}
+                type="button"
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-sm text-left ${value === st ? "bg-accent" : ""}`}
+                onClick={() => { onChange(st); setOpen(false); setSearch(""); }}
+              >
+                <span className="font-medium">{st}</span>
+                <span className="text-muted-foreground text-xs">{US_STATE_NAMES[st]}</span>
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+};
+
+// ---- AVATAR UPLOAD WITH CROP PREVIEW ----
+const AvatarUpload: React.FC<{
+  currentAvatar?: string;
+  initials: string;
+  onAvatarChange: (dataUrl: string) => void;
+  disabled?: boolean;
+}> = ({ currentAvatar, initials, onAvatarChange, disabled }) => {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [zoom, setZoom] = useState([1]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/gif"].includes(file.type)) {
+      toast({ title: "Invalid file type", description: "Please upload JPG, PNG, or GIF only.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum file size is 5MB.", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPreviewUrl(reader.result as string);
+      setCropOpen(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleConfirm = () => {
+    if (previewUrl) {
+      onAvatarChange(previewUrl);
+      toast({ title: "Avatar updated", description: "Profile photo has been updated." });
+    }
+    setCropOpen(false);
+    setPreviewUrl(null);
+    setZoom([1]);
+  };
+
+  return (
+    <>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif" className="hidden" onChange={handleFileSelect} />
+      <button
+        type="button"
+        className="relative w-16 h-16 rounded-full bg-primary/10 text-primary text-xl font-bold flex items-center justify-center overflow-hidden group cursor-pointer"
+        onClick={() => !disabled && fileRef.current?.click()}
+        disabled={disabled}
+      >
+        {currentAvatar ? (
+          <img src={currentAvatar} alt="Avatar" className="w-full h-full object-cover" style={{ transform: `scale(${zoom[0]})` }} />
+        ) : (
+          initials
+        )}
+        {!disabled && (
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <Camera className="w-5 h-5 text-white" />
+          </div>
+        )}
+      </button>
+
+      {/* Crop/Preview Modal */}
+      <Dialog open={cropOpen} onOpenChange={v => { if (!v) { setCropOpen(false); setPreviewUrl(null); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Crop Avatar</DialogTitle>
+            <DialogDescription>Adjust zoom and confirm your profile photo.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-40 h-40 rounded-full overflow-hidden border-2 border-border bg-muted flex items-center justify-center">
+              {previewUrl && (
+                <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" style={{ transform: `scale(${zoom[0]})` }} />
+              )}
+            </div>
+            <div className="flex items-center gap-3 w-full">
+              <ZoomIn className="w-4 h-4 text-muted-foreground" />
+              <Slider value={zoom} onValueChange={setZoom} min={1} max={3} step={0.1} className="flex-1" />
+              <span className="text-xs text-muted-foreground w-8">{zoom[0].toFixed(1)}x</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCropOpen(false); setPreviewUrl(null); }}>Cancel</Button>
+            <Button onClick={handleConfirm}>Confirm</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
+// ---- INVITE MODAL (with Copy Invite Link) ----
 const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () => void }> = ({ open, onClose, onSuccess }) => {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "Agent" as UserRole, licensedStates: [] as string[], commissionLevel: "50%" });
 
   const handleSubmit = async () => {
@@ -128,6 +337,27 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!form.firstName || !form.lastName || !form.email) {
+      toast({ title: "Missing fields", description: "Please fill in name and email first.", variant: "destructive" });
+      return;
+    }
+    setCopying(true);
+    try {
+      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role });
+      await navigator.clipboard.writeText(link);
+      toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
+      // Also create the pending user
+      await usersApi.invite(form);
+      onSuccess();
+      onClose();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setCopying(false);
     }
   };
 
@@ -158,9 +388,20 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
           <div><Label>Licensed States</Label><StateMultiSelect selected={form.licensedStates} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} /></div>
           <div><Label>Commission Level</Label><Input value={form.commissionLevel} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={saving}>{saving ? "Sending..." : "Send Invitation"}</Button>
+        <DialogFooter className="flex-col gap-3 sm:flex-col">
+          <div className="flex gap-2 w-full justify-end">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={saving}>{saving ? "Sending..." : "Send Invitation"}</Button>
+          </div>
+          <div className="flex items-center gap-3 w-full">
+            <Separator className="flex-1" />
+            <span className="text-xs text-muted-foreground">OR</span>
+            <Separator className="flex-1" />
+          </div>
+          <Button variant="outline" className="w-full" onClick={handleCopyLink} disabled={copying}>
+            <Copy className="w-4 h-4 mr-2" />
+            {copying ? "Copying..." : "Copy Invite Link"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -174,17 +415,24 @@ const UserProfileModal: React.FC<{
   onClose: () => void;
   onSaved: () => void;
   currentUserId: string;
-}> = ({ user, open, onClose, onSaved, currentUserId }) => {
+  allUsers: UserWithProfile[];
+}> = ({ user, open, onClose, onSaved, currentUserId, allUsers }) => {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("profile");
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
 
-  // Editable copies
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
   const [performance, setPerformance] = useState<any>(null);
   const [perfLoading, setPerfLoading] = useState(false);
+  const [resetPwOpen, setResetPwOpen] = useState(false);
+
+  // Agents/Team Leaders for upline dropdown
+  const uplineCandidates = useMemo(() =>
+    allUsers.filter(u => u.id !== user?.id && (u.role === "Agent" || u.role === "Team Leader"))
+  , [allUsers, user]);
 
   useEffect(() => {
     if (user) {
@@ -196,6 +444,7 @@ const UserProfileModal: React.FC<{
         role: user.role,
         status: user.status,
         licensedStates: user.profile.licensedStates,
+        residentState: user.profile.residentState || "",
         commissionLevel: user.profile.commissionLevel,
         uplineId: user.profile.uplineId,
         monthlyCallGoal: user.profile.monthlyCallGoal,
@@ -204,8 +453,10 @@ const UserProfileModal: React.FC<{
         monthlyTalkTimeGoalHours: user.profile.monthlyTalkTimeGoalHours,
       });
       setOnboardingItems([...user.profile.onboardingItems]);
+      setAvatarUrl(user.avatar);
       setEditMode(false);
       setTab("profile");
+      setPerformance(null);
     }
   }, [user]);
 
@@ -230,9 +481,11 @@ const UserProfileModal: React.FC<{
         phone: form.phone as string,
         role: form.role as UserRole,
         status: form.status as any,
+        avatar: avatarUrl,
       });
       await usersApi.updateProfile(user.id, {
         licensedStates: form.licensedStates as string[],
+        residentState: form.residentState as string,
         commissionLevel: form.commissionLevel as string,
         uplineId: form.uplineId,
       });
@@ -291,9 +544,18 @@ const UserProfileModal: React.FC<{
     }
   };
 
+  const handleResetPassword = async () => {
+    try {
+      const { email } = await usersApi.resetPassword(user.id);
+      toast({ title: "Password reset email sent", description: `Password reset email sent to ${email}` });
+      setResetPwOpen(false);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const onboardingPct = onboardingItems.length ? Math.round(onboardingItems.filter(i => i.completed).length / onboardingItems.length * 100) : 0;
 
-  // Mock actual values for goals
   const goalActuals = {
     calls: performance?.callsMade ?? Math.floor(Math.random() * (form.monthlyCallGoal as number || 100)),
     policies: performance?.policiesSold ?? Math.floor(Math.random() * (form.monthlySalesGoal as number || 10)),
@@ -301,212 +563,267 @@ const UserProfileModal: React.FC<{
     talkTime: performance ? parseFloat(performance.totalTalkTime) : Math.random() * (form.monthlyTalkTimeGoalHours as number || 20),
   };
 
+  const isSelf = user.id === currentUserId;
+
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-primary/10 text-primary text-xl font-bold flex items-center justify-center">
-              {initials}
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-foreground">{user.firstName} {user.lastName}</h2>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge className={ROLE_BADGE[user.role]}>{user.role}</Badge>
-                <Badge className={STATUS_BADGE[user.status]}>{user.status}</Badge>
+    <>
+      <Dialog open={open} onOpenChange={v => !v && onClose()}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <AvatarUpload
+                currentAvatar={avatarUrl}
+                initials={initials}
+                onAvatarChange={setAvatarUrl}
+                disabled={!editMode}
+              />
+              <div>
+                <h2 className="text-xl font-bold text-foreground">{user.firstName} {user.lastName}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge className={ROLE_BADGE[user.role]}>{user.role}</Badge>
+                  <Badge className={STATUS_BADGE[user.status]}>{user.status}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Last login: {formatDate(user.lastLoginAt)}</p>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Last login: {formatDate(user.lastLoginAt)}</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">Edit Mode</Label>
               <Switch checked={editMode} onCheckedChange={setEditMode} />
             </div>
           </div>
-        </div>
 
-        <Tabs value={tab} onValueChange={setTab} className="mt-4">
-          <TabsList className="w-full">
-            <TabsTrigger value="profile" className="flex-1">Profile</TabsTrigger>
-            <TabsTrigger value="goals" className="flex-1">Goals</TabsTrigger>
-            <TabsTrigger value="onboarding" className="flex-1">Onboarding</TabsTrigger>
-            <TabsTrigger value="performance" className="flex-1">Performance</TabsTrigger>
-          </TabsList>
+          <Tabs value={tab} onValueChange={setTab} className="mt-4">
+            <TabsList className="w-full">
+              <TabsTrigger value="profile" className="flex-1">Profile</TabsTrigger>
+              <TabsTrigger value="goals" className="flex-1">Goals</TabsTrigger>
+              <TabsTrigger value="onboarding" className="flex-1">Onboarding</TabsTrigger>
+              <TabsTrigger value="performance" className="flex-1">Performance</TabsTrigger>
+            </TabsList>
 
-          {/* PROFILE TAB */}
-          <TabsContent value="profile" className="space-y-4 mt-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>First Name</Label><Input value={form.firstName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} /></div>
-              <div><Label>Last Name</Label><Input value={form.lastName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Email</Label><Input type="email" value={form.email as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
-              <div><Label>Phone</Label><Input value={form.phone as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Role</Label>
-                <Select value={form.role as string} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Admin">Admin</SelectItem>
-                    <SelectItem value="Team Leader">Team Leader</SelectItem>
-                    <SelectItem value="Agent">Agent</SelectItem>
-                  </SelectContent>
-                </Select>
+            {/* PROFILE TAB */}
+            <TabsContent value="profile" className="space-y-4 mt-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>First Name</Label><Input value={form.firstName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} /></div>
+                <div><Label>Last Name</Label><Input value={form.lastName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} /></div>
               </div>
-              <div>
-                <Label>Status</Label>
-                <div className="flex items-center gap-3 mt-2">
-                  <span className="text-sm text-foreground">{form.status === "Active" ? "Active" : "Inactive"}</span>
-                  <Switch
-                    checked={form.status === "Active"}
-                    disabled={!editMode || user.id === currentUserId}
-                    onCheckedChange={c => setForm(p => ({ ...p, status: c ? "Active" : "Inactive" }))}
-                  />
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Email</Label><Input type="email" value={form.email as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+                <div><Label>Phone</Label><Input value={form.phone as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Role</Label>
+                  <Select value={form.role as string} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Admin">Admin</SelectItem>
+                      <SelectItem value="Team Leader">Team Leader</SelectItem>
+                      <SelectItem value="Agent">Agent</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-            </div>
-            <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as string[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
-              <div><Label>Upline Agent</Label><Input value={form.uplineId as string || ""} disabled={!editMode} onChange={e => setForm(p => ({ ...p, uplineId: e.target.value }))} placeholder="Agent ID" /></div>
-            </div>
-            {editMode && (
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setEditMode(false)}>Cancel</Button>
-                <Button onClick={handleSaveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
-              </div>
-            )}
-          </TabsContent>
-
-          {/* GOALS TAB */}
-          <TabsContent value="goals" className="space-y-5 mt-4">
-            {[
-              { label: "Daily Calls Goal", key: "monthlyCallGoal", actual: goalActuals.calls },
-              { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policies },
-              { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointments },
-              { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTime) },
-            ].map(g => {
-              const target = (form as any)[g.key] as number || 1;
-              const pct = Math.min(100, Math.round((g.actual / target) * 100));
-              return (
-                <div key={g.key} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>{g.label}</Label>
-                    <Input
-                      type="number"
-                      className="w-24 h-8 text-sm"
-                      value={(form as any)[g.key] || 0}
-                      onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
+                <div>
+                  <Label>Status</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className="text-sm text-foreground">{form.status === "Active" ? "Active" : "Inactive"}</span>
+                    <Switch
+                      checked={form.status === "Active"}
+                      disabled={!editMode || isSelf}
+                      onCheckedChange={c => setForm(p => ({ ...p, status: c ? "Active" : "Inactive" }))}
                     />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
-                      <div className={`h-full rounded-full transition-all ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
-                    </div>
-                    <span className={`text-xs font-medium min-w-[80px] text-right ${pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"}`}>
-                      {g.actual} / {target} ({pct}%)
-                    </span>
+                    {/* Reset Password button */}
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="ml-auto gap-1.5"
+                            disabled={isSelf}
+                            onClick={() => !isSelf && setResetPwOpen(true)}
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            Reset Password
+                          </Button>
+                        </TooltipTrigger>
+                        {isSelf && (
+                          <TooltipContent>
+                            <p>Use Profile Settings to change your own password</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </div>
-              );
-            })}
-            <div className="flex justify-end">
-              <Button onClick={handleSaveGoals} disabled={saving}>{saving ? "Saving..." : "Save Goals"}</Button>
-            </div>
-          </TabsContent>
-
-          {/* ONBOARDING TAB */}
-          <TabsContent value="onboarding" className="space-y-4 mt-4">
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <p className="text-sm font-medium text-foreground mb-1">Completion: {onboardingPct}%</p>
-                <Progress value={onboardingPct} className="h-2" />
               </div>
-              <Button variant="outline" size="sm" className="ml-4" onClick={handleResetOnboarding}>Reset Checklist</Button>
-            </div>
-            <div className="space-y-2">
-              {onboardingItems.map(item => (
-                <label key={item.key} className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/30 cursor-pointer transition-colors">
-                  <Checkbox
-                    checked={item.completed}
-                    onCheckedChange={(c) => handleToggleOnboarding(item.key, !!c)}
-                  />
-                  <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>{item.label}</span>
-                  {item.completedAt && <span className="text-xs text-muted-foreground">{new Date(item.completedAt).toLocaleDateString()}</span>}
-                </label>
-              ))}
-            </div>
-          </TabsContent>
-
-          {/* PERFORMANCE TAB */}
-          <TabsContent value="performance" className="space-y-4 mt-4">
-            {perfLoading ? (
-              <div className="space-y-3">
-                {[1,2,3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
-              </div>
-            ) : performance ? (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {[
-                    { label: "Calls Made", value: performance.callsMade },
-                    { label: "Policies Sold", value: performance.policiesSold },
-                    { label: "Appointments Set", value: performance.appointmentsSet },
-                    { label: "Total Talk Time", value: performance.totalTalkTime },
-                    { label: "Conversion Rate", value: performance.conversionRate },
-                  ].map(s => (
-                    <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center">
-                      <p className="text-xs text-muted-foreground">{s.label}</p>
-                      <p className="text-lg font-bold text-foreground mt-0.5">{s.value}</p>
-                    </div>
-                  ))}
+              <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as string[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
+              <div><Label>Resident State</Label><SingleStateSelect value={form.residentState as string} onChange={v => setForm(p => ({ ...p, residentState: v }))} disabled={!editMode} /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
+                <div>
+                  <Label>Upline Agent</Label>
+                  <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? undefined : v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select upline agent..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">None</SelectItem>
+                      {uplineCandidates.map(u => (
+                        <SelectItem key={u.id} value={u.id}>
+                          <span className="flex items-center gap-2">
+                            {u.firstName} {u.lastName}
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1">{u.role}</Badge>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                {/* Goal progress */}
-                <h4 className="text-sm font-medium text-foreground mt-4">Goal Progress</h4>
-                {[
-                  { label: "Calls", actual: performance.callsMade, target: form.monthlyCallGoal as number },
-                  { label: "Policies", actual: performance.policiesSold, target: form.monthlySalesGoal as number },
-                  { label: "Appointments", actual: performance.appointmentsSet, target: form.weeklyAppointmentGoal as number },
-                ].map(g => {
-                  const pct = g.target ? Math.min(100, Math.round((g.actual / g.target) * 100)) : 0;
-                  return (
-                    <div key={g.label} className="flex items-center gap-3">
-                      <span className="text-sm text-muted-foreground w-24">{g.label}</span>
-                      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                        <div className={`h-full rounded-full ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
+              </div>
+              {editMode && (
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setEditMode(false)}>Cancel</Button>
+                  <Button onClick={handleSaveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* GOALS TAB */}
+            <TabsContent value="goals" className="space-y-5 mt-4">
+              {[
+                { label: "Daily Calls Goal", key: "monthlyCallGoal", actual: goalActuals.calls },
+                { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policies },
+                { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointments },
+                { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTime) },
+              ].map(g => {
+                const target = (form as any)[g.key] as number || 1;
+                const pct = Math.min(100, Math.round((g.actual / target) * 100));
+                return (
+                  <div key={g.key} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>{g.label}</Label>
+                      <Input
+                        type="number"
+                        className="w-24 h-8 text-sm"
+                        value={(form as any)[g.key] || 0}
+                        onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <span className="text-xs text-muted-foreground w-20 text-right">{g.actual}/{g.target}</span>
+                      <span className={`text-xs font-medium min-w-[80px] text-right ${pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"}`}>
+                        {g.actual} / {target} ({pct}%)
+                      </span>
                     </div>
-                  );
-                })}
-                {/* Recent calls */}
-                <h4 className="text-sm font-medium text-foreground mt-4">Recent Calls</h4>
-                {performance.recentCalls.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No recent calls.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {performance.recentCalls.map((c: any) => (
-                      <div key={c.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-accent/30 text-sm">
-                        <span className="text-foreground">{c.contactName}</span>
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline" className="text-xs">{c.disposition || "N/A"}</Badge>
-                          <span className="text-muted-foreground text-xs">{Math.floor(c.duration / 60)}:{String(c.duration % 60).padStart(2, "0")}</span>
-                        </div>
+                  </div>
+                );
+              })}
+              <div className="flex justify-end">
+                <Button onClick={handleSaveGoals} disabled={saving}>{saving ? "Saving..." : "Save Goals"}</Button>
+              </div>
+            </TabsContent>
+
+            {/* ONBOARDING TAB */}
+            <TabsContent value="onboarding" className="space-y-4 mt-4">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-foreground mb-1">Completion: {onboardingPct}%</p>
+                  <Progress value={onboardingPct} className="h-2" />
+                </div>
+                <Button variant="outline" size="sm" className="ml-4" onClick={handleResetOnboarding}>Reset Checklist</Button>
+              </div>
+              <div className="space-y-2">
+                {onboardingItems.map(item => (
+                  <label key={item.key} className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/30 cursor-pointer transition-colors">
+                    <Checkbox checked={item.completed} onCheckedChange={(c) => handleToggleOnboarding(item.key, !!c)} />
+                    <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>{item.label}</span>
+                    {item.completedAt && <span className="text-xs text-muted-foreground">{new Date(item.completedAt).toLocaleDateString()}</span>}
+                  </label>
+                ))}
+              </div>
+            </TabsContent>
+
+            {/* PERFORMANCE TAB */}
+            <TabsContent value="performance" className="space-y-4 mt-4">
+              {perfLoading ? (
+                <div className="space-y-3">
+                  {[1,2,3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
+                </div>
+              ) : performance ? (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { label: "Calls Made", value: performance.callsMade },
+                      { label: "Policies Sold", value: performance.policiesSold },
+                      { label: "Appointments Set", value: performance.appointmentsSet },
+                      { label: "Total Talk Time", value: performance.totalTalkTime },
+                      { label: "Conversion Rate", value: performance.conversionRate },
+                    ].map(s => (
+                      <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center">
+                        <p className="text-xs text-muted-foreground">{s.label}</p>
+                        <p className="text-lg font-bold text-foreground mt-0.5">{s.value}</p>
                       </div>
                     ))}
                   </div>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Select Performance tab to load stats.</p>
-            )}
-          </TabsContent>
-        </Tabs>
-      </DialogContent>
-    </Dialog>
+                  <h4 className="text-sm font-medium text-foreground mt-4">Goal Progress</h4>
+                  {[
+                    { label: "Calls", actual: performance.callsMade, target: form.monthlyCallGoal as number },
+                    { label: "Policies", actual: performance.policiesSold, target: form.monthlySalesGoal as number },
+                    { label: "Appointments", actual: performance.appointmentsSet, target: form.weeklyAppointmentGoal as number },
+                  ].map(g => {
+                    const pct = g.target ? Math.min(100, Math.round((g.actual / g.target) * 100)) : 0;
+                    return (
+                      <div key={g.label} className="flex items-center gap-3">
+                        <span className="text-sm text-muted-foreground w-24">{g.label}</span>
+                        <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                          <div className={`h-full rounded-full ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs text-muted-foreground w-20 text-right">{g.actual}/{g.target}</span>
+                      </div>
+                    );
+                  })}
+                  <h4 className="text-sm font-medium text-foreground mt-4">Recent Calls</h4>
+                  {performance.recentCalls.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No recent calls.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {performance.recentCalls.map((c: any) => (
+                        <div key={c.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-accent/30 text-sm">
+                          <span className="text-foreground">{c.contactName}</span>
+                          <div className="flex items-center gap-3">
+                            <Badge variant="outline" className="text-xs">{c.disposition || "N/A"}</Badge>
+                            <span className="text-muted-foreground text-xs">{Math.floor(c.duration / 60)}:{String(c.duration % 60).padStart(2, "0")}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Select Performance tab to load stats.</p>
+              )}
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Confirmation */}
+      <Dialog open={resetPwOpen} onOpenChange={setResetPwOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Send password reset email to {user.email}? This will send them a link to create a new password.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPwOpen(false)}>Cancel</Button>
+            <Button onClick={handleResetPassword}>Send Reset Email</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
@@ -565,6 +882,16 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const handleCopyInviteLink = async (u: UserWithProfile) => {
+    try {
+      const link = await usersApi.generateInviteLink({ firstName: u.firstName, lastName: u.lastName, email: u.email, role: u.role });
+      await navigator.clipboard.writeText(link);
+      toast({ title: "Invite link copied", description: "Invite link copied to clipboard." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -578,12 +905,7 @@ const UserManagement: React.FC = () => {
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name or email..."
-            className="pl-9"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <Input placeholder="Search by name or email..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <Select value={roleFilter} onValueChange={setRoleFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Role" /></SelectTrigger>
@@ -630,13 +952,17 @@ const UserManagement: React.FC = () => {
               {users.map(u => (
                 <tr
                   key={u.id}
-                  className="border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer"
+                  className="border-b last:border-0 hover:bg-accent/30 transition-colors cursor-pointer"
                   onClick={() => { setSelectedUser(u); setProfileOpen(true); }}
                 >
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
-                        {u.firstName[0]}{u.lastName[0]}
+                      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center overflow-hidden">
+                        {u.avatar ? (
+                          <img src={u.avatar} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          `${u.firstName[0]}${u.lastName[0]}`
+                        )}
                       </div>
                       <span className="font-medium text-foreground">{u.firstName} {u.lastName}</span>
                     </div>
@@ -663,15 +989,20 @@ const UserManagement: React.FC = () => {
                             <Ban className="w-4 h-4 mr-2" /> Deactivate
                           </DropdownMenuItem>
                         )}
-                        {(u.status === "Inactive") && (
+                        {u.status === "Inactive" && (
                           <DropdownMenuItem onClick={() => setConfirmDialog({ open: true, user: u, action: "reactivate" })}>
                             <RefreshCw className="w-4 h-4 mr-2" /> Reactivate
                           </DropdownMenuItem>
                         )}
                         {u.status === "Pending" && (
-                          <DropdownMenuItem onClick={() => handleResendInvite(u)}>
-                            <Mail className="w-4 h-4 mr-2" /> Resend Invite
-                          </DropdownMenuItem>
+                          <>
+                            <DropdownMenuItem onClick={() => handleResendInvite(u)}>
+                              <Mail className="w-4 h-4 mr-2" /> Resend Invite
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleCopyInviteLink(u)}>
+                              <Copy className="w-4 h-4 mr-2" /> Copy Link
+                            </DropdownMenuItem>
+                          </>
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -693,6 +1024,7 @@ const UserManagement: React.FC = () => {
         onClose={() => { setProfileOpen(false); setSelectedUser(null); }}
         onSaved={() => { fetchUsers(); }}
         currentUserId={currentUser?.id || ""}
+        allUsers={users}
       />
 
       {/* Confirm Deactivate/Reactivate */}
