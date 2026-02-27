@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import UserManagement from "@/components/settings/UserManagement";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -27,13 +28,6 @@ const sections = [
   { icon: Clock, label: "Activity Log" },
 ];
 
-const users = [
-  { name: "Chris Garcia", email: "chris@agentflow.com", role: "Admin", roleBadge: "bg-primary/10 text-primary", status: "Active", avail: "bg-success" },
-  { name: "Sarah Johnson", email: "sarah@agentflow.com", role: "Agent", roleBadge: "bg-success/10 text-success", status: "Active", avail: "bg-success" },
-  { name: "Mike Thompson", email: "mike@agentflow.com", role: "Agent", roleBadge: "bg-success/10 text-success", status: "Active", avail: "bg-warning" },
-  { name: "Lisa Roberts", email: "lisa@agentflow.com", role: "Team Leader", roleBadge: "bg-info/10 text-info", status: "Active", avail: "bg-success" },
-  { name: "James Wilson", email: "james@agentflow.com", role: "Agent", roleBadge: "bg-success/10 text-success", status: "Inactive", avail: "bg-muted-foreground/50" },
-];
 
 const carriers = [
   "Mutual of Omaha", "Transamerica", "Prudential", "John Hancock", "MetLife",
@@ -101,42 +95,7 @@ const SettingsPage: React.FC = () => {
         );
 
       case 1: // User Management
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">User Management</h3>
-              <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90"><Plus className="w-4 h-4" /> Invite User</button>
-            </div>
-            <div className="bg-card rounded-xl border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                  <th className="text-left py-3 px-4 font-medium">User</th>
-                  <th className="text-left py-3 font-medium">Email</th>
-                  <th className="text-left py-3 font-medium">Role</th>
-                  <th className="text-left py-3 font-medium">Status</th>
-                  <th className="text-left py-3 font-medium">Availability</th>
-                </tr></thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.email} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{u.name.split(" ").map(w => w[0]).join("")}</div>
-                          <span className="font-medium text-foreground">{u.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 text-muted-foreground">{u.email}</td>
-                      <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.roleBadge}`}>{u.role}</span></td>
-                      <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span></td>
-                      <td className="py-3"><span className={`w-2.5 h-2.5 rounded-full inline-block ${u.avail}`} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-
+        return <UserManagement />;
       case 2: // Twilio
         return (
           <div className="space-y-6">

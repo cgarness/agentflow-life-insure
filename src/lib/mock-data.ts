@@ -1,21 +1,40 @@
-import { User, UserProfile, Lead, Client, Recruit, ContactNote, ContactActivity, Appointment, Campaign, Call, Notification, WinFeedItem } from "./types";
+import { User, UserProfile, OnboardingItem, Lead, Client, Recruit, ContactNote, ContactActivity, Appointment, Campaign, Call, Notification, WinFeedItem } from "./types";
 
 const uid = (prefix = "") => prefix + Math.random().toString(36).slice(2, 10);
 
+const defaultOnboarding = (): OnboardingItem[] => [
+  { key: "license", label: "License Verified", completed: false, completedAt: null },
+  { key: "carriers", label: "Carrier Appointments Set Up", completed: false, completedAt: null },
+  { key: "twilio", label: "Twilio Number Assigned", completed: false, completedAt: null },
+  { key: "training", label: "Training Completed", completed: false, completedAt: null },
+  { key: "first_call", label: "First Call Made", completed: false, completedAt: null },
+];
+
+const completedOnboarding = (): OnboardingItem[] =>
+  defaultOnboarding().map(i => ({ ...i, completed: true, completedAt: "2024-06-01T10:00:00Z" }));
+
 export const mockUsers: User[] = [
-  { id: "u1", email: "chris@agentflow.com", firstName: "Chris", lastName: "Garcia", role: "Admin", status: "Active", availabilityStatus: "Available", themePreference: "light", lastLoginAt: new Date().toISOString(), createdAt: "2024-01-01T00:00:00Z" },
-  { id: "u2", email: "sarah@agentflow.com", firstName: "Sarah", lastName: "Johnson", role: "Agent", status: "Active", availabilityStatus: "Available", themePreference: "light", lastLoginAt: new Date().toISOString(), createdAt: "2024-02-15T00:00:00Z" },
-  { id: "u3", email: "mike@agentflow.com", firstName: "Mike", lastName: "Thompson", role: "Agent", status: "Active", availabilityStatus: "On Break", themePreference: "dark", lastLoginAt: new Date().toISOString(), createdAt: "2024-03-01T00:00:00Z" },
-  { id: "u4", email: "lisa@agentflow.com", firstName: "Lisa", lastName: "Roberts", role: "Team Leader", status: "Active", availabilityStatus: "Available", themePreference: "light", lastLoginAt: new Date().toISOString(), createdAt: "2024-01-20T00:00:00Z" },
+  { id: "u1", email: "chris@agentflow.com", firstName: "Chris", lastName: "Garcia", role: "Admin", phone: "(555) 000-0001", status: "Active", availabilityStatus: "Available", themePreference: "light", lastLoginAt: new Date().toISOString(), createdAt: "2024-01-01T00:00:00Z" },
+  { id: "u2", email: "sarah@agentflow.com", firstName: "Sarah", lastName: "Johnson", role: "Agent", phone: "(555) 000-0002", status: "Active", availabilityStatus: "Available", themePreference: "light", lastLoginAt: new Date().toISOString(), createdAt: "2024-02-15T00:00:00Z" },
+  { id: "u3", email: "mike@agentflow.com", firstName: "Mike", lastName: "Thompson", role: "Agent", phone: "(555) 000-0003", status: "Active", availabilityStatus: "On Break", themePreference: "dark", lastLoginAt: new Date().toISOString(), createdAt: "2024-03-01T00:00:00Z" },
+  { id: "u4", email: "lisa@agentflow.com", firstName: "Lisa", lastName: "Roberts", role: "Team Leader", phone: "(555) 000-0004", status: "Active", availabilityStatus: "Available", themePreference: "light", lastLoginAt: new Date().toISOString(), createdAt: "2024-01-20T00:00:00Z" },
   { id: "u5", email: "james@agentflow.com", firstName: "James", lastName: "Wilson", role: "Agent", status: "Inactive", availabilityStatus: "Offline", themePreference: "light", lastLoginAt: "2025-01-10T00:00:00Z", createdAt: "2024-04-10T00:00:00Z" },
+  { id: "u6", email: "pending@agentflow.com", firstName: "New", lastName: "Agent", role: "Agent", status: "Pending", availabilityStatus: "Offline", themePreference: "light", lastLoginAt: null, createdAt: "2025-02-20T00:00:00Z" },
 ];
 
 export const mockProfiles: UserProfile[] = [
-  { userId: "u1", licensedStates: ["FL", "TX", "CA"], commissionLevel: "80%", onboardingComplete: true, monthlyCallGoal: 150, monthlySalesGoal: 20, weeklyAppointmentGoal: 25 },
-  { userId: "u2", licensedStates: ["TX", "NY"], commissionLevel: "75%", onboardingComplete: true, monthlyCallGoal: 140, monthlySalesGoal: 18, weeklyAppointmentGoal: 20 },
-  { userId: "u3", licensedStates: ["CA", "WA", "OR"], commissionLevel: "70%", onboardingComplete: true, monthlyCallGoal: 130, monthlySalesGoal: 15, weeklyAppointmentGoal: 18 },
-  { userId: "u4", licensedStates: ["NY", "NJ", "CT"], commissionLevel: "65%", onboardingComplete: true, monthlyCallGoal: 120, monthlySalesGoal: 15, weeklyAppointmentGoal: 15 },
-  { userId: "u5", licensedStates: ["OH", "PA"], commissionLevel: "60%", onboardingComplete: false, monthlyCallGoal: 100, monthlySalesGoal: 10, weeklyAppointmentGoal: 10 },
+  { userId: "u1", licensedStates: ["FL", "TX", "CA"], commissionLevel: "80%", onboardingComplete: true, monthlyCallGoal: 150, monthlySalesGoal: 20, weeklyAppointmentGoal: 25, monthlyTalkTimeGoalHours: 40, onboardingItems: completedOnboarding() },
+  { userId: "u2", licensedStates: ["TX", "NY"], commissionLevel: "75%", onboardingComplete: true, monthlyCallGoal: 140, monthlySalesGoal: 18, weeklyAppointmentGoal: 20, monthlyTalkTimeGoalHours: 35, onboardingItems: completedOnboarding() },
+  { userId: "u3", licensedStates: ["CA", "WA", "OR"], commissionLevel: "70%", onboardingComplete: true, monthlyCallGoal: 130, monthlySalesGoal: 15, weeklyAppointmentGoal: 18, monthlyTalkTimeGoalHours: 30, onboardingItems: completedOnboarding() },
+  { userId: "u4", licensedStates: ["NY", "NJ", "CT"], commissionLevel: "65%", onboardingComplete: true, monthlyCallGoal: 120, monthlySalesGoal: 15, weeklyAppointmentGoal: 15, monthlyTalkTimeGoalHours: 28, onboardingItems: completedOnboarding() },
+  { userId: "u5", licensedStates: ["OH", "PA"], commissionLevel: "60%", onboardingComplete: false, monthlyCallGoal: 100, monthlySalesGoal: 10, weeklyAppointmentGoal: 10, monthlyTalkTimeGoalHours: 20, onboardingItems: [
+    { key: "license", label: "License Verified", completed: true, completedAt: "2024-05-01T10:00:00Z" },
+    { key: "carriers", label: "Carrier Appointments Set Up", completed: true, completedAt: "2024-05-05T10:00:00Z" },
+    { key: "twilio", label: "Twilio Number Assigned", completed: false, completedAt: null },
+    { key: "training", label: "Training Completed", completed: false, completedAt: null },
+    { key: "first_call", label: "First Call Made", completed: false, completedAt: null },
+  ]},
+  { userId: "u6", licensedStates: [], commissionLevel: "50%", onboardingComplete: false, monthlyCallGoal: 80, monthlySalesGoal: 5, weeklyAppointmentGoal: 8, monthlyTalkTimeGoalHours: 15, onboardingItems: defaultOnboarding() },
 ];
 
 export const mockLeads: Lead[] = [

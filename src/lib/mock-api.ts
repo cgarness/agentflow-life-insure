@@ -1,5 +1,5 @@
 import { mockLeads, mockClients, mockRecruits, mockUsers, mockProfiles, mockNotes, mockActivities, mockAppointments, mockCampaigns, mockCalls, mockNotifications, mockWins, getAgentName, calcAging } from "./mock-data";
-import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry } from "./types";
+import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry, User, UserProfile, OnboardingItem, UserRole, UserStatus } from "./types";
 
 // Simulate network delay
 const delay = (ms = 300) => new Promise(r => setTimeout(r, ms));
@@ -11,6 +11,8 @@ let recruits = [...mockRecruits];
 let notes = [...mockNotes];
 let activities = [...mockActivities];
 let notifications = [...mockNotifications];
+let users = [...mockUsers];
+let profiles = [...mockProfiles];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -18,13 +20,13 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 export const authApi = {
   async login(email: string, password: string) {
     await delay(500);
-    const user = mockUsers.find(u => u.email === email);
+    const user = users.find(u => u.email === email);
     if (!user || password.length < 4) throw new Error("Invalid email or password");
-    return { user, profile: mockProfiles.find(p => p.userId === user.id)! };
+    return { user, profile: profiles.find(p => p.userId === user.id)! };
   },
   async forgotPassword(email: string) {
     await delay(500);
-    const exists = mockUsers.some(u => u.email === email);
+    const exists = users.some(u => u.email === email);
     if (!exists) throw new Error("No account found with that email");
     return { message: "Reset link sent to your email" };
   },
@@ -34,9 +36,116 @@ export const authApi = {
   },
   async updateProfile(userId: string, data: Partial<{ firstName: string; lastName: string; email: string }>) {
     await delay(300);
-    const user = mockUsers.find(u => u.id === userId);
+    const user = users.find(u => u.id === userId);
     if (user) Object.assign(user, data);
     return user;
+  },
+};
+
+// ---- USERS (Admin) ----
+export const usersApi = {
+  async getAll(filters?: { search?: string; role?: string; status?: string }): Promise<(User & { profile: UserProfile })[]> {
+    await delay(200);
+    let result = [...users];
+    if (filters?.search) {
+      const q = filters.search.toLowerCase();
+      result = result.filter(u =>
+        `${u.firstName} ${u.lastName}`.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q)
+      );
+    }
+    if (filters?.role && filters.role !== "All") result = result.filter(u => u.role === filters.role);
+    if (filters?.status && filters.status !== "All") result = result.filter(u => u.status === filters.status);
+    return result.map(u => ({ ...u, profile: profiles.find(p => p.userId === u.id)! }));
+  },
+  async getById(id: string): Promise<User & { profile: UserProfile }> {
+    await delay(100);
+    const user = users.find(u => u.id === id);
+    if (!user) throw new Error("User not found");
+    return { ...user, profile: profiles.find(p => p.userId === id)! };
+  },
+  async update(id: string, data: Partial<User>): Promise<User> {
+    await delay(300);
+    const idx = users.findIndex(u => u.id === id);
+    if (idx === -1) throw new Error("User not found");
+    users[idx] = { ...users[idx], ...data };
+    return users[idx];
+  },
+  async updateProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile> {
+    await delay(300);
+    const idx = profiles.findIndex(p => p.userId === userId);
+    if (idx === -1) throw new Error("Profile not found");
+    profiles[idx] = { ...profiles[idx], ...data };
+    return profiles[idx];
+  },
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: string[]; commissionLevel: string }): Promise<User> {
+    await delay(500);
+    const exists = users.find(u => u.email === data.email);
+    if (exists) throw new Error("A user with this email already exists");
+    const newUser: User = {
+      id: `u${uid()}`,
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      role: data.role,
+      status: "Pending",
+      availabilityStatus: "Offline",
+      themePreference: "light",
+      lastLoginAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    users.push(newUser);
+    profiles.push({
+      userId: newUser.id,
+      licensedStates: data.licensedStates,
+      commissionLevel: data.commissionLevel,
+      onboardingComplete: false,
+      monthlyCallGoal: 80,
+      monthlySalesGoal: 5,
+      weeklyAppointmentGoal: 8,
+      monthlyTalkTimeGoalHours: 15,
+      onboardingItems: [
+        { key: "license", label: "License Verified", completed: false, completedAt: null },
+        { key: "carriers", label: "Carrier Appointments Set Up", completed: false, completedAt: null },
+        { key: "twilio", label: "Twilio Number Assigned", completed: false, completedAt: null },
+        { key: "training", label: "Training Completed", completed: false, completedAt: null },
+        { key: "first_call", label: "First Call Made", completed: false, completedAt: null },
+      ],
+    });
+    return newUser;
+  },
+  async deactivate(id: string): Promise<User> {
+    await delay(300);
+    const idx = users.findIndex(u => u.id === id);
+    if (idx === -1) throw new Error("User not found");
+    users[idx].status = "Inactive";
+    users[idx].availabilityStatus = "Offline";
+    return users[idx];
+  },
+  async reactivate(id: string): Promise<User> {
+    await delay(300);
+    const idx = users.findIndex(u => u.id === id);
+    if (idx === -1) throw new Error("User not found");
+    users[idx].status = "Active";
+    return users[idx];
+  },
+  async resendInvite(id: string): Promise<void> {
+    await delay(500);
+    const user = users.find(u => u.id === id);
+    if (!user) throw new Error("User not found");
+  },
+  async getPerformance(userId: string) {
+    await delay(200);
+    const userCalls = mockCalls.filter(c => c.agentId === userId);
+    const policiesSold = userCalls.filter(c => c.outcome === "Policy Sold").length;
+    return {
+      callsMade: userCalls.length + Math.floor(Math.random() * 30),
+      policiesSold: policiesSold + Math.floor(Math.random() * 5),
+      appointmentsSet: Math.floor(Math.random() * 10) + 2,
+      totalTalkTime: `${(Math.random() * 5 + 1).toFixed(1)} hrs`,
+      conversionRate: `${(Math.random() * 15 + 3).toFixed(1)}%`,
+      recentCalls: userCalls.slice(0, 5),
+    };
   },
 };
 
