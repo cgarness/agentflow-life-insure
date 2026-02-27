@@ -6,6 +6,7 @@ export type ContactType = "lead" | "client" | "recruit" | "agent";
 export type AppointmentType = "Sales Call" | "Follow Up" | "Recruit Interview" | "Policy Review" | "Policy Anniversary" | "Other";
 export type CampaignType = "Open Pool" | "Personal" | "Team";
 export type CampaignStatus = "Active" | "Paused" | "Draft" | "Completed";
+export type UserStatus = "Active" | "Inactive" | "Pending";
 
 export interface User {
   id: string;
@@ -14,11 +15,19 @@ export interface User {
   lastName: string;
   role: UserRole;
   avatar?: string;
-  status: "Active" | "Inactive";
+  phone?: string;
+  status: UserStatus;
   availabilityStatus: AvailabilityStatus;
   themePreference: "light" | "dark";
-  lastLoginAt: string;
+  lastLoginAt: string | null;
   createdAt: string;
+}
+
+export interface OnboardingItem {
+  key: string;
+  label: string;
+  completed: boolean;
+  completedAt: string | null;
 }
 
 export interface UserProfile {
@@ -30,6 +39,8 @@ export interface UserProfile {
   monthlyCallGoal: number;
   monthlySalesGoal: number;
   weeklyAppointmentGoal: number;
+  monthlyTalkTimeGoalHours: number;
+  onboardingItems: OnboardingItem[];
 }
 
 export interface Lead {
