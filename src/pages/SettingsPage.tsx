@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import UserManagement from "@/components/settings/UserManagement";
+import DispositionsManager from "@/components/settings/DispositionsManager";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -120,27 +121,7 @@ const SettingsPage: React.FC = () => {
         );
 
       case 4: // Dispositions
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">Dispositions Manager</h3>
-              <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90"><Plus className="w-4 h-4" /> Add</button>
-            </div>
-            <div className="bg-card rounded-xl border divide-y">
-              {dispositions.map((d) => (
-                <div key={d.name} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/30 sidebar-transition">
-                  <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                  <span className={`w-3 h-3 rounded-full ${d.color}`} />
-                  <span className="flex-1 text-sm font-medium text-foreground">{d.name}</span>
-                  <span className="text-xs text-muted-foreground">{d.auto ? "Auto-advance" : ""}</span>
-                  <div className={`w-8 h-4 rounded-full ${d.auto ? "bg-primary" : "bg-muted"} relative cursor-pointer`}>
-                    <div className={`absolute top-0.5 ${d.auto ? "right-0.5" : "left-0.5"} w-3 h-3 rounded-full bg-card`} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <DispositionsManager />;
 
       case 7: // Carriers
         return (

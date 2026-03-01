@@ -223,3 +223,20 @@ export interface WinFeedItem {
   policyType: PolicyType;
   time: string;
 }
+
+export interface Disposition {
+  id: string;
+  name: string;
+  color: string; // hex color
+  isDefault: boolean;
+  requireNotes: boolean;
+  minNoteChars: number;
+  callbackScheduler: boolean;
+  automationTrigger: boolean;
+  automationId?: string;
+  automationName?: string;
+  order: number;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
