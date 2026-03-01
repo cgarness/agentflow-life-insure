@@ -1,5 +1,5 @@
-import { mockLeads, mockClients, mockRecruits, mockUsers, mockProfiles, mockNotes, mockActivities, mockAppointments, mockCampaigns, mockCalls, mockNotifications, mockWins, getAgentName, calcAging } from "./mock-data";
-import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry, User, UserProfile, OnboardingItem, UserRole, UserStatus } from "./types";
+import { mockLeads, mockClients, mockRecruits, mockUsers, mockProfiles, mockNotes, mockActivities, mockAppointments, mockCampaigns, mockCalls, mockNotifications, mockWins, mockDispositions, getAgentName, calcAging } from "./mock-data";
+import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry, User, UserProfile, OnboardingItem, UserRole, UserStatus, Disposition } from "./types";
 
 // Simulate network delay
 const delay = (ms = 300) => new Promise(r => setTimeout(r, ms));
@@ -13,6 +13,7 @@ let activities = [...mockActivities];
 let notifications = [...mockNotifications];
 let users = [...mockUsers];
 let profiles = [...mockProfiles];
+let dispositions = [...mockDispositions];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -396,5 +397,78 @@ export const notificationsApi = {
   },
   getUnreadCount() {
     return notifications.filter(n => !n.read).length;
+  },
+};
+
+// ---- DISPOSITIONS ----
+export const dispositionsApi = {
+  async getAll(): Promise<Disposition[]> {
+    await delay(200);
+    return [...dispositions].sort((a, b) => a.order - b.order);
+  },
+  async create(data: Omit<Disposition, "id" | "createdAt" | "updatedAt" | "usageCount">): Promise<Disposition> {
+    await delay(300);
+    const exists = dispositions.find(d => d.name.toLowerCase() === data.name.toLowerCase());
+    if (exists) throw new Error("A disposition with this name already exists");
+    const d: Disposition = {
+      ...data,
+      id: `disp${uid()}`,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    dispositions.push(d);
+    return d;
+  },
+  async update(id: string, data: Partial<Disposition>): Promise<Disposition> {
+    await delay(300);
+    const idx = dispositions.findIndex(d => d.id === id);
+    if (idx === -1) throw new Error("Disposition not found");
+    const dupe = dispositions.find(d => d.id !== id && d.name.toLowerCase() === (data.name || "").toLowerCase());
+    if (dupe) throw new Error("A disposition with this name already exists");
+    dispositions[idx] = { ...dispositions[idx], ...data, updatedAt: new Date().toISOString() };
+    return dispositions[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(300);
+    const d = dispositions.find(d => d.id === id);
+    if (!d) throw new Error("Disposition not found");
+    if (d.isDefault) throw new Error("Default dispositions cannot be deleted");
+    dispositions = dispositions.filter(d => d.id !== id);
+  },
+  async reorder(orderedIds: string[]): Promise<Disposition[]> {
+    await delay(200);
+    orderedIds.forEach((id, i) => {
+      const d = dispositions.find(d => d.id === id);
+      if (d) d.order = i + 1;
+    });
+    return [...dispositions].sort((a, b) => a.order - b.order);
+  },
+  async getAnalytics(period: string): Promise<{
+    totalDispositioned: number;
+    mostUsed: string;
+    positiveRate: string;
+    callbackRate: string;
+    breakdown: { id: string; name: string; color: string; count: number; percent: number; trend: number }[];
+  }> {
+    await delay(300);
+    const sorted = [...dispositions].sort((a, b) => b.usageCount - a.usageCount);
+    const total = sorted.reduce((s, d) => s + d.usageCount, 0);
+    const positive = dispositions.filter(d => d.name.includes("Sold") || d.name.includes("Interested")).reduce((s, d) => s + d.usageCount, 0);
+    const callbacks = dispositions.filter(d => d.callbackScheduler).reduce((s, d) => s + d.usageCount, 0);
+    return {
+      totalDispositioned: total,
+      mostUsed: sorted[0]?.name || "N/A",
+      positiveRate: total ? `${Math.round((positive / total) * 100)}%` : "0%",
+      callbackRate: total ? `${Math.round((callbacks / total) * 100)}%` : "0%",
+      breakdown: sorted.map(d => ({
+        id: d.id,
+        name: d.name,
+        color: d.color,
+        count: d.usageCount,
+        percent: total ? Math.round((d.usageCount / total) * 100) : 0,
+        trend: Math.floor(Math.random() * 20) - 10,
+      })),
+    };
   },
 };

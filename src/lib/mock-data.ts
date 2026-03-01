@@ -1,4 +1,4 @@
-import { User, UserProfile, OnboardingItem, Lead, Client, Recruit, ContactNote, ContactActivity, Appointment, Campaign, Call, Notification, WinFeedItem } from "./types";
+import { User, UserProfile, OnboardingItem, Lead, Client, Recruit, ContactNote, ContactActivity, Appointment, Campaign, Call, Notification, WinFeedItem, Disposition } from "./types";
 
 const uid = (prefix = "") => prefix + Math.random().toString(36).slice(2, 10);
 
@@ -128,3 +128,13 @@ export function calcAging(lastContactedAt?: string): number {
   if (!lastContactedAt) return 999;
   return Math.floor((Date.now() - new Date(lastContactedAt).getTime()) / 86400000);
 }
+
+const now = new Date().toISOString();
+export const mockDispositions: Disposition[] = [
+  { id: "disp1", name: "Sold / Policy Issued", color: "#22C55E", isDefault: true, requireNotes: false, minNoteChars: 0, callbackScheduler: false, automationTrigger: false, order: 1, usageCount: 47, createdAt: now, updatedAt: now },
+  { id: "disp2", name: "Call Back / Follow Up", color: "#3B82F6", isDefault: true, requireNotes: false, minNoteChars: 0, callbackScheduler: true, automationTrigger: false, order: 2, usageCount: 124, createdAt: now, updatedAt: now },
+  { id: "disp3", name: "Not Interested", color: "#EF4444", isDefault: true, requireNotes: false, minNoteChars: 0, callbackScheduler: false, automationTrigger: false, order: 3, usageCount: 89, createdAt: now, updatedAt: now },
+  { id: "disp4", name: "No Answer / Voicemail", color: "#6B7280", isDefault: true, requireNotes: false, minNoteChars: 0, callbackScheduler: false, automationTrigger: false, order: 4, usageCount: 213, createdAt: now, updatedAt: now },
+  { id: "disp5", name: "Wrong Number / Bad Lead", color: "#F97316", isDefault: true, requireNotes: true, minNoteChars: 10, callbackScheduler: false, automationTrigger: false, order: 5, usageCount: 34, createdAt: now, updatedAt: now },
+  { id: "disp6", name: "Interested", color: "#EAB308", isDefault: true, requireNotes: false, minNoteChars: 0, callbackScheduler: false, automationTrigger: false, order: 6, usageCount: 67, createdAt: now, updatedAt: now },
+];
