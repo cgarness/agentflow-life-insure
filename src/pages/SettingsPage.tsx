@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import UserManagement from "@/components/settings/UserManagement";
 import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
+import Permissions from "@/components/settings/Permissions";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
   Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
+  Lock,
 } from "lucide-react";
 
 const sections = [
@@ -15,6 +17,7 @@ const sections = [
   { icon: FileText, label: "Call Scripts" },
   { icon: List, label: "Dispositions Manager" },
   { icon: SlidersHorizontal, label: "Contact Management" },
+  { icon: Lock, label: "Permissions" },
   { icon: Zap, label: "Automation Builder" },
   { icon: Mail, label: "Email & SMS Templates" },
   { icon: Shield, label: "Carriers" },
@@ -126,8 +129,10 @@ const SettingsPage: React.FC = () => {
         return <DispositionsManager />;
       case 5: // Contact Management
         return <ContactManagement />;
+      case 6: // Permissions
+        return <Permissions />;
 
-      case 8: // Carriers
+      case 9: // Carriers
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -148,7 +153,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 11: // Call Monitoring
+      case 12: // Call Monitoring
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">Call Monitoring <span className="w-2.5 h-2.5 rounded-full bg-success animate-pulse" /></h3>
@@ -176,7 +181,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 15: // AI Settings
+      case 16: // AI Settings
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">AI Settings</h3>
@@ -193,7 +198,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 16: // DNC List
+      case 17: // DNC List
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -218,7 +223,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 19: // Activity Log
+      case 20: // Activity Log
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
