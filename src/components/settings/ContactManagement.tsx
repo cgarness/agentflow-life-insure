@@ -1014,7 +1014,7 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 1 — Detection Rule */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Detection Rule</h5>
           <p className="text-xs text-[#64748B]">Choose what field combination triggers a duplicate warning.</p>
@@ -1028,7 +1028,7 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 2 — Detection Scope */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Detection Scope</h5>
           <p className="text-xs text-[#64748B]">Define which contacts are checked when looking for duplicates.</p>
@@ -1040,7 +1040,7 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 3 — On Duplicate Found */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">On Duplicate Found</h5>
           <p className="text-xs text-[#64748B]">Choose what happens when a duplicate is detected.</p>
@@ -1060,7 +1060,7 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 4 — Merge Settings */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-4">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-4">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Merge Settings</h5>
           <p className="text-xs text-[#64748B]">Control how duplicate contacts can be merged.</p>
@@ -1161,7 +1161,7 @@ const RequiredFieldsTab: React.FC = () => {
             <h5 className="text-sm font-semibold text-[#F1F5F9]">Lead Fields</h5>
             <span className="text-[10px] bg-[#3B82F6]/20 text-[#3B82F6] px-1.5 py-0.5 rounded font-medium">Leads</span>
           </div>
-          <div className="bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden">
+          <div className="bg-card border border-[#334155] rounded-lg overflow-hidden">
             {LEAD_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
             {LEAD_OPTIONAL.map(f => (
               <FieldRow key={f} name={f} checked={leadRequired[f]} onChange={v => setLeadRequired(prev => ({ ...prev, [f]: v }))} />
@@ -1175,7 +1175,7 @@ const RequiredFieldsTab: React.FC = () => {
             <h5 className="text-sm font-semibold text-[#F1F5F9]">Client Fields</h5>
             <span className="text-[10px] bg-[#22C55E]/20 text-[#22C55E] px-1.5 py-0.5 rounded font-medium">Clients</span>
           </div>
-          <div className="bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden">
+          <div className="bg-card border border-[#334155] rounded-lg overflow-hidden">
             {CLIENT_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
             {CLIENT_OPTIONAL.map(f => (
               <FieldRow key={f} name={f} checked={clientRequired[f]} onChange={v => setClientRequired(prev => ({ ...prev, [f]: v }))} />
@@ -1270,7 +1270,7 @@ const AssignmentRulesTab: React.FC = () => {
       {m === "round_robin" && (
         <div className="pl-7 mt-2 space-y-2">
           {MOCK_AGENTS.map(a => (
-            <div key={a.id} className="flex items-center justify-between bg-[#0F172A] border border-[#334155] rounded-lg px-3 py-2">
+            <div key={a.id} className="flex items-center justify-between bg-card border border-[#334155] rounded-lg px-3 py-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-full bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center text-[10px] font-bold">{a.initials}</div>
                 <span className="text-sm text-[#F1F5F9]">{a.name}</span>
@@ -1307,7 +1307,7 @@ const AssignmentRulesTab: React.FC = () => {
       </div>
 
       {/* Card 1 */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Default Assignment Method</h5>
           <p className="text-xs text-[#64748B]">Choose how new leads are assigned when added to the system.</p>
@@ -1319,7 +1319,7 @@ const AssignmentRulesTab: React.FC = () => {
       </div>
 
       {/* Card 2 */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Import Override</h5>
           <p className="text-xs text-[#64748B]">Choose whether CSV imports follow the same assignment rule or use a different method.</p>
@@ -1430,7 +1430,7 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 1 — Default Table Columns */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Default Table Columns</h5>
           <p className="text-xs text-[#64748B]">Choose which columns appear in the Leads table by default. Agents can customize their own view but this sets the starting point.</p>
@@ -1478,7 +1478,7 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 2 — Default Sort */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Default Sort</h5>
           <p className="text-xs text-[#64748B]">Choose how the Leads table is sorted when an agent first loads it.</p>
@@ -1502,7 +1502,7 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 3 — Records Per Page */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Records Per Page</h5>
           <p className="text-xs text-[#64748B]">How many contacts load per page in the Leads table.</p>
@@ -1517,7 +1517,7 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 4 — Lead Aging Thresholds */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-4">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-4">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Lead Aging Thresholds</h5>
           <p className="text-xs text-[#64748B]">Customize when lead aging indicators change color. Based on days since last contact.</p>
@@ -1569,7 +1569,7 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 5 — Contact Modal Default Tab */}
-      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-[#F1F5F9]">Contact Modal Default Tab</h5>
           <p className="text-xs text-[#64748B]">Choose which tab opens first when an agent clicks on a contact.</p>
