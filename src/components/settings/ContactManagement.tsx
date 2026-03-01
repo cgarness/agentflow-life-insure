@@ -1446,7 +1446,7 @@ const DisplaySettingsTab: React.FC = () => {
           ))}
           {/* Toggleable columns */}
           {columns.filter(c => !c.locked).map(c => (
-            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#1E293B] transition-colors">
+            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
               <Checkbox checked={c.checked} onCheckedChange={() => toggleColumn(c.name)} />
               <span className="flex-1 text-sm text-[#F1F5F9]">{c.name}</span>
               {c.checked && <GripVertical className="w-4 h-4 text-[#64748B] cursor-grab" />}
@@ -1466,7 +1466,7 @@ const DisplaySettingsTab: React.FC = () => {
                   onDragOver={e => { e.preventDefault(); setOverIdx(idx); }}
                   onDrop={() => handleColumnDrop(idx)}
                   onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] bg-[#1E293B]"} ${dragIdx === idx ? "opacity-50" : ""} text-[#F1F5F9]`}
+                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] bg-muted"} ${dragIdx === idx ? "opacity-50" : ""} text-[#F1F5F9]`}
                 >
                   {c.name}
                 </span>
