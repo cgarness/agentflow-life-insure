@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { pipelineApi, customFieldsApi, leadSourcesApi, healthStatusesApi } from "@/lib/mock-api";
 import { PipelineStage, CustomField, LeadSource, HealthStatus } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
-  CheckCircle2, MinusCircle,
+  CheckCircle2, MinusCircle, Lock, AlertTriangle, Flame,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -28,7 +28,7 @@ const PRESET_COLORS = [
   { name: "Teal", hex: "#14B8A6" },
 ];
 
-const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Health Statuses"];
+const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Health Statuses", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings"];
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -970,6 +970,627 @@ const HealthStatusesTab: React.FC = () => {
   );
 };
 
+// ==================== DUPLICATE DETECTION TAB ====================
+
+const DuplicateDetectionTab: React.FC = () => {
+  const [detectionRule, setDetectionRule] = useState("phone_or_email");
+  const [detectionScope, setDetectionScope] = useState("all_agents");
+  const [manualAction, setManualAction] = useState("warn");
+  const [csvAction, setCsvAction] = useState("flag");
+  const [allowMerge, setAllowMerge] = useState(true);
+  const [mergeWinner, setMergeWinner] = useState("newest");
+  const [mergePermission, setMergePermission] = useState("agents_admins");
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const markDirty = () => setDirty(true);
+
+  const handleSave = () => {
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      setDirty(false);
+      toast({ title: "Duplicate detection settings saved" });
+    }, 400);
+  };
+
+  const RadioOption = ({ name, value, current, onChange, label, desc }: { name: string; value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
+    <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => { onChange(value); markDirty(); }}>
+      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
+        {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-[#F1F5F9]">{label}</p>
+        <p className="text-xs text-[#64748B]">{desc}</p>
+      </div>
+    </label>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="text-base font-semibold text-[#F1F5F9]">Duplicate Detection</h4>
+        <p className="text-sm text-[#94A3B8]">Control how the system identifies and handles duplicate contacts.</p>
+      </div>
+
+      {/* Card 1 — Detection Rule */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Detection Rule</h5>
+          <p className="text-xs text-[#64748B]">Choose what field combination triggers a duplicate warning.</p>
+        </div>
+        <div className="space-y-1">
+          <RadioOption name="rule" value="phone_only" current={detectionRule} onChange={setDetectionRule} label="Match on Phone Only" desc="Flag as duplicate if phone number already exists" />
+          <RadioOption name="rule" value="email_only" current={detectionRule} onChange={setDetectionRule} label="Match on Email Only" desc="Flag as duplicate if email address already exists" />
+          <RadioOption name="rule" value="phone_or_email" current={detectionRule} onChange={setDetectionRule} label="Match on Phone OR Email" desc="Flag as duplicate if either field matches an existing contact" />
+          <RadioOption name="rule" value="phone_and_email" current={detectionRule} onChange={setDetectionRule} label="Match on Phone AND Email" desc="Flag as duplicate if both fields match the same existing contact" />
+        </div>
+      </div>
+
+      {/* Card 2 — Detection Scope */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Detection Scope</h5>
+          <p className="text-xs text-[#64748B]">Define which contacts are checked when looking for duplicates.</p>
+        </div>
+        <div className="space-y-1">
+          <RadioOption name="scope" value="all_agents" current={detectionScope} onChange={setDetectionScope} label="Check Across All Agents" desc="A duplicate is flagged regardless of which agent owns the contact" />
+          <RadioOption name="scope" value="assigned_only" current={detectionScope} onChange={setDetectionScope} label="Check Within Assigned Agent Only" desc="Only flag as duplicate if the same agent already has that contact" />
+        </div>
+      </div>
+
+      {/* Card 3 — On Duplicate Found */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">On Duplicate Found</h5>
+          <p className="text-xs text-[#64748B]">Choose what happens when a duplicate is detected.</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide">When Adding Manually</p>
+          <RadioOption name="manual" value="warn" current={manualAction} onChange={setManualAction} label="Show Warning and Let Agent Decide" desc="Agent sees a side-by-side comparison and can save anyway, merge, or cancel" />
+          <RadioOption name="manual" value="block" current={manualAction} onChange={setManualAction} label="Block Save Entirely" desc="Agent cannot save the contact until the duplicate is resolved" />
+        </div>
+        <div className="border-t border-[#334155]" />
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide">When Importing via CSV</p>
+          <RadioOption name="csv" value="skip" current={csvAction} onChange={setCsvAction} label="Skip Duplicates Automatically" desc="Duplicate rows are ignored and not imported" />
+          <RadioOption name="csv" value="flag" current={csvAction} onChange={setCsvAction} label="Flag for Review" desc="Import proceeds but duplicates are marked for admin review" />
+          <RadioOption name="csv" value="import" current={csvAction} onChange={setCsvAction} label="Import Anyway" desc="All rows import regardless of duplicates, a Duplicate tag is applied" />
+        </div>
+      </div>
+
+      {/* Card 4 — Merge Settings */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-4">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Merge Settings</h5>
+          <p className="text-xs text-[#64748B]">Control how duplicate contacts can be merged.</p>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-[#F1F5F9]">Allow Contact Merging</p>
+            <p className="text-xs text-[#64748B]">When enabled, agents can merge two duplicate contact records into one.</p>
+          </div>
+          <Switch checked={allowMerge} onCheckedChange={v => { setAllowMerge(v); markDirty(); }} />
+        </div>
+        {allowMerge && (
+          <div className="pl-4 border-l-2 border-[#334155] space-y-4">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#94A3B8]">When Merging, Which Record Wins</p>
+              <RadioOption name="winner" value="newest" current={mergeWinner} onChange={setMergeWinner} label="Newest Record Keeps All Fields" desc="" />
+              <RadioOption name="winner" value="oldest" current={mergeWinner} onChange={setMergeWinner} label="Oldest Record Keeps All Fields" desc="" />
+              <RadioOption name="winner" value="manual" current={mergeWinner} onChange={setMergeWinner} label="Manual Field-by-Field Selection" desc="Agent chooses which value to keep for each field" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#94A3B8]">Who Can Merge Contacts</p>
+              <RadioOption name="perm" value="agents_admins" current={mergePermission} onChange={setMergePermission} label="Agents and Admins" desc="" />
+              <RadioOption name="perm" value="admins_only" current={mergePermission} onChange={setMergePermission} label="Admins Only" desc="" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end">
+        <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Settings"}</Button>
+      </div>
+    </div>
+  );
+};
+
+// ==================== REQUIRED FIELDS TAB ====================
+
+const LEAD_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
+const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", "Health Status", "Best Time to Call", "Assigned Agent"];
+const CLIENT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
+const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"];
+
+const RequiredFieldsTab: React.FC = () => {
+  const [leadRequired, setLeadRequired] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    LEAD_OPTIONAL.forEach(f => r[f] = false);
+    return r;
+  });
+  const [clientRequired, setClientRequired] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    CLIENT_OPTIONAL.forEach(f => r[f] = false);
+    return r;
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = () => {
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      toast({ title: "Required field settings saved" });
+    }, 400);
+  };
+
+  const FieldRow = ({ name, locked, checked, onChange }: { name: string; locked?: boolean; checked: boolean; onChange?: (v: boolean) => void }) => (
+    <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#334155] last:border-b-0">
+      <span className="text-sm text-[#F1F5F9]">{name}</span>
+      <div className="flex items-center gap-2">
+        {locked && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild><Lock className="w-3.5 h-3.5 text-[#64748B]" /></TooltipTrigger>
+              <TooltipContent><p>This field is always required and cannot be turned off</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        <Switch checked={checked} disabled={locked} onCheckedChange={onChange} className={locked ? "opacity-40" : ""} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="text-base font-semibold text-[#F1F5F9]">Required Fields</h4>
+        <p className="text-sm text-[#94A3B8]">Choose which fields agents must fill in before a contact record can be saved.</p>
+      </div>
+
+      {/* Info banner */}
+      <div className="bg-[#1E3A5F] border border-[#3B82F6] rounded-lg p-3 flex items-start gap-2.5">
+        <Info className="w-4 h-4 text-[#93C5FD] mt-0.5 shrink-0" />
+        <p className="text-xs text-[#93C5FD]">Required fields are enforced when agents manually add or edit contacts. CSV imports flag missing required fields in the import preview but do not block the import.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* Lead Fields */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <h5 className="text-sm font-semibold text-[#F1F5F9]">Lead Fields</h5>
+            <span className="text-[10px] bg-[#3B82F6]/20 text-[#3B82F6] px-1.5 py-0.5 rounded font-medium">Leads</span>
+          </div>
+          <div className="bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden">
+            {LEAD_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
+            {LEAD_OPTIONAL.map(f => (
+              <FieldRow key={f} name={f} checked={leadRequired[f]} onChange={v => setLeadRequired(prev => ({ ...prev, [f]: v }))} />
+            ))}
+          </div>
+        </div>
+
+        {/* Client Fields */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <h5 className="text-sm font-semibold text-[#F1F5F9]">Client Fields</h5>
+            <span className="text-[10px] bg-[#22C55E]/20 text-[#22C55E] px-1.5 py-0.5 rounded font-medium">Clients</span>
+          </div>
+          <div className="bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden">
+            {CLIENT_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
+            {CLIENT_OPTIONAL.map(f => (
+              <FieldRow key={f} name={f} checked={clientRequired[f]} onChange={v => setClientRequired(prev => ({ ...prev, [f]: v }))} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Required Fields"}</Button>
+    </div>
+  );
+};
+
+// ==================== ASSIGNMENT RULES TAB ====================
+
+const MOCK_AGENTS = [
+  { id: "a1", name: "Chris Garcia", initials: "CG" },
+  { id: "a2", name: "Sarah Johnson", initials: "SJ" },
+  { id: "a3", name: "Mike Thompson", initials: "MT" },
+  { id: "a4", name: "Jessica Williams", initials: "JW" },
+  { id: "a5", name: "David Martinez", initials: "DM" },
+];
+
+const AssignmentRulesTab: React.FC = () => {
+  const [method, setMethod] = useState("unassigned");
+  const [specificAgent, setSpecificAgent] = useState("");
+  const [rotation, setRotation] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    MOCK_AGENTS.forEach(a => r[a.id] = true);
+    return r;
+  });
+  const [importOverride, setImportOverride] = useState(false);
+  const [importMethod, setImportMethod] = useState("unassigned");
+  const [importAgent, setImportAgent] = useState("");
+  const [importRotation, setImportRotation] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    MOCK_AGENTS.forEach(a => r[a.id] = true);
+    return r;
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = () => {
+    if (method === "specific" && !specificAgent) {
+      toast({ title: "Please select an agent before saving", variant: "destructive" });
+      return;
+    }
+    if (importOverride && importMethod === "specific" && !importAgent) {
+      toast({ title: "Please select an agent for import assignment", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      toast({ title: "Assignment rules saved" });
+    }, 400);
+  };
+
+  const firstInRotation = MOCK_AGENTS.find(a => rotation[a.id]);
+  const firstInImportRotation = MOCK_AGENTS.find(a => importRotation[a.id]);
+  const allRotationOff = MOCK_AGENTS.every(a => !rotation[a.id]);
+  const allImportRotationOff = MOCK_AGENTS.every(a => !importRotation[a.id]);
+
+  const RadioOption = ({ value, current, onChange, label, desc }: { value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
+    <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => onChange(value)}>
+      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
+        {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-[#F1F5F9]">{label}</p>
+        {desc && <p className="text-xs text-[#64748B]">{desc}</p>}
+      </div>
+    </label>
+  );
+
+  const renderMethodFields = (
+    m: string, agent: string, setAgent: (v: string) => void,
+    rot: Record<string, boolean>, setRot: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
+    allOff: boolean, firstIn: typeof MOCK_AGENTS[0] | undefined
+  ) => (
+    <>
+      {m === "specific" && (
+        <div className="pl-7 mt-2">
+          <label className="text-xs font-medium text-[#94A3B8] block mb-1.5">Assign all new contacts to:</label>
+          <Select value={agent} onValueChange={setAgent}>
+            <SelectTrigger className="w-64"><SelectValue placeholder="Select an agent..." /></SelectTrigger>
+            <SelectContent>
+              {MOCK_AGENTS.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {m === "round_robin" && (
+        <div className="pl-7 mt-2 space-y-2">
+          {MOCK_AGENTS.map(a => (
+            <div key={a.id} className="flex items-center justify-between bg-[#0F172A] border border-[#334155] rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-full bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center text-[10px] font-bold">{a.initials}</div>
+                <span className="text-sm text-[#F1F5F9]">{a.name}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#64748B]">Include</span>
+                <Switch checked={rot[a.id]} onCheckedChange={v => setRot(prev => ({ ...prev, [a.id]: v }))} />
+              </div>
+            </div>
+          ))}
+          {allOff ? (
+            <div className="bg-[#431407] border border-[#F97316] rounded-lg p-3 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-[#F97316] mt-0.5 shrink-0" />
+              <p className="text-xs text-[#F97316]">No agents are in the rotation. New contacts will be Unassigned until at least one agent is added.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-[#64748B]">Next in queue: {firstIn?.name}</p>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="text-base font-semibold text-[#F1F5F9]">Assignment Rules</h4>
+        <p className="text-sm text-[#94A3B8]">Control how new leads are assigned when added manually or imported via CSV.</p>
+      </div>
+
+      <div className="bg-[#1E3A5F] border border-[#3B82F6] rounded-lg p-3 flex items-start gap-2.5">
+        <Info className="w-4 h-4 text-[#93C5FD] mt-0.5 shrink-0" />
+        <p className="text-xs text-[#93C5FD]">Changing assignment rules does not retroactively reassign existing contacts. Only applies to new contacts going forward.</p>
+      </div>
+
+      {/* Card 1 */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Default Assignment Method</h5>
+          <p className="text-xs text-[#64748B]">Choose how new leads are assigned when added to the system.</p>
+        </div>
+        <RadioOption value="unassigned" current={method} onChange={setMethod} label="Unassigned" desc="New contacts are added without an assigned agent. Admin or agents assign manually." />
+        <RadioOption value="specific" current={method} onChange={setMethod} label="Always Assign to Specific Agent" desc="Every new contact is assigned to one designated agent." />
+        <RadioOption value="round_robin" current={method} onChange={setMethod} label="Round Robin Among Active Agents" desc="New contacts are distributed evenly among agents in the rotation." />
+        {renderMethodFields(method, specificAgent, setSpecificAgent, rotation, setRotation, allRotationOff, firstInRotation)}
+      </div>
+
+      {/* Card 2 */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Import Override</h5>
+          <p className="text-xs text-[#64748B]">Choose whether CSV imports follow the same assignment rule or use a different method.</p>
+        </div>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-[#F1F5F9]">Use a different assignment method for CSV imports</p>
+          <Switch checked={importOverride} onCheckedChange={v => { setImportOverride(v); if (v) setImportMethod("unassigned"); }} />
+        </div>
+        {importOverride && (
+          <div className="space-y-1 pt-2 border-t border-[#334155]">
+            <RadioOption value="unassigned" current={importMethod} onChange={setImportMethod} label="Unassigned" desc="Imported contacts have no agent assigned." />
+            <RadioOption value="specific" current={importMethod} onChange={setImportMethod} label="Always Assign to Specific Agent" desc="Every imported contact is assigned to one designated agent." />
+            <RadioOption value="round_robin" current={importMethod} onChange={setImportMethod} label="Round Robin Among Active Agents" desc="Imported contacts are distributed evenly." />
+            {renderMethodFields(importMethod, importAgent, setImportAgent, importRotation, setImportRotation, allImportRotationOff, firstInImportRotation)}
+          </div>
+        )}
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Assignment Rules"}</Button>
+    </div>
+  );
+};
+
+// ==================== DISPLAY SETTINGS TAB ====================
+
+const ALL_COLUMNS = [
+  { name: "Name", locked: true, defaultChecked: true },
+  { name: "Phone", locked: true, defaultChecked: true },
+  { name: "Status", locked: true, defaultChecked: true },
+  { name: "Email", locked: false, defaultChecked: true },
+  { name: "State", locked: false, defaultChecked: true },
+  { name: "Lead Source", locked: false, defaultChecked: true },
+  { name: "Lead Score", locked: false, defaultChecked: false },
+  { name: "Age", locked: false, defaultChecked: true },
+  { name: "Assigned Agent", locked: false, defaultChecked: true },
+  { name: "Last Contacted", locked: false, defaultChecked: true },
+  { name: "Created Date", locked: false, defaultChecked: false },
+];
+
+const SORT_OPTIONS = ["Name", "Phone", "Status", "Lead Source", "Lead Score", "Age", "Last Contacted", "Created Date"];
+
+const DisplaySettingsTab: React.FC = () => {
+  const [columns, setColumns] = useState(() => ALL_COLUMNS.map((c, i) => ({ ...c, checked: c.defaultChecked, order: i })));
+  const [sortBy, setSortBy] = useState("Created Date");
+  const [sortDesc, setSortDesc] = useState(true);
+  const [perPage, setPerPage] = useState(25);
+  const [agingFresh, setAgingFresh] = useState(3);
+  const [agingOld, setAgingOld] = useState(7);
+  const [agingStale, setAgingStale] = useState(14);
+  const [defaultTab, setDefaultTab] = useState("overview");
+  const [saving, setSaving] = useState(false);
+  const [agingErrors, setAgingErrors] = useState<Record<string, string>>({});
+
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
+  const checkedColumns = columns.filter(c => c.checked).sort((a, b) => a.order - b.order);
+  const previewText = checkedColumns.map(c => c.name).join(", ");
+
+  const toggleColumn = (name: string) => {
+    setColumns(prev => prev.map(c => c.name === name && !c.locked ? { ...c, checked: !c.checked } : c));
+  };
+
+  const handleColumnDrop = (toIdx: number) => {
+    if (dragIdx === null || dragIdx === toIdx) { setDragIdx(null); setOverIdx(null); return; }
+    const reordered = [...checkedColumns];
+    const [moved] = reordered.splice(dragIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    const orderMap: Record<string, number> = {};
+    reordered.forEach((c, i) => orderMap[c.name] = i);
+    setColumns(prev => prev.map(c => c.checked && orderMap[c.name] !== undefined ? { ...c, order: orderMap[c.name] } : c));
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  const validateAging = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (agingFresh < 1) errors.fresh = "Must be at least 1";
+    if (agingOld <= agingFresh) errors.old = `Must be greater than ${agingFresh}`;
+    if (agingStale <= agingOld) errors.stale = `Must be greater than ${agingOld}`;
+    setAgingErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSave = () => {
+    if (!validateAging()) {
+      toast({ title: "Please fix the errors before saving", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      toast({ title: "Display settings saved" });
+    }, 400);
+  };
+
+  const RadioTile = ({ value, current, onChange, label }: { value: string; current: string; onChange: (v: string) => void; label: string }) => (
+    <button onClick={() => onChange(value)} className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${current === value ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] text-[#94A3B8] hover:border-[#64748B]"}`}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="text-base font-semibold text-[#F1F5F9]">Display Settings</h4>
+        <p className="text-sm text-[#94A3B8]">Control how the Contacts page looks and behaves by default for all agents.</p>
+      </div>
+
+      {/* Card 1 — Default Table Columns */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Default Table Columns</h5>
+          <p className="text-xs text-[#64748B]">Choose which columns appear in the Leads table by default. Agents can customize their own view but this sets the starting point.</p>
+        </div>
+        <div className="space-y-1">
+          {/* Locked columns first */}
+          {columns.filter(c => c.locked).map(c => (
+            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg">
+              <Checkbox checked disabled className="opacity-40" />
+              <span className="flex-1 text-sm text-[#F1F5F9]">{c.name}</span>
+              <Lock className="w-3.5 h-3.5 text-[#64748B]" />
+            </div>
+          ))}
+          {/* Toggleable columns */}
+          {columns.filter(c => !c.locked).map(c => (
+            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#1E293B] transition-colors">
+              <Checkbox checked={c.checked} onCheckedChange={() => toggleColumn(c.name)} />
+              <span className="flex-1 text-sm text-[#F1F5F9]">{c.name}</span>
+              {c.checked && <GripVertical className="w-4 h-4 text-[#64748B] cursor-grab" />}
+            </div>
+          ))}
+        </div>
+        {/* Drag reorder for checked columns */}
+        {checkedColumns.length > 0 && (
+          <div>
+            <p className="text-xs text-[#64748B] mb-2">Drag to reorder visible columns:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {checkedColumns.map((c, idx) => (
+                <span
+                  key={c.name}
+                  draggable
+                  onDragStart={() => setDragIdx(idx)}
+                  onDragOver={e => { e.preventDefault(); setOverIdx(idx); }}
+                  onDrop={() => handleColumnDrop(idx)}
+                  onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] bg-[#1E293B]"} ${dragIdx === idx ? "opacity-50" : ""} text-[#F1F5F9]`}
+                >
+                  {c.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="text-xs text-[#64748B]">Current column order: {previewText}</p>
+      </div>
+
+      {/* Card 2 — Default Sort */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Default Sort</h5>
+          <p className="text-xs text-[#64748B]">Choose how the Leads table is sorted when an agent first loads it.</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <label className="text-xs text-[#94A3B8] block mb-1">Sort by</label>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2 pt-4">
+            <span className="text-xs text-[#94A3B8]">Ascending</span>
+            <Switch checked={sortDesc} onCheckedChange={setSortDesc} />
+            <span className="text-xs text-[#94A3B8]">Descending</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 3 — Records Per Page */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Records Per Page</h5>
+          <p className="text-xs text-[#64748B]">How many contacts load per page in the Leads table.</p>
+        </div>
+        <div className="flex gap-3">
+          {[25, 50, 100].map(n => (
+            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] text-[#94A3B8] hover:border-[#64748B]"}`}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Card 4 — Lead Aging Thresholds */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-4">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Lead Aging Thresholds</h5>
+          <p className="text-xs text-[#64748B]">Customize when lead aging indicators change color. Based on days since last contact.</p>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <span className="w-4 h-4 rounded-full bg-[#22C55E] shrink-0" />
+            <span className="text-sm text-[#F1F5F9] w-24">Fresh</span>
+            <span className="text-xs text-[#64748B] w-8">0 to</span>
+            <Input type="number" value={agingFresh} onChange={e => { setAgingFresh(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={1} />
+            <span className="text-xs text-[#64748B]">days</span>
+          </div>
+          {agingErrors.fresh && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.fresh}</p>}
+
+          <div className="flex items-center gap-3">
+            <span className="w-4 h-4 rounded-full bg-[#EAB308] shrink-0" />
+            <span className="text-sm text-[#F1F5F9] w-24">Getting Old</span>
+            <span className="text-xs text-[#64748B] w-8">{agingFresh + 1} to</span>
+            <Input type="number" value={agingOld} onChange={e => { setAgingOld(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={agingFresh + 1} />
+            <span className="text-xs text-[#64748B]">days</span>
+          </div>
+          {agingErrors.old && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.old}</p>}
+
+          <div className="flex items-center gap-3">
+            <span className="w-4 h-4 rounded-full bg-[#F97316] shrink-0" />
+            <span className="text-sm text-[#F1F5F9] w-24">Stale</span>
+            <span className="text-xs text-[#64748B] w-8">{agingOld + 1} to</span>
+            <Input type="number" value={agingStale} onChange={e => { setAgingStale(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={agingOld + 1} />
+            <span className="text-xs text-[#64748B]">days</span>
+          </div>
+          {agingErrors.stale && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.stale}</p>}
+
+          <div className="flex items-center gap-3">
+            <span className="w-4 h-4 rounded-full bg-[#EF4444] shrink-0 flex items-center justify-center text-[8px]">🔥</span>
+            <span className="text-sm text-[#F1F5F9] w-24">Urgent</span>
+            <span className="text-xs text-[#64748B]">{agingStale + 1}+ days</span>
+          </div>
+        </div>
+
+        {/* Live preview bar */}
+        <div className="mt-3">
+          <div className="flex h-6 rounded-lg overflow-hidden border border-[#334155]">
+            <div className="bg-[#22C55E] flex-1 flex items-center justify-center text-[9px] font-bold text-white">0-{agingFresh}d</div>
+            <div className="bg-[#EAB308] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingFresh + 1}-{agingOld}d</div>
+            <div className="bg-[#F97316] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingOld + 1}-{agingStale}d</div>
+            <div className="bg-[#EF4444] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingStale + 1}+d</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 5 — Contact Modal Default Tab */}
+      <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-5 space-y-3">
+        <div>
+          <h5 className="text-sm font-bold text-[#F1F5F9]">Contact Modal Default Tab</h5>
+          <p className="text-xs text-[#64748B]">Choose which tab opens first when an agent clicks on a contact.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { value: "overview", label: "Overview" },
+            { value: "activity", label: "Activity" },
+            { value: "calls", label: "Calls" },
+            { value: "notes", label: "Notes" },
+          ].map(t => (
+            <RadioTile key={t.value} value={t.value} current={defaultTab} onChange={setDefaultTab} label={t.label} />
+          ))}
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Display Settings"}</Button>
+    </div>
+  );
+};
+
 // ==================== MAIN COMPONENT ====================
 
 const ContactManagement: React.FC = () => {
@@ -983,13 +1604,13 @@ const ContactManagement: React.FC = () => {
       </div>
 
       {/* Tab bar */}
-      <div className="border-b">
-        <div className="flex gap-1">
+      <div className="border-b overflow-x-auto">
+        <div className="flex gap-1 min-w-max">
           {TABS.map((tab, i) => (
             <button
               key={tab}
               onClick={() => setActiveTab(i)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
+              className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
                 activeTab === i
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -1009,6 +1630,10 @@ const ContactManagement: React.FC = () => {
       {activeTab === 1 && <CustomFieldsTab />}
       {activeTab === 2 && <LeadSourcesTab />}
       {activeTab === 3 && <HealthStatusesTab />}
+      {activeTab === 4 && <DuplicateDetectionTab />}
+      {activeTab === 5 && <RequiredFieldsTab />}
+      {activeTab === 6 && <AssignmentRulesTab />}
+      {activeTab === 7 && <DisplaySettingsTab />}
     </div>
   );
 };
