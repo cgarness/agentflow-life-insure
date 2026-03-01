@@ -1509,7 +1509,7 @@ const DisplaySettingsTab: React.FC = () => {
         </div>
         <div className="flex gap-3">
           {[25, 50, 100].map(n => (
-            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] text-[#94A3B8] hover:border-[#64748B]"}`}>
+            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-[#94A3B8] hover:border-[#64748B]"}`}>
               {n}
             </button>
           ))}
