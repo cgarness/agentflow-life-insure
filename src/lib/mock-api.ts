@@ -1,5 +1,5 @@
 import { mockLeads, mockClients, mockRecruits, mockUsers, mockProfiles, mockNotes, mockActivities, mockAppointments, mockCampaigns, mockCalls, mockNotifications, mockWins, mockDispositions, getAgentName, calcAging } from "./mock-data";
-import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry, User, UserProfile, OnboardingItem, UserRole, UserStatus, Disposition } from "./types";
+import { Lead, Client, Recruit, ContactNote, DashboardStats, LeaderboardEntry, User, UserProfile, OnboardingItem, UserRole, UserStatus, Disposition, PipelineStage, CustomField, LeadSource, HealthStatus } from "./types";
 
 // Simulate network delay
 const delay = (ms = 300) => new Promise(r => setTimeout(r, ms));
@@ -470,5 +470,195 @@ export const dispositionsApi = {
         trend: Math.floor(Math.random() * 20) - 10,
       })),
     };
+  },
+};
+
+// ---- PIPELINE STAGES ----
+let leadStages: PipelineStage[] = [
+  { id: "ls1", name: "New", color: "#3B82F6", isPositive: false, isDefault: true, order: 1, pipelineType: "lead" },
+  { id: "ls2", name: "Contacted", color: "#A855F7", isPositive: false, isDefault: true, order: 2, pipelineType: "lead" },
+  { id: "ls3", name: "Interested", color: "#EAB308", isPositive: false, isDefault: true, order: 3, pipelineType: "lead" },
+  { id: "ls4", name: "Hot", color: "#F97316", isPositive: false, isDefault: true, order: 4, pipelineType: "lead" },
+  { id: "ls5", name: "Follow Up", color: "#14B8A6", isPositive: false, isDefault: true, order: 5, pipelineType: "lead" },
+  { id: "ls6", name: "Closed Won", color: "#22C55E", isPositive: true, isDefault: true, order: 6, pipelineType: "lead" },
+  { id: "ls7", name: "Closed Lost", color: "#EF4444", isPositive: false, isDefault: true, order: 7, pipelineType: "lead" },
+];
+
+let recruitStages: PipelineStage[] = [
+  { id: "rs1", name: "Interested in Joining", color: "#3B82F6", isPositive: false, isDefault: true, order: 1, pipelineType: "recruit" },
+  { id: "rs2", name: "Contacted", color: "#A855F7", isPositive: false, isDefault: true, order: 2, pipelineType: "recruit" },
+  { id: "rs3", name: "In Interview Process", color: "#EAB308", isPositive: false, isDefault: true, order: 3, pipelineType: "recruit" },
+  { id: "rs4", name: "Pending Licensing", color: "#F97316", isPositive: false, isDefault: true, order: 4, pipelineType: "recruit" },
+  { id: "rs5", name: "Licensed & Onboarding", color: "#22C55E", isPositive: true, isDefault: true, order: 5, pipelineType: "recruit" },
+  { id: "rs6", name: "Not Interested", color: "#EF4444", isPositive: false, isDefault: true, order: 6, pipelineType: "recruit" },
+];
+
+export const pipelineApi = {
+  async getLeadStages(): Promise<PipelineStage[]> {
+    await delay(200);
+    return [...leadStages].sort((a, b) => a.order - b.order);
+  },
+  async getRecruitStages(): Promise<PipelineStage[]> {
+    await delay(200);
+    return [...recruitStages].sort((a, b) => a.order - b.order);
+  },
+  async createStage(data: Omit<PipelineStage, "id">): Promise<PipelineStage> {
+    await delay(300);
+    const list = data.pipelineType === "lead" ? leadStages : recruitStages;
+    if (list.find(s => s.name.toLowerCase() === data.name.toLowerCase())) throw new Error("A stage with this name already exists");
+    const s: PipelineStage = { ...data, id: `${data.pipelineType === "lead" ? "ls" : "rs"}${uid()}` };
+    list.push(s);
+    return s;
+  },
+  async updateStage(id: string, pipelineType: "lead" | "recruit", data: Partial<PipelineStage>): Promise<PipelineStage> {
+    await delay(300);
+    const list = pipelineType === "lead" ? leadStages : recruitStages;
+    const idx = list.findIndex(s => s.id === id);
+    if (idx === -1) throw new Error("Stage not found");
+    const dupe = list.find(s => s.id !== id && s.name.toLowerCase() === (data.name || "").toLowerCase());
+    if (dupe) throw new Error("A stage with this name already exists");
+    list[idx] = { ...list[idx], ...data };
+    return list[idx];
+  },
+  async deleteStage(id: string, pipelineType: "lead" | "recruit"): Promise<void> {
+    await delay(300);
+    if (pipelineType === "lead") {
+      const s = leadStages.find(s => s.id === id);
+      if (s?.isDefault) throw new Error("Default stages cannot be deleted");
+      leadStages = leadStages.filter(s => s.id !== id);
+    } else {
+      const s = recruitStages.find(s => s.id === id);
+      if (s?.isDefault) throw new Error("Default stages cannot be deleted");
+      recruitStages = recruitStages.filter(s => s.id !== id);
+    }
+  },
+  async reorderStages(ids: string[], pipelineType: "lead" | "recruit"): Promise<void> {
+    await delay(200);
+    const list = pipelineType === "lead" ? leadStages : recruitStages;
+    ids.forEach((id, i) => { const s = list.find(s => s.id === id); if (s) s.order = i + 1; });
+  },
+};
+
+// ---- CUSTOM FIELDS ----
+let customFields: CustomField[] = [];
+
+export const customFieldsApi = {
+  async getAll(): Promise<CustomField[]> {
+    await delay(200);
+    return [...customFields];
+  },
+  async create(data: Omit<CustomField, "id" | "usageCount">): Promise<CustomField> {
+    await delay(300);
+    if (customFields.find(f => f.name.toLowerCase() === data.name.toLowerCase())) throw new Error("A field with this name already exists");
+    const f: CustomField = { ...data, id: `cf${uid()}`, usageCount: 0 };
+    customFields.unshift(f);
+    return f;
+  },
+  async update(id: string, data: Partial<CustomField>): Promise<CustomField> {
+    await delay(300);
+    const idx = customFields.findIndex(f => f.id === id);
+    if (idx === -1) throw new Error("Field not found");
+    customFields[idx] = { ...customFields[idx], ...data };
+    return customFields[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(300);
+    customFields = customFields.filter(f => f.id !== id);
+  },
+};
+
+// ---- LEAD SOURCES ----
+let leadSources: LeadSource[] = [
+  { id: "src1", name: "Facebook Ad", color: "#3B82F6", active: true, usageCount: 47, order: 1 },
+  { id: "src2", name: "Google Ad", color: "#22C55E", active: true, usageCount: 31, order: 2 },
+  { id: "src3", name: "Direct Mail", color: "#F97316", active: true, usageCount: 89, order: 3 },
+  { id: "src4", name: "Referral", color: "#EAB308", active: true, usageCount: 23, order: 4 },
+  { id: "src5", name: "Aged Lead", color: "#6B7280", active: true, usageCount: 156, order: 5 },
+  { id: "src6", name: "Cold Call", color: "#A855F7", active: true, usageCount: 12, order: 6 },
+  { id: "src7", name: "Website", color: "#14B8A6", active: true, usageCount: 8, order: 7 },
+  { id: "src8", name: "Live Transfer", color: "#EF4444", active: true, usageCount: 34, order: 8 },
+  { id: "src9", name: "TV Ad", color: "#EC4899", active: true, usageCount: 5, order: 9 },
+  { id: "src10", name: "Radio Ad", color: "#F97316", active: true, usageCount: 3, order: 10 },
+  { id: "src11", name: "Door Knock", color: "#22C55E", active: true, usageCount: 7, order: 11 },
+  { id: "src12", name: "Networking Event", color: "#3B82F6", active: true, usageCount: 2, order: 12 },
+];
+
+export const leadSourcesApi = {
+  async getAll(): Promise<LeadSource[]> {
+    await delay(200);
+    return [...leadSources].sort((a, b) => a.order - b.order);
+  },
+  async create(data: Omit<LeadSource, "id" | "usageCount">): Promise<LeadSource> {
+    await delay(300);
+    if (leadSources.find(s => s.name.toLowerCase() === data.name.toLowerCase())) throw new Error("A source with this name already exists");
+    const s: LeadSource = { ...data, id: `src${uid()}`, usageCount: 0 };
+    leadSources.push(s);
+    return s;
+  },
+  async update(id: string, data: Partial<LeadSource>): Promise<LeadSource> {
+    await delay(300);
+    const idx = leadSources.findIndex(s => s.id === id);
+    if (idx === -1) throw new Error("Source not found");
+    leadSources[idx] = { ...leadSources[idx], ...data };
+    return leadSources[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(300);
+    leadSources = leadSources.filter(s => s.id !== id);
+  },
+  async reassignAndDelete(id: string, newSourceId: string): Promise<{ reassigned: number }> {
+    await delay(500);
+    const source = leadSources.find(s => s.id === id);
+    const newSource = leadSources.find(s => s.id === newSourceId);
+    if (!source || !newSource) throw new Error("Source not found");
+    const count = source.usageCount;
+    newSource.usageCount += count;
+    leadSources = leadSources.filter(s => s.id !== id);
+    return { reassigned: count };
+  },
+  async reorder(ids: string[]): Promise<void> {
+    await delay(200);
+    ids.forEach((id, i) => { const s = leadSources.find(s => s.id === id); if (s) s.order = i + 1; });
+  },
+};
+
+// ---- HEALTH STATUSES ----
+let healthStatuses: HealthStatus[] = [
+  { id: "hs1", name: "Preferred Plus", color: "#22C55E", description: "Excellent health, no major conditions", isDefault: true, order: 1 },
+  { id: "hs2", name: "Preferred", color: "#3B82F6", description: "Very good health, minor conditions only", isDefault: true, order: 2 },
+  { id: "hs3", name: "Standard Plus", color: "#EAB308", description: "Good health, some controlled conditions", isDefault: true, order: 3 },
+  { id: "hs4", name: "Standard", color: "#F97316", description: "Average health, manageable conditions", isDefault: true, order: 4 },
+  { id: "hs5", name: "Substandard", color: "#EF4444", description: "Below average health, significant conditions", isDefault: true, order: 5 },
+  { id: "hs6", name: "Tobacco User", color: "#6B7280", description: "Current or recent tobacco use", isDefault: true, order: 6 },
+];
+
+export const healthStatusesApi = {
+  async getAll(): Promise<HealthStatus[]> {
+    await delay(200);
+    return [...healthStatuses].sort((a, b) => a.order - b.order);
+  },
+  async create(data: Omit<HealthStatus, "id">): Promise<HealthStatus> {
+    await delay(300);
+    if (healthStatuses.find(h => h.name.toLowerCase() === data.name.toLowerCase())) throw new Error("A status with this name already exists");
+    const h: HealthStatus = { ...data, id: `hs${uid()}` };
+    healthStatuses.push(h);
+    return h;
+  },
+  async update(id: string, data: Partial<HealthStatus>): Promise<HealthStatus> {
+    await delay(300);
+    const idx = healthStatuses.findIndex(h => h.id === id);
+    if (idx === -1) throw new Error("Status not found");
+    healthStatuses[idx] = { ...healthStatuses[idx], ...data };
+    return healthStatuses[idx];
+  },
+  async delete(id: string): Promise<void> {
+    await delay(300);
+    const h = healthStatuses.find(h => h.id === id);
+    if (h?.isDefault) throw new Error("Default statuses cannot be deleted");
+    healthStatuses = healthStatuses.filter(h => h.id !== id);
+  },
+  async reorder(ids: string[]): Promise<void> {
+    await delay(200);
+    ids.forEach((id, i) => { const h = healthStatuses.find(h => h.id === id); if (h) h.order = i + 1; });
   },
 };

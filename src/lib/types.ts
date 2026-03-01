@@ -240,3 +240,43 @@ export interface Disposition {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface PipelineStage {
+  id: string;
+  name: string;
+  color: string;
+  isPositive: boolean;
+  isDefault: boolean;
+  order: number;
+  pipelineType: "lead" | "recruit";
+}
+
+export interface CustomField {
+  id: string;
+  name: string;
+  type: "Text" | "Number" | "Date" | "Dropdown";
+  appliesTo: ("Leads" | "Clients" | "Recruits")[];
+  required: boolean;
+  active: boolean;
+  defaultValue?: string;
+  dropdownOptions?: string[];
+  usageCount: number;
+}
+
+export interface LeadSource {
+  id: string;
+  name: string;
+  color: string;
+  active: boolean;
+  usageCount: number;
+  order: number;
+}
+
+export interface HealthStatus {
+  id: string;
+  name: string;
+  color: string;
+  description: string;
+  isDefault: boolean;
+  order: number;
+}
