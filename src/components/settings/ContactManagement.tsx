@@ -1000,8 +1000,8 @@ const DuplicateDetectionTab: React.FC = () => {
         {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
       </div>
       <div>
-        <p className="text-sm font-medium text-[#F1F5F9]">{label}</p>
-        <p className="text-xs text-[#64748B]">{desc}</p>
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground">{desc}</p>
       </div>
     </label>
   );
@@ -1009,15 +1009,15 @@ const DuplicateDetectionTab: React.FC = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-base font-semibold text-[#F1F5F9]">Duplicate Detection</h4>
-        <p className="text-sm text-[#94A3B8]">Control how the system identifies and handles duplicate contacts.</p>
+        <h4 className="text-base font-semibold text-foreground">Duplicate Detection</h4>
+        <p className="text-sm text-muted-foreground">Control how the system identifies and handles duplicate contacts.</p>
       </div>
 
       {/* Card 1 — Detection Rule */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Detection Rule</h5>
-          <p className="text-xs text-[#64748B]">Choose what field combination triggers a duplicate warning.</p>
+          <h5 className="text-sm font-bold text-foreground">Detection Rule</h5>
+          <p className="text-xs text-muted-foreground">Choose what field combination triggers a duplicate warning.</p>
         </div>
         <div className="space-y-1">
           <RadioOption name="rule" value="phone_only" current={detectionRule} onChange={setDetectionRule} label="Match on Phone Only" desc="Flag as duplicate if phone number already exists" />
@@ -1028,10 +1028,10 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 2 — Detection Scope */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Detection Scope</h5>
-          <p className="text-xs text-[#64748B]">Define which contacts are checked when looking for duplicates.</p>
+          <h5 className="text-sm font-bold text-foreground">Detection Scope</h5>
+          <p className="text-xs text-muted-foreground">Define which contacts are checked when looking for duplicates.</p>
         </div>
         <div className="space-y-1">
           <RadioOption name="scope" value="all_agents" current={detectionScope} onChange={setDetectionScope} label="Check Across All Agents" desc="A duplicate is flagged regardless of which agent owns the contact" />
@@ -1040,19 +1040,19 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 3 — On Duplicate Found */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">On Duplicate Found</h5>
-          <p className="text-xs text-[#64748B]">Choose what happens when a duplicate is detected.</p>
+          <h5 className="text-sm font-bold text-foreground">On Duplicate Found</h5>
+          <p className="text-xs text-muted-foreground">Choose what happens when a duplicate is detected.</p>
         </div>
         <div className="space-y-1">
-          <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide">When Adding Manually</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">When Adding Manually</p>
           <RadioOption name="manual" value="warn" current={manualAction} onChange={setManualAction} label="Show Warning and Let Agent Decide" desc="Agent sees a side-by-side comparison and can save anyway, merge, or cancel" />
           <RadioOption name="manual" value="block" current={manualAction} onChange={setManualAction} label="Block Save Entirely" desc="Agent cannot save the contact until the duplicate is resolved" />
         </div>
-        <div className="border-t border-[#334155]" />
+        <div className="border-t border-border" />
         <div className="space-y-1">
-          <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide">When Importing via CSV</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">When Importing via CSV</p>
           <RadioOption name="csv" value="skip" current={csvAction} onChange={setCsvAction} label="Skip Duplicates Automatically" desc="Duplicate rows are ignored and not imported" />
           <RadioOption name="csv" value="flag" current={csvAction} onChange={setCsvAction} label="Flag for Review" desc="Import proceeds but duplicates are marked for admin review" />
           <RadioOption name="csv" value="import" current={csvAction} onChange={setCsvAction} label="Import Anyway" desc="All rows import regardless of duplicates, a Duplicate tag is applied" />
@@ -1060,28 +1060,28 @@ const DuplicateDetectionTab: React.FC = () => {
       </div>
 
       {/* Card 4 — Merge Settings */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-4">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-4">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Merge Settings</h5>
-          <p className="text-xs text-[#64748B]">Control how duplicate contacts can be merged.</p>
+          <h5 className="text-sm font-bold text-foreground">Merge Settings</h5>
+          <p className="text-xs text-muted-foreground">Control how duplicate contacts can be merged.</p>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-[#F1F5F9]">Allow Contact Merging</p>
-            <p className="text-xs text-[#64748B]">When enabled, agents can merge two duplicate contact records into one.</p>
+            <p className="text-sm font-medium text-foreground">Allow Contact Merging</p>
+            <p className="text-xs text-muted-foreground">When enabled, agents can merge two duplicate contact records into one.</p>
           </div>
           <Switch checked={allowMerge} onCheckedChange={v => { setAllowMerge(v); markDirty(); }} />
         </div>
         {allowMerge && (
-          <div className="pl-4 border-l-2 border-[#334155] space-y-4">
+          <div className="pl-4 border-l-2 border-border space-y-4">
             <div className="space-y-1">
-              <p className="text-xs font-semibold text-[#94A3B8]">When Merging, Which Record Wins</p>
+              <p className="text-xs font-semibold text-muted-foreground">When Merging, Which Record Wins</p>
               <RadioOption name="winner" value="newest" current={mergeWinner} onChange={setMergeWinner} label="Newest Record Keeps All Fields" desc="" />
               <RadioOption name="winner" value="oldest" current={mergeWinner} onChange={setMergeWinner} label="Oldest Record Keeps All Fields" desc="" />
               <RadioOption name="winner" value="manual" current={mergeWinner} onChange={setMergeWinner} label="Manual Field-by-Field Selection" desc="Agent chooses which value to keep for each field" />
             </div>
             <div className="space-y-1">
-              <p className="text-xs font-semibold text-[#94A3B8]">Who Can Merge Contacts</p>
+              <p className="text-xs font-semibold text-muted-foreground">Who Can Merge Contacts</p>
               <RadioOption name="perm" value="agents_admins" current={mergePermission} onChange={setMergePermission} label="Agents and Admins" desc="" />
               <RadioOption name="perm" value="admins_only" current={mergePermission} onChange={setMergePermission} label="Admins Only" desc="" />
             </div>
@@ -1125,13 +1125,13 @@ const RequiredFieldsTab: React.FC = () => {
   };
 
   const FieldRow = ({ name, locked, checked, onChange }: { name: string; locked?: boolean; checked: boolean; onChange?: (v: boolean) => void }) => (
-    <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#334155] last:border-b-0">
-      <span className="text-sm text-[#F1F5F9]">{name}</span>
+    <div className="flex items-center justify-between px-4 py-2.5 border-b border-border last:border-b-0">
+      <span className="text-sm text-foreground">{name}</span>
       <div className="flex items-center gap-2">
         {locked && (
           <TooltipProvider>
             <Tooltip>
-              <TooltipTrigger asChild><Lock className="w-3.5 h-3.5 text-[#64748B]" /></TooltipTrigger>
+              <TooltipTrigger asChild><Lock className="w-3.5 h-3.5 text-muted-foreground" /></TooltipTrigger>
               <TooltipContent><p>This field is always required and cannot be turned off</p></TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1144,8 +1144,8 @@ const RequiredFieldsTab: React.FC = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-base font-semibold text-[#F1F5F9]">Required Fields</h4>
-        <p className="text-sm text-[#94A3B8]">Choose which fields agents must fill in before a contact record can be saved.</p>
+        <h4 className="text-base font-semibold text-foreground">Required Fields</h4>
+        <p className="text-sm text-muted-foreground">Choose which fields agents must fill in before a contact record can be saved.</p>
       </div>
 
       {/* Info banner */}
@@ -1158,10 +1158,10 @@ const RequiredFieldsTab: React.FC = () => {
         {/* Lead Fields */}
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <h5 className="text-sm font-semibold text-[#F1F5F9]">Lead Fields</h5>
+            <h5 className="text-sm font-semibold text-foreground">Lead Fields</h5>
             <span className="text-[10px] bg-[#3B82F6]/20 text-[#3B82F6] px-1.5 py-0.5 rounded font-medium">Leads</span>
           </div>
-          <div className="bg-card border border-[#334155] rounded-lg overflow-hidden">
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
             {LEAD_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
             {LEAD_OPTIONAL.map(f => (
               <FieldRow key={f} name={f} checked={leadRequired[f]} onChange={v => setLeadRequired(prev => ({ ...prev, [f]: v }))} />
@@ -1172,10 +1172,10 @@ const RequiredFieldsTab: React.FC = () => {
         {/* Client Fields */}
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <h5 className="text-sm font-semibold text-[#F1F5F9]">Client Fields</h5>
+            <h5 className="text-sm font-semibold text-foreground">Client Fields</h5>
             <span className="text-[10px] bg-[#22C55E]/20 text-[#22C55E] px-1.5 py-0.5 rounded font-medium">Clients</span>
           </div>
-          <div className="bg-card border border-[#334155] rounded-lg overflow-hidden">
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
             {CLIENT_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
             {CLIENT_OPTIONAL.map(f => (
               <FieldRow key={f} name={f} checked={clientRequired[f]} onChange={v => setClientRequired(prev => ({ ...prev, [f]: v }))} />
@@ -1244,8 +1244,8 @@ const AssignmentRulesTab: React.FC = () => {
         {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
       </div>
       <div>
-        <p className="text-sm font-medium text-[#F1F5F9]">{label}</p>
-        {desc && <p className="text-xs text-[#64748B]">{desc}</p>}
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {desc && <p className="text-xs text-muted-foreground">{desc}</p>}
       </div>
     </label>
   );
@@ -1258,7 +1258,7 @@ const AssignmentRulesTab: React.FC = () => {
     <>
       {m === "specific" && (
         <div className="pl-7 mt-2">
-          <label className="text-xs font-medium text-[#94A3B8] block mb-1.5">Assign all new contacts to:</label>
+          <label className="text-xs font-medium text-muted-foreground block mb-1.5">Assign all new contacts to:</label>
           <Select value={agent} onValueChange={setAgent}>
             <SelectTrigger className="w-64"><SelectValue placeholder="Select an agent..." /></SelectTrigger>
             <SelectContent>
@@ -1270,13 +1270,13 @@ const AssignmentRulesTab: React.FC = () => {
       {m === "round_robin" && (
         <div className="pl-7 mt-2 space-y-2">
           {MOCK_AGENTS.map(a => (
-            <div key={a.id} className="flex items-center justify-between bg-card border border-[#334155] rounded-lg px-3 py-2">
+            <div key={a.id} className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-full bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center text-[10px] font-bold">{a.initials}</div>
-                <span className="text-sm text-[#F1F5F9]">{a.name}</span>
+                <span className="text-sm text-foreground">{a.name}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-[#64748B]">Include</span>
+                <span className="text-[10px] text-muted-foreground">Include</span>
                 <Switch checked={rot[a.id]} onCheckedChange={v => setRot(prev => ({ ...prev, [a.id]: v }))} />
               </div>
             </div>
@@ -1287,7 +1287,7 @@ const AssignmentRulesTab: React.FC = () => {
               <p className="text-xs text-[#F97316]">No agents are in the rotation. New contacts will be Unassigned until at least one agent is added.</p>
             </div>
           ) : (
-            <p className="text-xs text-[#64748B]">Next in queue: {firstIn?.name}</p>
+            <p className="text-xs text-muted-foreground">Next in queue: {firstIn?.name}</p>
           )}
         </div>
       )}
@@ -1297,8 +1297,8 @@ const AssignmentRulesTab: React.FC = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-base font-semibold text-[#F1F5F9]">Assignment Rules</h4>
-        <p className="text-sm text-[#94A3B8]">Control how new leads are assigned when added manually or imported via CSV.</p>
+        <h4 className="text-base font-semibold text-foreground">Assignment Rules</h4>
+        <p className="text-sm text-muted-foreground">Control how new leads are assigned when added manually or imported via CSV.</p>
       </div>
 
       <div className="bg-[#1E3A5F] border border-[#3B82F6] rounded-lg p-3 flex items-start gap-2.5">
@@ -1307,10 +1307,10 @@ const AssignmentRulesTab: React.FC = () => {
       </div>
 
       {/* Card 1 */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Default Assignment Method</h5>
-          <p className="text-xs text-[#64748B]">Choose how new leads are assigned when added to the system.</p>
+          <h5 className="text-sm font-bold text-foreground">Default Assignment Method</h5>
+          <p className="text-xs text-muted-foreground">Choose how new leads are assigned when added to the system.</p>
         </div>
         <RadioOption value="unassigned" current={method} onChange={setMethod} label="Unassigned" desc="New contacts are added without an assigned agent. Admin or agents assign manually." />
         <RadioOption value="specific" current={method} onChange={setMethod} label="Always Assign to Specific Agent" desc="Every new contact is assigned to one designated agent." />
@@ -1319,17 +1319,17 @@ const AssignmentRulesTab: React.FC = () => {
       </div>
 
       {/* Card 2 */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Import Override</h5>
-          <p className="text-xs text-[#64748B]">Choose whether CSV imports follow the same assignment rule or use a different method.</p>
+          <h5 className="text-sm font-bold text-foreground">Import Override</h5>
+          <p className="text-xs text-muted-foreground">Choose whether CSV imports follow the same assignment rule or use a different method.</p>
         </div>
         <div className="flex items-center justify-between">
-          <p className="text-sm text-[#F1F5F9]">Use a different assignment method for CSV imports</p>
+          <p className="text-sm text-foreground">Use a different assignment method for CSV imports</p>
           <Switch checked={importOverride} onCheckedChange={v => { setImportOverride(v); if (v) setImportMethod("unassigned"); }} />
         </div>
         {importOverride && (
-          <div className="space-y-1 pt-2 border-t border-[#334155]">
+          <div className="space-y-1 pt-2 border-t border-border">
             <RadioOption value="unassigned" current={importMethod} onChange={setImportMethod} label="Unassigned" desc="Imported contacts have no agent assigned." />
             <RadioOption value="specific" current={importMethod} onChange={setImportMethod} label="Always Assign to Specific Agent" desc="Every imported contact is assigned to one designated agent." />
             <RadioOption value="round_robin" current={importMethod} onChange={setImportMethod} label="Round Robin Among Active Agents" desc="Imported contacts are distributed evenly." />
@@ -1417,7 +1417,7 @@ const DisplaySettingsTab: React.FC = () => {
   };
 
   const RadioTile = ({ value, current, onChange, label }: { value: string; current: string; onChange: (v: string) => void; label: string }) => (
-    <button onClick={() => onChange(value)} className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${current === value ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] text-[#94A3B8] hover:border-[#64748B]"}`}>
+    <button onClick={() => onChange(value)} className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${current === value ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
       {label}
     </button>
   );
@@ -1425,38 +1425,38 @@ const DisplaySettingsTab: React.FC = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-base font-semibold text-[#F1F5F9]">Display Settings</h4>
-        <p className="text-sm text-[#94A3B8]">Control how the Contacts page looks and behaves by default for all agents.</p>
+        <h4 className="text-base font-semibold text-foreground">Display Settings</h4>
+        <p className="text-sm text-muted-foreground">Control how the Contacts page looks and behaves by default for all agents.</p>
       </div>
 
       {/* Card 1 — Default Table Columns */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Default Table Columns</h5>
-          <p className="text-xs text-[#64748B]">Choose which columns appear in the Leads table by default. Agents can customize their own view but this sets the starting point.</p>
+          <h5 className="text-sm font-bold text-foreground">Default Table Columns</h5>
+          <p className="text-xs text-muted-foreground">Choose which columns appear in the Leads table by default. Agents can customize their own view but this sets the starting point.</p>
         </div>
         <div className="space-y-1">
           {/* Locked columns first */}
           {columns.filter(c => c.locked).map(c => (
             <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg">
               <Checkbox checked disabled className="opacity-40" />
-              <span className="flex-1 text-sm text-[#F1F5F9]">{c.name}</span>
-              <Lock className="w-3.5 h-3.5 text-[#64748B]" />
+              <span className="flex-1 text-sm text-foreground">{c.name}</span>
+              <Lock className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
           ))}
           {/* Toggleable columns */}
           {columns.filter(c => !c.locked).map(c => (
             <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
               <Checkbox checked={c.checked} onCheckedChange={() => toggleColumn(c.name)} />
-              <span className="flex-1 text-sm text-[#F1F5F9]">{c.name}</span>
-              {c.checked && <GripVertical className="w-4 h-4 text-[#64748B] cursor-grab" />}
+              <span className="flex-1 text-sm text-foreground">{c.name}</span>
+              {c.checked && <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />}
             </div>
           ))}
         </div>
         {/* Drag reorder for checked columns */}
         {checkedColumns.length > 0 && (
           <div>
-            <p className="text-xs text-[#64748B] mb-2">Drag to reorder visible columns:</p>
+            <p className="text-xs text-muted-foreground mb-2">Drag to reorder visible columns:</p>
             <div className="flex flex-wrap gap-1.5">
               {checkedColumns.map((c, idx) => (
                 <span
@@ -1466,7 +1466,7 @@ const DisplaySettingsTab: React.FC = () => {
                   onDragOver={e => { e.preventDefault(); setOverIdx(idx); }}
                   onDrop={() => handleColumnDrop(idx)}
                   onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-[#334155] bg-muted"} ${dragIdx === idx ? "opacity-50" : ""} text-[#F1F5F9]`}
+                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-border bg-muted"} ${dragIdx === idx ? "opacity-50" : ""} text-foreground`}
                 >
                   {c.name}
                 </span>
@@ -1474,18 +1474,18 @@ const DisplaySettingsTab: React.FC = () => {
             </div>
           </div>
         )}
-        <p className="text-xs text-[#64748B]">Current column order: {previewText}</p>
+        <p className="text-xs text-muted-foreground">Current column order: {previewText}</p>
       </div>
 
       {/* Card 2 — Default Sort */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Default Sort</h5>
-          <p className="text-xs text-[#64748B]">Choose how the Leads table is sorted when an agent first loads it.</p>
+          <h5 className="text-sm font-bold text-foreground">Default Sort</h5>
+          <p className="text-xs text-muted-foreground">Choose how the Leads table is sorted when an agent first loads it.</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex-1">
-            <label className="text-xs text-[#94A3B8] block mb-1">Sort by</label>
+            <label className="text-xs text-muted-foreground block mb-1">Sort by</label>
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -1494,22 +1494,22 @@ const DisplaySettingsTab: React.FC = () => {
             </Select>
           </div>
           <div className="flex items-center gap-2 pt-4">
-            <span className="text-xs text-[#94A3B8]">Ascending</span>
+            <span className="text-xs text-muted-foreground">Ascending</span>
             <Switch checked={sortDesc} onCheckedChange={setSortDesc} />
-            <span className="text-xs text-[#94A3B8]">Descending</span>
+            <span className="text-xs text-muted-foreground">Descending</span>
           </div>
         </div>
       </div>
 
       {/* Card 3 — Records Per Page */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Records Per Page</h5>
-          <p className="text-xs text-[#64748B]">How many contacts load per page in the Leads table.</p>
+          <h5 className="text-sm font-bold text-foreground">Records Per Page</h5>
+          <p className="text-xs text-muted-foreground">How many contacts load per page in the Leads table.</p>
         </div>
         <div className="flex gap-3">
           {[25, 50, 100].map(n => (
-            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-[#94A3B8] hover:border-[#64748B]"}`}>
+            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
               {n}
             </button>
           ))}
@@ -1517,49 +1517,49 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 4 — Lead Aging Thresholds */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-4">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-4">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Lead Aging Thresholds</h5>
-          <p className="text-xs text-[#64748B]">Customize when lead aging indicators change color. Based on days since last contact.</p>
+          <h5 className="text-sm font-bold text-foreground">Lead Aging Thresholds</h5>
+          <p className="text-xs text-muted-foreground">Customize when lead aging indicators change color. Based on days since last contact.</p>
         </div>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <span className="w-4 h-4 rounded-full bg-[#22C55E] shrink-0" />
-            <span className="text-sm text-[#F1F5F9] w-24">Fresh</span>
-            <span className="text-xs text-[#64748B] w-8">0 to</span>
+            <span className="text-sm text-foreground w-24">Fresh</span>
+            <span className="text-xs text-muted-foreground w-8">0 to</span>
             <Input type="number" value={agingFresh} onChange={e => { setAgingFresh(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={1} />
-            <span className="text-xs text-[#64748B]">days</span>
+            <span className="text-xs text-muted-foreground">days</span>
           </div>
           {agingErrors.fresh && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.fresh}</p>}
 
           <div className="flex items-center gap-3">
             <span className="w-4 h-4 rounded-full bg-[#EAB308] shrink-0" />
-            <span className="text-sm text-[#F1F5F9] w-24">Getting Old</span>
-            <span className="text-xs text-[#64748B] w-8">{agingFresh + 1} to</span>
+            <span className="text-sm text-foreground w-24">Getting Old</span>
+            <span className="text-xs text-muted-foreground w-8">{agingFresh + 1} to</span>
             <Input type="number" value={agingOld} onChange={e => { setAgingOld(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={agingFresh + 1} />
-            <span className="text-xs text-[#64748B]">days</span>
+            <span className="text-xs text-muted-foreground">days</span>
           </div>
           {agingErrors.old && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.old}</p>}
 
           <div className="flex items-center gap-3">
             <span className="w-4 h-4 rounded-full bg-[#F97316] shrink-0" />
-            <span className="text-sm text-[#F1F5F9] w-24">Stale</span>
-            <span className="text-xs text-[#64748B] w-8">{agingOld + 1} to</span>
+            <span className="text-sm text-foreground w-24">Stale</span>
+            <span className="text-xs text-muted-foreground w-8">{agingOld + 1} to</span>
             <Input type="number" value={agingStale} onChange={e => { setAgingStale(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={agingOld + 1} />
-            <span className="text-xs text-[#64748B]">days</span>
+            <span className="text-xs text-muted-foreground">days</span>
           </div>
           {agingErrors.stale && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.stale}</p>}
 
           <div className="flex items-center gap-3">
             <span className="w-4 h-4 rounded-full bg-[#EF4444] shrink-0 flex items-center justify-center text-[8px]">🔥</span>
-            <span className="text-sm text-[#F1F5F9] w-24">Urgent</span>
-            <span className="text-xs text-[#64748B]">{agingStale + 1}+ days</span>
+            <span className="text-sm text-foreground w-24">Urgent</span>
+            <span className="text-xs text-muted-foreground">{agingStale + 1}+ days</span>
           </div>
         </div>
 
         {/* Live preview bar */}
         <div className="mt-3">
-          <div className="flex h-6 rounded-lg overflow-hidden border border-[#334155]">
+          <div className="flex h-6 rounded-lg overflow-hidden border border-border">
             <div className="bg-[#22C55E] flex-1 flex items-center justify-center text-[9px] font-bold text-white">0-{agingFresh}d</div>
             <div className="bg-[#EAB308] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingFresh + 1}-{agingOld}d</div>
             <div className="bg-[#F97316] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingOld + 1}-{agingStale}d</div>
@@ -1569,10 +1569,10 @@ const DisplaySettingsTab: React.FC = () => {
       </div>
 
       {/* Card 5 — Contact Modal Default Tab */}
-      <div className="bg-card border border-[#334155] rounded-lg p-5 space-y-3">
+      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
-          <h5 className="text-sm font-bold text-[#F1F5F9]">Contact Modal Default Tab</h5>
-          <p className="text-xs text-[#64748B]">Choose which tab opens first when an agent clicks on a contact.</p>
+          <h5 className="text-sm font-bold text-foreground">Contact Modal Default Tab</h5>
+          <p className="text-xs text-muted-foreground">Choose which tab opens first when an agent clicks on a contact.</p>
         </div>
         <div className="grid grid-cols-2 gap-2">
           {[
