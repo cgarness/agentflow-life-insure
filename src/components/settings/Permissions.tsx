@@ -393,9 +393,9 @@ const Permissions: React.FC = () => {
 
       {/* Info banner */}
       {!isAdmin && (
-        <div className="flex items-start gap-3 p-3 rounded-lg" style={{ backgroundColor: "#1E3A5F", border: "1px solid #3B82F6" }}>
-          <Info className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#93C5FD" }} />
-          <p className="text-xs" style={{ color: "#93C5FD" }}>
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary/50">
+          <Info className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+          <p className="text-xs text-primary">
             Permission changes apply to active sessions within 60 seconds. All changes are logged to the Activity Log.
           </p>
         </div>
