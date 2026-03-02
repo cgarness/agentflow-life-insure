@@ -161,8 +161,8 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; disab
     type="button"
     disabled={disabled}
     onClick={() => !disabled && onChange(!checked)}
-    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "" : ""}`}
-    style={{ backgroundColor: checked ? "#3B82F6" : "#334155" }}
+    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "" : "bg-muted"}`}
+    style={{ backgroundColor: checked ? "#3B82F6" : undefined }}
   >
     <span
       className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-200"
@@ -180,7 +180,7 @@ const AccordionSection: React.FC<{
 }> = ({ title, description, icon: Icon, defaultOpen = true, children }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ backgroundColor: "#1E293B", borderColor: "#334155" }} className="rounded-lg border">
+    <div className="rounded-lg border border-border bg-card">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between p-4 text-left"
@@ -188,13 +188,13 @@ const AccordionSection: React.FC<{
         <div className="flex items-center gap-3">
           <Icon className="w-5 h-5" style={{ color: "#3B82F6" }} />
           <div>
-            <h3 className="text-sm font-semibold" style={{ color: "#F1F5F9" }}>{title}</h3>
-            <p className="text-xs" style={{ color: "#64748B" }}>{description}</p>
+            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+            <p className="text-xs text-muted-foreground">{description}</p>
           </div>
         </div>
         <ChevronDown
-          className="w-4 h-4 transition-transform duration-200"
-          style={{ color: "#94A3B8", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+          className="w-4 h-4 transition-transform duration-200 text-muted-foreground"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
         />
       </button>
       <div
@@ -214,19 +214,14 @@ const DataScopePills: React.FC<{ value: DataScope; onChange: (v: DataScope) => v
     { val: "all", label: "All Agents" },
   ];
   return (
-    <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #334155" }}>
+    <div className="flex rounded-lg overflow-hidden border border-border">
       {opts.map((o) => (
         <button
           key={o.val}
           disabled={disabled}
           onClick={() => !disabled && onChange(o.val)}
-          className="flex-1 py-2 text-xs font-medium transition-colors"
-          style={{
-            backgroundColor: value === o.val ? "#3B82F6" : "#0F172A",
-            color: value === o.val ? "#FFFFFF" : "#94A3B8",
-            cursor: disabled ? "not-allowed" : "pointer",
-            opacity: disabled ? 0.4 : 1,
-          }}
+          className={`flex-1 py-2 text-xs font-medium transition-colors ${value === o.val ? "text-white" : "bg-background text-muted-foreground"} ${disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
+          style={{ backgroundColor: value === o.val ? "#3B82F6" : undefined }}
         >
           {o.label}
         </button>
@@ -377,21 +372,18 @@ const Permissions: React.FC = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold" style={{ color: "#F1F5F9" }}>Permissions</h3>
-        <p className="text-sm" style={{ color: "#94A3B8" }}>Manage role-based access controls for your team.</p>
+        <h3 className="text-lg font-semibold text-foreground">Permissions</h3>
+        <p className="text-sm text-muted-foreground">Manage role-based access controls for your team.</p>
       </div>
 
       {/* Role tabs */}
-      <div className="flex gap-1 rounded-lg p-1" style={{ backgroundColor: "#0F172A", border: "1px solid #334155" }}>
+      <div className="flex gap-1 rounded-lg p-1 bg-background border border-border">
         {roles.map((r) => (
           <button
             key={r.key}
             onClick={() => switchRole(r.key)}
-            className="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
-            style={{
-              backgroundColor: activeRole === r.key ? "#3B82F6" : "transparent",
-              color: activeRole === r.key ? "#FFFFFF" : "#94A3B8",
-            }}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeRole === r.key ? "text-white" : "text-muted-foreground"}`}
+            style={{ backgroundColor: activeRole === r.key ? "#3B82F6" : "transparent" }}
           >
             {r.key === "admin" && <Lock className="w-3.5 h-3.5" />}
             {r.label}
@@ -411,11 +403,11 @@ const Permissions: React.FC = () => {
 
       {/* Admin locked banner */}
       {isAdmin && (
-        <div className="flex items-start gap-3 p-4 rounded-lg" style={{ backgroundColor: "#1E293B", border: "1px solid #334155" }}>
-          <Lock className="w-5 h-5 mt-0.5 shrink-0" style={{ color: "#64748B" }} />
+        <div className="flex items-start gap-3 p-4 rounded-lg bg-card border border-border">
+          <Lock className="w-5 h-5 mt-0.5 shrink-0 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium" style={{ color: "#F1F5F9" }}>Admin has full access to everything and cannot be restricted.</p>
-            <p className="text-xs mt-1" style={{ color: "#64748B" }}>All permissions below are shown as read-only for reference.</p>
+            <p className="text-sm font-medium text-foreground">Admin has full access to everything and cannot be restricted.</p>
+            <p className="text-xs mt-1 text-muted-foreground">All permissions below are shown as read-only for reference.</p>
           </div>
         </div>
       )}
@@ -430,12 +422,11 @@ const Permissions: React.FC = () => {
               return (
                 <div
                   key={page.name}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg"
-                  style={{ backgroundColor: "#0F172A", opacity: !val && !isAdmin ? 0.5 : 1 }}
+                  className={`flex items-center justify-between py-2 px-3 rounded-lg bg-background ${!val && !isAdmin ? "opacity-50" : ""}`}
                 >
                   <div className="flex items-center gap-3">
-                    <page.icon className="w-4 h-4" style={{ color: "#94A3B8" }} />
-                    <span className="text-sm" style={{ color: "#F1F5F9" }}>{page.name}</span>
+                    <page.icon className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm text-foreground">{page.name}</span>
                     {!val && !isAdmin && (
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: "#EF44441A", color: "#EF4444" }}>
                         Hidden
@@ -448,8 +439,8 @@ const Permissions: React.FC = () => {
             })}
           </div>
           <div className="flex items-start gap-2 mt-3">
-            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "#64748B" }} />
-            <p className="text-xs" style={{ color: "#64748B" }}>
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">
               Settings is always hidden for Agents and Team Leaders by default. Admins always have full access.
             </p>
           </div>
@@ -469,12 +460,11 @@ const Permissions: React.FC = () => {
                     return (
                       <div
                         key={feat.name}
-                        className="flex items-center justify-between py-2 px-3 rounded-lg"
-                        style={{ backgroundColor: "#0F172A" }}
+                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-background"
                       >
                         <div>
-                          <p className="text-sm" style={{ color: "#F1F5F9" }}>{feat.name}</p>
-                          <p className="text-xs" style={{ color: "#64748B" }}>{feat.description}</p>
+                          <p className="text-sm text-foreground">{feat.name}</p>
+                          <p className="text-xs text-muted-foreground">{feat.description}</p>
                         </div>
                         <Toggle checked={val} onChange={() => toggleFeature(catIdx, featIdx)} disabled={isAdmin} />
                       </div>
@@ -492,9 +482,9 @@ const Permissions: React.FC = () => {
             {dataAccess.map((item, idx) => {
               const val = isAdmin ? "all" as DataScope : (item as any)[activeRole] as DataScope;
               return (
-                <div key={item.label} className="p-3 rounded-lg" style={{ backgroundColor: "#0F172A" }}>
-                  <p className="text-sm font-medium mb-1" style={{ color: "#F1F5F9" }}>{item.label}</p>
-                  <p className="text-xs mb-3" style={{ color: "#64748B" }}>{item.description}</p>
+                <div key={item.label} className="p-3 rounded-lg bg-background">
+                  <p className="text-sm font-medium mb-1 text-foreground">{item.label}</p>
+                  <p className="text-xs mb-3 text-muted-foreground">{item.description}</p>
                   <DataScopePills value={val} onChange={(v) => updateDataScope(idx, v)} disabled={isAdmin} />
                 </div>
               );
@@ -510,12 +500,11 @@ const Permissions: React.FC = () => {
               return (
                 <div
                   key={item.name}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg"
-                  style={{ backgroundColor: "#0F172A" }}
+                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-background"
                 >
                   <div>
-                    <p className="text-sm" style={{ color: "#F1F5F9" }}>{item.name}</p>
-                    <p className="text-xs" style={{ color: "#64748B" }}>{item.description}</p>
+                    <p className="text-sm text-foreground">{item.name}</p>
+                    <p className="text-xs text-muted-foreground">{item.description}</p>
                   </div>
                   <Toggle checked={val} onChange={() => toggleCommission(idx)} disabled={isAdmin} />
                 </div>
@@ -537,8 +526,7 @@ const Permissions: React.FC = () => {
           </button>
           <button
             onClick={handleReset}
-            className="w-full py-2.5 rounded-lg text-sm font-medium transition-colors"
-            style={{ backgroundColor: "transparent", color: "#94A3B8", border: "1px solid #334155" }}
+            className="w-full py-2.5 rounded-lg text-sm font-medium transition-colors bg-transparent text-muted-foreground border border-border"
           >
             Reset to Defaults
           </button>
@@ -547,15 +535,15 @@ const Permissions: React.FC = () => {
 
       {/* Confirm dialog */}
       <AlertDialog open={confirmDialog.open} onOpenChange={(o) => !o && setConfirmDialog((p) => ({ ...p, open: false }))}>
-        <AlertDialogContent style={{ backgroundColor: "#1E293B", borderColor: "#334155" }}>
+        <AlertDialogContent className="bg-card border-border">
           <AlertDialogHeader>
-            <AlertDialogTitle style={{ color: "#F1F5F9" }}>{confirmDialog.title}</AlertDialogTitle>
-            <AlertDialogDescription style={{ color: "#94A3B8" }}>{confirmDialog.desc}</AlertDialogDescription>
+            <AlertDialogTitle className="text-foreground">{confirmDialog.title}</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">{confirmDialog.desc}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
               onClick={() => { setConfirmDialog((p) => ({ ...p, open: false })); setPendingRole(null); }}
-              style={{ backgroundColor: "#334155", color: "#F1F5F9", border: "none" }}
+              className="bg-muted text-foreground border-none"
             >
               Cancel
             </AlertDialogCancel>

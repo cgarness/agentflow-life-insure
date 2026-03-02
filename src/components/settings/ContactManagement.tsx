@@ -996,7 +996,7 @@ const DuplicateDetectionTab: React.FC = () => {
 
   const RadioOption = ({ name, value, current, onChange, label, desc }: { name: string; value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
     <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => { onChange(value); markDirty(); }}>
-      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
+      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-border"}`}>
         {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
       </div>
       <div>
@@ -1240,7 +1240,7 @@ const AssignmentRulesTab: React.FC = () => {
 
   const RadioOption = ({ value, current, onChange, label, desc }: { value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
     <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => onChange(value)}>
-      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
+      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-border"}`}>
         {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
       </div>
       <div>
@@ -1417,7 +1417,7 @@ const DisplaySettingsTab: React.FC = () => {
   };
 
   const RadioTile = ({ value, current, onChange, label }: { value: string; current: string; onChange: (v: string) => void; label: string }) => (
-    <button onClick={() => onChange(value)} className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${current === value ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
+    <button onClick={() => onChange(value)} className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${current === value ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-border"}`}>
       {label}
     </button>
   );
@@ -1509,7 +1509,7 @@ const DisplaySettingsTab: React.FC = () => {
         </div>
         <div className="flex gap-3">
           {[25, 50, 100].map(n => (
-            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
+            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-border"}`}>
               {n}
             </button>
           ))}

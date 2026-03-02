@@ -171,25 +171,20 @@ const CompanyBranding: React.FC = () => {
     }
   };
 
-  const selectClasses = "w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50 appearance-none cursor-pointer";
+  const selectClasses = "w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50 appearance-none cursor-pointer bg-muted border border-border text-foreground";
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold" style={{ color: "#F1F5F9" }}>Company Branding</h3>
-          <p className="text-sm" style={{ color: "#94A3B8" }}>Customize how your agency appears across AgentFlow</p>
+          <h3 className="text-lg font-semibold text-foreground">Company Branding</h3>
+          <p className="text-sm text-muted-foreground">Customize how your agency appears across AgentFlow</p>
         </div>
         <button
           onClick={handleSave}
           disabled={!isDirty || saving}
-          className="px-5 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors"
-          style={{
-            backgroundColor: isDirty && !saving ? "#3B82F6" : "#334155",
-            cursor: isDirty && !saving ? "pointer" : "not-allowed",
-            opacity: isDirty && !saving ? 1 : 0.7,
-          }}
+          className={`px-5 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors ${isDirty && !saving ? "bg-primary cursor-pointer opacity-100" : "bg-muted cursor-not-allowed opacity-70"}`}
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin" />}
           Save Changes
@@ -197,11 +192,11 @@ const CompanyBranding: React.FC = () => {
       </div>
 
       {/* Form Card */}
-      <div className="rounded-lg p-6 space-y-6" style={{ backgroundColor: "#1E293B", border: "1px solid #334155" }}>
+      <div className="rounded-lg p-6 space-y-6 bg-card border border-border">
 
         {/* Company Name */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Company Name</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Company Name</label>
           <input
             type="text"
             value={state.companyName}
@@ -209,22 +204,21 @@ const CompanyBranding: React.FC = () => {
               if (e.target.value.length <= 100) update({ companyName: e.target.value });
             }}
             placeholder="Enter your company name"
-            className="w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50"
-            style={{ backgroundColor: "#334155", border: "1px solid #475569", color: "#F1F5F9" }}
+            className="w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50 bg-muted border border-border text-foreground"
           />
           {nameError && <p className="text-xs mt-1" style={{ color: "#EF4444" }}>Company name is required</p>}
         </div>
 
         {/* Company Logo */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Company Logo</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Company Logo</label>
           {state.logoUrl ? (
             <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-full overflow-hidden flex items-center justify-center" style={{ backgroundColor: "#334155" }}>
+              <div className="w-20 h-20 rounded-full overflow-hidden flex items-center justify-center bg-muted">
                 <img src={state.logoUrl} alt="Logo" className="w-full h-full object-cover" />
               </div>
               <div>
-                <p className="text-sm" style={{ color: "#F1F5F9" }}>{state.logoName}</p>
+                <p className="text-sm text-foreground">{state.logoName}</p>
                 <button onClick={() => update({ logoUrl: null, logoName: null })} className="text-xs mt-1 font-medium" style={{ color: "#EF4444" }}>Remove</button>
               </div>
             </div>
@@ -233,12 +227,11 @@ const CompanyBranding: React.FC = () => {
               onClick={() => logoInputRef.current?.click()}
               onDragOver={e => e.preventDefault()}
               onDrop={e => handleDrop(e, "logo")}
-              className="rounded-md p-6 text-center cursor-pointer transition-colors hover:opacity-80"
-              style={{ border: "2px dashed #334155", backgroundColor: "transparent" }}
+              className="rounded-md p-6 text-center cursor-pointer transition-colors hover:opacity-80 border-2 border-dashed border-border bg-transparent"
             >
-              <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: "#64748B" }} />
-              <p className="text-sm" style={{ color: "#94A3B8" }}>Drag and drop your logo here, or click to browse</p>
-              <p className="text-xs mt-1" style={{ color: "#64748B" }}>JPG, PNG, SVG — max 5MB</p>
+              <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Drag and drop your logo here, or click to browse</p>
+              <p className="text-xs mt-1 text-muted-foreground">JPG, PNG, SVG — max 5MB</p>
             </div>
           )}
           <input ref={logoInputRef} type="file" accept=".jpg,.jpeg,.png,.svg" className="hidden" onChange={e => handleFileUpload(e, "logo")} />
@@ -246,15 +239,15 @@ const CompanyBranding: React.FC = () => {
 
         {/* Favicon */}
         <div>
-          <label className="block text-sm font-medium mb-0.5" style={{ color: "#94A3B8" }}>Favicon</label>
-          <p className="text-xs mb-2" style={{ color: "#64748B" }}>Shown in the browser tab. Use a square image for best results.</p>
+          <label className="block text-sm font-medium mb-0.5 text-muted-foreground">Favicon</label>
+          <p className="text-xs mb-2 text-muted-foreground">Shown in the browser tab. Use a square image for best results.</p>
           {state.faviconUrl ? (
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded overflow-hidden flex items-center justify-center" style={{ backgroundColor: "#334155" }}>
+              <div className="w-10 h-10 rounded overflow-hidden flex items-center justify-center bg-muted">
                 <img src={state.faviconUrl} alt="Favicon" className="w-full h-full object-cover" />
               </div>
               <div>
-                <p className="text-sm" style={{ color: "#F1F5F9" }}>{state.faviconName}</p>
+                <p className="text-sm text-foreground">{state.faviconName}</p>
                 <button onClick={() => update({ faviconUrl: null, faviconName: null })} className="text-xs mt-1 font-medium" style={{ color: "#EF4444" }}>Remove</button>
               </div>
             </div>
@@ -263,12 +256,11 @@ const CompanyBranding: React.FC = () => {
               onClick={() => faviconInputRef.current?.click()}
               onDragOver={e => e.preventDefault()}
               onDrop={e => handleDrop(e, "favicon")}
-              className="rounded-md p-4 text-center cursor-pointer transition-colors hover:opacity-80"
-              style={{ border: "2px dashed #334155", backgroundColor: "transparent" }}
+              className="rounded-md p-4 text-center cursor-pointer transition-colors hover:opacity-80 border-2 border-dashed border-border bg-transparent"
             >
-              <Image className="w-6 h-6 mx-auto mb-1.5" style={{ color: "#64748B" }} />
-              <p className="text-sm" style={{ color: "#94A3B8" }}>Drag and drop your favicon here, or click to browse</p>
-              <p className="text-xs mt-1" style={{ color: "#64748B" }}>ICO, PNG — max 1MB — recommended 64×64px</p>
+              <Image className="w-6 h-6 mx-auto mb-1.5 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Drag and drop your favicon here, or click to browse</p>
+              <p className="text-xs mt-1 text-muted-foreground">ICO, PNG — max 1MB — recommended 64×64px</p>
             </div>
           )}
           <input ref={faviconInputRef} type="file" accept=".ico,.png" className="hidden" onChange={e => handleFileUpload(e, "favicon")} />
@@ -276,12 +268,11 @@ const CompanyBranding: React.FC = () => {
 
         {/* Timezone */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Timezone</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Timezone</label>
           <select
             value={state.timezone}
             onChange={e => update({ timezone: e.target.value })}
             className={selectClasses}
-            style={{ backgroundColor: "#334155", border: "1px solid #475569", color: "#F1F5F9" }}
           >
             {TIMEZONES.map(g => (
               <optgroup key={g.group} label={g.group}>
@@ -293,12 +284,11 @@ const CompanyBranding: React.FC = () => {
 
         {/* Date Format */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Date Format</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Date Format</label>
           <select
             value={state.dateFormat}
             onChange={e => update({ dateFormat: e.target.value })}
             className={selectClasses}
-            style={{ backgroundColor: "#334155", border: "1px solid #475569", color: "#F1F5F9" }}
           >
             {DATE_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -306,12 +296,11 @@ const CompanyBranding: React.FC = () => {
 
         {/* Time Format */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Time Format</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Time Format</label>
           <select
             value={state.timeFormat}
             onChange={e => update({ timeFormat: e.target.value })}
             className={selectClasses}
-            style={{ backgroundColor: "#334155", border: "1px solid #475569", color: "#F1F5F9" }}
           >
             {TIME_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -319,13 +308,13 @@ const CompanyBranding: React.FC = () => {
 
         {/* Primary Color */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Primary Color</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Primary Color</label>
           <Popover>
             <div className="flex items-center gap-3">
               <PopoverTrigger asChild>
                 <button
-                  className="w-10 h-10 rounded-md border cursor-pointer transition-transform hover:scale-105"
-                  style={{ backgroundColor: state.primaryColor, borderColor: "#475569" }}
+                  className="w-10 h-10 rounded-md border border-border cursor-pointer transition-transform hover:scale-105"
+                  style={{ backgroundColor: state.primaryColor }}
                 />
               </PopoverTrigger>
               <input
@@ -342,14 +331,12 @@ const CompanyBranding: React.FC = () => {
                   }
                 }}
                 maxLength={7}
-                className="w-28 h-10 px-3 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50"
-                style={{ backgroundColor: "#334155", border: "1px solid #475569", color: "#F1F5F9" }}
+                className="w-28 h-10 px-3 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50 bg-muted border border-border text-foreground"
               />
             </div>
             {hexError && <p className="text-xs mt-1" style={{ color: "#EF4444" }}>Invalid hex color</p>}
             <PopoverContent
-              className="w-56 p-3"
-              style={{ backgroundColor: "#1E293B", border: "1px solid #334155" }}
+              className="w-56 p-3 bg-card border border-border"
             >
               <div className="grid grid-cols-4 gap-2">
                 {COLOR_PRESETS.map(c => (
@@ -363,7 +350,7 @@ const CompanyBranding: React.FC = () => {
                     className="w-10 h-10 rounded-md border-2 transition-transform hover:scale-110"
                     style={{
                       backgroundColor: c,
-                      borderColor: state.primaryColor === c ? "#F1F5F9" : "transparent",
+                      borderColor: state.primaryColor === c ? "hsl(var(--foreground))" : "transparent",
                     }}
                   />
                 ))}
@@ -374,14 +361,13 @@ const CompanyBranding: React.FC = () => {
 
         {/* Company Phone */}
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#94A3B8" }}>Company Phone</label>
+          <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Company Phone</label>
           <input
             type="text"
             value={state.companyPhone}
             onChange={e => update({ companyPhone: formatPhone(e.target.value) })}
             placeholder="(555) 555-5555"
-            className="w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50"
-            style={{ backgroundColor: "#334155", border: "1px solid #475569", color: "#F1F5F9" }}
+            className="w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/50 bg-muted border border-border text-foreground"
           />
         </div>
       </div>
