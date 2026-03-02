@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   X, Phone, Mail, Calendar, ArrowRight, Pencil, Trash2,
   GitMerge, Clock, Pin, Headphones, FileText, RefreshCw,
-  MessageSquare, Flame,
+  MessageSquare, ChevronDown,
 } from "lucide-react";
 import { Lead, LeadStatus, ContactNote, ContactActivity, Call } from "@/lib/types";
 import { mockUsers, mockCalls, mockNotes, mockActivities, calcAging, getAgentName } from "@/lib/mock-data";
-import { notesApi } from "@/lib/mock-api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,12 +29,23 @@ const bestTimes = ["Morning 8am-12pm","Afternoon 12pm-5pm","Evening 5pm-8pm","An
 const statusBadgeColor: Record<string, string> = {
   New: "bg-gray-500 text-white",
   Contacted: "bg-blue-500 text-white",
-  Interested: "bg-purple-500 text-white",
+  Interested: "bg-yellow-500 text-white",
   "Follow Up": "bg-orange-500 text-white",
   Hot: "bg-red-500 text-white",
-  "Not Interested": "bg-gray-500 text-white",
+  "Not Interested": "bg-gray-400 text-white",
   "Closed Won": "bg-green-500 text-white",
-  "Closed Lost": "bg-red-500 text-white",
+  "Closed Lost": "bg-red-700 text-white",
+};
+
+const statusDotColor: Record<string, string> = {
+  New: "bg-gray-500",
+  Contacted: "bg-blue-500",
+  Interested: "bg-yellow-500",
+  "Follow Up": "bg-orange-500",
+  Hot: "bg-red-500",
+  "Not Interested": "bg-gray-400",
+  "Closed Won": "bg-green-500",
+  "Closed Lost": "bg-red-700",
 };
 
 function scoreColor(s: number) {
@@ -43,14 +53,6 @@ function scoreColor(s: number) {
   if (s >= 7) return "bg-yellow-500 text-white";
   if (s >= 4) return "bg-orange-500 text-white";
   return "bg-red-500 text-white";
-}
-
-function agingPill(days: number) {
-  if (days >= 999) return { cls: "bg-red-500 text-white", label: "🔥 N/A" };
-  if (days > 14) return { cls: "bg-red-500 text-white", label: `🔥 ${days}d` };
-  if (days > 7) return { cls: "bg-orange-500 text-white", label: `${days}d` };
-  if (days > 3) return { cls: "bg-yellow-500 text-white", label: `${days}d` };
-  return { cls: "bg-green-500 text-white", label: `${days}d` };
 }
 
 function timeAgo(dateStr: string) {
@@ -64,6 +66,40 @@ function timeAgo(dateStr: string) {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+// ---- History types & mock data ----
+interface HistoryItem {
+  id: string;
+  type: "call" | "email" | "sms" | "appointment";
+  description: string;
+  detail?: string;
+  timestamp: string;
+  agentName: string;
+}
+
+function generateMockHistory(lead: Lead): HistoryItem[] {
+  const agentName = getAgentName(lead.assignedAgentId);
+  const contactName = `${lead.firstName} ${lead.lastName}`;
+  return [
+    { id: `h1-${lead.id}`, type: "call", description: `Call by ${agentName} — 3:42 — Left Voicemail`, timestamp: new Date(Date.now() - 2 * 3600000).toISOString(), agentName },
+    { id: `h2-${lead.id}`, type: "appointment", description: `Appointment: Sales Call on ${new Date(Date.now() + 2 * 86400000).toLocaleDateString()} at 10:00 AM — Scheduled`, timestamp: new Date(Date.now() - 4 * 3600000).toISOString(), agentName },
+    { id: `h3-${lead.id}`, type: "email", description: `Email sent to ${contactName}`, detail: "Email available after SMTP is configured", timestamp: new Date(Date.now() - 86400000).toISOString(), agentName },
+    { id: `h4-${lead.id}`, type: "call", description: `Call by ${agentName} — 7:15 — Interested`, timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), agentName },
+    { id: `h5-${lead.id}`, type: "sms", description: `SMS sent to ${lead.phone}`, detail: "SMS available after Twilio is configured", timestamp: new Date(Date.now() - 3 * 86400000).toISOString(), agentName },
+    { id: `h6-${lead.id}`, type: "appointment", description: `Appointment: Follow Up on ${new Date(Date.now() - 5 * 86400000).toLocaleDateString()} at 2:00 PM — Completed`, timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), agentName },
+    { id: `h7-${lead.id}`, type: "call", description: `Call by ${agentName} — 1:20 — No Answer`, timestamp: new Date(Date.now() - 6 * 86400000).toISOString(), agentName },
+  ];
+}
+
+const historyIconConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
+  call: { bg: "bg-blue-100", text: "text-blue-600", icon: <Phone className="w-3.5 h-3.5" /> },
+  email: { bg: "bg-green-100", text: "text-green-600", icon: <Mail className="w-3.5 h-3.5" /> },
+  sms: { bg: "bg-teal-100", text: "text-teal-600", icon: <MessageSquare className="w-3.5 h-3.5" /> },
+  appointment: { bg: "bg-purple-100", text: "text-purple-600", icon: <Calendar className="w-3.5 h-3.5" /> },
+};
+
+const historyFilterMap: Record<string, string> = { Calls: "call", Emails: "email", SMS: "sms", Appointments: "appointment" };
+
+// ---- Other mock generators ----
 function generateMockActivities(lead: Lead): ContactActivity[] {
   const existing = mockActivities.filter(a => a.contactId === lead.id);
   if (existing.length > 0) return existing;
@@ -128,7 +164,7 @@ interface ContactModalProps {
 }
 
 const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, onDelete, onConvert }) => {
-  const [activeTab, setActiveTab] = useState<"Overview" | "Activity" | "Calls" | "Notes">("Overview");
+  const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls">("Overview");
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Lead>>({});
   const [hasChanges, setHasChanges] = useState(false);
@@ -143,6 +179,10 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [deleteNoteId, setDeleteNoteId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ContactActivity[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (lead) {
@@ -150,6 +190,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setLocalNotes(generateMockNotes(lead).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
       setActivities(generateMockActivities(lead));
       setCalls(generateMockCalls(lead));
+      setHistoryItems(generateMockHistory(lead));
       setActiveTab("Overview");
       setEditMode(false);
       setHasChanges(false);
@@ -157,14 +198,31 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setNewNote("");
       setNoteError("");
       setPinNewNote(false);
+      setHistoryFilter("All");
+      setStatusDropdownOpen(false);
     }
   }, [lead]);
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
+      }
+    };
+    if (statusDropdownOpen) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [statusDropdownOpen]);
+
   if (!lead) return null;
 
-  const aging = calcAging(lead.lastContactedAt);
-  const agingInfo = agingPill(aging);
   const agents = mockUsers.filter(u => u.status === "Active");
+
+  const handleStatusChange = async (newStatus: LeadStatus) => {
+    setStatusDropdownOpen(false);
+    await onUpdate(lead.id, { status: newStatus });
+    setEditForm(f => ({ ...f, status: newStatus }));
+    toast.success(`Status updated to ${newStatus}`);
+  };
 
   const handleFieldChange = (key: string, value: any) => {
     setEditForm(f => ({ ...f, [key]: value }));
@@ -293,10 +351,30 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadgeColor[lead.status]}`}>{lead.status}</span>
-                  <span className={`text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold ${scoreColor(lead.leadScore)}`}>{lead.leadScore}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${agingInfo.cls}`}>{agingInfo.label}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{lead.state}</span>
+                  {/* Status dropdown badge */}
+                  <div className="relative" ref={statusDropdownRef}>
+                    <button
+                      onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                      className={`text-xs px-2.5 py-0.5 rounded-full font-medium inline-flex items-center gap-1 cursor-pointer transition-all duration-150 ${statusBadgeColor[lead.status]}`}
+                    >
+                      {lead.status}
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                    {statusDropdownOpen && (
+                      <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
+                        {allStatuses.map(s => (
+                          <button
+                            key={s}
+                            onClick={() => handleStatusChange(s)}
+                            className={`w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${lead.status === s ? "font-semibold" : ""}`}
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s]}`} />
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -317,7 +395,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
             <div className="w-[65%] flex flex-col border-r border-border min-h-0">
               {/* Tabs */}
               <div className="flex border-b border-border px-6 shrink-0">
-                {(["Overview","Activity","Calls","Notes"] as const).map(t => (
+                {(["Overview","Notes","History","Calls"] as const).map(t => (
                   <button key={t} onClick={() => setActiveTab(t)}
                     className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 ${activeTab === t ? "text-foreground border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
                     {t}
@@ -351,76 +429,6 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                       <div className="flex gap-2 pt-2">
                         <Button onClick={handleSave}>Save Changes</Button>
                         <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* ACTIVITY TAB */}
-                {activeTab === "Activity" && (
-                  <div className="relative">
-                    {activities.length === 0 ? (
-                      <div className="text-center py-12">
-                        <Clock className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">No activity yet</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-0">
-                        {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
-                          <div key={a.id} className="flex gap-3 relative">
-                            <div className="flex flex-col items-center">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white ${activityDotColor(a.type)}`}>
-                                {activityIcon(a.type)}
-                              </div>
-                              {i < activities.length - 1 && <div className="w-px flex-1 bg-border my-1" />}
-                            </div>
-                            <div className="pb-4">
-                              <p className="text-sm text-foreground">{a.description}</p>
-                              <p className="text-xs text-muted-foreground">{a.agentName} · {timeAgo(a.createdAt)}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* CALLS TAB */}
-                {activeTab === "Calls" && (
-                  <div>
-                    {calls.length === 0 ? (
-                      <div className="text-center py-12">
-                        <Headphones className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">No calls recorded yet</p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-muted-foreground border-b">
-                              <th className="text-left py-2 font-medium">Date</th>
-                              <th className="text-left py-2 font-medium">Agent</th>
-                              <th className="text-left py-2 font-medium">Duration</th>
-                              <th className="text-left py-2 font-medium">Disposition</th>
-                              <th className="text-left py-2 font-medium">Notes</th>
-                              <th className="py-2"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {calls.map(c => (
-                              <tr key={c.id} className="border-b last:border-0">
-                                <td className="py-2.5 text-foreground">{new Date(c.createdAt).toLocaleDateString()}</td>
-                                <td className="py-2.5 text-foreground">{c.agentName}</td>
-                                <td className="py-2.5 text-foreground">{formatDuration(c.duration)}</td>
-                                <td className="py-2.5"><span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{c.disposition || "—"}</span></td>
-                                <td className="py-2.5 text-muted-foreground">{c.notes || "—"}</td>
-                                <td className="py-2.5">
-                                  <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled className="text-xs">Play</Button></span></TooltipTrigger><TooltipContent>Recording available after Twilio is connected</TooltipContent></Tooltip>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
                       </div>
                     )}
                   </div>
@@ -470,6 +478,112 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                             <p className="text-xs text-muted-foreground mt-1">{n.agentName} · {timeAgo(n.createdAt)}</p>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* HISTORY TAB */}
+                {activeTab === "History" && (
+                  <div>
+                    {/* Filter pills */}
+                    <div className="flex gap-2 mb-4 flex-wrap">
+                      {(["All", "Calls", "Emails", "SMS", "Appointments"] as const).map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setHistoryFilter(f)}
+                          className={`px-3 py-1 text-xs font-medium rounded-full transition-all duration-150 ${
+                            historyFilter === f
+                              ? "bg-blue-500 text-white"
+                              : "border border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+
+                    {(() => {
+                      const filtered = historyFilter === "All"
+                        ? historyItems
+                        : historyItems.filter(h => h.type === historyFilterMap[historyFilter]);
+
+                      const filterLabel = historyFilter === "All" ? "" : historyFilter.toLowerCase();
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="text-center py-12">
+                            <Clock className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                            <p className="text-sm text-muted-foreground">No {filterLabel} history yet</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          {filtered
+                            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                            .map(item => {
+                              const config = historyIconConfig[item.type];
+                              return (
+                                <div key={item.id} className="flex items-start gap-3 py-3 border-b border-border last:border-0">
+                                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${config.bg} ${config.text}`}>
+                                    {config.icon}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-foreground">{item.description}</p>
+                                    {item.detail && (
+                                      <p className="text-xs text-muted-foreground mt-0.5">{item.detail}</p>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                                    {timeAgo(item.timestamp)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* CALLS TAB */}
+                {activeTab === "Calls" && (
+                  <div>
+                    {calls.length === 0 ? (
+                      <div className="text-center py-12">
+                        <Headphones className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No calls recorded yet</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-muted-foreground border-b">
+                              <th className="text-left py-2 font-medium">Date</th>
+                              <th className="text-left py-2 font-medium">Agent</th>
+                              <th className="text-left py-2 font-medium">Duration</th>
+                              <th className="text-left py-2 font-medium">Disposition</th>
+                              <th className="text-left py-2 font-medium">Notes</th>
+                              <th className="py-2"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {calls.map(c => (
+                              <tr key={c.id} className="border-b last:border-0">
+                                <td className="py-2.5 text-foreground">{new Date(c.createdAt).toLocaleDateString()}</td>
+                                <td className="py-2.5 text-foreground">{c.agentName}</td>
+                                <td className="py-2.5 text-foreground">{formatDuration(c.duration)}</td>
+                                <td className="py-2.5"><span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{c.disposition || "—"}</span></td>
+                                <td className="py-2.5 text-muted-foreground">{c.notes || "—"}</td>
+                                <td className="py-2.5">
+                                  <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled className="text-xs">Play</Button></span></TooltipTrigger><TooltipContent>Recording available after Twilio is connected</TooltipContent></Tooltip>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
