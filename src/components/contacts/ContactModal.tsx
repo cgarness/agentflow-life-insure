@@ -305,7 +305,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     const val = (editForm as any)[key] ?? "";
     return (
       <div>
-        <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
+        <label className="text-xs font-semibold text-muted-foreground block mb-1">{label}</label>
         {editMode ? (
           <>
             {type === "select" ? (
@@ -343,7 +343,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
           onClick={e => e.stopPropagation()}
         >
           {/* ===== HERO ===== */}
-          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4 shrink-0">
+          <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-full bg-blue-500 text-white flex items-center justify-center text-lg font-bold shrink-0">
                 {lead.firstName[0]}{lead.lastName[0]}
@@ -353,12 +353,12 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                   <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
                   {/* Status dropdown badge */}
                   <div className="relative" ref={statusDropdownRef}>
-                    <button
+                     <button
                       onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                      className={`text-xs px-2.5 py-0.5 rounded-full font-medium inline-flex items-center gap-1 cursor-pointer transition-all duration-150 ${statusBadgeColor[lead.status]}`}
+                      className={`text-sm px-4 py-2 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${statusBadgeColor[lead.status]}`}
                     >
                       {lead.status}
-                      <ChevronDown className="w-3 h-3" />
+                      <ChevronDown className="w-3.5 h-3.5" />
                     </button>
                     {statusDropdownOpen && (
                       <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
@@ -366,7 +366,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                           <button
                             key={s}
                             onClick={() => handleStatusChange(s)}
-                            className={`w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${lead.status === s ? "font-semibold" : ""}`}
+                            className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${lead.status === s ? "font-semibold" : ""}`}
                           >
                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s]}`} />
                             {s}
@@ -378,14 +378,14 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap shrink-0">
-              <Button size="sm" className="bg-blue-500 hover:bg-blue-600 text-white"><Phone className="w-4 h-4 mr-1" />Call</Button>
-              <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled><MessageSquare className="w-4 h-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
-              <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled><Mail className="w-4 h-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
-              <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white" onClick={() => toast.info("Appointment Scheduler — coming soon")}><Calendar className="w-4 h-4 mr-1" />Schedule</Button>
-              <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="w-4 h-4 mr-1" />Convert</Button>
-              <Button size="sm" variant="ghost" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="w-4 h-4" /></Button>
-              <Button size="sm" variant="ghost" onClick={tryClose}><X className="w-4 h-4" /></Button>
+            <div className="flex items-center justify-end gap-2 flex-wrap shrink-0 h-full">
+              <Button className="px-4 py-2.5 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white"><Phone className="size-4 mr-1" />Call</Button>
+              <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
+              <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => toast.info("Appointment Scheduler — coming soon")}><Calendar className="size-4 mr-1" />Schedule</Button>
+              <Button className="px-4 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="size-4 mr-1" />Convert</Button>
+              <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="size-4" /></Button>
+              <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={tryClose}><X className="size-4" /></Button>
             </div>
           </div>
 
