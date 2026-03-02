@@ -4,6 +4,7 @@ import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
 import Permissions from "@/components/settings/Permissions";
 import CompanyBranding from "@/components/settings/CompanyBranding";
+import CallScripts from "@/components/settings/CallScripts";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -73,6 +74,8 @@ const SettingsPage: React.FC = () => {
 
       case 1: // User Management
         return <UserManagement />;
+      case 3: // Call Scripts
+        return <CallScripts />;
       case 2: // Twilio
         return (
           <div className="space-y-6">
