@@ -1,0 +1,582 @@
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  X, Phone, Mail, Calendar, ArrowRight, Pencil, Trash2,
+  GitMerge, Clock, Pin, Headphones, FileText, RefreshCw,
+  MessageSquare, Flame,
+} from "lucide-react";
+import { Lead, LeadStatus, ContactNote, ContactActivity, Call } from "@/lib/types";
+import { mockUsers, mockCalls, mockNotes, mockActivities, calcAging, getAgentName } from "@/lib/mock-data";
+import { notesApi } from "@/lib/mock-api";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+const US_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+];
+
+const allStatuses: LeadStatus[] = ["New","Contacted","Interested","Follow Up","Hot","Not Interested","Closed Won","Closed Lost"];
+const leadSources = ["Facebook Ads","Google Ads","Direct Mail","Referral","Webinar","Cold Call","TV Ad","Radio Ad","Other"];
+const healthStatuses = ["Excellent","Good","Fair","Poor"];
+const bestTimes = ["Morning 8am-12pm","Afternoon 12pm-5pm","Evening 5pm-8pm","Anytime"];
+
+const statusBadgeColor: Record<string, string> = {
+  New: "bg-gray-500 text-white",
+  Contacted: "bg-blue-500 text-white",
+  Interested: "bg-purple-500 text-white",
+  "Follow Up": "bg-orange-500 text-white",
+  Hot: "bg-red-500 text-white",
+  "Not Interested": "bg-gray-500 text-white",
+  "Closed Won": "bg-green-500 text-white",
+  "Closed Lost": "bg-red-500 text-white",
+};
+
+function scoreColor(s: number) {
+  if (s >= 9) return "bg-green-500 text-white";
+  if (s >= 7) return "bg-yellow-500 text-white";
+  if (s >= 4) return "bg-orange-500 text-white";
+  return "bg-red-500 text-white";
+}
+
+function agingPill(days: number) {
+  if (days >= 999) return { cls: "bg-red-500 text-white", label: "🔥 N/A" };
+  if (days > 14) return { cls: "bg-red-500 text-white", label: `🔥 ${days}d` };
+  if (days > 7) return { cls: "bg-orange-500 text-white", label: `${days}d` };
+  if (days > 3) return { cls: "bg-yellow-500 text-white", label: `${days}d` };
+  return { cls: "bg-green-500 text-white", label: `${days}d` };
+}
+
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days > 1 ? "s" : ""} ago`;
+}
+
+function generateMockActivities(lead: Lead): ContactActivity[] {
+  const existing = mockActivities.filter(a => a.contactId === lead.id);
+  if (existing.length > 0) return existing;
+  const agentName = getAgentName(lead.assignedAgentId);
+  return [
+    { id: `ga1-${lead.id}`, contactId: lead.id, contactType: "lead", type: "import", description: "Lead imported via CSV", agentId: lead.assignedAgentId, agentName, createdAt: lead.createdAt },
+    { id: `ga2-${lead.id}`, contactId: lead.id, contactType: "lead", type: "status", description: `Status changed from New to ${lead.status}`, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 2 * 86400000).toISOString() },
+    { id: `ga3-${lead.id}`, contactId: lead.id, contactType: "lead", type: "call", description: `Called by ${agentName} — 3:42 — Left Voicemail`, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 86400000).toISOString() },
+    { id: `ga4-${lead.id}`, contactId: lead.id, contactType: "lead", type: "note", description: `Note added by ${agentName}`, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 3600000).toISOString() },
+  ];
+}
+
+function generateMockCalls(lead: Lead): Call[] {
+  const existing = mockCalls.filter(c => c.contactId === lead.id);
+  if (existing.length > 0) return existing;
+  const agentName = getAgentName(lead.assignedAgentId);
+  return [
+    { id: `gc1-${lead.id}`, contactId: lead.id, contactType: "lead", contactName: `${lead.firstName} ${lead.lastName}`, agentId: lead.assignedAgentId, agentName, direction: "outbound", duration: 222, disposition: "Left Voicemail", createdAt: new Date(Date.now() - 3 * 86400000).toISOString() },
+    { id: `gc2-${lead.id}`, contactId: lead.id, contactType: "lead", contactName: `${lead.firstName} ${lead.lastName}`, agentId: lead.assignedAgentId, agentName, direction: "outbound", duration: 463, disposition: "Interested", notes: "Discussed term options", createdAt: new Date(Date.now() - 86400000).toISOString() },
+  ];
+}
+
+function generateMockNotes(lead: Lead): ContactNote[] {
+  const existing = mockNotes.filter(n => n.contactId === lead.id);
+  if (existing.length > 0) return existing;
+  const agentName = getAgentName(lead.assignedAgentId);
+  return [
+    { id: `gn1-${lead.id}`, contactId: lead.id, contactType: "lead", note: "Initial contact made. Expressed interest in term life coverage.", pinned: true, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 2 * 86400000).toISOString() },
+    { id: `gn2-${lead.id}`, contactId: lead.id, contactType: "lead", note: "Follow-up scheduled for next week.", pinned: false, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 86400000).toISOString() },
+  ];
+}
+
+const activityIcon = (type: string) => {
+  switch (type) {
+    case "call": return <Phone className="w-3.5 h-3.5" />;
+    case "note": return <FileText className="w-3.5 h-3.5" />;
+    case "status": return <Pencil className="w-3.5 h-3.5" />;
+    case "appointment": return <Calendar className="w-3.5 h-3.5" />;
+    case "import": return <ArrowRight className="w-3.5 h-3.5" />;
+    case "convert": return <ArrowRight className="w-3.5 h-3.5" />;
+    default: return <Clock className="w-3.5 h-3.5" />;
+  }
+};
+
+const activityDotColor = (type: string) => {
+  switch (type) {
+    case "call": return "bg-blue-500";
+    case "note": return "bg-purple-500";
+    case "status": return "bg-orange-500";
+    case "appointment": return "bg-green-500";
+    case "import": return "bg-gray-500";
+    default: return "bg-blue-500";
+  }
+};
+
+interface ContactModalProps {
+  lead: Lead | null;
+  onClose: () => void;
+  onUpdate: (id: string, data: Partial<Lead>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onConvert?: (lead: Lead) => void;
+}
+
+const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, onDelete, onConvert }) => {
+  const [activeTab, setActiveTab] = useState<"Overview" | "Activity" | "Calls" | "Notes">("Overview");
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<Lead>>({});
+  const [hasChanges, setHasChanges] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [localNotes, setLocalNotes] = useState<ContactNote[]>([]);
+  const [newNote, setNewNote] = useState("");
+  const [pinNewNote, setPinNewNote] = useState(false);
+  const [noteError, setNoteError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmConvert, setConfirmConvert] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [deleteNoteId, setDeleteNoteId] = useState<string | null>(null);
+  const [activities, setActivities] = useState<ContactActivity[]>([]);
+  const [calls, setCalls] = useState<Call[]>([]);
+
+  useEffect(() => {
+    if (lead) {
+      setEditForm({ ...lead });
+      setLocalNotes(generateMockNotes(lead).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
+      setActivities(generateMockActivities(lead));
+      setCalls(generateMockCalls(lead));
+      setActiveTab("Overview");
+      setEditMode(false);
+      setHasChanges(false);
+      setErrors({});
+      setNewNote("");
+      setNoteError("");
+      setPinNewNote(false);
+    }
+  }, [lead]);
+
+  if (!lead) return null;
+
+  const aging = calcAging(lead.lastContactedAt);
+  const agingInfo = agingPill(aging);
+  const agents = mockUsers.filter(u => u.status === "Active");
+
+  const handleFieldChange = (key: string, value: any) => {
+    setEditForm(f => ({ ...f, [key]: value }));
+    setHasChanges(true);
+    if (errors[key]) setErrors(e => { const n = { ...e }; delete n[key]; return n; });
+  };
+
+  const handleSave = async () => {
+    const errs: Record<string, string> = {};
+    if (!editForm.firstName?.trim()) errs.firstName = "First name is required";
+    if (!editForm.lastName?.trim()) errs.lastName = "Last name is required";
+    if (!editForm.phone?.trim()) errs.phone = "Phone is required";
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    await onUpdate(lead.id, editForm);
+    setEditMode(false);
+    setHasChanges(false);
+    toast.success("Contact updated successfully");
+  };
+
+  const handleCancel = () => {
+    setEditForm({ ...lead });
+    setEditMode(false);
+    setHasChanges(false);
+    setErrors({});
+  };
+
+  const tryClose = () => {
+    if (editMode && hasChanges) {
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; }
+    setNoteError("");
+    const note: ContactNote = {
+      id: `note-${Date.now()}`,
+      contactId: lead.id,
+      contactType: "lead",
+      note: newNote.trim(),
+      pinned: pinNewNote,
+      agentId: "u1",
+      agentName: "Chris G.",
+      createdAt: new Date().toISOString(),
+    };
+    setLocalNotes(prev => {
+      const next = [note, ...prev];
+      return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+    });
+    setNewNote("");
+    setPinNewNote(false);
+    toast.success("Note added");
+  };
+
+  const handleTogglePin = (noteId: string) => {
+    setLocalNotes(prev =>
+      prev.map(n => n.id === noteId ? { ...n, pinned: !n.pinned } : n)
+        .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
+    );
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    setLocalNotes(prev => prev.filter(n => n.id !== noteId));
+    setDeleteNoteId(null);
+    toast.success("Note deleted");
+  };
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const inputCls = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
+  const selectCls = inputCls;
+
+  const renderField = (label: string, key: string, type: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
+    const val = (editForm as any)[key] ?? "";
+    return (
+      <div>
+        <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
+        {editMode ? (
+          <>
+            {type === "select" ? (
+              <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={selectCls}>
+                <option value="">—</option>
+                {options?.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : type === "textarea" ? (
+              <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
+            ) : (
+              <input type={type} value={val} onChange={e => handleFieldChange(key, type === "number" ? Number(e.target.value) : e.target.value)}
+                min={type === "number" && key === "leadScore" ? 1 : undefined}
+                max={type === "number" && key === "leadScore" ? 10 : undefined}
+                className={inputCls} />
+            )}
+            {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
+          </>
+        ) : (
+          <p className="text-sm text-foreground mt-0.5">{val || "—"}</p>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <TooltipProvider>
+      {/* Overlay */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={tryClose}>
+        <div className="fixed inset-0 bg-black/60 transition-all duration-150" />
+
+        {/* Modal */}
+        <div
+          className="relative bg-background border border-border rounded-lg shadow-2xl flex flex-col animate-in fade-in duration-150"
+          style={{ width: "90vw", maxWidth: 1100, height: "90vh" }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* ===== HERO ===== */}
+          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-4 shrink-0">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-full bg-blue-500 text-white flex items-center justify-center text-lg font-bold shrink-0">
+                {lead.firstName[0]}{lead.lastName[0]}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadgeColor[lead.status]}`}>{lead.status}</span>
+                  <span className={`text-xs w-6 h-6 rounded-full flex items-center justify-center font-bold ${scoreColor(lead.leadScore)}`}>{lead.leadScore}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${agingInfo.cls}`}>{agingInfo.label}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{lead.state}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              <Button size="sm" className="bg-blue-500 hover:bg-blue-600 text-white"><Phone className="w-4 h-4 mr-1" />Call</Button>
+              <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled><MessageSquare className="w-4 h-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled><Mail className="w-4 h-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
+              <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white" onClick={() => toast.info("Appointment Scheduler — coming soon")}><Calendar className="w-4 h-4 mr-1" />Schedule</Button>
+              <Button size="sm" className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="w-4 h-4 mr-1" />Convert</Button>
+              <Button size="sm" variant="ghost" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="w-4 h-4" /></Button>
+              <Button size="sm" variant="ghost" onClick={tryClose}><X className="w-4 h-4" /></Button>
+            </div>
+          </div>
+
+          {/* ===== TWO COLUMNS ===== */}
+          <div className="flex flex-1 min-h-0">
+            {/* LEFT 65% */}
+            <div className="w-[65%] flex flex-col border-r border-border min-h-0">
+              {/* Tabs */}
+              <div className="flex border-b border-border px-6 shrink-0">
+                {(["Overview","Activity","Calls","Notes"] as const).map(t => (
+                  <button key={t} onClick={() => setActiveTab(t)}
+                    className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 ${activeTab === t ? "text-foreground border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* OVERVIEW TAB */}
+                {activeTab === "Overview" && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderField("First Name", "firstName")}
+                      {renderField("Last Name", "lastName")}
+                      {renderField("Phone", "phone")}
+                      {renderField("Email", "email", "email")}
+                      {renderField("State", "state", "select", US_STATES)}
+                      {renderField("Status", "status", "select", allStatuses)}
+                      {renderField("Lead Source", "leadSource", "select", leadSources)}
+                      {renderField("Lead Score", "leadScore", "number")}
+                      {renderField("Age", "age", "number")}
+                      {renderField("Date of Birth", "dateOfBirth", "date")}
+                      {renderField("Health Status", "healthStatus", "select", healthStatuses)}
+                      {renderField("Best Time to Call", "bestTimeToCall", "select", bestTimes)}
+                      {renderField("Assigned Agent", "assignedAgentId", "select", agents.map(a => a.id))}
+                      {renderField("Spouse Info", "spouseInfo")}
+                    </div>
+                    <div>{renderField("Notes", "notes", "textarea")}</div>
+                    {editMode && (
+                      <div className="flex gap-2 pt-2">
+                        <Button onClick={handleSave}>Save Changes</Button>
+                        <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ACTIVITY TAB */}
+                {activeTab === "Activity" && (
+                  <div className="relative">
+                    {activities.length === 0 ? (
+                      <div className="text-center py-12">
+                        <Clock className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No activity yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-0">
+                        {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
+                          <div key={a.id} className="flex gap-3 relative">
+                            <div className="flex flex-col items-center">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white ${activityDotColor(a.type)}`}>
+                                {activityIcon(a.type)}
+                              </div>
+                              {i < activities.length - 1 && <div className="w-px flex-1 bg-border my-1" />}
+                            </div>
+                            <div className="pb-4">
+                              <p className="text-sm text-foreground">{a.description}</p>
+                              <p className="text-xs text-muted-foreground">{a.agentName} · {timeAgo(a.createdAt)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* CALLS TAB */}
+                {activeTab === "Calls" && (
+                  <div>
+                    {calls.length === 0 ? (
+                      <div className="text-center py-12">
+                        <Headphones className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No calls recorded yet</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-muted-foreground border-b">
+                              <th className="text-left py-2 font-medium">Date</th>
+                              <th className="text-left py-2 font-medium">Agent</th>
+                              <th className="text-left py-2 font-medium">Duration</th>
+                              <th className="text-left py-2 font-medium">Disposition</th>
+                              <th className="text-left py-2 font-medium">Notes</th>
+                              <th className="py-2"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {calls.map(c => (
+                              <tr key={c.id} className="border-b last:border-0">
+                                <td className="py-2.5 text-foreground">{new Date(c.createdAt).toLocaleDateString()}</td>
+                                <td className="py-2.5 text-foreground">{c.agentName}</td>
+                                <td className="py-2.5 text-foreground">{formatDuration(c.duration)}</td>
+                                <td className="py-2.5"><span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{c.disposition || "—"}</span></td>
+                                <td className="py-2.5 text-muted-foreground">{c.notes || "—"}</td>
+                                <td className="py-2.5">
+                                  <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled className="text-xs">Play</Button></span></TooltipTrigger><TooltipContent>Recording available after Twilio is connected</TooltipContent></Tooltip>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* NOTES TAB */}
+                {activeTab === "Notes" && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <textarea
+                        value={newNote}
+                        onChange={e => { setNewNote(e.target.value); if (noteError) setNoteError(""); }}
+                        placeholder="Add a note about this contact..."
+                        rows={3}
+                        className={`${inputCls} min-h-[72px] py-2`}
+                      />
+                      {noteError && <p className="text-xs text-red-500">{noteError}</p>}
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                          <input type="checkbox" checked={pinNewNote} onChange={e => setPinNewNote(e.target.checked)} className="rounded" />
+                          Pin note
+                        </label>
+                        <Button size="sm" onClick={handleAddNote}>Add Note</Button>
+                      </div>
+                    </div>
+
+                    {localNotes.length === 0 ? (
+                      <div className="text-center py-8">
+                        <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No notes yet. Add one above.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {localNotes.map(n => (
+                          <div key={n.id} className={`rounded-lg border border-border p-3 bg-card ${n.pinned ? "ring-1 ring-yellow-500/30" : ""}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm text-foreground flex-1">{n.note}</p>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => handleTogglePin(n.id)} className="p-1">
+                                  <Pin className={`w-3.5 h-3.5 ${n.pinned ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"}`} />
+                                </button>
+                                <button onClick={() => setDeleteNoteId(n.id)} className="p-1 text-red-500 hover:text-red-600">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">{n.agentName} · {timeAgo(n.createdAt)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT 35% — ACTIVITY TIMELINE */}
+            <div className="w-[35%] flex flex-col min-h-0">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+                <h3 className="text-sm font-semibold text-foreground">Activity Timeline</h3>
+                <button className="text-muted-foreground hover:text-foreground"><RefreshCw className="w-4 h-4" /></button>
+              </div>
+              <p className="text-xs text-muted-foreground px-4 pt-2">Last updated just now</p>
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10).map(a => (
+                  <div key={a.id} className="flex items-start gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${activityDotColor(a.type)}`} />
+                    <div>
+                      <p className="text-xs text-foreground leading-tight">{a.description}</p>
+                      <p className="text-[11px] text-muted-foreground">{timeAgo(a.createdAt)}</p>
+                    </div>
+                  </div>
+                ))}
+                {activities.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No activity yet</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* ===== FOOTER ===== */}
+          <div className="px-6 py-3 border-t border-border flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="w-4 h-4 mr-1" />Delete Contact</Button>
+              <Button size="sm" variant="outline" onClick={() => toast.info("Merge feature coming soon")}><GitMerge className="w-4 h-4 mr-1" />Merge</Button>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-muted-foreground">Created: {new Date(lead.createdAt).toLocaleDateString()}</span>
+              <span className="text-xs text-muted-foreground">Last updated: {new Date(lead.updatedAt).toLocaleDateString()}</span>
+              <Button size="sm" variant="outline" onClick={tryClose}>Close</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Contact</DialogTitle>
+            <DialogDescription>
+              Delete {lead.firstName} {lead.lastName}? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={async () => { await onDelete(lead.id); setConfirmDelete(false); onClose(); toast.success("Contact deleted"); }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Convert Confirm Dialog */}
+      <Dialog open={confirmConvert} onOpenChange={setConfirmConvert}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Convert to Client</DialogTitle>
+            <DialogDescription>
+              Convert {lead.firstName} {lead.lastName} to a Client? This will move them to the Clients tab.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmConvert(false)}>Cancel</Button>
+            <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => { setConfirmConvert(false); onClose(); toast.success("Contact converted to Client"); }}>Confirm</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discard Changes Dialog */}
+      <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unsaved Changes</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes. Are you sure you want to leave?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setConfirmDiscard(false)}>Stay</Button>
+            <Button variant="outline" onClick={() => { setConfirmDiscard(false); setEditMode(false); setHasChanges(false); onClose(); }}>Leave Without Saving</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Note Dialog */}
+      <Dialog open={!!deleteNoteId} onOpenChange={() => setDeleteNoteId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Note</DialogTitle>
+            <DialogDescription>Are you sure you want to delete this note? This cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteNoteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteNoteId && handleDeleteNote(deleteNoteId)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
+  );
+};
+
+export default ContactModal;
