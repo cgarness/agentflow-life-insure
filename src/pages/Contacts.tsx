@@ -7,6 +7,7 @@ import {
 import { leadsApi, clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
+import ContactModal from "@/components/contacts/ContactModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -112,212 +113,7 @@ const AddContactModal: React.FC<{
   );
 };
 
-// ---- Contact Detail Modal ----
-const ContactDetailModal: React.FC<{
-  lead: Lead | null;
-  onClose: () => void;
-  onUpdate: (id: string, data: Partial<Lead>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-}> = ({ lead, onClose, onUpdate, onDelete }) => {
-  const [activeTab, setActiveTab] = useState<"Overview" | "Activity" | "Calls" | "Notes">("Overview");
-  const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState<Partial<Lead>>({});
-  const [newNote, setNewNote] = useState("");
-  const [localNotes, setLocalNotes] = useState<ContactNote[]>([]);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  useEffect(() => {
-    if (lead) {
-      setEditForm({ ...lead });
-      setLocalNotes(mockNotes.filter(n => n.contactId === lead.id).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
-      setActiveTab("Overview");
-      setEditMode(false);
-    }
-  }, [lead]);
-
-  if (!lead) return null;
-
-  const aging = calcAging(lead.lastContactedAt);
-  const leadCalls = mockCalls.filter(c => c.contactId === lead.id);
-  const leadActivities = mockActivities.filter(a => a.contactId === lead.id);
-
-  const handleSave = async () => {
-    await onUpdate(lead.id, editForm);
-    setEditMode(false);
-    toast.success("Contact updated");
-  };
-
-  const handleAddNote = async () => {
-    if (!newNote.trim()) return;
-    const note = await notesApi.add(lead.id, "lead", newNote, "u1");
-    setLocalNotes(prev => [note, ...prev]);
-    setNewNote("");
-    toast.success("Note added");
-  };
-
-  const handleTogglePin = async (noteId: string) => {
-    const updated = await notesApi.togglePin(noteId);
-    setLocalNotes(prev => prev.map(n => n.id === noteId ? updated : n).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
-  };
-
-  const formatDuration = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
-        {/* Hero */}
-        <div className="p-6 border-b">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xl font-bold">
-                {lead.firstName[0]}{lead.lastName[0]}
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[lead.status]}`}>{lead.status}</span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${lead.leadScore >= 8 ? "bg-success/10 text-success" : lead.leadScore >= 5 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"}`}>Score: {lead.leadScore}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${aging >= 5 ? "bg-destructive/10 text-destructive" : aging >= 3 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>{aging === 0 ? "Today" : `${aging}d ago`}</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setEditMode(!editMode)} className={`px-3 py-1.5 rounded-lg text-xs font-medium sidebar-transition ${editMode ? "bg-warning/10 text-warning" : "bg-muted text-foreground hover:bg-accent"}`}>
-                {editMode ? "Cancel Edit" : "Edit"}
-              </button>
-              <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-            </div>
-          </div>
-          <div className="flex gap-2 mt-4 flex-wrap">
-            <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Phone className="w-4 h-4" />Call</button>
-            <button className="px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent sidebar-transition"><Mail className="w-4 h-4" />Email</button>
-            <button className="px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent sidebar-transition"><Calendar className="w-4 h-4" />Schedule</button>
-            <button className="px-4 py-2 rounded-lg bg-success/10 text-success text-sm font-medium flex items-center gap-2 hover:bg-success/20 sidebar-transition"><ShieldCheck className="w-4 h-4" />Convert to Client</button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b px-6">
-          {(["Overview", "Activity", "Calls", "Notes"] as const).map(t => (
-            <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${activeTab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>{t}</button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === "Overview" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                ["Phone", lead.phone, "phone"],
-                ["Email", lead.email, "email"],
-                ["State", lead.state, "state"],
-                ["Lead Source", lead.leadSource, "leadSource"],
-                ["Age", lead.age?.toString() || "—", "age"],
-                ["Assigned Agent", getAgentName(lead.assignedAgentId), ""],
-                ["Status", lead.status, "status"],
-                ["Score", lead.leadScore.toString(), "leadScore"],
-              ].map(([label, value, key]) => (
-                <div key={label}>
-                  <label className="text-xs font-medium text-muted-foreground">{label}</label>
-                  {editMode && key ? (
-                    key === "status" ? (
-                      <select value={(editForm as any)[key] || value} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value as LeadStatus }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border mt-1 focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                        {allStatuses.map(s => <option key={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <input value={(editForm as any)[key] || ""} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border mt-1 focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-                    )
-                  ) : (
-                    <p className="text-sm text-foreground mt-0.5">{value}</p>
-                  )}
-                </div>
-              ))}
-              {editMode && (
-                <div className="col-span-2">
-                  <button onClick={handleSave} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Save Changes</button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === "Activity" && (
-            <div className="space-y-3">
-              {leadActivities.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No activity yet</p>}
-              {leadActivities.map(a => (
-                <div key={a.id} className="flex items-start gap-3 py-2 border-b last:border-0">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${a.type === "call" ? "bg-primary/10 text-primary" : a.type === "status" ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"}`}>
-                    {a.type === "call" ? <Phone className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </div>
-                  <div>
-                    <p className="text-sm text-foreground">{a.description}</p>
-                    <p className="text-xs text-muted-foreground">{a.agentName} · {new Date(a.createdAt).toLocaleString()}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === "Calls" && (
-            <div className="space-y-3">
-              {leadCalls.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No calls yet</p>}
-              {leadCalls.map(c => (
-                <div key={c.id} className="bg-muted/50 rounded-lg p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Phone className="w-4 h-4 text-primary" />
-                    <div>
-                      <p className="text-sm text-foreground">{c.direction === "outbound" ? "Outbound" : "Inbound"} · {formatDuration(c.duration)}</p>
-                      <p className="text-xs text-muted-foreground">{c.agentName} · {new Date(c.createdAt).toLocaleString()}</p>
-                    </div>
-                  </div>
-                  {c.disposition && <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[c.disposition] || "bg-muted text-muted-foreground"}`}>{c.disposition}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === "Notes" && (
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <input value={newNote} onChange={e => setNewNote(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAddNote()} placeholder="Add a note..." className="flex-1 h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-                <button onClick={handleAddNote} disabled={!newNote.trim()} className="px-4 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition disabled:opacity-50">Add</button>
-              </div>
-              {localNotes.map(n => (
-                <div key={n.id} className={`rounded-lg border p-3 ${n.pinned ? "border-primary/30 bg-primary/5" : ""}`}>
-                  <div className="flex items-start justify-between">
-                    <p className="text-sm text-foreground">{n.note}</p>
-                    <button onClick={() => handleTogglePin(n.id)} className={`text-xs shrink-0 ml-2 ${n.pinned ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>{n.pinned ? "📌" : "Pin"}</button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">{n.agentName} · {new Date(n.createdAt).toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t px-6 py-3 flex items-center justify-between">
-          <div className="flex gap-2">
-            {confirmDelete ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-destructive font-medium">Delete permanently?</span>
-                <button onClick={async () => { await onDelete(lead.id); onClose(); }} className="px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium">Yes, Delete</button>
-                <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-medium">Cancel</button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)} className="px-3 py-1.5 rounded-lg text-destructive text-xs font-medium hover:bg-destructive/10 sidebar-transition flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" />Delete</button>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">Created {new Date(lead.createdAt).toLocaleDateString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ---- Delete Confirm ----
 const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: () => void; onClose: () => void }> = ({ open, count, onConfirm, onClose }) => {
@@ -745,7 +541,7 @@ const Contacts: React.FC = () => {
       {/* Modals */}
       <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddLead} />
       <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} />
-      <ContactDetailModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
+      <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDelete} onClose={() => setDeleteConfirmOpen(false)} />
     </div>
   );
