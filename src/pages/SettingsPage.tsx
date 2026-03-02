@@ -3,6 +3,7 @@ import UserManagement from "@/components/settings/UserManagement";
 import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
 import Permissions from "@/components/settings/Permissions";
+import CompanyBranding from "@/components/settings/CompanyBranding";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -68,37 +69,7 @@ const SettingsPage: React.FC = () => {
   const renderContent = () => {
     switch (active) {
       case 0: // Company Branding
-        return (
-          <div className="space-y-6">
-            <div><h3 className="text-lg font-semibold text-foreground">Company Branding</h3><p className="text-sm text-muted-foreground">Customize your company's appearance and settings.</p></div>
-            <div className="border-2 border-dashed rounded-xl p-8 text-center hover:bg-accent/50 sidebar-transition cursor-pointer">
-              <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm font-medium text-foreground">Upload Logo</p>
-              <p className="text-xs text-muted-foreground">PNG, JPG up to 2MB</p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                ["Company Name", "AgentFlow", "text"],
-                ["Timezone", "America/New_York (Eastern)", "text"],
-                ["Primary Color", "#3B82F6", "color"],
-                ["Company Phone", "(555) 000-0000", "text"],
-              ].map(([label, value, type]) => (
-                <div key={label}>
-                  <label className="text-sm font-medium text-foreground block mb-1.5">{label}</label>
-                  {type === "color" ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-9 h-9 rounded-lg bg-primary border" />
-                      <input type="text" defaultValue={value} className="flex-1 h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50" />
-                    </div>
-                  ) : (
-                    <input type="text" defaultValue={value} className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50" />
-                  )}
-                </div>
-              ))}
-            </div>
-            <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Save Changes</button>
-          </div>
-        );
+        return <CompanyBranding />;
 
       case 1: // User Management
         return <UserManagement />;
