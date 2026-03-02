@@ -182,6 +182,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState<LeadStatus>(lead?.status ?? "New");
   const statusDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -200,6 +201,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setPinNewNote(false);
       setHistoryFilter("All");
       setStatusDropdownOpen(false);
+      setCurrentStatus(lead.status);
     }
   }, [lead]);
 
@@ -218,6 +220,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const agents = mockUsers.filter(u => u.status === "Active");
 
   const handleStatusChange = async (newStatus: LeadStatus) => {
+    setCurrentStatus(newStatus);
     setStatusDropdownOpen(false);
     await onUpdate(lead.id, { status: newStatus });
     setEditForm(f => ({ ...f, status: newStatus }));
@@ -355,9 +358,9 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                   <div className="relative" ref={statusDropdownRef}>
                      <button
                       onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                      className={`text-sm px-4 py-2 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${statusBadgeColor[lead.status]}`}
+                      className={`text-sm px-4 py-2 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${statusBadgeColor[currentStatus]}`}
                     >
-                      {lead.status}
+                      {currentStatus}
                       <ChevronDown className="w-3.5 h-3.5" />
                     </button>
                     {statusDropdownOpen && (
@@ -366,7 +369,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                           <button
                             key={s}
                             onClick={() => handleStatusChange(s)}
-                            className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${lead.status === s ? "font-semibold" : ""}`}
+                            className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${currentStatus === s ? "font-semibold" : ""}`}
                           >
                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s]}`} />
                             {s}
