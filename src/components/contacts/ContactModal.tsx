@@ -147,10 +147,14 @@ const activityIcon = (type: string) => {
 const activityDotColor = (type: string) => {
   switch (type) {
     case "call": return "bg-blue-500";
-    case "note": return "bg-purple-500";
-    case "status": return "bg-orange-500";
-    case "appointment": return "bg-green-500";
+    case "note": return "bg-gray-500";
+    case "status": return "bg-blue-500";
+    case "appointment": return "bg-purple-500";
     case "import": return "bg-gray-500";
+    case "convert": return "bg-green-500";
+    case "delete": return "bg-red-500";
+    case "pin": return "bg-yellow-500";
+    case "merge": return "bg-gray-500";
     default: return "bg-blue-500";
   }
 };
@@ -183,7 +187,25 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [localStatus, setLocalStatus] = useState<LeadStatus>(lead?.status ?? "New");
+  const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
   const statusDropdownRef = useRef<HTMLDivElement>(null);
+
+  const AGENT_NAME = "Chris Garcia";
+
+  const logActivity = (description: string, type: string) => {
+    const entry: ContactActivity = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      contactId: lead?.id ?? "",
+      contactType: "lead",
+      type,
+      description,
+      agentId: "u1",
+      agentName: AGENT_NAME,
+      createdAt: new Date().toISOString(),
+    };
+    setActivities(prev => [entry, ...prev]);
+    setLastUpdated(new Date().toISOString());
+  };
 
   useEffect(() => {
     if (lead) {
@@ -224,6 +246,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     setLocalStatus(newStatus);
     setEditForm(f => ({ ...f, status: newStatus }));
     await onUpdate(lead.id, { status: newStatus });
+    logActivity(`Status changed to ${newStatus}`, "status");
     toast.success(`Status updated to ${newStatus}`);
   };
 
@@ -239,9 +262,26 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     if (!editForm.lastName?.trim()) errs.lastName = "Last name is required";
     if (!editForm.phone?.trim()) errs.phone = "Phone is required";
     if (Object.keys(errs).length) { setErrors(errs); return; }
+    // Detect specific field changes
+    const changedFields: string[] = [];
+    const fieldLabels: Record<string, string> = { firstName: "First name", lastName: "Last name", phone: "Phone number", email: "Email", state: "State", leadSource: "Lead source", leadScore: "Lead score", age: "Age", dateOfBirth: "Date of birth", healthStatus: "Health status", bestTimeToCall: "Best time to call", assignedAgentId: "Assigned agent", spouseInfo: "Spouse info", notes: "Notes" };
+    for (const key of Object.keys(fieldLabels)) {
+      if ((editForm as any)[key] !== (lead as any)[key]) {
+        if (key === "assignedAgentId") {
+          const agentName = getAgentName((editForm as any)[key]);
+          changedFields.push(`Assigned agent changed to ${agentName}`);
+        } else if (key === "leadSource") {
+          changedFields.push(`Lead source changed to ${(editForm as any)[key]}`);
+        } else {
+          changedFields.push(`${fieldLabels[key]} updated`);
+        }
+      }
+    }
     await onUpdate(lead.id, editForm);
     setEditMode(false);
     setHasChanges(false);
+    logActivity(`Contact details updated by ${AGENT_NAME}`, "note");
+    changedFields.forEach(cf => logActivity(cf, "note"));
     toast.success("Contact updated successfully");
   };
 
@@ -279,19 +319,24 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     });
     setNewNote("");
     setPinNewNote(false);
+    logActivity(`Note added by ${AGENT_NAME}`, "note");
     toast.success("Note added");
   };
 
   const handleTogglePin = (noteId: string) => {
+    const note = localNotes.find(n => n.id === noteId);
+    const wasPinned = note?.pinned;
     setLocalNotes(prev =>
       prev.map(n => n.id === noteId ? { ...n, pinned: !n.pinned } : n)
         .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
     );
+    logActivity(wasPinned ? `Note unpinned by ${AGENT_NAME}` : `Note pinned by ${AGENT_NAME}`, wasPinned ? "note" : "pin");
   };
 
   const handleDeleteNote = (noteId: string) => {
     setLocalNotes(prev => prev.filter(n => n.id !== noteId));
     setDeleteNoteId(null);
+    logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
     toast.success("Note deleted");
   };
 
@@ -382,10 +427,10 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 flex-wrap shrink-0 h-full">
-              <Button className="px-4 py-2.5 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white"><Phone className="size-4 mr-1" />Call</Button>
+              <Button className="px-4 py-2.5 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" />Call</Button>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
-              <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => toast.info("Appointment Scheduler — coming soon")}><Calendar className="size-4 mr-1" />Schedule</Button>
+              <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => { logActivity(`Appointment scheduled for ${new Date().toLocaleDateString()}`, "appointment"); toast.info("Appointment Scheduler — coming soon"); }}><Calendar className="size-4 mr-1" />Schedule</Button>
               <Button className="px-4 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="size-4 mr-1" />Convert</Button>
               <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="size-4" /></Button>
               <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={tryClose}><X className="size-4" /></Button>
@@ -600,10 +645,10 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                 <h3 className="text-sm font-semibold text-foreground">Activity Timeline</h3>
                 <button className="text-muted-foreground hover:text-foreground"><RefreshCw className="w-4 h-4" /></button>
               </div>
-              <p className="text-xs text-muted-foreground px-4 pt-2">Last updated just now</p>
+              <p className="text-xs text-muted-foreground px-4 pt-2">Last updated {timeAgo(lastUpdated)}</p>
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-                {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10).map(a => (
-                  <div key={a.id} className="flex items-start gap-2">
+                {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
+                  <div key={a.id} className={`flex items-start gap-2 ${i === 0 ? "animate-fade-in" : ""}`}>
                     <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${activityDotColor(a.type)}`} />
                     <div>
                       <p className="text-xs text-foreground leading-tight">{a.description}</p>
@@ -620,7 +665,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
           <div className="px-6 py-3 border-t border-border flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}><Trash2 className="w-4 h-4 mr-1" />Delete Contact</Button>
-              <Button size="sm" variant="outline" onClick={() => toast.info("Merge feature coming soon")}><GitMerge className="w-4 h-4 mr-1" />Merge</Button>
+              <Button size="sm" variant="outline" onClick={() => { logActivity(`Merge attempted by ${AGENT_NAME}`, "merge"); toast.info("Merge feature coming soon"); }}><GitMerge className="w-4 h-4 mr-1" />Merge</Button>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-xs text-muted-foreground">Created: {new Date(lead.createdAt).toLocaleDateString()}</span>
@@ -642,7 +687,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={async () => { await onDelete(lead.id); setConfirmDelete(false); onClose(); toast.success("Contact deleted"); }}>Delete</Button>
+            <Button variant="destructive" onClick={async () => { logActivity(`Contact deleted by ${AGENT_NAME}`, "delete"); await onDelete(lead.id); setConfirmDelete(false); onClose(); toast.success("Contact deleted"); }}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -658,7 +703,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmConvert(false)}>Cancel</Button>
-            <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => { setConfirmConvert(false); onClose(); toast.success("Contact converted to Client"); }}>Confirm</Button>
+            <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => { logActivity(`Converted to Client by ${AGENT_NAME}`, "convert"); setConfirmConvert(false); onClose(); toast.success("Contact converted to Client"); }}>Confirm</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
