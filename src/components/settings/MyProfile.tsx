@@ -72,6 +72,9 @@ const MyProfile: React.FC = () => {
 
   // Preferences
   const [winSound, setWinSound] = useState(true);
+  const [emailNotifs, setEmailNotifs] = useState(true);
+  const [smsNotifs, setSmsNotifs] = useState(false);
+  const [pushNotifs, setPushNotifs] = useState(true);
   const [timezone, setTimezone] = useState("Eastern Time (US & Canada)");
   const [prefSaving, setPrefSaving] = useState(false);
 
@@ -323,6 +326,32 @@ const MyProfile: React.FC = () => {
               <p className="text-xs text-muted-foreground">Play a celebration sound when a policy is sold</p>
             </div>
             <Switch checked={winSound} onCheckedChange={setWinSound} />
+          </div>
+          <div className="border-t border-border pt-4">
+            <p className="text-sm font-semibold text-foreground mb-3">Notifications</p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Email Notifications</p>
+                  <p className="text-xs text-muted-foreground">Receive updates and alerts via email</p>
+                </div>
+                <Switch checked={emailNotifs} onCheckedChange={setEmailNotifs} />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">SMS Notifications</p>
+                  <p className="text-xs text-muted-foreground">Get text message alerts for important events</p>
+                </div>
+                <Switch checked={smsNotifs} onCheckedChange={setSmsNotifs} />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Desktop Push Notifications</p>
+                  <p className="text-xs text-muted-foreground">Show browser notifications for real-time updates</p>
+                </div>
+                <Switch checked={pushNotifs} onCheckedChange={setPushNotifs} />
+              </div>
+            </div>
           </div>
           <div className="flex items-center justify-between">
             <div>
