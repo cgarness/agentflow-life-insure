@@ -584,6 +584,40 @@ const DialerPage: React.FC = () => {
               <button className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"><Plus className="w-4 h-4" /></button>
             </div>
           </div>
+
+          {/* Conversation History */}
+          <div className="bg-accent/50 rounded-xl p-4 space-y-3">
+            <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
+              <Clock className="w-4 h-4 text-primary" /> Conversation History
+            </h3>
+            <div className="space-y-3 max-h-52 overflow-y-auto">
+              {[
+                { type: "call", icon: "📞", text: "Outbound call — 4:12 duration", detail: "Discussed Term Life options. Client interested.", time: "Yesterday", agent: "Chris G.", disposition: "Interested" },
+                { type: "call", icon: "📞", text: "Outbound call — 0:32 duration", detail: "Left voicemail, no answer.", time: "3 days ago", agent: "Chris G.", disposition: "No Answer" },
+                { type: "email", icon: "📧", text: "Email sent: Term Life Quote", detail: "Sent initial quote for 20-year term policy.", time: "4 days ago", agent: "System" },
+                { type: "sms", icon: "💬", text: "SMS sent: Appointment reminder", detail: "Reminded about scheduled callback.", time: "5 days ago", agent: "System" },
+                { type: "call", icon: "📞", text: "Inbound call — 1:45 duration", detail: "Client called with questions about premium rates.", time: "1 week ago", agent: "Sarah J.", disposition: "Follow Up" },
+                { type: "appointment", icon: "📅", text: "Appointment completed", detail: "Virtual meeting — reviewed coverage needs.", time: "2 weeks ago", agent: "Chris G." },
+              ].map((item, i) => (
+                <div key={i} className="flex gap-3 pb-3 border-b border-border last:border-0 last:pb-0">
+                  <span className="text-base mt-0.5">{item.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm text-foreground font-medium truncate">{item.text}</p>
+                      <span className="text-xs text-muted-foreground shrink-0">{item.time}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{item.detail}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs text-muted-foreground">{item.agent}</span>
+                      {item.disposition && (
+                        <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">{item.disposition}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* ═══ RIGHT PANEL — Dispositions ═══ */}
@@ -791,6 +825,30 @@ const DialerPage: React.FC = () => {
             <button className="flex-1 py-2 rounded-md border border-border text-sm text-foreground font-medium flex items-center justify-center gap-1.5 hover:bg-accent transition-colors">
               <ExternalLink className="w-4 h-4" /> Full View
             </button>
+          </div>
+
+          {/* Disposition History */}
+          <div className="bg-card rounded-xl border p-4 space-y-3">
+            <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" /> Disposition History
+            </h3>
+            <div className="space-y-2">
+              {[
+                { date: "Yesterday", disposition: "Interested", duration: "4:12", notes: "Wants info on Term Life", color: "bg-yellow-500/10 text-yellow-400" },
+                { date: "3 days ago", disposition: "No Answer", duration: "0:32", notes: "Left voicemail", color: "bg-gray-500/10 text-gray-400" },
+                { date: "1 week ago", disposition: "Follow Up", duration: "1:45", notes: "Asked about premium rates", color: "bg-blue-500/10 text-blue-400" },
+              ].map((c, i) => (
+                <div key={i} className="text-sm border-b border-border last:border-0 pb-2 last:pb-0">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground text-xs">{c.date}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.color}`}>{c.disposition}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <span className="text-foreground font-medium">{c.duration}</span> · {c.notes || "No notes"}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
