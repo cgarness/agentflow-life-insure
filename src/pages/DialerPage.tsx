@@ -5,7 +5,7 @@ import {
   FileText, AlertCircle, CheckCircle, SkipForward,
   Search, ChevronLeft, Loader2, PhoneOff as PhoneOffIcon,
   ArrowRight, ArrowRightLeft, CalendarPlus, ExternalLink,
-  PauseCircle, AlertTriangle,
+  PauseCircle, AlertTriangle, Pencil, Check, X, ChevronDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
+import ContactModal from "@/components/contacts/ContactModal";
+import type { Lead } from "@/lib/types";
 
 // ── Mock campaign data ──
 interface DialerCampaign {
@@ -153,17 +155,40 @@ interface LeadQueueItem {
   attempts: number;
   active: boolean;
   phone: string;
+  email: string;
+  status: string;
+  assignedAgent: string;
+  healthStatus: string;
+  bestTimeToCall: string;
+  dateOfBirth: string;
 }
 
 const initialLeadQueue: LeadQueueItem[] = [
-  { name: "John D.", fullName: "John Doe Martinez", state: "FL", age: 34, source: "Facebook Ads", attempts: 0, active: true, phone: "(555) 123-4567" },
-  { name: "Sarah W.", fullName: "Sarah Williams", state: "TX", age: 45, source: "Direct Mail", attempts: 1, active: false, phone: "(555) 234-5678" },
-  { name: "Mike P.", fullName: "Mike Peterson", state: "CA", age: 52, source: "Google Ads", attempts: 0, active: false, phone: "(555) 345-6789" },
-  { name: "Lisa K.", fullName: "Lisa Kim", state: "NY", age: 38, source: "Referral", attempts: 2, active: false, phone: "(555) 456-7890" },
-  { name: "Tom H.", fullName: "Tom Harris", state: "OH", age: 41, source: "Webinar", attempts: 0, active: false, phone: "(555) 567-8901" },
+  { name: "John D.", fullName: "John Doe Martinez", state: "FL", age: 34, source: "Facebook Ads", attempts: 0, active: true, phone: "(555) 123-4567", email: "john.m@email.com", status: "Interested", assignedAgent: "Chris G.", healthStatus: "Good", bestTimeToCall: "Morning 8am-12pm", dateOfBirth: "1992-03-15" },
+  { name: "Sarah W.", fullName: "Sarah Williams", state: "TX", age: 45, source: "Direct Mail", attempts: 1, active: false, phone: "(555) 234-5678", email: "sarah.w@email.com", status: "New", assignedAgent: "Chris G.", healthStatus: "Excellent", bestTimeToCall: "Afternoon 12pm-5pm", dateOfBirth: "1981-07-22" },
+  { name: "Mike P.", fullName: "Mike Peterson", state: "CA", age: 52, source: "Google Ads", attempts: 0, active: false, phone: "(555) 345-6789", email: "mike.p@email.com", status: "Contacted", assignedAgent: "Chris G.", healthStatus: "Fair", bestTimeToCall: "Evening 5pm-8pm", dateOfBirth: "1974-11-08" },
+  { name: "Lisa K.", fullName: "Lisa Kim", state: "NY", age: 38, source: "Referral", attempts: 2, active: false, phone: "(555) 456-7890", email: "lisa.k@email.com", status: "Follow Up", assignedAgent: "Chris G.", healthStatus: "Good", bestTimeToCall: "Anytime", dateOfBirth: "1988-01-30" },
+  { name: "Tom H.", fullName: "Tom Harris", state: "OH", age: 41, source: "Webinar", attempts: 0, active: false, phone: "(555) 567-8901", email: "tom.h@email.com", status: "New", assignedAgent: "Chris G.", healthStatus: "Good", bestTimeToCall: "Morning 8am-12pm", dateOfBirth: "1985-06-12" },
 ];
 
 const DNC_NUMBERS = ["(555) 567-8901"];
+
+const leadStatuses = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
+const statusColors: Record<string, string> = {
+  New: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+  Contacted: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  Interested: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  "Follow Up": "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  Hot: "bg-red-500/10 text-red-400 border-red-500/20",
+  "Not Interested": "bg-gray-500/10 text-gray-400 border-gray-500/20",
+  "Closed Won": "bg-green-500/10 text-green-400 border-green-500/20",
+  "Closed Lost": "bg-red-500/10 text-red-400 border-red-500/20",
+};
+
+const stateFullNames: Record<string, string> = {
+  FL: "Florida", TX: "Texas", CA: "California", NY: "New York", OH: "Ohio",
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CO: "Colorado",
+};
 
 const scriptSections = ["Introduction", "Needs Analysis", "Presentation", "Close"];
 
@@ -210,13 +235,33 @@ const DialerPage: React.FC = () => {
   const [vmDropOpen, setVmDropOpen] = useState(false);
 
   // Lead queue
-  const [leadQueue] = useState<LeadQueueItem[]>(initialLeadQueue);
+  const [leadQueue, setLeadQueue] = useState<LeadQueueItem[]>(initialLeadQueue);
   const activeLeadIdx = leadQueue.findIndex(l => l.active);
   const activeLead = leadQueue[activeLeadIdx];
   const nextLead = activeLeadIdx >= 0 && activeLeadIdx < leadQueue.length - 1 ? leadQueue[activeLeadIdx + 1] : null;
 
+  // Contact editing
+  const [editingContact, setEditingContact] = useState(false);
+  const [editFields, setEditFields] = useState<Partial<LeadQueueItem>>({});
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const statusRef = useRef<HTMLDivElement>(null);
+
+  // Contact modal (Full View)
+  const [showContactModal, setShowContactModal] = useState(false);
+
   // Script tab
   const [scriptTab, setScriptTab] = useState(0);
+
+  // Close status dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
+      }
+    };
+    if (statusDropdownOpen) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [statusDropdownOpen]);
 
   // Call timer
   useEffect(() => {
@@ -459,8 +504,42 @@ const DialerPage: React.FC = () => {
                 <Phone className="w-3.5 h-3.5" /> {activeLead.phone}
               </p>
               <div className="flex items-center justify-center gap-2">
-                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{activeLead.state === "FL" ? "Florida" : activeLead.state === "TX" ? "Texas" : activeLead.state === "CA" ? "California" : activeLead.state === "NY" ? "New York" : activeLead.state}</span>
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{stateFullNames[activeLead.state] || activeLead.state}</span>
                 <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">Age {activeLead.age}</span>
+                {/* Status Badge with Dropdown */}
+                <div className="relative" ref={statusRef}>
+                  <button
+                    onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                    className={cn(
+                      "text-xs px-2.5 py-0.5 rounded-full font-medium border inline-flex items-center gap-1 transition-colors",
+                      statusColors[activeLead.status] || "bg-muted text-muted-foreground border-border"
+                    )}
+                  >
+                    {activeLead.status}
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {statusDropdownOpen && (
+                    <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 w-44 bg-card border border-border rounded-lg shadow-lg py-1 z-50">
+                      {leadStatuses.map(s => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            setLeadQueue(q => q.map((l, i) => i === activeLeadIdx ? { ...l, status: s } : l));
+                            setStatusDropdownOpen(false);
+                            toast({ title: `Status updated to ${s}` });
+                          }}
+                          className={cn(
+                            "w-full px-3 py-1.5 text-sm text-left hover:bg-accent transition-colors flex items-center gap-2",
+                            s === activeLead.status && "font-medium text-primary"
+                          )}
+                        >
+                          <span className={cn("w-2 h-2 rounded-full", statusColors[s]?.split(" ")[0] || "bg-muted")} />
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               {/* Connection status */}
               <div className="flex justify-center">
@@ -489,24 +568,67 @@ const DialerPage: React.FC = () => {
             </div>
           )}
 
-          {/* Contact Details Grid */}
+          {/* Contact Details Grid — Editable */}
           {activeLead && (
             <div className="bg-accent/50 rounded-xl p-4">
-              <h3 className="font-semibold text-foreground text-sm mb-3">Contact Details</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-foreground text-sm">Contact Details</h3>
+                {editingContact ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        // Save edits back to queue
+                        setLeadQueue(q => q.map((l, i) => i === activeLeadIdx ? { ...l, ...editFields } : l));
+                        setEditingContact(false);
+                        toast({ title: "Contact updated" });
+                      }}
+                      className="p-1.5 rounded-md bg-success/10 text-success hover:bg-success/20 transition-colors"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => { setEditingContact(false); setEditFields({}); }}
+                      className="p-1.5 rounded-md bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setEditingContact(true); setEditFields({ ...activeLead }); }}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                {[
-                  ["Full Name", activeLead.fullName],
-                  ["Phone", activeLead.phone],
-                  ["Email", `${activeLead.fullName.split(" ")[0].toLowerCase()}.${activeLead.fullName.split(" ").pop()?.charAt(0).toLowerCase()}@email.com`],
-                  ["State", activeLead.state === "FL" ? "Florida" : activeLead.state === "TX" ? "Texas" : activeLead.state === "CA" ? "California" : activeLead.state === "NY" ? "New York" : activeLead.state === "OH" ? "Ohio" : activeLead.state],
-                  ["Age", String(activeLead.age)],
-                  ["Lead Source", activeLead.source],
-                  ["Status", "Interested"],
-                  ["Assigned", "Chris G."],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex justify-between text-sm py-1">
-                    <span className="text-muted-foreground">{k}</span>
-                    <span className="text-foreground font-medium">{v}</span>
+                {([
+                  { label: "Full Name", key: "fullName", type: "text" },
+                  { label: "Phone", key: "phone", type: "text" },
+                  { label: "Email", key: "email", type: "text" },
+                  { label: "State", key: "state", type: "text" },
+                  { label: "Age", key: "age", type: "number" },
+                  { label: "Date of Birth", key: "dateOfBirth", type: "date" },
+                  { label: "Lead Source", key: "source", type: "text" },
+                  { label: "Health Status", key: "healthStatus", type: "text" },
+                  { label: "Best Time to Call", key: "bestTimeToCall", type: "text" },
+                  { label: "Assigned", key: "assignedAgent", type: "text" },
+                ] as const).map(({ label, key, type }) => (
+                  <div key={key} className="flex justify-between items-center text-sm py-1">
+                    <span className="text-muted-foreground">{label}</span>
+                    {editingContact ? (
+                      <input
+                        type={type}
+                        value={(editFields as any)[key] ?? ""}
+                        onChange={e => setEditFields(f => ({ ...f, [key]: type === "number" ? Number(e.target.value) : e.target.value }))}
+                        className="w-36 px-2 py-1 text-sm text-foreground bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50 text-right"
+                      />
+                    ) : (
+                      <span className="text-foreground font-medium">
+                        {key === "state" ? (stateFullNames[activeLead.state] || activeLead.state) : (activeLead as any)[key]}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -822,7 +944,10 @@ const DialerPage: React.FC = () => {
             <button className="flex-1 py-2 rounded-md border border-border text-sm text-foreground font-medium flex items-center justify-center gap-1.5 hover:bg-accent transition-colors">
               <CalendarPlus className="w-4 h-4" /> Schedule
             </button>
-            <button className="flex-1 py-2 rounded-md border border-border text-sm text-foreground font-medium flex items-center justify-center gap-1.5 hover:bg-accent transition-colors">
+            <button
+              onClick={() => setShowContactModal(true)}
+              className="flex-1 py-2 rounded-md border border-border text-sm text-foreground font-medium flex items-center justify-center gap-1.5 hover:bg-accent transition-colors"
+            >
               <ExternalLink className="w-4 h-4" /> Full View
             </button>
           </div>
@@ -921,6 +1046,51 @@ const DialerPage: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Contact Modal (Full View) — does not affect call state */}
+      {showContactModal && activeLead && (
+        <ContactModal
+          lead={{
+            id: `dialer-${activeLeadIdx}`,
+            firstName: activeLead.fullName.split(" ")[0],
+            lastName: activeLead.fullName.split(" ").slice(1).join(" "),
+            phone: activeLead.phone,
+            email: activeLead.email,
+            state: activeLead.state,
+            status: activeLead.status as any,
+            leadSource: activeLead.source,
+            leadScore: 7,
+            age: activeLead.age,
+            dateOfBirth: activeLead.dateOfBirth,
+            healthStatus: activeLead.healthStatus,
+            bestTimeToCall: activeLead.bestTimeToCall,
+            assignedAgentId: "u1",
+            notes: "",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }}
+          onClose={() => setShowContactModal(false)}
+          onUpdate={async (id, data) => {
+            // Sync edits back to queue
+            setLeadQueue(q => q.map((l, i) => {
+              if (i !== activeLeadIdx) return l;
+              return {
+                ...l,
+                fullName: `${data.firstName ?? l.fullName.split(" ")[0]} ${data.lastName ?? l.fullName.split(" ").slice(1).join(" ")}`,
+                phone: data.phone ?? l.phone,
+                email: data.email ?? l.email,
+                state: data.state ?? l.state,
+                source: data.leadSource ?? l.source,
+                age: data.age ?? l.age,
+                status: data.status ?? l.status,
+                healthStatus: data.healthStatus ?? l.healthStatus,
+                bestTimeToCall: data.bestTimeToCall ?? l.bestTimeToCall,
+                dateOfBirth: data.dateOfBirth ?? l.dateOfBirth,
+              };
+            }));
+          }}
+          onDelete={async () => { setShowContactModal(false); }}
+        />
+      )}
     </div>
   );
 };
