@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
@@ -346,7 +347,12 @@ const Contacts: React.FC = () => {
   // Render cell value for a lead
   const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
     switch (key) {
-      case "name": return <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>;
+      case "name": return (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>
+          <ContactLocalTime state={l.state} size="sm" />
+        </div>
+      );
       case "phone": return <span className="text-foreground font-mono text-xs">{l.phone}</span>;
       case "email": return <span className="text-muted-foreground">{l.email}</span>;
       case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{l.state}</span>;

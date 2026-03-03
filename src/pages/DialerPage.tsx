@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import {
   Phone, PhoneOff, Mic, MicOff, Pause, Play, Voicemail,
   Clock, Pin, Plus, Calendar, Eye,
@@ -500,6 +501,10 @@ const DialerPage: React.FC = () => {
           {activeLead && (
             <div className="text-center space-y-2">
               <h2 className="text-2xl font-bold text-foreground">{activeLead.fullName}</h2>
+              <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-sm">
+                <span>Local time:</span>
+                <ContactLocalTime state={activeLead.state} size="md" />
+              </div>
               <p className="text-muted-foreground flex items-center justify-center gap-1.5">
                 <Phone className="w-3.5 h-3.5" /> {activeLead.phone}
               </p>
