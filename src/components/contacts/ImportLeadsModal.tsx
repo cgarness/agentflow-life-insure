@@ -1,10 +1,12 @@
 import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   X, Upload, CloudUpload, ArrowLeft, ArrowRight, Check, AlertTriangle,
-  FileText, Loader2, CheckCircle2, Download, RefreshCw,
+  FileText, Loader2, CheckCircle2, Download, RefreshCw, Plus, Megaphone, Settings,
 } from "lucide-react";
-import { Lead } from "@/lib/types";
+import { Lead, LeadStatus, CustomField } from "@/lib/types";
 import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
+import { customFieldsApi } from "@/lib/mock-api";
 
 // ---- Types ----
 interface ImportHistoryEntry {
@@ -52,6 +54,17 @@ const TEMPLATE_ROWS = [
   ["Jane", "Doe", "(555) 333-4444", "jane.doe@email.com", "TX", "Referral", "35", "1990-08-23", "Standard", "Afternoon", "Referred by Mike T."],
 ];
 
+const LEAD_STATUSES: { value: LeadStatus; color: string }[] = [
+  { value: "New", color: "hsl(217, 91%, 60%)" },
+  { value: "Contacted", color: "hsl(271, 91%, 65%)" },
+  { value: "Interested", color: "hsl(48, 96%, 53%)" },
+  { value: "Follow Up", color: "hsl(168, 80%, 55%)" },
+  { value: "Hot", color: "hsl(25, 95%, 53%)" },
+  { value: "Not Interested", color: "hsl(0, 0%, 50%)" },
+  { value: "Closed Won", color: "hsl(142, 71%, 45%)" },
+  { value: "Closed Lost", color: "hsl(0, 84%, 60%)" },
+];
+
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length === 0) return { headers: [], rows: [] };
@@ -95,15 +108,27 @@ function formatFileSize(bytes: number): string {
 
 const uid = () => "l" + Math.random().toString(36).slice(2, 10);
 
+// Campaign type for local use
+interface CampaignOption {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+}
+
 // ---- Component ----
 interface ImportLeadsModalProps {
   open: boolean;
   onClose: () => void;
   existingLeads: Lead[];
   onImportComplete: (newLeads: Lead[], historyEntry: ImportHistoryEntry) => void;
+  campaigns?: CampaignOption[];
+  onCampaignCreated?: (campaign: { id: string; name: string; type: string; description: string }) => void;
 }
 
-const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, existingLeads, onImportComplete }) => {
+const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
+  open, onClose, existingLeads, onImportComplete, campaigns = [], onCampaignCreated,
+}) => {
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -115,10 +140,25 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
   const [csvRows, setCsvRows] = useState<string[][]>([]);
 
   // Step 2
-  const [mappings, setMappings] = useState<Record<number, AgentFlowField | "Do Not Import">>({});
+  const [mappings, setMappings] = useState<Record<number, string>>({});
+  const [customFieldNames, setCustomFieldNames] = useState<string[]>([]);
+  const [creatingFieldForCol, setCreatingFieldForCol] = useState<number | null>(null);
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [newFieldType, setNewFieldType] = useState<"Text" | "Number" | "Date" | "Dropdown">("Text");
+  const [newFieldDropdownOpts, setNewFieldDropdownOpts] = useState("");
+  const [newFieldRequired, setNewFieldRequired] = useState(false);
 
   // Step 3
   const [duplicateHandling, setDuplicateHandling] = useState<DuplicateHandling>("skip");
+  const [campaignMode, setCampaignMode] = useState<"existing" | "new" | "none">("none");
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [newCampaignName, setNewCampaignName] = useState("");
+  const [newCampaignType, setNewCampaignType] = useState("Personal");
+  const [newCampaignDesc, setNewCampaignDesc] = useState("");
+  const [importStatus, setImportStatus] = useState<LeadStatus>("New");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
 
   // Step 4-5
   const [importProgress, setImportProgress] = useState(0);
@@ -126,7 +166,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
   const reset = () => {
     setStep(1); setFile(null); setParsing(false); setCsvHeaders([]); setCsvRows([]);
-    setMappings({}); setDuplicateHandling("skip"); setImportProgress(0); setImportResult(null);
+    setMappings({}); setCustomFieldNames([]); setCreatingFieldForCol(null);
+    setDuplicateHandling("skip"); setImportProgress(0); setImportResult(null);
+    setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
+    setNewCampaignType("Personal"); setNewCampaignDesc(""); setImportStatus("New");
+    setTags([]); setTagInput("");
   };
 
   // ---- CSV Parsing ----
@@ -142,8 +186,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
         const { headers, rows } = parseCSV(text);
         setCsvHeaders(headers);
         setCsvRows(rows);
-        // Auto-map
-        const autoMap: Record<number, AgentFlowField | "Do Not Import"> = {};
+        const autoMap: Record<number, string> = {};
         headers.forEach((h, i) => {
           const match = fuzzyMatch(h);
           autoMap[i] = match || "Do Not Import";
@@ -176,6 +219,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
     URL.revokeObjectURL(url);
   };
 
+  // ---- All available fields (standard + custom) ----
+  const allFields = useMemo(() => {
+    return [...AGENTFLOW_FIELDS, ...customFieldNames];
+  }, [customFieldNames]);
+
   // ---- Step 2 Validation ----
   const autoMatchedCount = useMemo(() => {
     return Object.values(mappings).filter(v => v !== "Do Not Import").length;
@@ -193,12 +241,48 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
   const canContinueStep2 = phoneIsMapped && nameIsMapped && duplicateMappings.length === 0;
 
-  const setMapping = (colIdx: number, value: AgentFlowField | "Do Not Import") => {
+  const setMapping = (colIdx: number, value: string) => {
+    if (value === "__create_new__") {
+      setCreatingFieldForCol(colIdx);
+      setNewFieldLabel(csvHeaders[colIdx] || "");
+      setNewFieldType("Text");
+      setNewFieldDropdownOpts("");
+      setNewFieldRequired(false);
+      return;
+    }
     setMappings(prev => ({ ...prev, [colIdx]: value }));
   };
 
+  const handleCreateCustomField = async () => {
+    if (!newFieldLabel.trim() || creatingFieldForCol === null) return;
+    try {
+      await customFieldsApi.create({
+        name: newFieldLabel.trim(),
+        type: newFieldType,
+        appliesTo: ["Leads"],
+        required: newFieldRequired,
+        active: true,
+        dropdownOptions: newFieldType === "Dropdown" ? newFieldDropdownOpts.split(",").map(s => s.trim()).filter(Boolean) : undefined,
+      });
+      const fieldName = newFieldLabel.trim();
+      setCustomFieldNames(prev => [...prev, fieldName]);
+      setMappings(prev => ({ ...prev, [creatingFieldForCol!]: fieldName }));
+      setCreatingFieldForCol(null);
+      toast.success(`Custom field '${fieldName}' created`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create custom field");
+    }
+  };
+
+  const cancelCreateField = () => {
+    if (creatingFieldForCol !== null) {
+      setMappings(prev => ({ ...prev, [creatingFieldForCol!]: "Do Not Import" }));
+    }
+    setCreatingFieldForCol(null);
+  };
+
   const autoDetectAgain = () => {
-    const autoMap: Record<number, AgentFlowField | "Do Not Import"> = {};
+    const autoMap: Record<number, string> = {};
     csvHeaders.forEach((h, i) => {
       const match = fuzzyMatch(h);
       autoMap[i] = match || "Do Not Import";
@@ -208,7 +292,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
   // ---- Step 3: Analyze Rows ----
   const analysisResult = useMemo(() => {
-    const fieldToColIdx: Partial<Record<AgentFlowField, number>> = {};
+    const fieldToColIdx: Partial<Record<string, number>> = {};
     Object.entries(mappings).forEach(([idx, field]) => {
       if (field !== "Do Not Import") fieldToColIdx[field] = Number(idx);
     });
@@ -226,17 +310,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
       const lastName = lastNameIdx !== undefined ? row[lastNameIdx]?.trim() : "";
       const email = emailIdx !== undefined ? row[emailIdx]?.trim() : "";
 
-      // Check errors
-      if (!phone) {
-        results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Phone is missing" });
-        return;
-      }
-      if (!firstName && !lastName) {
-        results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Name is missing" });
-        return;
-      }
+      if (!phone) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Phone is missing" }); return; }
+      if (!firstName && !lastName) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Name is missing" }); return; }
 
-      // Check duplicates
       const normalizedPhone = normalizePhone(phone);
       const normalizedEmail = email.toLowerCase();
       const dup = existingLeads.find(l =>
@@ -259,29 +335,66 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
   const errorCount = analysisResult.filter(r => r.status === "error").length;
   const importableCount = readyCount + (duplicateHandling === "skip" ? 0 : dupCount);
 
+  // ---- Tags ----
+  const addTag = (tag: string) => {
+    const t = tag.trim();
+    if (t && !tags.includes(t)) setTags(prev => [...prev, t]);
+    setTagInput("");
+  };
+
+  const removeTag = (tag: string) => setTags(prev => prev.filter(t => t !== tag));
+
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === "Enter" || e.key === ",") && tagInput.trim()) {
+      e.preventDefault();
+      addTag(tagInput);
+    }
+  };
+
+  // ---- Filtered campaigns ----
+  const filteredCampaigns = useMemo(() => {
+    if (!campaignSearch) return campaigns;
+    const q = campaignSearch.toLowerCase();
+    return campaigns.filter(c => c.name.toLowerCase().includes(q));
+  }, [campaigns, campaignSearch]);
+
   // ---- Step 4-5: Import ----
   const doImport = () => {
     setStep(4);
     setImportProgress(0);
 
-    const fieldToColIdx: Partial<Record<AgentFlowField, number>> = {};
+    const fieldToColIdx: Partial<Record<string, number>> = {};
     Object.entries(mappings).forEach(([idx, field]) => {
       if (field !== "Do Not Import") fieldToColIdx[field] = Number(idx);
     });
 
-    const getVal = (row: string[], field: AgentFlowField) => {
+    const getVal = (row: string[], field: string) => {
       const idx = fieldToColIdx[field];
       return idx !== undefined ? row[idx]?.trim() || "" : "";
     };
 
-    // Progress animation
     let progress = 0;
     const interval = setInterval(() => {
       progress += 2;
       setImportProgress(Math.min(progress, 100));
       if (progress >= 100) {
         clearInterval(interval);
-        // Build leads
+
+        // Create campaign if needed
+        let campaignId: string | undefined;
+        if (campaignMode === "existing" && selectedCampaignId) {
+          campaignId = selectedCampaignId;
+        } else if (campaignMode === "new" && newCampaignName.trim()) {
+          const newId = "cmp" + Math.random().toString(36).slice(2, 8);
+          campaignId = newId;
+          onCampaignCreated?.({
+            id: newId,
+            name: newCampaignName.trim(),
+            type: newCampaignType,
+            description: newCampaignDesc,
+          });
+        }
+
         const newLeads: Lead[] = [];
         let imported = 0, duplicates = 0, errors = 0;
 
@@ -298,7 +411,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
               phone: getVal(r.row, "Phone"),
               email: getVal(r.row, "Email"),
               state: getVal(r.row, "State"),
-              status: "New",
+              status: importStatus,
               leadSource: getVal(r.row, "Lead Source") || "CSV Import",
               leadScore: 5,
               age: parseInt(getVal(r.row, "Age")) || undefined,
@@ -309,6 +422,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
               assignedAgentId: "u1",
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
+              customFields: {
+                ...(campaignId ? { campaignId } : {}),
+                ...(tags.length > 0 ? { tags } : {}),
+              },
             };
             newLeads.push(lead);
             imported++;
@@ -328,6 +445,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
         setImportResult({ imported, duplicates, errors });
         onImportComplete(newLeads, historyEntry);
+        toast.success(`${imported} leads imported successfully`);
         setStep(5);
       }
     }, 30);
@@ -337,10 +455,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
   // ---- Step 1 UI: Upload ----
   const renderStep1 = () => (
-    <>
+    <div className="flex flex-col items-center justify-center h-full">
       {!file ? (
         <div
-          className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors duration-150 ${
+          className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors duration-150 w-full ${
             dragOver ? "border-primary bg-primary/5" : "border-border bg-muted/30 hover:border-primary/50 hover:bg-muted/50"
           }`}
           onClick={() => fileRef.current?.click()}
@@ -355,7 +473,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileInput} />
         </div>
       ) : parsing ? (
-        <div className="border rounded-lg p-8 bg-muted/30 space-y-3">
+        <div className="border rounded-lg p-8 bg-muted/30 space-y-3 w-full">
           <div className="flex items-center gap-3">
             <FileText className="w-5 h-5 text-primary" />
             <span className="text-foreground font-medium">{file.name}</span>
@@ -369,7 +487,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
           </div>
         </div>
       ) : (
-        <div className="border rounded-lg p-6 bg-muted/30">
+        <div className="border rounded-lg p-6 bg-muted/30 w-full">
           <div className="flex items-center gap-3">
             <FileText className="w-5 h-5 text-primary" />
             <div className="flex-1">
@@ -387,7 +505,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
       <button onClick={downloadTemplate} className="flex items-center gap-2 text-sm text-primary hover:underline mt-3">
         <Download className="w-4 h-4" /> Need a template?
       </button>
-    </>
+    </div>
   );
 
   // ---- Step 2 UI: Field Mapping ----
@@ -417,7 +535,72 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
         </div>
       )}
 
-      <div className="overflow-auto max-h-[360px] border rounded-lg">
+      {/* Create Custom Field inline form */}
+      {creatingFieldForCol !== null && (
+        <div className="border border-primary/30 bg-muted/50 rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-foreground">Create Custom Field</h4>
+            <button onClick={cancelCreateField} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Field Label *</label>
+              <input
+                value={newFieldLabel}
+                onChange={e => setNewFieldLabel(e.target.value)}
+                className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                placeholder="Field name"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Field Type</label>
+              <select
+                value={newFieldType}
+                onChange={e => setNewFieldType(e.target.value as any)}
+                className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              >
+                <option value="Text">Text</option>
+                <option value="Number">Number</option>
+                <option value="Date">Date</option>
+                <option value="Dropdown">Dropdown</option>
+              </select>
+            </div>
+          </div>
+          {newFieldType === "Dropdown" && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Options (comma-separated)</label>
+              <input
+                value={newFieldDropdownOpts}
+                onChange={e => setNewFieldDropdownOpts(e.target.value)}
+                className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                placeholder="Hot, Warm, Cold"
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+              <input type="checkbox" checked={newFieldRequired} onChange={e => setNewFieldRequired(e.target.checked)} className="rounded" />
+              Required Field
+            </label>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={cancelCreateField} className="h-8 px-3 rounded-md border border-border bg-background text-muted-foreground text-sm hover:bg-accent transition-colors duration-150">
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateCustomField}
+              disabled={!newFieldLabel.trim()}
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40"
+            >
+              Create & Map Field
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-auto border rounded-lg" style={{ maxHeight: creatingFieldForCol !== null ? "200px" : "340px" }}>
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-card z-10">
             <tr className="border-b">
@@ -430,7 +613,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
           <tbody>
             {csvHeaders.map((header, i) => {
               const mapped = mappings[i];
-              const isAutoMatched = mapped !== "Do Not Import" && fuzzyMatch(header) === mapped;
+              const isStandardField = (AGENTFLOW_FIELDS as readonly string[]).includes(mapped);
+              const isAutoMatched = mapped !== "Do Not Import" && isStandardField && fuzzyMatch(header) === mapped;
+              const isCustomField = mapped !== "Do Not Import" && !isStandardField && customFieldNames.includes(mapped);
               const isDuplicate = duplicateMappings.includes(i);
               const previewVal = csvRows.find(r => r[i]?.trim())?.[i]?.trim() || "";
 
@@ -444,18 +629,24 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
                     <div className="flex items-center gap-2">
                       <select
                         value={mapped}
-                        onChange={e => setMapping(i, e.target.value as AgentFlowField | "Do Not Import")}
+                        onChange={e => setMapping(i, e.target.value)}
                         className={`h-8 px-2 rounded-md bg-muted text-foreground text-sm border focus:ring-2 focus:ring-primary/50 focus:outline-none transition-colors duration-150 ${
                           isDuplicate ? "border-destructive" : "border-border"
                         }`}
                       >
                         <option value="Do Not Import">Do Not Import</option>
                         {AGENTFLOW_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
+                        {customFieldNames.map(f => <option key={f} value={f}>{f} (Custom)</option>)}
+                        <option disabled>──────────</option>
+                        <option value="__create_new__" className="text-primary">+ Create New Custom Field</option>
                       </select>
                       {isAutoMatched && (
                         <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Auto-matched</span>
                       )}
-                      {!isAutoMatched && mapped === "Do Not Import" && (
+                      {isCustomField && (
+                        <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Custom field created</span>
+                      )}
+                      {!isAutoMatched && !isCustomField && mapped === "Do Not Import" && (
                         <span className="text-xs px-1.5 py-0.5 bg-yellow-500/10 text-yellow-500 rounded-full whitespace-nowrap">Review needed</span>
                       )}
                       {isDuplicate && (
@@ -476,11 +667,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
   // ---- Step 3 UI: Review ----
   const renderStep3 = () => {
     const preview = analysisResult.slice(0, 10);
-    const fieldToColIdx: Partial<Record<AgentFlowField, number>> = {};
+    const fieldToColIdx: Partial<Record<string, number>> = {};
     Object.entries(mappings).forEach(([idx, field]) => {
       if (field !== "Do Not Import") fieldToColIdx[field] = Number(idx);
     });
-    const getVal = (row: string[], field: AgentFlowField) => {
+    const getVal = (row: string[], field: string) => {
       const idx = fieldToColIdx[field];
       return idx !== undefined ? row[idx]?.trim() || "—" : "—";
     };
@@ -500,6 +691,139 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
               <p className="text-xs text-muted-foreground mt-0.5">{c.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* Campaign Assignment */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Megaphone className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Campaign Assignment</span>
+          </div>
+          <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
+            {/* Radio options */}
+            {([
+              { value: "existing" as const, label: "Add to existing campaign" },
+              { value: "new" as const, label: "Create new campaign" },
+              { value: "none" as const, label: "Don't assign to a campaign" },
+            ]).map(opt => (
+              <div key={opt.value}>
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
+                  <input
+                    type="radio"
+                    name="campaignMode"
+                    checked={campaignMode === opt.value}
+                    onChange={() => setCampaignMode(opt.value)}
+                    className="accent-primary"
+                  />
+                  {opt.label}
+                </label>
+
+                {/* Existing campaign dropdown */}
+                {opt.value === "existing" && campaignMode === "existing" && (
+                  <div className="ml-6 mt-2">
+                    <input
+                      value={campaignSearch}
+                      onChange={e => setCampaignSearch(e.target.value)}
+                      className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none mb-1"
+                      placeholder="Search or select a campaign..."
+                    />
+                    <div className="max-h-32 overflow-y-auto border rounded-md bg-background">
+                      {filteredCampaigns.length === 0 ? (
+                        <p className="text-xs text-muted-foreground p-2">No campaigns yet</p>
+                      ) : filteredCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => setSelectedCampaignId(c.id)}
+                          className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors duration-150 ${
+                            selectedCampaignId === c.id ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <span className="flex-1">{c.name}</span>
+                          <span className="text-xs px-1.5 py-0.5 bg-muted rounded text-muted-foreground">{c.type}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            c.status === "Active" ? "bg-green-500/10 text-green-500" : "bg-muted text-muted-foreground"
+                          }`}>{c.status}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* New campaign form */}
+                {opt.value === "new" && campaignMode === "new" && (
+                  <div className="ml-6 mt-2 space-y-2">
+                    <input
+                      value={newCampaignName}
+                      onChange={e => setNewCampaignName(e.target.value)}
+                      className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                      placeholder="Campaign Name *"
+                    />
+                    <select
+                      value={newCampaignType}
+                      onChange={e => setNewCampaignType(e.target.value)}
+                      className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                    >
+                      <option value="Open Pool">Open Pool</option>
+                      <option value="Personal">Personal</option>
+                      <option value="Team">Team</option>
+                    </select>
+                    <textarea
+                      value={newCampaignDesc}
+                      onChange={e => setNewCampaignDesc(e.target.value)}
+                      className="w-full px-2 py-1.5 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none resize-none"
+                      placeholder="Description (optional)"
+                      rows={2}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Lead Settings */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Settings className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Lead Settings</span>
+          </div>
+          <div className="border rounded-lg p-4 bg-muted/20 space-y-4">
+            {/* Initial Status */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">Set status for all imported leads</label>
+              <select
+                value={importStatus}
+                onChange={e => setImportStatus(e.target.value as LeadStatus)}
+                className="w-full max-w-xs h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              >
+                {LEAD_STATUSES.map(s => (
+                  <option key={s.value} value={s.value}>{s.value}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">Add tags to all imported leads</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {tags.map(tag => (
+                  <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted rounded-md text-foreground text-xs">
+                    {tag}
+                    <button onClick={() => removeTag(tag)} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <input
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={handleTagKeyDown}
+                className="w-full max-w-xs h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                placeholder="Type a tag and press Enter..."
+              />
+            </div>
+          </div>
         </div>
 
         {/* Duplicate Handling */}
@@ -529,7 +853,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
         )}
 
         {/* Preview Table */}
-        <div className="overflow-auto max-h-[280px] border rounded-lg">
+        <div className="overflow-auto max-h-[180px] border rounded-lg">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-card z-10">
               <tr className="border-b">
@@ -551,9 +875,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
                   <td className="p-2 text-foreground">{getVal(r.row, "State")}</td>
                   <td className="p-2">
                     {r.status === "ready" && <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 font-medium">Ready</span>}
-                    {r.status === "duplicate" && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 font-medium">Duplicate</span>
-                    )}
+                    {r.status === "duplicate" && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 font-medium">Duplicate</span>}
                     {r.status === "error" && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium flex items-center gap-1 w-fit">
                         <AlertTriangle className="w-3 h-3" /> Error
@@ -581,7 +903,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
   // ---- Step 4 UI: Progress ----
   const renderStep4 = () => (
-    <div className="flex flex-col items-center justify-center py-16 space-y-4">
+    <div className="flex flex-col items-center justify-center h-full space-y-4">
       <Loader2 className="w-10 h-10 text-primary animate-spin" />
       <p className="text-foreground text-lg font-medium">Importing your leads...</p>
       <p className="text-muted-foreground text-sm">Please don't close this window</p>
@@ -594,7 +916,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
 
   // ---- Step 5 UI: Success ----
   const renderStep5 = () => (
-    <div className="flex flex-col items-center justify-center py-12 space-y-4">
+    <div className="flex flex-col items-center justify-center h-full space-y-4">
       <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
         <CheckCircle2 className="w-8 h-8 text-green-500" />
       </div>
@@ -628,7 +950,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
       { num: 3, label: "Review" },
     ];
     return (
-      <div className="flex items-center justify-center gap-2 mb-4">
+      <div className="flex items-center justify-center gap-2 py-3">
         {steps.map((s, i) => (
           <React.Fragment key={s.num}>
             <div className="flex items-center gap-1.5">
@@ -655,12 +977,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
       <div className="fixed inset-0 bg-foreground/80 backdrop-blur-sm" onClick={step < 4 ? onClose : undefined} />
-      <div className={`relative bg-card border border-border rounded-xl shadow-2xl w-full p-6 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto ${
-        step === 3 ? "max-w-[900px]" : "max-w-[680px]"
-      }`}>
-        {/* Header */}
+      {/* Fixed size modal */}
+      <div className="relative bg-card border border-border rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col w-[860px] min-w-[860px] max-w-[860px] h-[680px] max-sm:w-screen max-sm:h-screen max-sm:min-w-0 max-sm:max-w-none max-sm:rounded-none">
+        {/* Fixed Header */}
         {step < 5 && stepTitles[step].title && (
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start justify-between p-6 pb-0 shrink-0">
             <div className="flex items-center gap-3">
               {step > 1 && step < 4 && (
                 <button onClick={() => setStep(step - 1)} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
@@ -680,17 +1001,20 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClose, exis
           </div>
         )}
 
-        {renderProgressBar()}
+        <div className="px-6 shrink-0">{renderProgressBar()}</div>
 
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
-        {step === 4 && renderStep4()}
-        {step === 5 && renderStep5()}
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto px-6 min-h-0">
+          {step === 1 && renderStep1()}
+          {step === 2 && renderStep2()}
+          {step === 3 && renderStep3()}
+          {step === 4 && renderStep4()}
+          {step === 5 && renderStep5()}
+        </div>
 
-        {/* Footer */}
+        {/* Fixed Footer */}
         {step >= 1 && step <= 3 && (
-          <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
+          <div className="flex items-center justify-between p-6 pt-4 border-t border-border shrink-0">
             <button onClick={onClose} className="h-9 px-4 rounded-lg border border-border bg-background text-muted-foreground text-sm font-medium hover:bg-accent hover:text-foreground transition-colors duration-150">
               Cancel
             </button>
