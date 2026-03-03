@@ -6,14 +6,16 @@ import Permissions from "@/components/settings/Permissions";
 import CompanyBranding from "@/components/settings/CompanyBranding";
 import CallScripts from "@/components/settings/CallScripts";
 import CalendarSettings from "@/components/settings/CalendarSettings";
+import MyProfile from "@/components/settings/MyProfile";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
   Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
-  Lock, CalendarDays,
+  Lock, CalendarDays, UserCircle,
 } from "lucide-react";
 
 const sections = [
+  { icon: UserCircle, label: "My Profile" },
   { icon: Building2, label: "Company Branding" },
   { icon: Users, label: "User Management" },
   { icon: Phone, label: "Twilio & Phone Numbers" },
@@ -71,14 +73,16 @@ const SettingsPage: React.FC = () => {
 
   const renderContent = () => {
     switch (active) {
-      case 0: // Company Branding
+      case 0: // My Profile
+        return <MyProfile />;
+      case 1: // Company Branding
         return <CompanyBranding />;
 
-      case 1: // User Management
+      case 2: // User Management
         return <UserManagement />;
-      case 3: // Call Scripts
+      case 4: // Call Scripts
         return <CallScripts />;
-      case 2: // Twilio
+      case 3: // Twilio
         return (
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-foreground">Twilio & Phone Numbers</h3>
@@ -101,16 +105,16 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 4: // Dispositions
+      case 5: // Dispositions
         return <DispositionsManager />;
-      case 5: // Contact Management
+      case 6: // Contact Management
         return <ContactManagement />;
-      case 6: // Calendar Settings
+      case 7: // Calendar Settings
         return <CalendarSettings />;
-      case 7: // Permissions
+      case 8: // Permissions
         return <Permissions />;
 
-      case 10: // Carriers
+      case 11: // Carriers
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -131,7 +135,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 13: // Call Monitoring
+      case 14: // Call Monitoring
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">Call Monitoring <span className="w-2.5 h-2.5 rounded-full bg-success animate-pulse" /></h3>
@@ -159,7 +163,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 17: // AI Settings
+      case 18: // AI Settings
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">AI Settings</h3>
@@ -176,7 +180,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 18: // DNC List
+      case 19: // DNC List
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -201,7 +205,7 @@ const SettingsPage: React.FC = () => {
           </div>
         );
 
-      case 21: // Activity Log
+      case 22: // Activity Log
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
