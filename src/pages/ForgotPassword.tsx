@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { authApi } from "@/lib/mock-api";
+import { useAuth } from "@/contexts/AuthContext";
 import { ArrowLeft, Loader2, CheckCircle2 } from "lucide-react";
 
 const ForgotPassword: React.FC = () => {
+  const { resetPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -14,7 +15,7 @@ const ForgotPassword: React.FC = () => {
     setError("");
     setLoading(true);
     try {
-      await authApi.forgotPassword(email);
+      await resetPassword(email);
       setSent(true);
     } catch (err: any) {
       setError(err.message);
@@ -36,7 +37,7 @@ const ForgotPassword: React.FC = () => {
 
         {sent ? (
           <div className="text-center space-y-4">
-            <CheckCircle2 className="w-12 h-12 text-success mx-auto" />
+            <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto" />
             <h2 className="text-lg font-semibold text-foreground">Check Your Email</h2>
             <p className="text-sm text-muted-foreground">We've sent a password reset link to <span className="font-medium text-foreground">{email}</span></p>
             <Link to="/login" className="inline-flex items-center gap-2 text-sm text-primary font-medium hover:underline mt-4">
@@ -59,7 +60,7 @@ const ForgotPassword: React.FC = () => {
                 placeholder="you@company.com"
               />
             </div>
-            <button type="submit" disabled={loading} className="w-full h-10 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 sidebar-transition disabled:opacity-50 flex items-center justify-center gap-2">
+            <button type="submit" disabled={loading} className="w-full h-10 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-all duration-150 disabled:opacity-50 flex items-center justify-center gap-2">
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               Send Reset Link
             </button>

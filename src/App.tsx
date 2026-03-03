@@ -19,7 +19,9 @@ import AIAgents from "./pages/AIAgents";
 import Training from "./pages/Training";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
+import SignupPage from "./pages/SignupPage";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,7 +55,9 @@ const App = () => (
             <BrowserRouter>
               <Routes>
                 <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+                <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
                 <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dialer" element={<DialerPage />} />

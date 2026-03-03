@@ -33,7 +33,7 @@ const customLinks = [
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { theme, setTheme } = useTheme();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const location = useLocation();
 
   const sidebarContent = (
@@ -133,10 +133,10 @@ const Sidebar: React.FC = () => {
         {/* User Info */}
         {!collapsed && (
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">{user ? `${user.firstName[0]}${user.lastName[0]}` : "??"}</div>
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">{profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}</div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-sidebar-accent-foreground truncate">{user ? `${user.firstName} ${user.lastName}` : "Guest"}</p>
-              <p className="text-xs text-sidebar-muted truncate">{user?.role || ""}</p>
+              <p className="text-sm font-medium text-sidebar-accent-foreground truncate">{profile ? `${profile.first_name} ${profile.last_name}` : "Guest"}</p>
+              <p className="text-xs text-sidebar-muted truncate">{profile?.role || ""}</p>
             </div>
           </div>
         )}

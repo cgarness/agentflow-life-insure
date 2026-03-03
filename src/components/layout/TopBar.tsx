@@ -33,7 +33,7 @@ const statusOptions = [
 
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
-  const { user, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
   const { dialerOverride } = useAgentStatus();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -168,12 +168,12 @@ const TopBar: React.FC = () => {
           {/* User Avatar */}
           <div className="relative">
             <button onClick={() => setUserDropdown(!userDropdown)} className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold hover:ring-2 hover:ring-primary/30 sidebar-transition">
-              {user ? `${user.firstName[0]}${user.lastName[0]}` : "??"}
+              {profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}
             </button>
             {userDropdown && (
               <div className="absolute right-0 top-full mt-2 w-48 bg-card border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-3 py-2 border-b">
-                  <p className="text-sm font-medium text-foreground">{user?.firstName} {user?.lastName}</p>
+                  <p className="text-sm font-medium text-foreground">{profile?.first_name} {profile?.last_name}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
                 <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>

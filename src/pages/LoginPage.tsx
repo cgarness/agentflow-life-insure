@@ -6,8 +6,8 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("chris@agentflow.com");
-  const [password, setPassword] = useState("password");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState("");
@@ -30,19 +30,12 @@ const LoginPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4">
             <span className="text-primary-foreground font-bold text-xl">AF</span>
           </div>
           <h1 className="text-2xl font-bold text-foreground">Welcome to AgentFlow</h1>
           <p className="text-sm text-muted-foreground mt-1">Sign in to your account</p>
-        </div>
-
-        {/* Demo Credentials Notice */}
-        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 mb-6">
-          <p className="text-xs text-primary font-medium">Demo Mode — Use any email from the team:</p>
-          <p className="text-xs text-muted-foreground mt-0.5">chris@agentflow.com, sarah@agentflow.com, etc. Password: any 4+ characters</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -72,7 +65,7 @@ const LoginPage: React.FC = () => {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
-                minLength={4}
+                minLength={6}
                 className="w-full h-10 px-3 pr-10 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border"
                 placeholder="••••••••"
               />
@@ -93,12 +86,17 @@ const LoginPage: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-10 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 sidebar-transition disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full h-10 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-all duration-150 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             Sign In
           </button>
         </form>
+
+        <p className="text-center text-sm text-muted-foreground mt-6">
+          Don't have an account?{" "}
+          <Link to="/signup" className="text-primary hover:underline font-medium">Sign Up</Link>
+        </p>
 
         <p className="text-center text-xs text-muted-foreground mt-8">© 2025 AgentFlow. All rights reserved.</p>
       </div>

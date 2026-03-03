@@ -9,7 +9,7 @@ import { DashboardStats, LeaderboardEntry, WinFeedItem } from "@/lib/types";
 import { calcAging } from "@/lib/mock-data";
 
 const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [followUps, setFollowUps] = useState<any[]>([]);
@@ -55,7 +55,7 @@ const Dashboard: React.FC = () => {
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const firstName = user?.firstName || "Agent";
+  const firstName = profile?.first_name || "Agent";
 
   if (loading) return (
     <div className="flex items-center justify-center py-24"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>
