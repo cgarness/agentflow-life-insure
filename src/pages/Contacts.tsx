@@ -866,10 +866,7 @@ const Contacts: React.FC = () => {
         onClose={() => setImportModalOpen(false)}
         existingLeads={leads}
         onImportComplete={(newLeads, historyEntry) => {
-          // Add to leads via the API store
-          newLeads.forEach(l => {
-            leadsApi.create({ ...l });
-          });
+          leadsApi.bulkAdd(newLeads);
           setImportHistory(prev => [historyEntry, ...prev]);
           toast.success(`${historyEntry.imported} leads imported successfully`, { duration: 3000, position: "bottom-right" });
           fetchData();

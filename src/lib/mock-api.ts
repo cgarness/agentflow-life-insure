@@ -289,6 +289,9 @@ export const leadsApi = {
     }
     return { imported, duplicates, errors };
   },
+  bulkAdd(newLeads: Lead[]) {
+    leads.unshift(...newLeads);
+  },
   async getSourceStats() {
     await delay(200);
     const sources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"];
