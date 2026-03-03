@@ -786,12 +786,114 @@ const Contacts: React.FC = () => {
         </div>
       )}
 
+      {/* Import History (below leads table) */}
+      {tab === "Leads" && (
+        <div className="bg-card rounded-xl border">
+          <button
+            onClick={() => setImportHistoryOpen(!importHistoryOpen)}
+            className="w-full flex items-center justify-between p-4 text-sm font-medium text-foreground hover:bg-accent/30 transition-colors duration-150 rounded-xl"
+          >
+            <div className="flex items-center gap-2">
+              Import History
+              {importHistory.length > 0 && (
+                <span className="text-xs px-1.5 py-0.5 bg-muted text-muted-foreground rounded-full">{importHistory.length}</span>
+              )}
+            </div>
+            {importHistoryOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {importHistoryOpen && (
+            <div className="px-4 pb-4">
+              {importHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Upload your first CSV to get started.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-2 font-medium">Date</th>
+                        <th className="text-left py-2 font-medium">File Name</th>
+                        <th className="text-right py-2 font-medium">Total</th>
+                        <th className="text-right py-2 font-medium">Imported</th>
+                        <th className="text-right py-2 font-medium">Duplicates</th>
+                        <th className="text-right py-2 font-medium">Errors</th>
+                        <th className="text-right py-2 font-medium">Undo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importHistory.map(h => {
+                        const hoursSince = (Date.now() - new Date(h.date).getTime()) / (1000 * 60 * 60);
+                        const canUndo = hoursSince < 24;
+                        return (
+                          <tr key={h.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors duration-150">
+                            <td className="py-2 text-foreground">{new Date(h.date).toLocaleDateString()} {new Date(h.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                            <td className="py-2 text-foreground">{h.fileName}</td>
+                            <td className="py-2 text-right text-foreground">{h.totalRecords}</td>
+                            <td className="py-2 text-right text-green-500">{h.imported}</td>
+                            <td className="py-2 text-right text-yellow-500">{h.duplicates}</td>
+                            <td className="py-2 text-right text-destructive">{h.errors}</td>
+                            <td className="py-2 text-right">
+                              <button
+                                disabled={!canUndo}
+                                onClick={() => setUndoConfirm(h)}
+                                className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
+                                title={canUndo ? "Undo this import" : "Can only undo within 24 hours"}
+                              >
+                                <Undo2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Modals */}
       <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddLead} />
       <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} />
       <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDelete} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal open={bulkDeleteOpen} count={selectedIds.size} title={`Delete ${selectedIds.size} Leads?`} onConfirm={handleBulkDelete} onClose={() => setBulkDeleteOpen(false)} />
+
+      {/* Import Modal */}
+      <ImportLeadsModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        existingLeads={leads}
+        onImportComplete={(newLeads, historyEntry) => {
+          // Add to leads via the API store
+          newLeads.forEach(l => {
+            leadsApi.create({ ...l });
+          });
+          setImportHistory(prev => [historyEntry, ...prev]);
+          toast.success(`${historyEntry.imported} leads imported successfully`, { duration: 3000, position: "bottom-right" });
+          fetchData();
+        }}
+      />
+
+      {/* Undo Confirmation */}
+      {undoConfirm && (
+        <DeleteConfirmModal
+          open={true}
+          count={undoConfirm.imported}
+          title={`Remove ${undoConfirm.imported} leads imported from ${undoConfirm.fileName}?`}
+          onConfirm={async () => {
+            for (const id of undoConfirm.importedLeadIds) {
+              await leadsApi.delete(id);
+            }
+            setImportHistory(prev => prev.filter(h => h.id !== undoConfirm.id));
+            toast.success(`${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
+            setUndoConfirm(null);
+            fetchData();
+          }}
+          onClose={() => setUndoConfirm(null)}
+        />
+      )}
     </div>
   );
 };
