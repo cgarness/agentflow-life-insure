@@ -34,10 +34,10 @@ function getPasswordStrength(pw: string) {
   if (/[0-9]/.test(pw)) score++;
   if (/[!@#$%^&*]/.test(pw)) score++;
   const levels = [
-    { label: "Weak", width: "25%", color: "bg-destructive" },
-    { label: "Fair", width: "50%", color: "bg-warning" },
-    { label: "Strong", width: "75%", color: "bg-warning" },
-    { label: "Very Strong", width: "100%", color: "bg-success" },
+    { label: "Weak", width: "25%", color: "bg-destructive", textColor: "text-destructive" },
+    { label: "Fair", width: "50%", color: "bg-orange-500", textColor: "text-orange-500" },
+    { label: "Strong", width: "75%", color: "bg-yellow-500", textColor: "text-yellow-500" },
+    { label: "Very Strong", width: "100%", color: "bg-success", textColor: "text-success" },
   ];
   return score === 0 ? null : levels[score - 1];
 }
@@ -281,10 +281,12 @@ const MyProfile: React.FC = () => {
             <PasswordField label="New Password" value={newPw} onChange={setNewPw} show={showNewPw} onToggle={() => setShowNewPw(!showNewPw)} />
             {newPw && pwStrength && (
               <div className="mt-2">
-                <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div className={`h-full rounded-full ${pwStrength.color} transition-all duration-300`} style={{ width: pwStrength.width }} />
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full ${pwStrength.color} transition-all duration-300`} style={{ width: pwStrength.width }} />
+                  </div>
+                  <span className={`text-xs font-medium ${pwStrength.textColor} whitespace-nowrap`}>{pwStrength.label}</span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{pwStrength.label}</p>
               </div>
             )}
             <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
@@ -345,7 +347,7 @@ const MyProfile: React.FC = () => {
       {/* CARD 4 — Agent Goals */}
       {showGoals && (
         <Card className="bg-card border-border rounded-lg mb-6">
-          <CardHeader><CardTitle className="text-base">Agent Goals</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">My Goals</CardTitle></CardHeader>
           <CardContent className="space-y-4 max-w-md">
             <GoalField label="Daily Calls Goal" unit="calls per day" value={dailyCalls} onChange={setDailyCalls} error={goalErrors.dailyCalls} />
             <GoalField label="Monthly Policies Goal" unit="policies per month" value={monthlyPolicies} onChange={setMonthlyPolicies} error={goalErrors.monthlyPolicies} />

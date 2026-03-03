@@ -255,18 +255,33 @@ const SettingsPage: React.FC = () => {
         {/* Sub-nav */}
         <div className="lg:col-span-1">
           <nav className="bg-card rounded-xl border p-2 space-y-0.5 sticky top-20">
-            {sections.map((s, i) => (
-              <button
-                key={s.label}
-                onClick={() => setActive(i)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${
-                  active === i ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
-                }`}
-              >
-                <s.icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{s.label}</span>
-              </button>
-            ))}
+            {/* ACCOUNT section */}
+            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium px-3 py-2">Account</p>
+            <button
+              onClick={() => setActive(0)}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${
+                active === 0 ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
+              }`}
+            >
+              <UserCircle className="w-4 h-4 shrink-0" />
+              <span className="truncate">My Profile</span>
+            </button>
+            <div className="border-t border-border my-1" />
+            {sections.slice(1).map((s, idx) => {
+              const i = idx + 1;
+              return (
+                <button
+                  key={s.label}
+                  onClick={() => setActive(i)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${
+                    active === i ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
+                  }`}
+                >
+                  <s.icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{s.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
 
