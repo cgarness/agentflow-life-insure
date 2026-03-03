@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
-  Loader2, ChevronDown, GripVertical, AlertTriangle, Columns3, Lock,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  Loader2, ChevronDown, ChevronUp, GripVertical, AlertTriangle, Columns3, Lock,
+  ArrowUp, ArrowDown, ArrowUpDown, Undo2,
 } from "lucide-react";
 import { leadsApi, clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
+import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -200,6 +201,10 @@ const Contacts: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sourceStats, setSourceStats] = useState<any[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
+  const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
 
   // Column visibility
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE));
