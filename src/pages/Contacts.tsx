@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
-  Loader2, ChevronDown, GripVertical, AlertTriangle, Columns3, Lock,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  Loader2, ChevronDown, ChevronUp, GripVertical, AlertTriangle, Columns3, Lock,
+  ArrowUp, ArrowDown, ArrowUpDown, Undo2,
 } from "lucide-react";
 import { leadsApi, clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
+import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -200,6 +201,10 @@ const Contacts: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sourceStats, setSourceStats] = useState<any[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
+  const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
 
   // Column visibility
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE));
@@ -458,7 +463,7 @@ const Contacts: React.FC = () => {
           )}
         </div>
         <div className="flex-1" />
-        <button className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Upload className="w-4 h-4" />Import CSV</button>
+        <button onClick={() => setImportModalOpen(true)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Upload className="w-4 h-4" />Import CSV</button>
         <button onClick={() => setAddModalOpen(true)} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" />Add Contact</button>
       </div>
 
@@ -781,12 +786,111 @@ const Contacts: React.FC = () => {
         </div>
       )}
 
+      {/* Import History (below leads table) */}
+      {tab === "Leads" && (
+        <div className="bg-card rounded-xl border">
+          <button
+            onClick={() => setImportHistoryOpen(!importHistoryOpen)}
+            className="w-full flex items-center justify-between p-4 text-sm font-medium text-foreground hover:bg-accent/30 transition-colors duration-150 rounded-xl"
+          >
+            <div className="flex items-center gap-2">
+              Import History
+              {importHistory.length > 0 && (
+                <span className="text-xs px-1.5 py-0.5 bg-muted text-muted-foreground rounded-full">{importHistory.length}</span>
+              )}
+            </div>
+            {importHistoryOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {importHistoryOpen && (
+            <div className="px-4 pb-4">
+              {importHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Upload your first CSV to get started.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-2 font-medium">Date</th>
+                        <th className="text-left py-2 font-medium">File Name</th>
+                        <th className="text-right py-2 font-medium">Total</th>
+                        <th className="text-right py-2 font-medium">Imported</th>
+                        <th className="text-right py-2 font-medium">Duplicates</th>
+                        <th className="text-right py-2 font-medium">Errors</th>
+                        <th className="text-right py-2 font-medium">Undo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importHistory.map(h => {
+                        const hoursSince = (Date.now() - new Date(h.date).getTime()) / (1000 * 60 * 60);
+                        const canUndo = hoursSince < 24;
+                        return (
+                          <tr key={h.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors duration-150">
+                            <td className="py-2 text-foreground">{new Date(h.date).toLocaleDateString()} {new Date(h.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                            <td className="py-2 text-foreground">{h.fileName}</td>
+                            <td className="py-2 text-right text-foreground">{h.totalRecords}</td>
+                            <td className="py-2 text-right text-green-500">{h.imported}</td>
+                            <td className="py-2 text-right text-yellow-500">{h.duplicates}</td>
+                            <td className="py-2 text-right text-destructive">{h.errors}</td>
+                            <td className="py-2 text-right">
+                              <button
+                                disabled={!canUndo}
+                                onClick={() => setUndoConfirm(h)}
+                                className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
+                                title={canUndo ? "Undo this import" : "Can only undo within 24 hours"}
+                              >
+                                <Undo2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Modals */}
       <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddLead} />
       <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} />
       <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDelete} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal open={bulkDeleteOpen} count={selectedIds.size} title={`Delete ${selectedIds.size} Leads?`} onConfirm={handleBulkDelete} onClose={() => setBulkDeleteOpen(false)} />
+
+      {/* Import Modal */}
+      <ImportLeadsModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        existingLeads={leads}
+        onImportComplete={(newLeads, historyEntry) => {
+          leadsApi.bulkAdd(newLeads);
+          setImportHistory(prev => [historyEntry, ...prev]);
+          toast.success(`${historyEntry.imported} leads imported successfully`, { duration: 3000, position: "bottom-right" });
+          fetchData();
+        }}
+      />
+
+      {/* Undo Confirmation */}
+      {undoConfirm && (
+        <DeleteConfirmModal
+          open={true}
+          count={undoConfirm.imported}
+          title={`Remove ${undoConfirm.imported} leads imported from ${undoConfirm.fileName}?`}
+          onConfirm={async () => {
+            for (const id of undoConfirm.importedLeadIds) {
+              await leadsApi.delete(id);
+            }
+            setImportHistory(prev => prev.filter(h => h.id !== undoConfirm.id));
+            toast.success(`${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
+            setUndoConfirm(null);
+            fetchData();
+          }}
+          onClose={() => setUndoConfirm(null)}
+        />
+      )}
     </div>
   );
 };
