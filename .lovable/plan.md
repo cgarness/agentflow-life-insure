@@ -1,43 +1,38 @@
 
 
-## Plan: Futuristic Neon Dashboard Restyle
+## Root Cause
 
-Restyle `Dashboard.tsx` only with a futuristic, neon-accented aesthetic. No changes to other pages, sidebar, or topbar. The approach uses scoped CSS classes and inline styles within the dashboard component so the neon look is isolated.
+The **CompanyBranding** and **Permissions** components use **hardcoded inline `style={}` attributes** with dark hex colors like `backgroundColor: "#1E293B"`, `backgroundColor: "#0F172A"`, `color: "#F1F5F9"`, etc. These override the app's theme system regardless of whether light or dark mode is active.
 
-### Visual Direction
+Meanwhile, **DispositionsManager** and **ContactManagement** correctly use Tailwind's **semantic CSS variables** — classes like `bg-card`, `text-foreground`, `bg-accent`, `border`, `text-muted-foreground` — which automatically adapt to the current theme (light `:root` or `.dark` vars defined in `index.css`).
 
-- Dark glassmorphic cards with subtle backdrop blur and semi-transparent backgrounds
-- Neon glow accents: cyan (#06B6D4), magenta/pink (#EC4899), electric green (#22C55E), amber (#F59E0B)
-- Stat card numbers get neon text-shadow glow effects
-- Card borders use subtle neon-colored border with low opacity
-- Icon containers get neon ring glows matching their category color
-- Leaderboard rank badges (#1 gold glow, #2 silver, #3 bronze)
-- Goal progress bars get neon glow matching their color
-- Section headings get a subtle gradient text effect
-- Hover states on cards intensify the glow
+Your app's light mode has:
+- `--background: 0 0% 100%` (white)
+- `--card: 0 0% 100%` (white)
+- `--foreground: 222 47% 11%` (dark text)
 
-### Changes
+But CompanyBranding and Permissions ignore these entirely because they use inline styles forcing dark colors.
 
-**File: `src/pages/Dashboard.tsx`**
-- Wrap the dashboard in a scoped container class
-- Replace card classes with glassmorphic variants: semi-transparent bg with backdrop-blur, neon-tinted borders
-- Stat card values: add inline `textShadow` with cyan/blue glow
-- Icon containers: add `boxShadow` glow rings matching each stat's theme color (blue for calls, green for policies, cyan for appointments, pink for campaigns)
-- Win Feed items: neon green accents on avatars
-- Follow-up aging badges: neon glow on red/yellow/green states
-- Leaderboard: top 3 ranks get gold/silver/bronze neon glow; progress bars get matching box-shadow
-- Period toggle buttons get neon outline on active state
-- Greeting text gets a subtle gradient (cyan to blue)
+## The Fix
 
-**File: `src/index.css`**
-- Add a few scoped keyframes and utility classes under a `.dashboard-neon` parent scope:
-  - `neon-card`: glassmorphic card base with backdrop-blur
-  - `neon-glow-cyan`, `neon-glow-green`, `neon-glow-pink`, `neon-glow-amber`: box-shadow utilities
-  - `neon-text`: text-shadow glow utility
-  - `neon-pulse`: subtle pulsing glow animation for active elements
+Replace all hardcoded inline `style={{ backgroundColor: "#1E293B" }}` / `color: "#F1F5F9"` / etc. in **CompanyBranding.tsx** and **Permissions.tsx** with the equivalent Tailwind theme classes:
 
-### Scope
-- Only `Dashboard.tsx` and `index.css` are modified
-- All other pages remain untouched
-- Uses semantic Tailwind classes where possible, inline styles only for dynamic glow effects (textShadow, boxShadow) since these aren't available as Tailwind utilities
+| Hardcoded style | Correct Tailwind class |
+|---|---|
+| `backgroundColor: "#0F172A"` | `bg-background` |
+| `backgroundColor: "#1E293B"` | `bg-card` |
+| `border: "1px solid #334155"` | `border` |
+| `color: "#F1F5F9"` | `text-foreground` |
+| `color: "#94A3B8"` | `text-muted-foreground` |
+| `color: "#64748B"` | `text-muted-foreground` |
+| `backgroundColor: "#3B82F6"` | `bg-primary` |
+| `backgroundColor: "#334155"` | `bg-muted` or `bg-accent` |
+
+This involves:
+1. **CompanyBranding.tsx** — Remove all inline `style={}` on the form card, popover, inputs, and labels. Replace with `className` equivalents (`bg-card border`, `bg-background`, `text-foreground`, etc.)
+2. **Permissions.tsx** — Same treatment across accordion sections, role tabs, radio pills, page/feature rows, data access cards, and the confirm dialog. The `AlertDialogContent` style overrides also need removal.
+
+## Prevention Going Forward
+
+The rule is simple: **never use hardcoded hex colors in inline styles for theme-dependent elements.** Always use Tailwind's semantic classes (`bg-card`, `bg-background`, `text-foreground`, `bg-accent`, `text-muted-foreground`, `border`, `bg-primary`, etc.) which are defined in `index.css` and respond to light/dark mode automatically. Inline `style={{ backgroundColor }}` should only be used for truly dynamic, user-chosen colors (like color swatches/pickers).
 
