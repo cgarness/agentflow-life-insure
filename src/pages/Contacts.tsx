@@ -865,10 +865,10 @@ const Contacts: React.FC = () => {
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
         existingLeads={leads}
+        campaigns={mockCampaigns.map(c => ({ id: c.id, name: c.name, type: c.type, status: c.status }))}
         onImportComplete={(newLeads, historyEntry) => {
           leadsApi.bulkAdd(newLeads);
           setImportHistory(prev => [historyEntry, ...prev]);
-          toast.success(`${historyEntry.imported} leads imported successfully`, { duration: 3000, position: "bottom-right" });
           fetchData();
         }}
       />
