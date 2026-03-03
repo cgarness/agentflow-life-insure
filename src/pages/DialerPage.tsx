@@ -3,6 +3,8 @@ import {
   Phone, PhoneOff, Mic, MicOff, Pause, Play, Voicemail,
   Clock, ChevronDown, Pin, Plus, Calendar, Eye,
   FileText, AlertCircle, CheckCircle, SkipForward,
+  Search, ChevronLeft, Loader2, PhoneOff as PhoneOffIcon,
+  ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { dispositionsApi } from "@/lib/mock-api";
@@ -13,7 +15,134 @@ import { Calendar as CalendarUI } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
+// ── Mock campaign data ──
+interface DialerCampaign {
+  id: string;
+  name: string;
+  status: "Active" | "Paused" | "Draft" | "Completed" | "Archived";
+  mode: "Power" | "Predictive";
+  leadsAvailable: number;
+  callsToday: number;
+  conversion: number;
+  lastSession: string;
+}
+
+const mockCampaigns: DialerCampaign[] = [
+  { id: "c1", name: "Q1 Facebook Leads", status: "Active", mode: "Power", leadsAvailable: 47, callsToday: 12, conversion: 8, lastSession: "Today" },
+  { id: "c2", name: "Google Ads Spring", status: "Active", mode: "Power", leadsAvailable: 23, callsToday: 0, conversion: 12, lastSession: "Yesterday" },
+  { id: "c3", name: "Referral Outreach", status: "Active", mode: "Predictive", leadsAvailable: 15, callsToday: 5, conversion: 21, lastSession: "Mar 1" },
+  { id: "c4", name: "Direct Mail Q1", status: "Paused", mode: "Power", leadsAvailable: 88, callsToday: 0, conversion: 4, lastSession: "Feb 28" },
+];
+
+// ── Campaign Selection Screen ──
+const CampaignSelection: React.FC<{ onSelect: (c: DialerCampaign) => void }> = ({ onSelect }) => {
+  const [search, setSearch] = useState("");
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  const activeCampaigns = mockCampaigns.filter(c => c.status === "Active");
+  const filtered = activeCampaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+
+  const handleStart = (c: DialerCampaign) => {
+    setLoadingId(c.id);
+    setTimeout(() => onSelect(c), 800);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-muted-foreground">AgentFlow / Dialer</div>
+      <h1 className="text-3xl font-bold text-foreground">Start a Session</h1>
+      <p className="text-muted-foreground mt-1">Select a campaign to begin dialing</p>
+
+      <div className="mt-8 space-y-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search campaigns..."
+            className="w-full bg-background border border-border rounded-md pl-10 pr-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="text-center py-16">
+            {activeCampaigns.length === 0 ? (
+              <>
+                <PhoneOffIcon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                <p className="text-foreground font-medium">No active campaigns assigned</p>
+                <p className="text-muted-foreground text-sm">Contact your admin to get assigned to an active campaign.</p>
+              </>
+            ) : (
+              <>
+                <Search className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                <p className="text-foreground font-medium">No campaigns match your search</p>
+                <p className="text-muted-foreground text-sm">Try a different search term.</p>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filtered.map(c => {
+              const isLoading = loadingId === c.id;
+              return (
+                <div key={c.id} className="bg-card border border-border rounded-lg p-5 cursor-pointer hover:border-primary hover:shadow-md transition-all duration-150">
+                  {/* Row 1 */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-foreground font-semibold text-base truncate">{c.name}</span>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${c.mode === "Power" ? "bg-blue-500/10 text-blue-400" : "bg-purple-500/10 text-purple-400"}`}>
+                      {c.mode}
+                    </span>
+                  </div>
+
+                  {/* Row 2 — Stats */}
+                  <div className="flex items-stretch mt-4">
+                    <div className="flex-1 text-center">
+                      <p className="text-foreground font-bold text-lg">{c.leadsAvailable}</p>
+                      <p className="text-muted-foreground text-xs">leads available</p>
+                    </div>
+                    <div className="border-r border-border" />
+                    <div className="flex-1 text-center">
+                      <p className="text-foreground font-bold text-lg">{c.callsToday}</p>
+                      <p className="text-muted-foreground text-xs">calls today</p>
+                    </div>
+                    <div className="border-r border-border" />
+                    <div className="flex-1 text-center">
+                      <p className="text-foreground font-bold text-lg">{c.conversion}%</p>
+                      <p className="text-muted-foreground text-xs">conversion</p>
+                    </div>
+                  </div>
+
+                  {/* Row 3 */}
+                  <p className="text-muted-foreground text-xs mt-3">Last session: {c.lastSession}</p>
+
+                  {/* Row 4 */}
+                  <button
+                    onClick={() => handleStart(c)}
+                    disabled={!!loadingId}
+                    className="w-full mt-3 bg-primary text-primary-foreground rounded-md py-2 text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isLoading ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Loading session...</>
+                    ) : (
+                      <>Start Dialing <ArrowRight className="w-4 h-4" /></>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Existing dialer session data ──
 const sessionStats = [
   { label: "Session Duration", value: "01:23:45" },
   { label: "Calls Made", value: "12" },
@@ -39,6 +168,8 @@ const callHistory = [
 ];
 
 const DialerPage: React.FC = () => {
+  const [selectedCampaign, setSelectedCampaign] = useState<DialerCampaign | null>(null);
+  const [confirmChangeCampaign, setConfirmChangeCampaign] = useState(false);
   const [onCall, setOnCall] = useState(false);
   const [showDisposition, setShowDisposition] = useState(false);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
@@ -64,6 +195,26 @@ const DialerPage: React.FC = () => {
   }, [onCall]);
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
+  const isSessionActive = onCall || showDisposition || callSeconds > 0;
+
+  const handleChangeCampaign = () => {
+    if (isSessionActive) {
+      setConfirmChangeCampaign(true);
+    } else {
+      setSelectedCampaign(null);
+    }
+  };
+
+  const confirmAndChangeCampaign = () => {
+    setOnCall(false);
+    setShowDisposition(false);
+    setCallSeconds(0);
+    setSelectedDisp(null);
+    setCallNotes("");
+    setConfirmChangeCampaign(false);
+    setSelectedCampaign(null);
+  };
 
   const handleHangUp = () => {
     setOnCall(false);
@@ -130,8 +281,19 @@ const DialerPage: React.FC = () => {
     return () => window.removeEventListener("keydown", handler);
   }, [showDisposition, showCallback, dispositions]);
 
+  // ── Campaign Selection ──
+  if (!selectedCampaign) {
+    return <CampaignSelection onSelect={setSelectedCampaign} />;
+  }
+
+  // ── Dialer Session View ──
   return (
     <div className="space-y-4">
+      {/* Change Campaign link */}
+      <button onClick={handleChangeCampaign} className="text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1 transition-colors">
+        <ChevronLeft className="w-4 h-4" /> Change Campaign
+      </button>
+
       <h1 className="text-2xl font-bold text-foreground">Dialer</h1>
 
       {/* Session Stats */}
@@ -151,12 +313,12 @@ const DialerPage: React.FC = () => {
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Campaign</label>
             <button className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-accent text-sm text-foreground">
-              Q1 Facebook Leads <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              {selectedCampaign.name} <ChevronDown className="w-4 h-4 text-muted-foreground" />
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Dialer</span>
-            <span className="text-xs text-muted-foreground">47 remaining</span>
+            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign.mode} Dialer</span>
+            <span className="text-xs text-muted-foreground">{selectedCampaign.leadsAvailable} remaining</span>
           </div>
           <div className="space-y-2">
             {leadQueue.map((l, i) => (
@@ -222,7 +384,7 @@ const DialerPage: React.FC = () => {
             </div>
           ) : null}
 
-          {/* Disposition Panel — in center panel */}
+          {/* Disposition Panel */}
           <AnimatePresence>
             {showDisposition && (
               <motion.div
@@ -259,7 +421,6 @@ const DialerPage: React.FC = () => {
 
                 {selectedDisp && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
-                    {/* Required notes */}
                     {selectedDisp.requireNotes ? (
                       <div className={`rounded-lg border-2 transition-colors ${noteError ? "border-destructive animate-shake" : "border-primary/40"}`}>
                         <div className="flex items-center gap-1.5 px-3 pt-2.5">
@@ -294,7 +455,6 @@ const DialerPage: React.FC = () => {
                       />
                     )}
 
-                    {/* Callback Scheduler */}
                     {showCallback && selectedDisp.callbackScheduler && (
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
@@ -363,7 +523,6 @@ const DialerPage: React.FC = () => {
                       </motion.div>
                     )}
 
-                    {/* Save & Next */}
                     {(!selectedDisp.callbackScheduler || !showCallback) && (
                       <button
                         onClick={handleSaveAndNext}
@@ -450,6 +609,20 @@ const DialerPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Confirmation dialog for changing campaign mid-session */}
+      <AlertDialog open={confirmChangeCampaign} onOpenChange={setConfirmChangeCampaign}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End current session and change campaign?</AlertDialogTitle>
+            <AlertDialogDescription>Your current dialing session will be ended and you'll return to the campaign selection screen.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmAndChangeCampaign}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
