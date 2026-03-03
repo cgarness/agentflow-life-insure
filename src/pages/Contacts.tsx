@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { leadsApi, clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
-import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
+import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
 import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
