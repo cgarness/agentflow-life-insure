@@ -3,6 +3,7 @@ import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
   Loader2, ChevronDown, GripVertical, AlertTriangle, Columns3, Lock,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react";
 import { leadsApi, clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
@@ -209,6 +210,51 @@ const Contacts: React.FC = () => {
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  // Sorting
+  const [sortCol, setSortCol] = useState<ColumnKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (key: ColumnKey) => {
+    if (sortCol === key) {
+      if (sortDir === "asc") setSortDir("desc");
+      else { setSortCol(null); setSortDir("asc"); }
+    } else {
+      setSortCol(key);
+      setSortDir("asc");
+    }
+  };
+
+  const getSortValue = (l: Lead, key: ColumnKey): string | number => {
+    switch (key) {
+      case "name": return `${l.firstName} ${l.lastName}`.toLowerCase();
+      case "phone": return l.phone;
+      case "email": return l.email.toLowerCase();
+      case "state": return l.state;
+      case "status": return allStatuses.indexOf(l.status);
+      case "source": case "leadSourceAlias": return l.leadSource.toLowerCase();
+      case "score": return l.leadScore;
+      case "aging": return calcAging(l.lastContactedAt);
+      case "agent": return getAgentName(l.assignedAgentId).toLowerCase();
+      case "dob": return l.dateOfBirth || "";
+      case "health": return l.healthStatus || "";
+      case "bestTime": return l.bestTimeToCall || "";
+      case "createdDate": return l.createdAt;
+      case "lastContacted": return l.lastContactedAt || "";
+      default: return "";
+    }
+  };
+
+  const sortedLeads = React.useMemo(() => {
+    if (!sortCol) return leads;
+    return [...leads].sort((a, b) => {
+      const va = getSortValue(a, sortCol);
+      const vb = getSortValue(b, sortCol);
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [leads, sortCol, sortDir]);
 
   // Close columns dropdown on outside click
   useEffect(() => {
@@ -526,12 +572,21 @@ const Contacts: React.FC = () => {
                       />
                     </th>
                     {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
-                      <th key={col.key} className={`${colAlign(col.key)} py-3 font-medium`}>{col.label}</th>
+                      <th key={col.key} className={`${colAlign(col.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col.key)}>
+                        <span className="inline-flex items-center gap-1">
+                          {col.label}
+                          {sortCol === col.key ? (
+                            sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 text-primary" />
+                          ) : (
+                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                          )}
+                        </span>
+                      </th>
                     ))}
                     <th className="w-10 py-3"></th>
                   </tr></thead>
                   <tbody>
-                    {leads.map(l => {
+                    {sortedLeads.map(l => {
                       const aging = calcAging(l.lastContactedAt);
                       return (
                         <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
