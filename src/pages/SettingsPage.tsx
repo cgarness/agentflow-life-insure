@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import UserManagement from "@/components/settings/UserManagement";
 import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
@@ -69,7 +70,15 @@ const activityLog = [
 ];
 
 const SettingsPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    if (searchParams.get("section") === "my-profile") {
+      setActive(0);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const renderContent = () => {
     switch (active) {
