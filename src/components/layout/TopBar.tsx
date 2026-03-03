@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const pageTitles: Record<string, string> = {
@@ -33,6 +34,7 @@ const statusOptions = [
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, logout } = useAuth();
+  const { dialerOverride } = useAgentStatus();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -44,6 +46,21 @@ const TopBar: React.FC = () => {
   const [notifOpen, setNotifOpen] = useState(false);
 
   const currentPage = pageTitles[location.pathname] || "Page";
+
+  // Determine dot appearance based on dialer override
+  let dotClass = statusOptions[statusIdx].dotClass;
+  let dotTooltip = statusOptions[statusIdx].label;
+  let dotPulse = false;
+
+  if (dialerOverride === "on-call") {
+    dotClass = "bg-teal-400";
+    dotTooltip = "On a Call";
+    dotPulse = true;
+  } else if (dialerOverride === "in-session") {
+    dotClass = "bg-teal-500";
+    dotTooltip = "In a Dialing Session";
+    dotPulse = false;
+  }
 
   return (
     <>
@@ -123,9 +140,14 @@ const TopBar: React.FC = () => {
 
           {/* Status */}
           <div className="relative hidden sm:block">
-            <button onClick={() => setStatusDropdown(!statusDropdown)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center sidebar-transition">
-              <div className={`w-2.5 h-2.5 rounded-full ${statusOptions[statusIdx].dotClass}`} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={() => setStatusDropdown(!statusDropdown)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center sidebar-transition">
+                  <div className={`w-2.5 h-2.5 rounded-full ${dotClass} ${dotPulse ? "animate-pulse" : ""}`} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{dotTooltip}</TooltipContent>
+            </Tooltip>
             {statusDropdown && (
               <div className="absolute right-0 top-full mt-2 w-44 bg-card border rounded-lg shadow-lg py-1 z-50">
                 {statusOptions.map((s, i) => (
