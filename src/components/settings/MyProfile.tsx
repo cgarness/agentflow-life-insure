@@ -43,16 +43,16 @@ function getPasswordStrength(pw: string) {
 }
 
 const MyProfile: React.FC = () => {
-  const { user, profile, updateUser } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const { theme, setTheme } = useTheme();
 
   // Profile Info
-  const [firstName, setFirstName] = useState(user?.firstName ?? "");
-  const [lastName, setLastName] = useState(user?.lastName ?? "");
+  const [firstName, setFirstName] = useState(profile?.first_name ?? "");
+  const [lastName, setLastName] = useState(profile?.last_name ?? "");
   const [email] = useState(user?.email ?? "");
-  const [phone, setPhone] = useState(user?.phone ?? "");
-  const [availability, setAvailability] = useState(user?.availabilityStatus ?? "Available");
-  const [avatar, setAvatar] = useState(user?.avatar ?? "");
+  const [phone, setPhone] = useState(profile?.phone ?? "");
+  const [availability, setAvailability] = useState(profile?.availability_status ?? "Available");
+  const [avatar, setAvatar] = useState(profile?.avatar_url ?? "");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileErrors, setProfileErrors] = useState<{ firstName?: string; lastName?: string }>({});
 
@@ -79,10 +79,10 @@ const MyProfile: React.FC = () => {
   const [prefSaving, setPrefSaving] = useState(false);
 
   // Goals
-  const [dailyCalls, setDailyCalls] = useState(profile?.monthlyCallGoal ? Math.round(profile.monthlyCallGoal / 22) : 50);
-  const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthlySalesGoal ?? 10);
-  const [weeklyAppts, setWeeklyAppts] = useState(profile?.weeklyAppointmentGoal ?? 15);
-  const [monthlyTalkTime, setMonthlyTalkTime] = useState((profile?.monthlyTalkTimeGoalHours ?? 40) * 60);
+  const [dailyCalls, setDailyCalls] = useState(50);
+  const [monthlyPolicies, setMonthlyPolicies] = useState(10);
+  const [weeklyAppts, setWeeklyAppts] = useState(15);
+  const [monthlyTalkTime, setMonthlyTalkTime] = useState(40 * 60);
   const [goalSaving, setGoalSaving] = useState(false);
   const [goalErrors, setGoalErrors] = useState<Record<string, string>>({});
 
@@ -90,14 +90,14 @@ const MyProfile: React.FC = () => {
   const isDark = theme === "dark";
 
   useEffect(() => {
-    if (user) {
-      setFirstName(user.firstName);
-      setLastName(user.lastName);
-      setPhone(user.phone ?? "");
-      setAvailability(user.availabilityStatus);
-      setAvatar(user.avatar ?? "");
+    if (profile) {
+      setFirstName(profile.first_name);
+      setLastName(profile.last_name);
+      setPhone(profile.phone ?? "");
+      setAvailability(profile.availability_status);
+      setAvatar(profile.avatar_url ?? "");
     }
-  }, [user]);
+  }, [profile]);
 
   if (!user) {
     return (
@@ -111,7 +111,7 @@ const MyProfile: React.FC = () => {
     );
   }
 
-  const initials = `${user.firstName[0]}${user.lastName[0]}`;
+  const initials = `${(profile?.first_name || "?")[0]}${(profile?.last_name || "?")[0]}`;
 
   // Avatar upload
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,7 +132,7 @@ const MyProfile: React.FC = () => {
 
   const handleSaveAvatar = () => {
     setAvatar(cropPreview);
-    updateUser({ avatar: cropPreview });
+    updateProfile({ avatar_url: cropPreview });
     setCropModalOpen(false);
     toast({ title: "Profile photo updated.", className: "bg-success text-success-foreground" });
   };
@@ -146,10 +146,13 @@ const MyProfile: React.FC = () => {
     if (Object.keys(errors).length > 0) return;
 
     setProfileSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    updateUser({ firstName: firstName.trim(), lastName: lastName.trim(), phone, availabilityStatus: availability as any });
+    try {
+      await updateProfile({ first_name: firstName.trim(), last_name: lastName.trim(), phone, availability_status: availability });
+      toast({ title: "Profile updated successfully.", className: "bg-success text-success-foreground" });
+    } catch (err: any) {
+      toast({ title: "Failed to update profile", description: err.message, variant: "destructive" });
+    }
     setProfileSaving(false);
-    toast({ title: "Profile updated successfully.", className: "bg-success text-success-foreground" });
   };
 
   // Password save
