@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   Phone, PhoneOff, Mic, MicOff, Pause, Play, Voicemail,
-  Clock, ChevronDown, Pin, Plus, Calendar, Eye,
+  Clock, Pin, Plus, Calendar, Eye,
   FileText, AlertCircle, CheckCircle, SkipForward,
   Search, ChevronLeft, Loader2, PhoneOff as PhoneOffIcon,
   ArrowRight, ArrowRightLeft, CalendarPlus, ExternalLink,
@@ -405,12 +405,19 @@ const DialerPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* ═══ LEFT PANEL — Queue ═══ */}
         <div className="bg-card rounded-xl border p-4 space-y-4">
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Campaign</label>
-            <button className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-accent text-sm text-foreground">
-              {selectedCampaign.name} <ChevronDown className="w-4 h-4 text-muted-foreground" />
-            </button>
+          {/* Next Up preview at top */}
+          <div className="pb-3 border-b border-border">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Next Up</p>
+            {nextLead ? (
+              <div className="bg-accent/50 rounded-lg p-3">
+                <p className="text-sm font-medium text-foreground">{nextLead.name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{nextLead.state} · Age {nextLead.age} · {nextLead.source}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">End of queue</p>
+            )}
           </div>
+
           <div className="flex items-center justify-between">
             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign.mode} Dialer</span>
             <span className="text-xs text-muted-foreground">{selectedCampaign.leadsAvailable} remaining</span>
@@ -434,19 +441,6 @@ const DialerPage: React.FC = () => {
                 </div>
               </div>
             ))}
-          </div>
-
-          {/* Next Up preview */}
-          <div className="border-t border-border pt-3">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Next Up</p>
-            {nextLead ? (
-              <div>
-                <p className="text-sm font-medium text-foreground">{nextLead.name}</p>
-                <p className="text-xs text-muted-foreground">{nextLead.state} · Age {nextLead.age} · {nextLead.source}</p>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground italic">End of queue</p>
-            )}
           </div>
 
           <div className="flex gap-2">
@@ -491,6 +485,30 @@ const DialerPage: React.FC = () => {
                   )}
                   {callStatus === "ended" && "Call Ended"}
                 </span>
+              </div>
+            </div>
+          )}
+
+          {/* Contact Details Grid */}
+          {activeLead && (
+            <div className="bg-accent/50 rounded-xl p-4">
+              <h3 className="font-semibold text-foreground text-sm mb-3">Contact Details</h3>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                {[
+                  ["Full Name", activeLead.fullName],
+                  ["Phone", activeLead.phone],
+                  ["Email", `${activeLead.fullName.split(" ")[0].toLowerCase()}.${activeLead.fullName.split(" ").pop()?.charAt(0).toLowerCase()}@email.com`],
+                  ["State", activeLead.state === "FL" ? "Florida" : activeLead.state === "TX" ? "Texas" : activeLead.state === "CA" ? "California" : activeLead.state === "NY" ? "New York" : activeLead.state === "OH" ? "Ohio" : activeLead.state],
+                  ["Age", String(activeLead.age)],
+                  ["Lead Source", activeLead.source],
+                  ["Status", "Interested"],
+                  ["Assigned", "Chris G."],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex justify-between text-sm py-1">
+                    <span className="text-muted-foreground">{k}</span>
+                    <span className="text-foreground font-medium">{v}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
