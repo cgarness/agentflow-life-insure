@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, Phone, MessageSquare, Mail } from "lucide-react";
+import { X, Phone, MessageSquare, Mail, Plus } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 import { mockUsers } from "@/lib/mock-data";
 import { toast } from "sonner";
@@ -60,6 +60,18 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [miniCardOpen, setMiniCardOpen] = useState(false);
   const [miniCardRect, setMiniCardRect] = useState<DOMRect | null>(null);
 
+  // Contact search & inline create state
+  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
+  const [selectedContactId, setSelectedContactId] = useState("");
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newFirstName, setNewFirstName] = useState("");
+  const [newLastName, setNewLastName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [localContacts, setLocalContacts] = useState<Record<string, { name: string; phone: string; email: string; state: string; status: string; contactId: string }>>(MOCK_CONTACTS);
+  const contactInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   // Current user is Admin
   const currentUserRole = "Admin";
 
@@ -68,6 +80,10 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     setConfirmDelete(false);
     setErrors({});
     setMiniCardOpen(false);
+    setContactDropdownOpen(false);
+    setShowCreateForm(false);
+    setSelectedContactId("");
+    setNewFirstName(""); setNewLastName(""); setNewPhone(""); setNewEmail("");
     if (editing) {
       setTitle(editing.title);
       setType(editing.type);
@@ -99,8 +115,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   if (!open) return null;
 
-  const contactId = editing?.contactId || prefillContactId || "";
-  const contactInfo = contactId ? MOCK_CONTACTS[contactId] : null;
+  const contactId = editing?.contactId || prefillContactId || selectedContactId || "";
+  const contactInfo = contactId ? localContacts[contactId] : null;
   const contactFirstName = contactName.split(" ")[0] || "Contact";
 
   const validate = () => {
@@ -125,7 +141,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     onSave({
       title: title.trim(), type, status,
       contactName: contactName.trim(),
-      contactId: editing?.contactId ?? prefillContactId ?? "",
+      contactId: editing?.contactId ?? prefillContactId ?? selectedContactId ?? "",
       date: dateObj, startTime, endTime, agent: agent.trim(), notes: notes.trim(),
     });
     toast.success(editing ? "Appointment updated" : "Appointment scheduled successfully");
@@ -176,10 +192,148 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
               </div>
             </div>
           ) : (
-            <div>
+            <div className="relative">
               <label className="text-sm font-medium text-foreground block mb-1">Contact Name</label>
-              <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Search or enter contact name" className={`${inputCls} text-base placeholder:text-muted-foreground`} />
-              <p className="text-xs text-muted-foreground mt-1">Type a name to search existing contacts</p>
+              <input
+                ref={contactInputRef}
+                value={contactName}
+                onChange={e => {
+                  setContactName(e.target.value);
+                  setContactDropdownOpen(e.target.value.trim().length > 0);
+                  setShowCreateForm(false);
+                  setSelectedContactId("");
+                }}
+                onFocus={() => { if (contactName.trim().length > 0) setContactDropdownOpen(true); }}
+                onBlur={() => { setTimeout(() => setContactDropdownOpen(false), 200); }}
+                placeholder="Search or enter contact name"
+                className={`${inputCls} text-base placeholder:text-muted-foreground`}
+                autoComplete="off"
+              />
+              {!showCreateForm && <p className="text-xs text-muted-foreground mt-1">Type a name to search existing contacts</p>}
+
+              {/* Search dropdown */}
+              {contactDropdownOpen && !showCreateForm && (() => {
+                const query = contactName.trim().toLowerCase();
+                const matches = Object.values(localContacts).filter(c =>
+                  c.name.toLowerCase().includes(query)
+                );
+                const hasExactMatch = matches.some(c => c.name.toLowerCase() === query);
+                return (
+                  <div ref={dropdownRef} className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {matches.map(c => (
+                      <button
+                        key={c.contactId}
+                        type="button"
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          setContactName(c.name);
+                          setSelectedContactId(c.contactId);
+                          setContactDropdownOpen(false);
+                          // Auto-fill title if empty
+                          if (!title.trim()) {
+                            const first = c.name.split(" ")[0];
+                            setTitle(`Call with ${first}`);
+                          }
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors duration-150 flex items-center justify-between"
+                      >
+                        <span>{c.name}</span>
+                        <span className="text-xs text-muted-foreground">{c.phone}</span>
+                      </button>
+                    ))}
+                    {!hasExactMatch && query.length > 0 && (
+                      <button
+                        type="button"
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          setContactDropdownOpen(false);
+                          setShowCreateForm(true);
+                          // Pre-fill first name from typed text
+                          const parts = contactName.trim().split(/\s+/);
+                          setNewFirstName(parts[0] || "");
+                          setNewLastName(parts.slice(1).join(" ") || "");
+                          setNewPhone("");
+                          setNewEmail("");
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent/50 transition-colors duration-150 flex items-center gap-2"
+                        style={{ backgroundColor: "#3B82F60D" }}
+                      >
+                        <Plus className="w-4 h-4" style={{ color: "#3B82F6" }} />
+                        <span style={{ color: "#3B82F6" }} className="font-medium">Create new contact: {contactName.trim()}</span>
+                      </button>
+                    )}
+                    {matches.length === 0 && query.length > 0 && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">No matching contacts found</div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Inline mini-form for creating a new contact */}
+              {showCreateForm && (
+                <div className="mt-3 p-4 rounded-lg border border-border bg-accent/30 space-y-3">
+                  <p className="text-sm font-semibold text-foreground">Create New Contact</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
+                      <input value={newFirstName} onChange={e => setNewFirstName(e.target.value)} className={inputCls} placeholder="First name" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
+                      <input value={newLastName} onChange={e => setNewLastName(e.target.value)} className={inputCls} placeholder="Last name" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Phone Number *</label>
+                    <input value={newPhone} onChange={e => setNewPhone(e.target.value)} className={inputCls} placeholder="(555) 000-0000" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Email (optional)</label>
+                    <input value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputCls} placeholder="email@example.com" />
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newFirstName.trim() || !newLastName.trim() || !newPhone.trim()) {
+                          toast.error("First name, last name, and phone are required");
+                          return;
+                        }
+                        const newId = `local_${Date.now()}`;
+                        const fullName = `${newFirstName.trim()} ${newLastName.trim()}`;
+                        const newContact = {
+                          name: fullName,
+                          phone: newPhone.trim(),
+                          email: newEmail.trim(),
+                          state: "",
+                          status: "New",
+                          contactId: newId,
+                        };
+                        setLocalContacts(prev => ({ ...prev, [newId]: newContact }));
+                        setContactName(fullName);
+                        setSelectedContactId(newId);
+                        setShowCreateForm(false);
+                        // Auto-fill title if empty
+                        if (!title.trim()) {
+                          setTitle(`Call with ${newFirstName.trim()}`);
+                        }
+                        toast.success("New contact created");
+                      }}
+                      className="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors duration-150"
+                      style={{ backgroundColor: "#3B82F6" }}
+                    >
+                      Save Contact & Continue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateForm(false)}
+                      className="px-3 py-2 rounded-md text-sm font-medium text-muted-foreground border border-border hover:bg-accent transition-colors duration-150"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
