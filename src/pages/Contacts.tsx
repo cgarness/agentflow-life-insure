@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
@@ -206,6 +205,7 @@ const Contacts: React.FC = () => {
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
+  const [sourcePerfOpen, setSourcePerfOpen] = useState(false);
 
   // Column visibility
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE));
@@ -348,10 +348,7 @@ const Contacts: React.FC = () => {
   const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
     switch (key) {
       case "name": return (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>
-          <ContactLocalTime state={l.state} size="sm" />
-        </div>
+        <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>
       );
       case "phone": return <span className="text-foreground font-mono text-xs">{l.phone}</span>;
       case "email": return <span className="text-muted-foreground">{l.email}</span>;
@@ -481,32 +478,49 @@ const Contacts: React.FC = () => {
       {/* LEADS TAB - Table View */}
       {!loading && tab === "Leads" && view === "table" && (
         <>
-          {/* Source Performance */}
-          <div className="bg-card rounded-xl border p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Lead Source Performance</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="text-muted-foreground border-b">
-                  <th className="text-left py-2 font-medium">Source</th>
-                  <th className="text-right py-2 font-medium">Leads</th>
-                  <th className="text-right py-2 font-medium">Contacted %</th>
-                  <th className="text-right py-2 font-medium">Conversion %</th>
-                  <th className="text-right py-2 font-medium">Policies Sold</th>
-                </tr></thead>
-                <tbody>
-                  {sourceStats.map(s => (
-                    <tr key={s.source} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer" onClick={() => setSourceFilter(s.source)}>
-                      <td className="py-2 font-medium text-foreground">{s.source}</td>
-                      <td className="py-2 text-right text-foreground">{s.leads}</td>
-                      <td className="py-2 text-right text-foreground">{s.contacted}</td>
-                      <td className="py-2 text-right text-foreground">{s.conversion}</td>
-                      <td className="py-2 text-right text-foreground">{s.sold}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {/* Source Performance - Collapsible */}
+          {(() => {
+            return (
+              <div className="bg-card rounded-xl border border-border">
+                <button
+                  onClick={() => setSourcePerfOpen(prev => !prev)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left"
+                >
+                  <h3 className="text-sm font-semibold text-foreground">Lead Source Performance</h3>
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${sourcePerfOpen ? "rotate-180" : ""}`} />
+                </button>
+                <div
+                  className="overflow-hidden transition-all duration-200 ease-in-out"
+                  style={{ maxHeight: sourcePerfOpen ? "500px" : "0px", opacity: sourcePerfOpen ? 1 : 0 }}
+                >
+                  <div className="px-4 pb-4">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="text-muted-foreground border-b">
+                          <th className="text-left py-2 font-medium">Source</th>
+                          <th className="text-right py-2 font-medium">Leads</th>
+                          <th className="text-right py-2 font-medium">Contacted %</th>
+                          <th className="text-right py-2 font-medium">Conversion %</th>
+                          <th className="text-right py-2 font-medium">Policies Sold</th>
+                        </tr></thead>
+                        <tbody>
+                          {sourceStats.map(s => (
+                            <tr key={s.source} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer" onClick={() => setSourceFilter(s.source)}>
+                              <td className="py-2 font-medium text-foreground">{s.source}</td>
+                              <td className="py-2 text-right text-foreground">{s.leads}</td>
+                              <td className="py-2 text-right text-foreground">{s.contacted}</td>
+                              <td className="py-2 text-right text-foreground">{s.conversion}</td>
+                              <td className="py-2 text-right text-foreground">{s.sold}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Bulk Actions Toolbar */}
           {selectedIds.size > 0 && (

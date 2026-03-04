@@ -4,6 +4,7 @@ import {
   GitMerge, Clock, Pin, Headphones, FileText, RefreshCw,
   MessageSquare, ChevronDown,
 } from "lucide-react";
+import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { Lead, LeadStatus, ContactNote, ContactActivity, Call } from "@/lib/types";
 import { mockUsers, mockCalls, mockNotes, mockActivities, calcAging, getAgentName } from "@/lib/mock-data";
 import { toast } from "sonner";
@@ -424,6 +425,13 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                     )}
                   </div>
                 </div>
+                {lead.state && (
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span className="text-muted-foreground">Local time:</span>
+                    <ContactLocalTime state={lead.state} size="md" />
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 flex-wrap shrink-0 h-full">
