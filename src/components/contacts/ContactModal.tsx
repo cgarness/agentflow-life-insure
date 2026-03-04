@@ -425,13 +425,6 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                     )}
                   </div>
                 </div>
-                {lead.state && (
-                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span className="text-muted-foreground">Local time:</span>
-                    <ContactLocalTime state={lead.state} size="md" />
-                  </div>
-                )}
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 flex-wrap shrink-0 h-full">
@@ -450,13 +443,21 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
             {/* LEFT 65% */}
             <div className="w-[65%] flex flex-col border-r border-border min-h-0">
               {/* Tabs */}
-              <div className="flex border-b border-border px-6 shrink-0">
-                {(["Overview","Notes","History","Calls"] as const).map(t => (
-                  <button key={t} onClick={() => setActiveTab(t)}
-                    className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 ${activeTab === t ? "text-foreground border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
-                    {t}
-                  </button>
-                ))}
+              <div className="flex items-center justify-between border-b border-border px-6 shrink-0">
+                <div className="flex">
+                  {(["Overview","Notes","History","Calls"] as const).map(t => (
+                    <button key={t} onClick={() => setActiveTab(t)}
+                      className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 ${activeTab === t ? "text-foreground border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                {lead.state && (
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <Clock className="w-3.5 h-3.5" style={{ color: '#14B8A6' }} />
+                    <ContactLocalTime state={lead.state} size="md" />
+                  </div>
+                )}
               </div>
 
               {/* Tab Content */}

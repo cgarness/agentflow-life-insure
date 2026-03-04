@@ -22,17 +22,10 @@ export function ContactLocalTime({ state, size = 'sm' }: ContactLocalTimeProps) 
 
   if (!time) return null;
 
-  const dotColor =
-    status === 'good' ? 'bg-success' :
-    status === 'early' ? 'bg-warning' :
-    status === 'late' ? 'bg-destructive' :
-    'bg-muted-foreground';
-
-  const textSize = size === 'md' ? 'text-sm' : 'text-xs';
+  const textSize = size === 'md' ? 'text-sm font-medium' : 'text-xs';
 
   return (
-    <span className={`inline-flex items-center gap-1 ${textSize} text-muted-foreground font-mono`}>
-      <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor} flex-shrink-0`} />
+    <span className={`inline-flex items-center gap-1 ${textSize} font-mono`} style={{ color: '#14B8A6' }}>
       {time} {tz}
     </span>
   );
