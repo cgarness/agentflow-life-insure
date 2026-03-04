@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { X, Phone, MessageSquare, Mail } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 import { mockUsers } from "@/lib/mock-data";
@@ -40,6 +41,7 @@ interface Props {
 }
 
 const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, editing, defaultDate, defaultTime }) => {
+  const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [type, setType] = useState<CalAppointmentType>("Sales Call");
   const [status, setStatus] = useState<CalAppointmentStatus>("Scheduled");
@@ -149,27 +151,28 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
         </div>
         <div className="p-5 space-y-4">
           {/* Contact Name — first field */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Contact Name</label>
-            {editing && contactId && contactInfo ? (
+          {editing && contactId && contactInfo ? (
+            <div className="mb-6">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Contact</p>
               <div className="flex items-center gap-3">
                 <button onClick={handleBadgeClick}
-                  className="px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer transition-colors duration-150"
+                  className="text-lg font-semibold px-4 py-2 rounded-full cursor-pointer transition-colors duration-150"
                   style={{ backgroundColor: "#14B8A626", color: "#14B8A6", border: "1px solid #14B8A64D" }}>
                   {contactInfo.name}
                 </button>
-                <button onClick={() => toast.info(`Opening full contact record for ${contactInfo.name}`)}
-                  className="text-xs hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
+                <button onClick={() => { navigate('/contacts'); setMiniCardOpen(false); onClose(); toast.info(`Opening contact record for ${contactInfo.name}`); }}
+                  className="text-sm hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
                   Full View →
                 </button>
               </div>
-            ) : (
-              <div>
-                <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Search or enter contact name" className={inputCls} />
-                <p className="text-xs text-muted-foreground mt-1">Type a name to search existing contacts</p>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-sm font-medium text-foreground block mb-1">Contact Name</label>
+              <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Search or enter contact name" className={`${inputCls} text-base placeholder:text-muted-foreground`} />
+              <p className="text-xs text-muted-foreground mt-1">Type a name to search existing contacts</p>
+            </div>
+          )}
 
           {/* Title */}
           <div>
@@ -295,7 +298,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
       {/* Contact Mini Card */}
       {miniCardOpen && contactInfo && (
-        <ContactMiniCard contact={contactInfo} anchorRect={miniCardRect} onClose={() => setMiniCardOpen(false)} />
+        <ContactMiniCard contact={contactInfo} anchorRect={miniCardRect} onClose={() => setMiniCardOpen(false)} onModalClose={onClose} />
       )}
     </div>
   );
