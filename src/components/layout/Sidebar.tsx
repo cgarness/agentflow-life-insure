@@ -10,6 +10,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCalendar } from "@/contexts/CalendarContext";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -35,6 +36,7 @@ const Sidebar: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { user, profile } = useAuth();
   const location = useLocation();
+  const { todayCount } = useCalendar();
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
