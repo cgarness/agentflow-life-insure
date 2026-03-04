@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { dispositionsApi } from "@/lib/mock-api";
+import { dispositionsSupabaseApi as dispositionsApi } from "@/lib/supabase-dispositions";
 import { Disposition } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
