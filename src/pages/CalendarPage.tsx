@@ -1,162 +1,173 @@
-import React, { useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, List, LayoutGrid } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Plus, List, LayoutGrid } from "lucide-react";
+import { useCalendar, CalendarAppointment, CalAppointmentStatus } from "@/contexts/CalendarContext";
+import MonthView from "@/components/calendar/MonthView";
+import DayAgendaPanel from "@/components/calendar/DayAgendaPanel";
+import ListView from "@/components/calendar/ListView";
+import AppointmentModal from "@/components/calendar/AppointmentModal";
+import ContactModal from "@/components/contacts/ContactModal";
+import { mockLeads } from "@/lib/mock-data";
+import { Lead } from "@/lib/types";
 
-const typeColors: Record<string, string> = {
-  "Sales Call": "bg-primary",
-  "Follow Up": "bg-success",
-  "Recruit Interview": "bg-info",
-  "Policy Review": "bg-warning",
-  "Anniversary": "bg-pink-500",
-  "Other": "bg-muted-foreground",
-};
-
-const typeBadgeColors: Record<string, string> = {
-  "Sales Call": "bg-primary/10 text-primary",
-  "Follow Up": "bg-success/10 text-success",
-  "Recruit Interview": "bg-info/10 text-info",
-  "Policy Review": "bg-warning/10 text-warning",
-  "Anniversary": "bg-pink-100 text-pink-600",
-  "Other": "bg-muted text-muted-foreground",
-};
-
-const sampleAppointments: Record<number, Array<{ time: string; name: string; type: string }>> = {
-  3: [{ time: "10:00 AM", name: "John Martinez", type: "Sales Call" }],
-  7: [{ time: "2:00 PM", name: "Sarah Williams", type: "Follow Up" }],
-  10: [{ time: "9:00 AM", name: "Mike Johnson", type: "Recruit Interview" }, { time: "3:00 PM", name: "Lisa Park", type: "Policy Review" }],
-  14: [{ time: "11:00 AM", name: "Tom Harris", type: "Sales Call" }],
-  17: [{ time: "1:00 PM", name: "Robert Chen", type: "Anniversary" }],
-  21: [{ time: "10:30 AM", name: "Amy Zhang", type: "Follow Up" }, { time: "4:00 PM", name: "David Brown", type: "Sales Call" }],
-  25: [{ time: "9:00 AM", name: "Maria Lopez", type: "Sales Call" }],
-  28: [{ time: "2:30 PM", name: "Karen White", type: "Policy Review" }],
-};
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
 
 const CalendarPage: React.FC = () => {
-  const [view, setView] = useState<"calendar" | "list">("calendar");
-  const [selectedDay, setSelectedDay] = useState(new Date().getDate());
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const today = now.getDate();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDay = new Date(year, month, 1).getDay();
-  const monthName = now.toLocaleString("default", { month: "long", year: "numeric" });
+  const { appointments, addAppointment, updateAppointment, deleteAppointment } = useCalendar();
+  const [view, setView] = useState<"month" | "list">("month");
+  const [currentMonth, setCurrentMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
+  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
+  const [loading, setLoading] = useState(true);
 
-  const days = Array.from({ length: firstDay }, () => null).concat(
-    Array.from({ length: daysInMonth }, (_, i) => i + 1)
-  );
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalEditing, setModalEditing] = useState<CalendarAppointment | null>(null);
+  const [modalDefaultDate, setModalDefaultDate] = useState<Date | undefined>(undefined);
 
-  const selectedAppts = sampleAppointments[selectedDay] || [];
+  // Contact modal
+  const [contactModalLead, setContactModalLead] = useState<Lead | null>(null);
 
-  const allAppts = Object.entries(sampleAppointments)
-    .flatMap(([day, appts]) => appts.map((a) => ({ ...a, day: Number(day) })))
-    .sort((a, b) => a.day - b.day);
+  // Skeleton loading
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 600);
+    return () => clearTimeout(t);
+  }, []);
+
+  const openSchedule = (defaultDate?: Date) => {
+    setModalEditing(null);
+    setModalDefaultDate(defaultDate);
+    setModalOpen(true);
+  };
+
+  const openEdit = (a: CalendarAppointment) => {
+    setModalEditing(a);
+    setModalDefaultDate(undefined);
+    setModalOpen(true);
+  };
+
+  const handleSave = (data: Omit<CalendarAppointment, "id">) => {
+    if (modalEditing) {
+      updateAppointment(modalEditing.id, data);
+    } else {
+      addAppointment(data);
+    }
+  };
+
+  const handleStatusChange = (id: string, status: CalAppointmentStatus) => {
+    updateAppointment(id, { status });
+  };
+
+  const handleOpenContact = (contactId: string) => {
+    const lead = mockLeads.find(l => l.id === contactId);
+    if (lead) setContactModalLead(lead);
+  };
+
+  const prevMonth = () => setCurrentMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  const nextMonth = () => setCurrentMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+  const goToday = () => {
+    const d = new Date(); d.setDate(1); d.setHours(0,0,0,0);
+    setCurrentMonth(d);
+    const t = new Date(); t.setHours(0,0,0,0);
+    setSelectedDate(t);
+  };
+
+  const dayAppointments = appointments.filter(a => sameDay(new Date(a.date), selectedDate));
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="h-8 w-32 rounded-md bg-muted animate-pulse" />
+          <div className="flex gap-2">
+            <div className="h-9 w-40 rounded-md bg-muted animate-pulse" />
+            <div className="h-9 w-24 rounded-md bg-muted animate-pulse" />
+          </div>
+        </div>
+        <div className="bg-card rounded-lg border border-border p-4">
+          <div className="grid grid-cols-7 gap-2">
+            {Array.from({ length: 42 }).map((_, i) => (
+              <div key={i} className="h-20 rounded-md bg-muted animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 h-full">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-foreground">Calendar</h1>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <button className="w-8 h-8 rounded-lg bg-accent text-foreground flex items-center justify-center hover:bg-accent/80 sidebar-transition"><ChevronLeft className="w-4 h-4" /></button>
-            <span className="text-sm font-semibold text-foreground min-w-[140px] text-center">{monthName}</span>
-            <button className="w-8 h-8 rounded-lg bg-accent text-foreground flex items-center justify-center hover:bg-accent/80 sidebar-transition"><ChevronRight className="w-4 h-4" /></button>
-          </div>
-          <button className="px-3 py-1.5 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80 sidebar-transition">Today</button>
-          <div className="flex bg-accent rounded-lg p-0.5">
-            <button onClick={() => setView("calendar")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "calendar" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}><LayoutGrid className="w-4 h-4" /></button>
-            <button onClick={() => setView("list")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}><List className="w-4 h-4" /></button>
-          </div>
-          <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" /> Schedule</button>
+          <button onClick={() => setView(view === "month" ? "list" : "month")}
+            className="px-3 py-2 rounded-md border border-border text-sm font-medium text-foreground hover:bg-accent transition-colors duration-150 flex items-center gap-2">
+            {view === "month" ? <><List className="w-4 h-4" /> List View</> : <><LayoutGrid className="w-4 h-4" /> Month View</>}
+          </button>
+          <button onClick={() => openSchedule()} className="px-4 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors duration-150" style={{ backgroundColor: "#3B82F6" }}>
+            <Plus className="w-4 h-4" /> Schedule Appointment
+          </button>
         </div>
       </div>
 
-      {view === "calendar" ? (
-        <div className="space-y-4">
-          <div className="bg-card rounded-xl border overflow-hidden">
-            {/* Day Headers */}
-            <div className="grid grid-cols-7 border-b">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                <div key={d} className="py-2 text-center text-xs font-semibold text-muted-foreground">{d}</div>
-              ))}
-            </div>
-            {/* Calendar Grid */}
-            <div className="grid grid-cols-7">
-              {days.map((day, i) => (
-                <button
-                  key={i}
-                  onClick={() => day && setSelectedDay(day)}
-                  disabled={!day}
-                  className={`min-h-[80px] p-1.5 border-b border-r text-left sidebar-transition ${
-                    day === today ? "bg-primary/5" : ""
-                  } ${day === selectedDay ? "ring-2 ring-primary ring-inset" : ""} ${
-                    day ? "hover:bg-accent/50" : ""
-                  }`}
-                >
-                  {day && (
-                    <>
-                      <span className={`text-xs font-medium ${day === today ? "w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center" : "text-foreground"}`}>{day}</span>
-                      <div className="flex gap-0.5 mt-1 flex-wrap">
-                        {(sampleAppointments[day] || []).map((a, j) => (
-                          <span key={j} className={`w-1.5 h-1.5 rounded-full ${typeColors[a.type]}`} />
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </button>
-              ))}
-            </div>
+      {/* Views */}
+      {view === "month" ? (
+        <div className="flex bg-card rounded-lg border border-border overflow-hidden" style={{ height: "calc(100vh - 180px)" }}>
+          <div className="flex-1 flex flex-col p-4 min-h-0">
+            <MonthView
+              currentMonth={currentMonth}
+              onPrevMonth={prevMonth}
+              onNextMonth={nextMonth}
+              onToday={goToday}
+              appointments={appointments}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              onDayClick={d => {}}
+              onEditAppointment={openEdit}
+              onDeleteAppointment={deleteAppointment}
+              onStatusChange={handleStatusChange}
+              onOpenContact={handleOpenContact}
+            />
           </div>
-
-          {/* Selected Day Agenda */}
-          <div className="bg-card rounded-xl border p-4">
-            <h3 className="font-semibold text-foreground mb-3">
-              {selectedDay === today ? "Today" : `${monthName.split(" ")[0]} ${selectedDay}`} — {selectedAppts.length} appointment{selectedAppts.length !== 1 ? "s" : ""}
-            </h3>
-            {selectedAppts.length > 0 ? (
-              <div className="space-y-2">
-                {selectedAppts.map((a, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-accent/50">
-                    <span className="text-sm font-mono text-primary font-medium">{a.time}</span>
-                    <span className="text-sm text-foreground font-medium">{a.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeBadgeColors[a.type]}`}>{a.type}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No appointments scheduled.</p>
-            )}
-          </div>
+          <DayAgendaPanel
+            selectedDate={selectedDate}
+            appointments={dayAppointments}
+            onAdd={() => openSchedule(selectedDate)}
+            onEdit={openEdit}
+            onStatusChange={handleStatusChange}
+            onOpenContact={handleOpenContact}
+          />
         </div>
       ) : (
-        <div className="space-y-6">
-          {[
-            { label: "Today", appts: allAppts.filter((a) => a.day === today) },
-            { label: "Tomorrow", appts: allAppts.filter((a) => a.day === today + 1) },
-            { label: "This Week", appts: allAppts.filter((a) => a.day > today + 1 && a.day <= today + 7) },
-            { label: "Later", appts: allAppts.filter((a) => a.day > today + 7) },
-          ].filter((g) => g.appts.length > 0).map((group) => (
-            <div key={group.label}>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">{group.label}</h3>
-              <div className="space-y-2">
-                {group.appts.map((a, i) => (
-                  <div key={i} className="bg-card rounded-xl border p-4 flex items-center gap-4 hover:shadow-md sidebar-transition">
-                    <div className="text-center shrink-0">
-                      <p className="text-2xl font-bold text-foreground">{a.day}</p>
-                      <p className="text-xs text-muted-foreground">{monthName.split(" ")[0]}</p>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono text-primary">{a.time}</span>
-                        <span className="text-sm font-medium text-foreground">{a.name}</span>
-                      </div>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeBadgeColors[a.type]}`}>{a.type}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <ListView
+          appointments={appointments}
+          onEdit={openEdit}
+          onDelete={deleteAppointment}
+          onStatusChange={handleStatusChange}
+          onOpenContact={handleOpenContact}
+          onSchedule={() => openSchedule()}
+        />
+      )}
+
+      {/* Schedule/Edit Modal */}
+      <AppointmentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSave={handleSave}
+        onDelete={modalEditing ? deleteAppointment : undefined}
+        editing={modalEditing}
+        defaultDate={modalDefaultDate}
+      />
+
+      {/* Contact Modal */}
+      {contactModalLead && (
+        <ContactModal
+          lead={contactModalLead}
+          onClose={() => setContactModalLead(null)}
+          onUpdate={async () => {}}
+          onDelete={async () => {}}
+        />
       )}
     </div>
   );

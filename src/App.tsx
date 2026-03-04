@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { CalendarProvider } from "@/contexts/CalendarContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import DialerPage from "./pages/DialerPage";
@@ -49,6 +50,7 @@ const App = () => (
     <ThemeProvider attribute="class" defaultTheme="light" storageKey="agentflow-theme">
       <TooltipProvider>
         <AuthProvider>
+          <CalendarProvider>
           <SidebarProvider>
             <Toaster />
             <Sonner />
@@ -75,6 +77,7 @@ const App = () => (
               </Routes>
             </BrowserRouter>
           </SidebarProvider>
+          </CalendarProvider>
         </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>
