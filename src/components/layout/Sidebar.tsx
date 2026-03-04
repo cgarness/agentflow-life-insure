@@ -64,7 +64,7 @@ const Sidebar: React.FC = () => {
             <NavLink
               to={item.path}
               onClick={() => setMobileOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium sidebar-transition group
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium sidebar-transition group relative
                 ${isActive
                   ? "bg-primary text-primary-foreground shadow-md"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -72,7 +72,12 @@ const Sidebar: React.FC = () => {
                 ${collapsed ? "justify-center" : ""}
               `}
             >
-              <item.icon className="w-5 h-5 shrink-0" />
+              <div className="relative shrink-0">
+                <item.icon className="w-5 h-5" />
+                {item.label === "Calendar" && todayCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center text-white" style={{ backgroundColor: "#3B82F6" }}>{todayCount}</span>
+                )}
+              </div>
               {!collapsed && <span className="whitespace-nowrap">{item.label}</span>}
             </NavLink>
           );
