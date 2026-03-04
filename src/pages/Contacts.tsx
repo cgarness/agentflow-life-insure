@@ -6,7 +6,8 @@ import {
   Loader2, ChevronDown, ChevronUp, GripVertical, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2,
 } from "lucide-react";
-import { leadsApi, clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
+import { clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
+import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
@@ -277,10 +278,10 @@ const Contacts: React.FC = () => {
     setLoading(true);
     try {
       const [leadData, clientData, recruitData, stats] = await Promise.all([
-        leadsApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }),
+        leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }),
         clientsApi.getAll(searchQuery),
         recruitsApi.getAll(),
-        leadsApi.getSourceStats(),
+        leadsSupabaseApi.getSourceStats(),
       ]);
       setLeads(leadData);
       setClients(clientData);
@@ -307,18 +308,18 @@ const Contacts: React.FC = () => {
   }, [location.state, leads]);
 
   const handleAddLead = async (data: any) => {
-    await leadsApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
+    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
     toast.success("Lead added successfully");
     fetchData();
   };
 
   const handleUpdateLead = async (id: string, data: Partial<Lead>) => {
-    await leadsApi.update(id, data);
+    await leadsSupabaseApi.update(id, data);
     fetchData();
   };
 
   const handleDeleteLead = async (id: string) => {
-    await leadsApi.delete(id);
+    await leadsSupabaseApi.delete(id);
     toast.success("Lead deleted");
     setSelectedLead(null);
     fetchData();
@@ -326,7 +327,7 @@ const Contacts: React.FC = () => {
 
   const handleBulkDelete = async () => {
     const count = selectedIds.size;
-    for (const id of selectedIds) await leadsApi.delete(id);
+    for (const id of selectedIds) await leadsSupabaseApi.delete(id);
     toast.error(`Deleted ${count} leads.`, { duration: 3000, position: "bottom-right" });
     setSelectedIds(new Set());
     fetchData();
@@ -334,7 +335,7 @@ const Contacts: React.FC = () => {
 
   const handleBulkStatusChange = async (status: LeadStatus) => {
     const count = selectedIds.size;
-    for (const id of selectedIds) await leadsApi.update(id, { status });
+    for (const id of selectedIds) await leadsSupabaseApi.update(id, { status });
     toast.success(`Updated status for ${count} leads.`, { duration: 3000, position: "bottom-right" });
     setSelectedIds(new Set());
     setBulkStatusOpen(false);
@@ -902,7 +903,7 @@ const Contacts: React.FC = () => {
         existingLeads={leads}
         campaigns={mockCampaigns.map(c => ({ id: c.id, name: c.name, type: c.type, status: c.status }))}
         onImportComplete={(newLeads, historyEntry) => {
-          leadsApi.bulkAdd(newLeads);
+          leadsSupabaseApi.import(newLeads);
           setImportHistory(prev => [historyEntry, ...prev]);
           fetchData();
         }}
@@ -916,7 +917,7 @@ const Contacts: React.FC = () => {
           title={`Remove ${undoConfirm.imported} leads imported from ${undoConfirm.fileName}?`}
           onConfirm={async () => {
             for (const id of undoConfirm.importedLeadIds) {
-              await leadsApi.delete(id);
+              await leadsSupabaseApi.delete(id);
             }
             setImportHistory(prev => prev.filter(h => h.id !== undoConfirm.id));
             toast.success(`${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
