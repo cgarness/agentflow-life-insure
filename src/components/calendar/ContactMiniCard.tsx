@@ -9,6 +9,7 @@ interface ContactInfo {
   email: string;
   state: string;
   status: string;
+  contactId?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -67,7 +68,7 @@ const ContactMiniCard: React.FC<Props> = ({ contact, anchorRect, onClose, onModa
         <div className="flex items-center gap-2 text-sm text-foreground"><Mail className="w-3.5 h-3.5 text-muted-foreground" /> {contact.email}</div>
         <div className="flex items-center gap-2 text-sm text-foreground"><MapPin className="w-3.5 h-3.5 text-muted-foreground" /> {contact.state}</div>
       </div>
-      <button onClick={() => { navigate('/contacts'); onClose(); onModalClose?.(); toast.info(`Opening contact record for ${contact.name}`); }}
+      <button onClick={() => { navigate('/contacts', { state: { openContactId: contact.contactId } }); onClose(); onModalClose?.(); toast.info(`Opening contact record for ${contact.name}`); }}
         className="w-full py-2 rounded-md text-sm font-medium border transition-colors duration-150 hover:bg-accent" style={{ borderColor: "#3B82F6", color: "#3B82F6" }}>
         Full View →
       </button>

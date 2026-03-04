@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
@@ -185,6 +186,7 @@ const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: ()
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const [tab, setTab] = useState<"Leads" | "Clients" | "Recruits" | "Agents">("Leads");
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -290,6 +292,19 @@ const Contacts: React.FC = () => {
   }, [searchQuery, statusFilter, sourceFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Auto-open a contact modal when navigated with openContactId state
+  useEffect(() => {
+    const openContactId = (location.state as any)?.openContactId;
+    if (openContactId && leads.length > 0) {
+      const match = leads.find(l => l.id === openContactId);
+      if (match) {
+        setSelectedLead(match);
+        // Clear the state so re-renders don't re-trigger
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, leads]);
 
   const handleAddLead = async (data: any) => {
     await leadsApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
