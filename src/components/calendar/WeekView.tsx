@@ -90,8 +90,8 @@ const WeekView: React.FC<Props> = ({ appointments, onEditAppointment, onDeleteAp
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current && nowLine > 0) {
-      scrollRef.current.scrollTop = Math.max(0, nowLine - 100);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 96;
     }
   }, []);
 
@@ -139,7 +139,7 @@ const WeekView: React.FC<Props> = ({ appointments, onEditAppointment, onDeleteAp
         </div>
 
         {/* Time grid */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto relative">
+        <div ref={scrollRef} className="overflow-y-auto relative" style={{ height: 'calc(100vh - 220px)' }}>
           <div className="relative" style={{ gridTemplateColumns: "56px repeat(7, 1fr)", display: "grid", minHeight: SLOTS * SLOT_HEIGHT }}>
             {/* Time labels */}
             <div className="relative">

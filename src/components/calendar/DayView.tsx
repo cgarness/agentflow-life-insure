@@ -70,8 +70,8 @@ const DayView: React.FC<Props> = ({ appointments, onEditAppointment, onDeleteApp
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current && nowLine > 0) {
-      scrollRef.current.scrollTop = Math.max(0, nowLine - 100);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 104;
     }
   }, []);
 
@@ -99,7 +99,7 @@ const DayView: React.FC<Props> = ({ appointments, onEditAppointment, onDeleteApp
 
       {/* Time grid */}
       <div className="bg-card rounded-lg border border-border overflow-hidden flex-1 flex flex-col min-h-0">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto relative">
+        <div ref={scrollRef} className="overflow-y-auto relative" style={{ height: 'calc(100vh - 220px)' }}>
           <div className="relative" style={{ display: "grid", gridTemplateColumns: "56px 1fr", minHeight: SLOTS * SLOT_HEIGHT }}>
             {/* Time labels */}
             <div className="relative">
