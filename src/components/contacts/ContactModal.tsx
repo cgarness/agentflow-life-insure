@@ -458,8 +458,8 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                   ))}
                 </div>
                 {lead.state && (
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <Clock className="w-3.5 h-3.5" style={{ color: '#14B8A6' }} />
+                  <div className="flex items-center gap-1.5 ml-auto bg-[#14B8A6]/15 text-[#14B8A6] border border-[#14B8A6]/30 px-3 py-1 rounded-full text-xs font-medium">
+                    <Clock className="w-3 h-3 text-[#14B8A6]" />
                     <ContactLocalTime state={lead.state} size="md" />
                   </div>
                 )}
