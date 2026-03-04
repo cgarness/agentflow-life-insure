@@ -96,18 +96,17 @@ const MonthView: React.FC<Props> = ({
                   {cell.date.getDate()}
                 </span>
                 <div className="flex flex-col gap-0.5 mt-1 overflow-hidden flex-1">
-                  {appts.slice(0, 3).map(a => {
+                  {appts.slice(0, 2).map(a => {
                     const col = APPOINTMENT_TYPE_COLORS[a.type];
-                    const truncTitle = a.title.length > 20 ? a.title.slice(0, 20) + "…" : a.title;
                     return (
                       <div key={a.id} onClick={e => handlePillClick(e, a)}
-                        className="rounded px-1 py-0.5 cursor-pointer truncate transition-opacity duration-150 hover:opacity-80"
-                        style={{ backgroundColor: col + "33", borderLeft: `3px solid ${col}`, color: col, fontSize: 12 }}>
-                        {a.startTime.replace(/ /g, "")} {truncTitle}
+                        className="text-[10px] px-1 py-0.5 rounded truncate w-full text-white cursor-pointer transition-opacity duration-150 hover:opacity-80"
+                        style={{ backgroundColor: col }}>
+                        {a.startTime.replace(/ /g, "")} {a.title}
                       </div>
                     );
                   })}
-                  {appts.length > 3 && <span className="text-[10px] text-muted-foreground">+{appts.length - 3} more</span>}
+                  {appts.length > 2 && <span className="text-[10px] text-muted-foreground">+{appts.length - 2} more</span>}
                 </div>
               </button>
             );
