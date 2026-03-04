@@ -196,7 +196,7 @@ const LoginPage: React.FC = () => {
           {/* Sign up link */}
           <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#64748B' }}>
             Don't have an account?{' '}
-            <Link to="/register" style={{ color: '#3B82F6', textDecoration: 'none' }}>Sign up</Link>
+            <Link to="/signup" style={{ color: '#3B82F6', textDecoration: 'none' }}>Sign up</Link>
           </div>
 
         </div>
