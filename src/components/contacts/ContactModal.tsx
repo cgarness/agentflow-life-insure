@@ -15,6 +15,8 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
+import AppointmentModal from "@/components/calendar/AppointmentModal";
+import { useCalendar } from "@/contexts/CalendarContext";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
@@ -169,8 +171,9 @@ interface ContactModalProps {
 }
 
 const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, onDelete, onConvert }) => {
+  const { addAppointment } = useCalendar();
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls">("Overview");
-  const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Lead>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -225,6 +228,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setHistoryFilter("All");
       setStatusDropdownOpen(false);
       setLocalStatus(lead.status);
+      setShowAppointmentModal(false);
     }
   }, [lead]);
 
@@ -431,7 +435,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
               <Button className="px-4 py-2.5 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" />Call</Button>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
-              <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => { logActivity(`Appointment scheduled for ${new Date().toLocaleDateString()}`, "appointment"); toast.info("Appointment Scheduler — coming soon"); }}><Calendar className="size-4 mr-1" />Schedule</Button>
+              <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => setShowAppointmentModal(true)}><Calendar className="size-4 mr-1" />Schedule</Button>
               <Button className="px-4 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="size-4 mr-1" />Convert</Button>
               <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="size-4" /></Button>
               <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={tryClose}><X className="size-4" /></Button>
@@ -746,6 +750,19 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Appointment Modal (from Schedule button) */}
+      <AppointmentModal
+        open={showAppointmentModal}
+        onClose={() => setShowAppointmentModal(false)}
+        onSave={(data) => {
+          addAppointment(data);
+          logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
+          setShowAppointmentModal(false);
+        }}
+        prefillContactName={lead ? `${lead.firstName} ${lead.lastName}` : undefined}
+        prefillContactId={lead?.id}
+      />
     </TooltipProvider>
   );
 };

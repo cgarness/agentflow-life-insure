@@ -19,13 +19,13 @@ for (let h = 0; h < 24; h++) {
 }
 
 // Mock contact data for the mini-card
-const MOCK_CONTACTS: Record<string, { name: string; phone: string; email: string; state: string; status: string }> = {
-  l1: { name: "James Morrison", phone: "(555) 201-4444", email: "james.morrison@email.com", state: "FL", status: "Hot" },
-  l2: { name: "Sarah Chen", phone: "(555) 302-5555", email: "sarah.chen@email.com", state: "CA", status: "Follow Up" },
-  l3: { name: "Marcus Webb", phone: "(555) 403-6666", email: "marcus.webb@email.com", state: "TX", status: "Interested" },
-  l4: { name: "Linda Park", phone: "(555) 504-7777", email: "linda.park@email.com", state: "NY", status: "Interested" },
-  l5: { name: "Robert Ellis", phone: "(555) 605-8888", email: "robert.ellis@email.com", state: "OH", status: "Contacted" },
-  l6: { name: "Diana Ross", phone: "(555) 706-9999", email: "diana.ross@email.com", state: "GA", status: "Closed Won" },
+const MOCK_CONTACTS: Record<string, { name: string; phone: string; email: string; state: string; status: string; contactId: string }> = {
+  l1: { name: "James Morrison", phone: "(555) 201-4444", email: "james.morrison@email.com", state: "FL", status: "Hot", contactId: "l1" },
+  l2: { name: "Sarah Chen", phone: "(555) 302-5555", email: "sarah.chen@email.com", state: "CA", status: "Follow Up", contactId: "l2" },
+  l3: { name: "Marcus Webb", phone: "(555) 403-6666", email: "marcus.webb@email.com", state: "TX", status: "Interested", contactId: "l3" },
+  l4: { name: "Linda Park", phone: "(555) 504-7777", email: "linda.park@email.com", state: "NY", status: "Interested", contactId: "l4" },
+  l5: { name: "Robert Ellis", phone: "(555) 605-8888", email: "robert.ellis@email.com", state: "OH", status: "Contacted", contactId: "l5" },
+  l6: { name: "Diana Ross", phone: "(555) 706-9999", email: "diana.ross@email.com", state: "GA", status: "Closed Won", contactId: "l6" },
 };
 
 const agents = mockUsers.filter(u => u.status === "Active");
@@ -38,9 +38,13 @@ interface Props {
   editing?: CalendarAppointment | null;
   defaultDate?: Date;
   defaultTime?: string;
+  /** Pre-fill contact name (locks the contact field) */
+  prefillContactName?: string;
+  /** Pre-fill contact id */
+  prefillContactId?: string;
 }
 
-const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, editing, defaultDate, defaultTime }) => {
+const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, editing, defaultDate, defaultTime, prefillContactName, prefillContactId }) => {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [type, setType] = useState<CalAppointmentType>("Sales Call");
@@ -76,7 +80,10 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       setAgent(editing.agent);
       setNotes(editing.notes);
     } else {
-      setTitle(""); setType("Sales Call"); setStatus("Scheduled"); setContactName("");
+      const firstName = prefillContactName?.split(" ")[0] || "";
+      setTitle(prefillContactName ? `Call with ${firstName}` : "");
+      setType("Sales Call"); setStatus("Scheduled");
+      setContactName(prefillContactName || "");
       setStartTime(defaultTime || "10:00 AM");
       setEndTime(defaultTime ? advanceTime(defaultTime) : "10:30 AM");
       setAgent("Chris Garcia"); setNotes("");
@@ -88,11 +95,11 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
         setDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`);
       }
     }
-  }, [open, editing, defaultDate, defaultTime]);
+  }, [open, editing, defaultDate, defaultTime, prefillContactName]);
 
   if (!open) return null;
 
-  const contactId = editing?.contactId || "";
+  const contactId = editing?.contactId || prefillContactId || "";
   const contactInfo = contactId ? MOCK_CONTACTS[contactId] : null;
   const contactFirstName = contactName.split(" ")[0] || "Contact";
 
@@ -118,7 +125,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     onSave({
       title: title.trim(), type, status,
       contactName: contactName.trim(),
-      contactId: editing?.contactId ?? "",
+      contactId: editing?.contactId ?? prefillContactId ?? "",
       date: dateObj, startTime, endTime, agent: agent.trim(), notes: notes.trim(),
     });
     toast.success(editing ? "Appointment updated" : "Appointment scheduled successfully");
@@ -151,19 +158,21 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
         </div>
         <div className="p-5 space-y-4">
           {/* Contact Name — first field */}
-          {editing && contactId && contactInfo ? (
+          {(editing && contactId && contactInfo) || prefillContactName ? (
             <div className="mb-6">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Contact</p>
               <div className="flex items-center gap-3">
-                <button onClick={handleBadgeClick}
-                  className="text-lg font-semibold px-4 py-2 rounded-full cursor-pointer transition-colors duration-150"
-                  style={{ backgroundColor: "#14B8A626", color: "#14B8A6", border: "1px solid #14B8A64D" }}>
-                  {contactInfo.name}
+                <button onClick={contactInfo ? handleBadgeClick : undefined}
+                  className="text-lg font-semibold px-4 py-2 rounded-full transition-colors duration-150"
+                  style={{ backgroundColor: "#14B8A626", color: "#14B8A6", border: "1px solid #14B8A64D", cursor: contactInfo ? "pointer" : "default" }}>
+                  {contactInfo?.name || prefillContactName}
                 </button>
-                <button onClick={() => { navigate('/contacts'); setMiniCardOpen(false); onClose(); toast.info(`Opening contact record for ${contactInfo.name}`); }}
-                  className="text-sm hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
-                  Full View →
-                </button>
+                {editing && contactInfo && (
+                  <button onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); setMiniCardOpen(false); onClose(); toast.info(`Opening contact record for ${contactInfo.name}`); }}
+                    className="text-sm hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
+                    Full View →
+                  </button>
+                )}
               </div>
             </div>
           ) : (
