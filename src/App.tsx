@@ -24,6 +24,7 @@ import SignupPage from "./pages/SignupPage";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -51,32 +52,34 @@ const App = () => (
       <TooltipProvider>
         <AuthProvider>
           <CalendarProvider>
-          <SidebarProvider>
+            <SidebarProvider>
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <Routes>
-                <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-                <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
-                <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/dialer" element={<DialerPage />} />
-                  <Route path="/contacts" element={<Contacts />} />
-                  <Route path="/conversations" element={<Conversations />} />
-                  <Route path="/calendar" element={<CalendarPage />} />
-                  <Route path="/campaigns" element={<Campaigns />} />
-                  <Route path="/leaderboard" element={<Leaderboard />} />
-                  <Route path="/reports" element={<Reports />} />
-                  <Route path="/ai-agents" element={<AIAgents />} />
-                  <Route path="/training" element={<Training />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <ErrorBoundary>
+                <Routes>
+                  <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+                  <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
+                  <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/dialer" element={<DialerPage />} />
+                    <Route path="/contacts" element={<Contacts />} />
+                    <Route path="/conversations" element={<Conversations />} />
+                    <Route path="/calendar" element={<CalendarPage />} />
+                    <Route path="/campaigns" element={<Campaigns />} />
+                    <Route path="/leaderboard" element={<Leaderboard />} />
+                    <Route path="/reports" element={<Reports />} />
+                    <Route path="/ai-agents" element={<AIAgents />} />
+                    <Route path="/training" element={<Training />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </ErrorBoundary>
             </BrowserRouter>
-          </SidebarProvider>
+            </SidebarProvider>
           </CalendarProvider>
         </AuthProvider>
       </TooltipProvider>

@@ -69,7 +69,7 @@ const CalendarPage: React.FC = () => {
   };
 
   const handleOpenContact = (contactId: string) => {
-    const lead = mockLeads.find(l => l.id === contactId);
+    const lead = (mockLeads ?? []).find(l => l.id === contactId);
     if (lead) setContactModalLead(lead);
   };
 
@@ -82,7 +82,10 @@ const CalendarPage: React.FC = () => {
     setSelectedDate(t);
   };
 
-  const dayAppointments = appointments.filter(a => sameDay(new Date(a.date), selectedDate));
+  const safeAppointments = appointments ?? [];
+  const dayAppointments = safeAppointments.filter(a => {
+    try { return sameDay(new Date(a.date), selectedDate); } catch { return false; }
+  });
 
   if (loading) {
     return (
@@ -140,7 +143,7 @@ const CalendarPage: React.FC = () => {
               onPrevMonth={prevMonth}
               onNextMonth={nextMonth}
               onToday={goToday}
-              appointments={appointments}
+              appointments={safeAppointments}
               selectedDate={selectedDate}
               onSelectDate={setSelectedDate}
               onDayClick={() => {}}
@@ -164,7 +167,7 @@ const CalendarPage: React.FC = () => {
       {view === "week" && (
         <div className="bg-card rounded-lg border border-border overflow-hidden p-4" style={{ height: "calc(100vh - 180px)" }}>
           <WeekView
-            appointments={appointments}
+            appointments={safeAppointments}
             onEditAppointment={openEdit}
             onDeleteAppointment={deleteAppointment}
             onStatusChange={handleStatusChange}
@@ -177,7 +180,7 @@ const CalendarPage: React.FC = () => {
       {view === "day" && (
         <div className="bg-card rounded-lg border border-border overflow-hidden p-4" style={{ height: "calc(100vh - 180px)" }}>
           <DayView
-            appointments={appointments}
+            appointments={safeAppointments}
             onEditAppointment={openEdit}
             onDeleteAppointment={deleteAppointment}
             onStatusChange={handleStatusChange}
@@ -189,7 +192,7 @@ const CalendarPage: React.FC = () => {
 
       {view === "list" && (
         <ListView
-          appointments={appointments}
+          appointments={safeAppointments}
           onEdit={openEdit}
           onDelete={deleteAppointment}
           onStatusChange={handleStatusChange}

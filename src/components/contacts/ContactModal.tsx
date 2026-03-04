@@ -174,6 +174,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const { addAppointment } = useCalendar();
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls">("Overview");
+  const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Lead>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
