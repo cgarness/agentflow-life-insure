@@ -40,7 +40,6 @@ const MonthView: React.FC<Props> = ({
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const daysInPrevMonth = new Date(year, month, 0).getDate();
 
-  // Build 42-cell grid
   const cells: { date: Date; inMonth: boolean }[] = [];
   for (let i = 0; i < startDay; i++) {
     const d = daysInPrevMonth - startDay + 1 + i;
@@ -55,7 +54,6 @@ const MonthView: React.FC<Props> = ({
   }
 
   const monthLabel = currentMonth.toLocaleString("default", { month: "long", year: "numeric" });
-
   const getApptsForDate = (d: Date) => appointments.filter(a => sameDay(new Date(a.date), d));
 
   const handlePillClick = (e: React.MouseEvent, a: CalendarAppointment) => {
@@ -93,7 +91,7 @@ const MonthView: React.FC<Props> = ({
                 className={`min-h-[100px] p-1.5 border-b border-r border-border text-left transition-colors duration-150 flex flex-col ${
                   !cell.inMonth ? "opacity-40" : ""
                 } ${isSelected ? "ring-2 ring-primary ring-inset" : ""} ${isToday && cell.inMonth ? "bg-primary/5" : ""} hover:bg-accent/30`}>
-                <span className={`text-xs font-medium inline-flex items-center justify-center ${isToday && cell.inMonth ? "w-6 h-6 rounded-full text-white" : "text-foreground"}`}
+                <span className={`text-sm font-medium inline-flex items-center justify-center ${isToday && cell.inMonth ? "w-6 h-6 rounded-full text-white" : "text-foreground"}`}
                   style={isToday && cell.inMonth ? { backgroundColor: "#3B82F6" } : undefined}>
                   {cell.date.getDate()}
                 </span>
@@ -104,7 +102,7 @@ const MonthView: React.FC<Props> = ({
                     return (
                       <div key={a.id} onClick={e => handlePillClick(e, a)}
                         className="rounded px-1 py-0.5 cursor-pointer truncate transition-opacity duration-150 hover:opacity-80"
-                        style={{ backgroundColor: col + "33", borderLeft: `3px solid ${col}`, color: col, fontSize: 11 }}>
+                        style={{ backgroundColor: col + "33", borderLeft: `3px solid ${col}`, color: col, fontSize: 12 }}>
                         {a.startTime.replace(/ /g, "")} {truncTitle}
                       </div>
                     );

@@ -43,7 +43,6 @@ const ListView: React.FC<Props> = ({ appointments, onEdit, onDelete, onStatusCha
     return true;
   }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Group by date
   const grouped: { dateLabel: string; items: CalendarAppointment[] }[] = [];
   const seen = new Map<string, number>();
   for (const a of filtered) {
@@ -87,8 +86,8 @@ const ListView: React.FC<Props> = ({ appointments, onEdit, onDelete, onStatusCha
       {grouped.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 bg-card rounded-lg border border-border">
           <CalIcon className="w-10 h-10 text-muted-foreground mb-3" />
-          <p className="text-sm font-medium text-foreground">No appointments found</p>
-          <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or schedule a new appointment</p>
+          <p className="text-base font-medium text-foreground">No appointments found</p>
+          <p className="text-sm text-muted-foreground mt-1">Try adjusting your filters or schedule a new appointment</p>
           <button onClick={onSchedule} className="mt-4 px-4 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors duration-150" style={{ backgroundColor: "#3B82F6" }}>
             <Plus className="w-4 h-4" /> Schedule Appointment
           </button>
@@ -97,7 +96,7 @@ const ListView: React.FC<Props> = ({ appointments, onEdit, onDelete, onStatusCha
         grouped.map(g => (
           <div key={g.dateLabel}>
             <div className="flex items-center gap-3 mb-2">
-              <h3 className="text-sm font-semibold text-muted-foreground">{g.dateLabel}</h3>
+              <h3 className="text-base font-semibold text-muted-foreground">{g.dateLabel}</h3>
               <div className="flex-1 h-px bg-border" />
             </div>
             <div className="space-y-2">
@@ -126,8 +125,8 @@ const ListCard: React.FC<{
     <div className="bg-card rounded-lg border border-border p-4 flex items-start gap-4 hover:shadow-md transition-all duration-150" style={{ borderLeft: `4px solid ${typeColor}` }}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-mono text-muted-foreground">{appointment.startTime} – {appointment.endTime}</span>
-          <span className="text-sm font-semibold text-foreground">{appointment.title}</span>
+          <span className="text-sm font-mono text-muted-foreground">{appointment.startTime} – {appointment.endTime}</span>
+          <span className="text-base font-bold text-foreground">{appointment.title}</span>
         </div>
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: typeColor + "33", color: typeColor }}>{appointment.type}</span>
@@ -139,15 +138,15 @@ const ListCard: React.FC<{
               <div className="absolute top-full left-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 py-1 min-w-[120px]">
                 {ALL_STATUSES.map(s => (
                   <button key={s} onClick={() => { onStatusChange(appointment.id, s); setStatusOpen(false); toast.success(`Status updated to ${s}`); }}
-                    className="block w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-accent transition-colors duration-150">{s}</button>
+                    className="block w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors duration-150">{s}</button>
                 ))}
               </div>
             )}
           </div>
         </div>
         {appointment.contactName && (
-          <div className="flex items-center gap-1 mt-1.5 text-xs">
-            <User className="w-3 h-3 text-muted-foreground" />
+          <div className="flex items-center gap-1 mt-1.5 text-sm">
+            <User className="w-3.5 h-3.5 text-muted-foreground" />
             {appointment.contactId ? (
               <button onClick={() => onOpenContact?.(appointment.contactId)} className="hover:underline transition-colors duration-150" style={{ color: "#14B8A6" }}>{appointment.contactName}</button>
             ) : (
@@ -155,8 +154,8 @@ const ListCard: React.FC<{
             )}
           </div>
         )}
-        {appointment.agent && <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground"><User className="w-3 h-3" /> {appointment.agent}</div>}
-        {appointment.notes && <p className="text-xs text-muted-foreground italic mt-1 truncate">{appointment.notes.slice(0, 60)}</p>}
+        {appointment.agent && <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground"><User className="w-3.5 h-3.5" /> {appointment.agent}</div>}
+        {appointment.notes && <p className="text-sm text-muted-foreground italic mt-1 truncate">{appointment.notes.slice(0, 60)}</p>}
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <button onClick={() => onEdit(appointment)} className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors duration-150">
