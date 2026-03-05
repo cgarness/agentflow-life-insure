@@ -621,46 +621,51 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                    <th className="w-10 py-3 px-3">
-                      <input
-                        type="checkbox"
-                        checked={isAllSelected}
-                        ref={el => { if (el) el.indeterminate = isIndeterminate; }}
-                        onChange={toggleAll}
-                        className="rounded"
-                      />
-                    </th>
-                    {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
-                      <th key={col.key} className={`${colAlign(col.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col.key)}>
-                        <span className="inline-flex items-center gap-1">
-                          {col.label}
-                          {sortCol === col.key ? (
-                            sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 text-primary" />
-                          ) : (
-                            <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
-                          )}
-                        </span>
-                      </th>
-                    ))}
-                    <th className="w-10 py-3"></th>
-                  </tr></thead>
-                  <tbody>
-                    {sortedLeads.map(l => {
-                      const aging = calcAging(l.lastContactedAt);
-                      return (
-                        <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
-                          <td className="py-3 px-3" onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
-                          {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
-                            <td key={col.key} className={`py-3 ${colAlign(col.key)}`}>{renderCell(l, col.key, aging)}</td>
-                          ))}
-                          <td className="py-3" onClick={e => e.stopPropagation()}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                 <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                     <th className="w-10 py-3 px-3" style={{ width: 40 }}>
+                       <input
+                         type="checkbox"
+                         checked={isAllSelected}
+                         ref={el => { if (el) el.indeterminate = isIndeterminate; }}
+                         onChange={toggleAll}
+                         className="rounded"
+                       />
+                     </th>
+                     {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
+                       <th key={col.key} style={{ width: leadsResize.getWidth(col.key), position: "relative" }} className={`${colAlign(col.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col.key)}>
+                         <span className="inline-flex items-center gap-1">
+                           {col.label}
+                           {sortCol === col.key ? (
+                             sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 text-primary" />
+                           ) : (
+                             <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                           )}
+                         </span>
+                         <div
+                           onMouseDown={(e) => leadsResize.onMouseDown(col.key, e)}
+                           onClick={e => e.stopPropagation()}
+                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors"
+                         />
+                       </th>
+                     ))}
+                     <th className="w-10 py-3" style={{ width: 40 }}></th>
+                   </tr></thead>
+                   <tbody>
+                     {sortedLeads.map(l => {
+                       const aging = calcAging(l.lastContactedAt);
+                       return (
+                         <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
+                           <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
+                           {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
+                             <td key={col.key} style={{ width: leadsResize.getWidth(col.key), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className={`py-3 ${colAlign(col.key)}`}>{renderCell(l, col.key, aging)}</td>
+                           ))}
+                           <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
+                         </tr>
+                       );
+                     })}
+                   </tbody>
+                 </table>
               </div>
             )}
           </div>
