@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Plus } from "lucide-react";
-import { useCalendar, CalendarAppointment, CalAppointmentStatus } from "@/contexts/CalendarContext";
+import { useCalendar, CalendarAppointment, CalAppointmentStatus, CalAppointmentType } from "@/contexts/CalendarContext";
+import { supabase } from "@/integrations/supabase/client";
 import MonthView from "@/components/calendar/MonthView";
 import WeekView from "@/components/calendar/WeekView";
 import DayView from "@/components/calendar/DayView";
@@ -23,8 +24,12 @@ const VIEWS: { key: ViewType; label: string }[] = [
   { key: "list", label: "List" },
 ];
 
+const VALID_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"];
+const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
+
 const CalendarPage: React.FC = () => {
-  const { appointments, addAppointment, updateAppointment, deleteAppointment } = useCalendar();
+  const { addAppointment, updateAppointment, deleteAppointment } = useCalendar();
+  const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [view, setView] = useState<ViewType>("month");
   const [currentMonth, setCurrentMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
@@ -37,10 +42,53 @@ const CalendarPage: React.FC = () => {
 
   const [contactModalLead, setContactModalLead] = useState<Lead | null>(null);
 
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+
+  const fetchAppointments = useCallback(async () => {
+    setLoading(true);
+    const startOfMonth = new Date(year, month, 1).toISOString();
+    const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .gte('start_time', startOfMonth)
+      .lte('start_time', endOfMonth)
+      .order('start_time', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching appointments:', error);
+      setLoading(false);
+      return;
+    }
+
+    const mapped: CalendarAppointment[] = (data || []).map((appt: any) => {
+      const startDate = new Date(appt.start_time);
+      const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
+      const formatTime = (d: Date) =>
+        d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      return {
+        id: appt.id,
+        title: appt.title,
+        type: VALID_TYPES.includes(appt.type) ? appt.type : "Other",
+        status: VALID_STATUSES.includes(appt.status) ? appt.status : "Scheduled",
+        date: new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()),
+        startTime: formatTime(startDate),
+        endTime: formatTime(endDate),
+        contactName: appt.contact_name || "",
+        contactId: appt.contact_id || "",
+        agent: "",
+        notes: appt.notes || "",
+      } as CalendarAppointment;
+    });
+
+    setAppointments(mapped);
+    setLoading(false);
+  }, [year, month]);
+
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(t);
-  }, []);
+    fetchAppointments();
+  }, [fetchAppointments]);
 
   const openSchedule = (defaultDate?: Date, defaultTime?: string) => {
     setModalEditing(null);
@@ -89,21 +137,8 @@ const CalendarPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="h-8 w-32 rounded-md bg-muted animate-pulse" />
-          <div className="flex gap-2">
-            <div className="h-9 w-40 rounded-md bg-muted animate-pulse" />
-            <div className="h-9 w-24 rounded-md bg-muted animate-pulse" />
-          </div>
-        </div>
-        <div className="bg-card rounded-lg border border-border p-4">
-          <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 35 }).map((_, i) => (
-              <div key={i} className="h-20 rounded-md bg-muted animate-pulse" />
-            ))}
-          </div>
-        </div>
+      <div className="flex items-center justify-center py-24">
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
