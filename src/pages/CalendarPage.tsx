@@ -29,7 +29,7 @@ const VALID_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit I
 const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
 
 const CalendarPage: React.FC = () => {
-  const { addAppointment, updateAppointment, deleteAppointment } = useCalendar();
+  const { addAppointment, updateAppointment } = useCalendar();
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [view, setView] = useState<ViewType>("month");
   const [currentMonth, setCurrentMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
@@ -159,6 +159,21 @@ const CalendarPage: React.FC = () => {
     }
   };
 
+  const handleDeleteAppointment = async (appointmentId: string) => {
+    const { error } = await supabase
+      .from('appointments')
+      .delete()
+      .eq('id', appointmentId);
+
+    if (error) {
+      console.error('Error deleting appointment:', error);
+      toast({ title: "Failed to delete appointment", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Appointment deleted" });
+    fetchAppointments();
+  };
+
   const handleStatusChange = (id: string, status: CalAppointmentStatus) => {
     updateAppointment(id, { status });
   };
@@ -230,7 +245,7 @@ const CalendarPage: React.FC = () => {
               onSelectDate={setSelectedDate}
               onDayClick={() => {}}
               onEditAppointment={openEdit}
-              onDeleteAppointment={deleteAppointment}
+              onDeleteAppointment={handleDeleteAppointment}
               onStatusChange={handleStatusChange}
               onOpenContact={handleOpenContact}
             />
@@ -251,7 +266,7 @@ const CalendarPage: React.FC = () => {
           <WeekView
             appointments={safeAppointments}
             onEditAppointment={openEdit}
-            onDeleteAppointment={deleteAppointment}
+            onDeleteAppointment={handleDeleteAppointment}
             onStatusChange={handleStatusChange}
             onOpenContact={handleOpenContact}
             onScheduleAt={(date, time) => openSchedule(date, time)}
@@ -264,7 +279,7 @@ const CalendarPage: React.FC = () => {
           <DayView
             appointments={safeAppointments}
             onEditAppointment={openEdit}
-            onDeleteAppointment={deleteAppointment}
+            onDeleteAppointment={handleDeleteAppointment}
             onStatusChange={handleStatusChange}
             onOpenContact={handleOpenContact}
             onScheduleAt={(date, time) => openSchedule(date, time)}
@@ -276,7 +291,7 @@ const CalendarPage: React.FC = () => {
         <ListView
           appointments={safeAppointments}
           onEdit={openEdit}
-          onDelete={deleteAppointment}
+          onDelete={handleDeleteAppointment}
           onStatusChange={handleStatusChange}
           onOpenContact={handleOpenContact}
           onSchedule={() => openSchedule()}
@@ -288,7 +303,7 @@ const CalendarPage: React.FC = () => {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
-        onDelete={modalEditing ? deleteAppointment : undefined}
+        onDelete={modalEditing ? handleDeleteAppointment : undefined}
         editing={modalEditing}
         defaultDate={modalDefaultDate}
         defaultTime={modalDefaultTime}
