@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
-  User, Keyboard, LogOut, X, Megaphone,
+  User, Keyboard, LogOut, X, Megaphone, Phone,
 } from "lucide-react";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -129,6 +129,15 @@ const TopBar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent>Add New Contact</TooltipContent>
           </Tooltip>
+
+          {/* Dialer Trigger */}
+          <button
+            onClick={() => window.dispatchEvent(new Event("toggle-floating-dialer"))}
+            className="h-8 px-3 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center gap-1.5 text-sm font-medium sidebar-transition"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Dialer</span>
+          </button>
 
           {/* Notifications */}
           <div className="relative">
