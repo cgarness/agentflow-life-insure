@@ -120,6 +120,15 @@ const TopBar: React.FC = () => {
 
         {/* Right Actions */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* Dialer Trigger */}
+          <button
+            onClick={() => window.dispatchEvent(new Event("toggle-floating-dialer"))}
+            className="h-8 px-3 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center gap-1.5 text-sm font-medium sidebar-transition"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Dialer</span>
+          </button>
+
           {/* Quick Add */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -129,15 +138,6 @@ const TopBar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent>Add New Contact</TooltipContent>
           </Tooltip>
-
-          {/* Dialer Trigger */}
-          <button
-            onClick={() => window.dispatchEvent(new Event("toggle-floating-dialer"))}
-            className="h-8 px-3 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center gap-1.5 text-sm font-medium sidebar-transition"
-          >
-            <Phone className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Dialer</span>
-          </button>
 
           {/* Notifications */}
           <div className="relative">
