@@ -21,9 +21,35 @@ interface DispositionRow {
   color: string;
 }
 
+interface RecentCall {
+  id: string;
+  contact_name: string | null;
+  phone: string;
+  disposition_name: string | null;
+  disposition_color: string | null;
+  created_at: string;
+}
+
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days > 1 ? "s" : ""} ago`;
+}
+
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
+
+  // --- Recent calls state ---
+  const [recentCalls, setRecentCalls] = useState<RecentCall[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentError, setRecentError] = useState(false);
 
   // --- Search state ---
   const [searchTerm, setSearchTerm] = useState("");
@@ -99,7 +125,10 @@ const FloatingDialer: React.FC = () => {
           if (notification.type === "callUpdate") {
             const call = notification.call;
             if (call.state === "hangup" || call.state === "destroy") {
-              handleHangUp();
+              callRef.current = null;
+              setOnCall(false);
+              setShowDisposition(true);
+              setSelectedDispId(null);
             }
           }
         });
@@ -129,6 +158,36 @@ const FloatingDialer: React.FC = () => {
         if (data) setDispositions(data);
       });
   }, []);
+
+  // Fetch recent calls when Recent tab is selected
+  const fetchRecentCalls = useCallback(async () => {
+    setRecentLoading(true);
+    setRecentError(false);
+    try {
+      const { data, error } = await supabase
+        .from("calls")
+        .select("id, contact_name, phone, disposition_name, disposition_color, created_at")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) {
+        setRecentError(true);
+        setRecentCalls([]);
+      } else {
+        setRecentCalls(data || []);
+      }
+    } catch {
+      setRecentError(true);
+      setRecentCalls([]);
+    } finally {
+      setRecentLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "recent") {
+      fetchRecentCalls();
+    }
+  }, [activeTab, fetchRecentCalls]);
 
   // --- Search with debounce ---
   const doSearch = useCallback(async (term: string) => {
@@ -222,7 +281,7 @@ const FloatingDialer: React.FC = () => {
     startCall(dialedNumber);
   };
 
-  const handleHangUp = () => {
+  const handleHangUp = useCallback(() => {
     if (callRef.current) {
       try { callRef.current.hangup(); } catch {}
       callRef.current = null;
@@ -230,7 +289,7 @@ const FloatingDialer: React.FC = () => {
     setOnCall(false);
     setShowDisposition(true);
     setSelectedDispId(null);
-  };
+  }, []);
 
   const resetAll = () => {
     setShowDisposition(false);
@@ -289,7 +348,89 @@ const FloatingDialer: React.FC = () => {
             </button>
           </div>
 
+          {/* Tab Bar */}
+          <div className="px-4 pt-3 pb-1 shrink-0">
+            <div className="flex bg-accent rounded-lg p-0.5">
+              <button
+                onClick={() => setActiveTab("dial")}
+                className={`flex-1 py-1.5 text-xs rounded-md text-center transition-colors ${
+                  activeTab === "dial"
+                    ? "bg-background text-foreground shadow-sm font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Dial
+              </button>
+              <button
+                onClick={() => setActiveTab("recent")}
+                className={`flex-1 py-1.5 text-xs rounded-md text-center transition-colors ${
+                  activeTab === "recent"
+                    ? "bg-background text-foreground shadow-sm font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Recent
+              </button>
+            </div>
+          </div>
+
           <div className="p-4 space-y-4 max-h-[calc(100vh-8rem)] overflow-y-auto">
+            {/* ===== RECENT TAB ===== */}
+            {activeTab === "recent" && (
+              <div>
+                {recentLoading && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {!recentLoading && (recentError || recentCalls.length === 0) && (
+                  <div className="flex flex-col items-center justify-center py-8 space-y-2">
+                    <Phone className="w-8 h-8 text-muted-foreground" />
+                    <p className="font-medium text-foreground">No recent calls</p>
+                    <p className="text-sm text-muted-foreground">Your call history will appear here</p>
+                  </div>
+                )}
+                {!recentLoading && !recentError && recentCalls.length > 0 && (
+                  <div className="space-y-1">
+                    {recentCalls.map((call) => (
+                      <button
+                        key={call.id}
+                        onClick={() => {
+                          const name = call.contact_name || call.phone;
+                          const parts = name.includes(" ") ? name.split(" ") : [name, ""];
+                          setSelectedContact({
+                            id: call.id,
+                            first_name: parts[0],
+                            last_name: parts.slice(1).join(" "),
+                            phone: call.phone,
+                          });
+                          setSearchTerm(name);
+                          setActiveTab("dial");
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-accent text-left"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-foreground truncate">
+                            {call.contact_name || call.phone}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {timeAgo(call.created_at)}
+                          </p>
+                        </div>
+                        {call.disposition_name && (
+                          <span className={`ml-2 shrink-0 px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${call.disposition_color || "bg-muted"}`}>
+                            {call.disposition_name}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===== DIAL TAB ===== */}
+            {activeTab === "dial" && <>
             {/* ===== ACTIVE CALL STATE ===== */}
             {onCall && (
               <div className="flex flex-col items-center space-y-4">
@@ -298,7 +439,10 @@ const FloatingDialer: React.FC = () => {
                 </p>
                 {selectedContact && (
                   <button
-                    onClick={() => navigate(`/contacts?contact=${selectedContact.id}`)}
+                    onClick={() => {
+                      navigate(`/contacts?contact=${selectedContact.id}`);
+                      setOpen(false);
+                    }}
                     className="text-sm text-teal-500 hover:text-teal-600 hover:underline"
                   >
                     View Full Contact &rarr;
@@ -503,6 +647,7 @@ const FloatingDialer: React.FC = () => {
                 </div>
               </>
             )}
+            </>}
           </div>
         </motion.div>
       )}

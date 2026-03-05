@@ -308,6 +308,18 @@ const Contacts: React.FC = () => {
     }
   }, [location.state, leads]);
 
+  // Auto-open a contact modal when navigated with ?contact= query param
+  useEffect(() => {
+    const contactId = new URLSearchParams(location.search).get("contact");
+    if (contactId && leads.length > 0) {
+      const match = leads.find(l => l.id === contactId);
+      if (match) {
+        setSelectedLead(match);
+        window.history.replaceState({}, "", "/contacts");
+      }
+    }
+  }, [location.search, leads]);
+
   const handleAddLead = async (data: any) => {
     await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
     toast.success("Lead added successfully");
