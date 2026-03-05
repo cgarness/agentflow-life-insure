@@ -68,7 +68,7 @@ const ALL_COLUMNS: ColDef[] = [
   { key: "lastContacted", label: "Last Contacted", defaultVisible: false },
 ];
 
-const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(c => c?.defaultVisible).map(c => c.key));
+const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(Boolean).filter(c => c?.defaultVisible).map(c => c?.key));
 
 const mockAgents = [
   { id: "u1", name: "Chris G." },
@@ -230,18 +230,22 @@ const Contacts: React.FC = () => {
   const leadsResize = useResizableColumns({
     storageKey: "contacts_leads_column_widths",
     defaultWidths: { name: 180, phone: 140, email: 200, state: 80, status: 110, source: 130, score: 80, aging: 80, agent: 140, dob: 120, health: 120, bestTime: 130, leadSourceAlias: 130, createdDate: 120, lastContacted: 120 },
+    userId: user?.id,
   });
   const clientsResize = useResizableColumns({
     storageKey: "contacts_clients_column_widths",
     defaultWidths: { name: 180, phone: 140, policyType: 120, carrier: 130, premium: 110, faceAmount: 120, issueDate: 120 },
+    userId: user?.id,
   });
   const recruitsResize = useResizableColumns({
     storageKey: "contacts_recruits_column_widths",
     defaultWidths: { name: 180, phone: 140, email: 200, status: 110, agent: 140 },
+    userId: user?.id,
   });
   const agentsResize = useResizableColumns({
     storageKey: "contacts_agents_column_widths",
     defaultWidths: { agent: 200, email: 200, licensedStates: 160, commission: 120, role: 100, status: 100 },
+    userId: user?.id,
   });
 
   const handleSort = (key: ColumnKey) => {
@@ -446,24 +450,24 @@ const Contacts: React.FC = () => {
               <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-50">
                 <p className="text-sm font-semibold text-foreground mb-2">Toggle Columns</p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {ALL_COLUMNS.filter(col => col != null).map(col => (
-                    <label key={col.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                  {ALL_COLUMNS.filter(Boolean).filter(col => col != null).map(col => (
+                    <label key={col?.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={visibleCols.has(col.key)}
-                        disabled={col.locked}
+                        checked={visibleCols.has(col?.key)}
+                        disabled={col?.locked}
                         onChange={() => {
-                          if (col.locked) return;
+                          if (col?.locked) return;
                           setVisibleCols(prev => {
                             const next = new Set(prev);
-                            next.has(col.key) ? next.delete(col.key) : next.add(col.key);
+                            next.has(col?.key) ? next.delete(col?.key) : next.add(col?.key);
                             return next;
                           });
                         }}
                         className="rounded"
                       />
-                      {col.label}
-                      {col.locked && (
+                      {col?.label}
+                      {col?.locked && (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild><Lock className="w-3 h-3 text-muted-foreground" /></TooltipTrigger>
@@ -632,18 +636,18 @@ const Contacts: React.FC = () => {
                          className="rounded"
                        />
                      </th>
-                     {ALL_COLUMNS.filter(c => c != null && visibleCols.has(c.key)).map(col => (
-                       <th key={col.key} style={{ width: leadsResize.getWidth(col.key), position: "relative" }} className={`${colAlign(col.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col.key)}>
+                     {ALL_COLUMNS.filter(Boolean).filter(c => c != null && visibleCols.has(c?.key)).map(col => (
+                       <th key={col?.key} style={{ width: leadsResize.getWidth(col?.key), position: "relative" }} className={`${colAlign(col?.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col?.key)}>
                          <span className="inline-flex items-center gap-1">
-                           {col.label}
-                           {sortCol === col.key ? (
+                           {col?.label}
+                           {sortCol === col?.key ? (
                              sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 text-primary" />
                            ) : (
                              <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
                            )}
                          </span>
                          <div
-                           onMouseDown={(e) => leadsResize.onMouseDown(col.key, e)}
+                           onMouseDown={(e) => leadsResize.onMouseDown(col?.key, e)}
                            onClick={e => e.stopPropagation()}
                            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors"
                          />
@@ -657,8 +661,8 @@ const Contacts: React.FC = () => {
                        return (
                          <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
                            <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
-                           {ALL_COLUMNS.filter(c => c != null && visibleCols.has(c.key)).map(col => (
-                             <td key={col.key} style={{ width: leadsResize.getWidth(col.key), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className={`py-3 ${colAlign(col.key)}`}>{renderCell(l, col.key, aging)}</td>
+                           {ALL_COLUMNS.filter(Boolean).filter(c => c != null && visibleCols.has(c?.key)).map(col => (
+                             <td key={col?.key} style={{ width: leadsResize.getWidth(col?.key), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className={`py-3 ${colAlign(col?.key)}`}>{renderCell(l, col?.key, aging)}</td>
                            ))}
                            <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
                          </tr>
