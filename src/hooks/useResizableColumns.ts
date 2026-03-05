@@ -1,29 +1,73 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface UseResizableColumnsOptions {
   storageKey: string;
   defaultWidths: Record<string, number>;
+  userId?: string;
 }
 
-export function useResizableColumns({ storageKey, defaultWidths }: UseResizableColumnsOptions) {
-  const [widths, setWidths] = useState<Record<string, number>>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Merge with defaults so new columns get a default width
-        return { ...defaultWidths, ...parsed };
-      }
-    } catch {}
-    return { ...defaultWidths };
-  });
-
+export function useResizableColumns({ storageKey, defaultWidths, userId }: UseResizableColumnsOptions) {
+  const [widths, setWidths] = useState<Record<string, number>>({ ...defaultWidths });
+  const widthsRef = useRef<Record<string, number>>({ ...defaultWidths });
   const resizing = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    widthsRef.current = widths;
+  }, [widths]);
+
+  // Load widths from Supabase on mount
+  useEffect(() => {
+    if (!userId) return;
+
+    const loadWidths = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("user_preferences")
+          .select("preference_value")
+          .eq("user_id", userId)
+          .eq("preference_key", storageKey)
+          .maybeSingle();
+
+        if (error || !data?.preference_value) return;
+
+        const saved = data.preference_value;
+        if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+          setWidths(prev => ({ ...prev, ...saved as Record<string, number> }));
+        }
+      } catch {
+        // Silently fall back to defaults
+      }
+    };
+
+    loadWidths();
+  }, [userId, storageKey]);
+
+  // Upsert widths to Supabase
+  const saveWidths = useCallback(async (currentWidths: Record<string, number>) => {
+    if (!userId) return;
+    try {
+      await supabase
+        .from("user_preferences")
+        .upsert(
+          {
+            user_id: userId,
+            preference_key: storageKey,
+            preference_value: currentWidths,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,preference_key" }
+        );
+    } catch {
+      // Fail silently
+    }
+  }, [userId, storageKey]);
 
   const onMouseDown = useCallback((key: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    resizing.current = { key, startX: e.clientX, startWidth: widths[key] || defaultWidths[key] || 100 };
+    resizing.current = { key, startX: e.clientX, startWidth: widthsRef.current?.[key] || defaultWidths?.[key] || 100 };
 
     const onMouseMove = (ev: MouseEvent) => {
       if (!resizing.current) return;
@@ -38,20 +82,17 @@ export function useResizableColumns({ storageKey, defaultWidths }: UseResizableC
       document.removeEventListener("mouseup", onMouseUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      // Save to Supabase on resize end
+      saveWidths(widthsRef.current);
     };
 
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [widths, defaultWidths]);
+  }, [defaultWidths, saveWidths]);
 
-  // Persist to localStorage whenever widths change
-  useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(widths));
-  }, [widths, storageKey]);
-
-  const getWidth = useCallback((key: string) => widths[key] || defaultWidths[key] || 100, [widths, defaultWidths]);
+  const getWidth = useCallback((key: string) => widths?.[key] || defaultWidths?.[key] || 100, [widths, defaultWidths]);
 
   return { getWidth, onMouseDown };
 }
