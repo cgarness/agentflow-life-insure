@@ -182,6 +182,33 @@ const CustomizeDrawer: React.FC<Props> = ({ open, onClose, widgets, onWidgetsCha
           </button>
         </div>
 
+        {/* Presets */}
+        <div className="px-5 pt-4 pb-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Presets</p>
+          <div className="grid grid-cols-3 gap-2">
+            {PRESETS.map((preset) => {
+              const isActive = checkPresetActive(preset, widgets);
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => onWidgetsChange(applyPreset(preset, widgets))}
+                  className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+                  }`}
+                >
+                  <preset.icon className="w-4 h-4" />
+                  {preset.label}
+                  {isActive && <Check className="w-3 h-3" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="px-5"><div className="border-t border-border" /></div>
+
         {/* Widget list */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <p className="text-xs text-muted-foreground mb-3">
