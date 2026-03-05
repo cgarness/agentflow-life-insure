@@ -99,7 +99,7 @@ const CalendarPage: React.FC = () => {
         </div>
         <div className="bg-card rounded-lg border border-border p-4">
           <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 42 }).map((_, i) => (
+            {Array.from({ length: 35 }).map((_, i) => (
               <div key={i} className="h-20 rounded-md bg-muted animate-pulse" />
             ))}
           </div>
