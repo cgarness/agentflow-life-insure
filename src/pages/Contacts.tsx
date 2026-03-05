@@ -68,7 +68,7 @@ const ALL_COLUMNS: ColDef[] = [
   { key: "lastContacted", label: "Last Contacted", defaultVisible: false },
 ];
 
-const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
+const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(c => c?.defaultVisible).map(c => c.key));
 
 const mockAgents = [
   { id: "u1", name: "Chris G." },
@@ -446,7 +446,7 @@ const Contacts: React.FC = () => {
               <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-50">
                 <p className="text-sm font-semibold text-foreground mb-2">Toggle Columns</p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {ALL_COLUMNS.map(col => (
+                  {ALL_COLUMNS.filter(col => col != null).map(col => (
                     <label key={col.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
                       <input
                         type="checkbox"
@@ -632,7 +632,7 @@ const Contacts: React.FC = () => {
                          className="rounded"
                        />
                      </th>
-                     {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
+                     {ALL_COLUMNS.filter(c => c != null && visibleCols.has(c.key)).map(col => (
                        <th key={col.key} style={{ width: leadsResize.getWidth(col.key), position: "relative" }} className={`${colAlign(col.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col.key)}>
                          <span className="inline-flex items-center gap-1">
                            {col.label}
@@ -657,7 +657,7 @@ const Contacts: React.FC = () => {
                        return (
                          <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
                            <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
-                           {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
+                           {ALL_COLUMNS.filter(c => c != null && visibleCols.has(c.key)).map(col => (
                              <td key={col.key} style={{ width: leadsResize.getWidth(col.key), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className={`py-3 ${colAlign(col.key)}`}>{renderCell(l, col.key, aging)}</td>
                            ))}
                            <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
