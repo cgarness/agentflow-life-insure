@@ -6,6 +6,7 @@ import {
   Loader2, ChevronDown, ChevronUp, GripVertical, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2,
 } from "lucide-react";
+import { useResizableColumns } from "@/hooks/useResizableColumns";
 import { clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
@@ -224,6 +225,24 @@ const Contacts: React.FC = () => {
   // Sorting
   const [sortCol, setSortCol] = useState<ColumnKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Resizable columns
+  const leadsResize = useResizableColumns({
+    storageKey: "contacts_leads_column_widths",
+    defaultWidths: { name: 180, phone: 140, email: 200, state: 80, status: 110, source: 130, score: 80, aging: 80, agent: 140, dob: 120, health: 120, bestTime: 130, leadSourceAlias: 130, createdDate: 120, lastContacted: 120 },
+  });
+  const clientsResize = useResizableColumns({
+    storageKey: "contacts_clients_column_widths",
+    defaultWidths: { name: 180, phone: 140, policyType: 120, carrier: 130, premium: 110, faceAmount: 120, issueDate: 120 },
+  });
+  const recruitsResize = useResizableColumns({
+    storageKey: "contacts_recruits_column_widths",
+    defaultWidths: { name: 180, phone: 140, email: 200, status: 110, agent: 140 },
+  });
+  const agentsResize = useResizableColumns({
+    storageKey: "contacts_agents_column_widths",
+    defaultWidths: { agent: 200, email: 200, licensedStates: 160, commission: 120, role: 100, status: 100 },
+  });
 
   const handleSort = (key: ColumnKey) => {
     if (sortCol === key) {
