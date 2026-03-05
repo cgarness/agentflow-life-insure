@@ -25,6 +25,11 @@ Deno.serve(async (req) => {
       throw new Error("TELNYX_API_KEY is not configured");
     }
 
+    const connectionId = Deno.env.get("TELNYX_SIP_CONNECTION_ID");
+    if (!connectionId) {
+      throw new Error("TELNYX_SIP_CONNECTION_ID is not configured");
+    }
+
     const response = await fetch(
       "https://api.telnyx.com/v2/telephony_credentials",
       {
@@ -33,7 +38,7 @@ Deno.serve(async (req) => {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ connection_id: "" }),
+        body: JSON.stringify({ connection_id: connectionId }),
       }
     );
 
