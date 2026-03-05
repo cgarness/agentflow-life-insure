@@ -1,452 +1,512 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Phone, X, Mic, MicOff, Pause, Play, Voicemail,
-  PhoneOff, MessageSquare, Clock, Save, Calendar,
-  FileText, AlertCircle, CheckCircle, SkipForward,
+  Phone, X, Mic, Pause, Voicemail,
+  PhoneOff, Search, Delete, Loader2,
 } from "lucide-react";
-import { dispositionsApi } from "@/lib/mock-api";
-import { Disposition } from "@/lib/types";
-import { toast } from "@/hooks/use-toast";
-import { format } from "date-fns";
-import { Calendar as CalendarUI } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
+import { TelnyxRTC } from "@telnyx/webrtc";
+import { useNavigate } from "react-router-dom";
+
+interface ContactResult {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+}
+
+interface DispositionRow {
+  id: string;
+  name: string;
+  color: string;
+}
 
 const FloatingDialer: React.FC = () => {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+
+  // --- Search state ---
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<ContactResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<ContactResult | null>(null);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // --- Keypad state ---
+  const [dialedNumber, setDialedNumber] = useState("");
+
+  // --- Call state ---
   const [onCall, setOnCall] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [held, setHeld] = useState(false);
-  const [mode, setMode] = useState<"Power" | "Predictive" | "Preview">("Power");
-  const [showDisposition, setShowDisposition] = useState(false);
-
-  // Disposition state
-  const [dispositions, setDispositions] = useState<Disposition[]>([]);
-  const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
-  const [callNotes, setCallNotes] = useState("");
-  const [noteError, setNoteError] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  // Callback scheduler
-  const [showCallback, setShowCallback] = useState(false);
-  const [callbackDate, setCallbackDate] = useState<Date | undefined>(undefined);
-  const [callbackTime, setCallbackTime] = useState("10:00");
-
-  // Call timer
   const [callSeconds, setCallSeconds] = useState(0);
 
+  // --- Post-call disposition state ---
+  const [showDisposition, setShowDisposition] = useState(false);
+  const [dispositions, setDispositions] = useState<DispositionRow[]>([]);
+  const [selectedDispId, setSelectedDispId] = useState<string | null>(null);
+
+  // --- Telnyx ---
+  const clientRef = useRef<any>(null);
+  const callRef = useRef<any>(null);
+  const [dialerReady, setDialerReady] = useState(false);
+
+  // Listen for toggle event from TopBar
+  useEffect(() => {
+    const handler = () => setOpen((prev) => !prev);
+    window.addEventListener("toggle-floating-dialer", handler);
+    return () => window.removeEventListener("toggle-floating-dialer", handler);
+  }, []);
+
+  // Call timer
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (onCall) {
-      timer = setInterval(() => setCallSeconds(s => s + 1), 1000);
+      timer = setInterval(() => setCallSeconds((s) => s + 1), 1000);
     }
     return () => clearInterval(timer);
   }, [onCall]);
 
+  // Telnyx WebRTC init
   useEffect(() => {
-    dispositionsApi.getAll().then(setDispositions).catch(() => {});
+    let client: any;
+
+    const init = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telnyx-token`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+        if (!res.ok) throw new Error("Failed to fetch Telnyx token");
+        const { token } = await res.json();
+
+        client = new TelnyxRTC({ login_token: token });
+
+        client.on("telnyx.ready", () => {
+          setDialerReady(true);
+        });
+
+        client.on("telnyx.error", () => {
+          setDialerReady(false);
+        });
+
+        client.on("telnyx.notification", (notification: any) => {
+          if (notification.type === "callUpdate") {
+            const call = notification.call;
+            if (call.state === "hangup" || call.state === "destroy") {
+              handleHangUp();
+            }
+          }
+        });
+
+        clientRef.current = client;
+        await client.connect();
+      } catch {
+        // silently fail — dialer will show as not ready
+      }
+    };
+
+    init();
+    return () => {
+      if (client) {
+        try { client.disconnect(); } catch {}
+      }
+    };
   }, []);
 
+  // Fetch dispositions for post-call
+  useEffect(() => {
+    supabase
+      .from("dispositions")
+      .select("id, name, color")
+      .order("sort_order")
+      .then(({ data }) => {
+        if (data) setDispositions(data);
+      });
+  }, []);
+
+  // --- Search with debounce ---
+  const doSearch = useCallback(async (term: string) => {
+    if (term.length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const { data } = await supabase
+        .from("leads")
+        .select("id, first_name, last_name, phone")
+        .or(
+          `first_name.ilike.%${term}%,last_name.ilike.%${term}%,phone.ilike.%${term}%`
+        )
+        .limit(5);
+      setSearchResults(data || []);
+      setShowDropdown(true);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const handleSearchChange = (val: string) => {
+    setSearchTerm(val);
+    setSelectedContact(null);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (val.length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => doSearch(val), 300);
+  };
+
+  const handleSelectContact = (c: ContactResult) => {
+    setSelectedContact(c);
+    setShowDropdown(false);
+    setSearchTerm(`${c.first_name} ${c.last_name}`);
+  };
+
+  const clearSearch = () => {
+    setSearchTerm("");
+    setSearchResults([]);
+    setShowDropdown(false);
+    setSelectedContact(null);
+  };
+
+  // --- Keypad ---
+  const handleKeyPress = (key: string) => {
+    setDialedNumber((prev) => prev + key);
+  };
+
+  const handleBackspace = () => {
+    setDialedNumber((prev) => prev.slice(0, -1));
+  };
+
+  // --- Call ---
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
     const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, "0")}`;
+    return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  const startCall = (destinationNumber: string) => {
+    if (clientRef.current && dialerReady) {
+      try {
+        const call = clientRef.current.newCall({
+          destinationNumber,
+          callerNumber: "+15551000001", // placeholder
+        });
+        callRef.current = call;
+      } catch {
+        // fall through to simulated call
+      }
+    }
+    setOnCall(true);
+    setCallSeconds(0);
+  };
+
+  const handleCallFromContact = () => {
+    if (!selectedContact) return;
+    startCall(selectedContact.phone);
+  };
+
+  const handleCallFromKeypad = () => {
+    if (dialedNumber.length < 10) return;
+    startCall(dialedNumber);
   };
 
   const handleHangUp = () => {
+    if (callRef.current) {
+      try { callRef.current.hangup(); } catch {}
+      callRef.current = null;
+    }
     setOnCall(false);
     setShowDisposition(true);
-    setSelectedDisp(null);
-    setCallNotes("");
-    setNoteError(false);
-    setShowCallback(false);
-    setCallbackDate(undefined);
-    setCallbackTime("10:00");
+    setSelectedDispId(null);
   };
 
-  const handleSelectDisposition = (d: Disposition) => {
-    setSelectedDisp(d);
-    setNoteError(false);
-    if (d.callbackScheduler) {
-      setShowCallback(true);
-      setCallbackDate(new Date(Date.now() + 86400000));
-    } else {
-      setShowCallback(false);
-    }
-  };
-
-  const handleSaveAndNext = async () => {
-    if (!selectedDisp) {
-      toast({ title: "Please select a disposition", variant: "destructive" });
-      return;
-    }
-    if (selectedDisp.requireNotes && callNotes.length < selectedDisp.minNoteChars) {
-      setNoteError(true);
-      return;
-    }
-
-    setSaving(true);
-    await new Promise(r => setTimeout(r, 400));
-
-    if (selectedDisp.callbackScheduler && callbackDate) {
-      const startTime = new Date(callbackDate);
-      const [hours, minutes] = callbackTime.split(":").map(Number);
-      startTime.setHours(hours, minutes, 0, 0);
-      await supabase.from('appointments').insert([{
-        title: `Callback — ${selectedDisp.name}`,
-        contact_name: "John D.",
-        type: "Sales Call",
-        start_time: startTime.toISOString(),
-      }]);
-      toast({
-        title: "Callback scheduled",
-        description: `${format(callbackDate, "MMM d, yyyy")} at ${callbackTime}`,
-      });
-    }
-
-    toast({ title: `Disposition saved: ${selectedDisp.name}` });
+  const resetAll = () => {
     setShowDisposition(false);
-    setSelectedDisp(null);
-    setCallNotes("");
+    setSelectedDispId(null);
+    setSelectedContact(null);
+    setSearchTerm("");
+    setSearchResults([]);
+    setShowDropdown(false);
+    setDialedNumber("");
     setCallSeconds(0);
-    setSaving(false);
+    setOpen(false);
   };
 
-  const handleSkipCallback = async () => {
-    toast({
-      title: "No callback scheduled",
-      description: "No callback scheduled for John Martinez",
-      variant: "destructive",
-    });
-    setShowCallback(false);
+  const handleSaveDisposition = () => {
+    const disp = dispositions.find((d) => d.id === selectedDispId);
+    if (disp) {
+      console.log("Disposition saved:", { id: disp.id, name: disp.name });
+    }
+    resetAll();
   };
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+  const handleSkip = () => {
+    resetAll();
+  };
 
-      if (showDisposition && !showCallback) {
-        const num = parseInt(e.key);
-        if (num >= 1 && num <= 9 && num <= dispositions.length) {
-          e.preventDefault();
-          handleSelectDisposition(dispositions[num - 1]);
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [showDisposition, showCallback, dispositions]);
+  // --- Determine display name for active call ---
+  const callDisplayName = selectedContact
+    ? `${selectedContact.first_name} ${selectedContact.last_name}`
+    : dialedNumber;
+
+  const keypadKeys = [
+    "1", "2", "3",
+    "4", "5", "6",
+    "7", "8", "9",
+    "*", "0", "#",
+  ];
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className={`fixed bottom-6 right-6 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center z-40 hover:scale-105 sidebar-transition ${onCall ? "animate-pulse-ring" : ""}`}
-      >
-        <Phone className="w-6 h-6" />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.3 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-foreground z-40"
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.15 }}
+          className="fixed top-16 right-4 w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
+        >
+          {/* Panel Header */}
+          <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
+            <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
+            <button
               onClick={() => setOpen(false)}
-            />
-            <motion.div
-              initial={{ x: 380 }}
-              animate={{ x: 0 }}
-              exit={{ x: 380 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 w-[380px] max-w-full h-screen bg-card border-l shadow-2xl z-50 flex flex-col"
+              className="text-muted-foreground hover:text-foreground"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 h-14 border-b shrink-0">
-                <h2 className="font-semibold text-foreground">Dialer</h2>
-                <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-              </div>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-              {/* Mode Tabs */}
-              <div className="flex border-b shrink-0">
-                {(["Power", "Predictive", "Preview"] as const).map((m) => (
+          <div className="p-4 space-y-4 max-h-[calc(100vh-8rem)] overflow-y-auto">
+            {/* ===== ACTIVE CALL STATE ===== */}
+            {onCall && (
+              <div className="flex flex-col items-center space-y-4">
+                <p className="font-bold text-foreground text-lg text-center">
+                  {callDisplayName}
+                </p>
+                {selectedContact && (
                   <button
-                    key={m}
-                    onClick={() => setMode(m)}
-                    className={`flex-1 py-2.5 text-sm font-medium sidebar-transition ${mode === m ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}
+                    onClick={() => navigate(`/contacts?contact=${selectedContact.id}`)}
+                    className="text-sm text-teal-500 hover:text-teal-600 hover:underline"
                   >
-                    {m}
+                    View Full Contact &rarr;
                   </button>
-                ))}
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {/* Status */}
-                <div className="flex justify-center">
-                  <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
-                    onCall ? "bg-primary/10 text-primary" : "bg-success/10 text-success"
-                  }`}>
-                    <span className={`w-2 h-2 rounded-full ${onCall ? "bg-primary animate-pulse" : "bg-success"}`} />
-                    {onCall ? "On Call" : "Ready"}
-                  </span>
-                </div>
-
-                {/* Contact */}
-                <div className="bg-accent/50 rounded-lg p-4 text-center space-y-2">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold mx-auto">JM</div>
-                  <p className="font-semibold text-foreground">John Martinez</p>
-                  <p className="text-sm text-muted-foreground">(555) 123-4567</p>
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Florida</span>
-                    <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">Facebook Ads</span>
-                  </div>
-                </div>
-
-                {/* Call Controls */}
-                {!onCall && !showDisposition ? (
-                  <button
-                    onClick={() => { setOnCall(true); setCallSeconds(0); }}
-                    className="w-full py-3 rounded-lg bg-success text-success-foreground font-semibold flex items-center justify-center gap-2 hover:bg-success/90 sidebar-transition"
-                  >
-                    <Phone className="w-5 h-5" /> Call
-                  </button>
-                ) : onCall ? (
-                  <div className="space-y-3">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                        <Clock className="w-4 h-4" />
-                        <span className="text-lg font-mono font-semibold text-foreground">{formatTime(callSeconds)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleHangUp}
-                      className="w-full py-3 rounded-lg bg-destructive text-destructive-foreground font-semibold flex items-center justify-center gap-2 hover:bg-destructive/90 sidebar-transition"
-                    >
-                      <PhoneOff className="w-5 h-5" /> Hang Up
+                )}
+                <p className="text-3xl font-mono text-foreground">
+                  {formatTime(callSeconds)}
+                </p>
+                <div className="flex items-center gap-6">
+                  <div className="flex flex-col items-center gap-1">
+                    <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center">
+                      <Mic className="w-5 h-5" />
                     </button>
-                    <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => setMuted(!muted)} className={`w-10 h-10 rounded-lg flex items-center justify-center sidebar-transition ${muted ? "bg-destructive/10 text-destructive" : "bg-accent text-foreground hover:bg-accent/80"}`}>
-                        {muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                      </button>
-                      <button onClick={() => setHeld(!held)} className={`w-10 h-10 rounded-lg flex items-center justify-center sidebar-transition ${held ? "bg-warning/10 text-warning" : "bg-accent text-foreground hover:bg-accent/80"}`}>
-                        {held ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-                      </button>
-                      <button className="w-10 h-10 rounded-lg bg-accent text-foreground flex items-center justify-center hover:bg-accent/80 sidebar-transition">
-                        <Voicemail className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <span className="text-xs text-muted-foreground">Mute</span>
                   </div>
-                ) : null}
+                  <div className="flex flex-col items-center gap-1">
+                    <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center">
+                      <Pause className="w-5 h-5" />
+                    </button>
+                    <span className="text-xs text-muted-foreground">Hold</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center">
+                      <Voicemail className="w-5 h-5" />
+                    </button>
+                    <span className="text-xs text-muted-foreground">VM Drop</span>
+                  </div>
+                </div>
+                <button
+                  onClick={handleHangUp}
+                  className="w-full py-3 rounded-lg bg-destructive text-destructive-foreground font-semibold flex items-center justify-center gap-2"
+                >
+                  <PhoneOff className="w-5 h-5" /> Hang Up
+                </button>
+              </div>
+            )}
 
-                {/* Notes (when not in disposition) */}
-                {!showDisposition && (
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-semibold text-foreground">Pinned Notes</h3>
-                    <div className="bg-accent/50 rounded-lg p-3 text-sm text-muted-foreground">
-                      Interested in Term Life, has 2 kids. Follow up about premium options.
-                    </div>
+            {/* ===== POST-CALL DISPOSITION ===== */}
+            {!onCall && showDisposition && (
+              <div className="flex flex-col items-center space-y-3">
+                <p className="font-medium text-foreground text-center">
+                  How did it go?
+                </p>
+                <p className="text-sm text-muted-foreground text-center">
+                  Select a disposition
+                </p>
+                <div className="grid grid-cols-2 gap-2 w-full">
+                  {dispositions.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => setSelectedDispId(d.id)}
+                      className={`px-3 py-2 rounded-full text-sm font-bold text-white ${d.color} ${
+                        selectedDispId === d.id
+                          ? "ring-2 ring-offset-2 ring-foreground"
+                          : ""
+                      }`}
+                    >
+                      {d.name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={handleSaveDisposition}
+                  disabled={!selectedDispId}
+                  className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50"
+                >
+                  Save &amp; Close
+                </button>
+                <button
+                  onClick={handleSkip}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Skip
+                </button>
+              </div>
+            )}
+
+            {/* ===== IDLE STATE: SEARCH + KEYPAD ===== */}
+            {!onCall && !showDisposition && (
+              <>
+                {/* SECTION 1 — Contact Search */}
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="Add a quick note..."
-                      className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      placeholder="Search contacts..."
+                      value={searchTerm}
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      className="w-full h-10 pl-9 pr-8 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                     />
+                    {searchTerm && (
+                      <button
+                        onClick={clearSearch}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                )}
 
-                {/* Disposition Panel */}
-                {showDisposition && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-accent/50 rounded-lg p-4 space-y-3"
-                  >
-                    <h3 className="font-semibold text-foreground text-sm">How did the call go?</h3>
-
-                    {/* Disposition buttons */}
-                    <div className="space-y-1">
-                      {dispositions.slice(0, 9).map((d, idx) => (
-                        <button
-                          key={d.id}
-                          onClick={() => handleSelectDisposition(d)}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 sidebar-transition ${
-                            selectedDisp?.id === d.id
-                              ? "ring-2 ring-primary bg-primary/10 text-foreground"
-                              : "text-foreground hover:bg-accent"
-                          }`}
-                        >
-                          <span className="w-5 h-5 rounded bg-muted text-muted-foreground text-[10px] font-bold flex items-center justify-center shrink-0">
-                            {idx + 1}
-                          </span>
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: d.color }}
-                          />
-                          <span className="flex-1">{d.name}</span>
-                          {d.requireNotes && <FileText className="w-3 h-3 text-muted-foreground" />}
-                          {d.callbackScheduler && <Calendar className="w-3 h-3 text-muted-foreground" />}
-                          {selectedDisp?.id === d.id && <CheckCircle className="w-4 h-4 text-primary" />}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Required Notes */}
-                    {selectedDisp && (
-                      <div className="space-y-2">
-                        {selectedDisp.requireNotes && (
-                          <div className={`rounded-lg border-2 p-0.5 transition-colors ${
-                            noteError ? "border-destructive" : "border-primary/40"
-                          }`}>
-                            <div className="flex items-center gap-1.5 px-2.5 pt-2">
-                              <FileText className="w-3 h-3 text-primary" />
-                              <span className="text-xs font-medium text-primary">Note required for this disposition</span>
-                            </div>
-                            <textarea
-                              value={callNotes}
-                              onChange={e => { setCallNotes(e.target.value); setNoteError(false); }}
-                              placeholder="Add notes about this call..."
-                              className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none"
-                              rows={3}
-                            />
-                            <div className="flex items-center justify-between px-3 pb-2">
-                              <span className={`text-xs ${
-                                callNotes.length >= selectedDisp.minNoteChars ? "text-success" : "text-muted-foreground"
-                              }`}>
-                                {callNotes.length} / {selectedDisp.minNoteChars} minimum characters
-                              </span>
-                              {noteError && (
-                                <span className="text-xs text-destructive flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3" /> Required
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {!selectedDisp.requireNotes && (
-                          <textarea
-                            value={callNotes}
-                            onChange={e => setCallNotes(e.target.value)}
-                            placeholder="Add notes about this call (optional)..."
-                            className="w-full px-3 py-2 rounded-lg bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                            rows={3}
-                          />
-                        )}
-
-                        {/* Callback Scheduler */}
-                        {showCallback && selectedDisp.callbackScheduler && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-primary" />
-                              <span className="text-sm font-medium text-foreground">Schedule Callback</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">John Martinez</p>
-
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !callbackDate && "text-muted-foreground")}>
-                                  <Calendar className="mr-2 h-4 w-4" />
-                                  {callbackDate ? format(callbackDate, "PPP") : "Pick a date"}
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0 z-[60]" align="start">
-                                <CalendarUI
-                                  mode="single"
-                                  selected={callbackDate}
-                                  onSelect={setCallbackDate}
-                                  disabled={(date) => date < new Date()}
-                                  initialFocus
-                                  className={cn("p-3 pointer-events-auto")}
-                                />
-                              </PopoverContent>
-                            </Popover>
-
-                            <div>
-                              <label className="text-xs text-muted-foreground mb-1 block">Time</label>
-                              <select
-                                value={callbackTime}
-                                onChange={e => setCallbackTime(e.target.value)}
-                                className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
-                              >
-                                {Array.from({ length: 24 }, (_, h) =>
-                                  ["00", "30"].map(m => {
-                                    const t = `${h.toString().padStart(2, "0")}:${m}`;
-                                    const label = `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${m} ${h < 12 ? "AM" : "PM"}`;
-                                    return <option key={t} value={t}>{label}</option>;
-                                  })
-                                )}
-                              </select>
-                            </div>
-
-                            <button
-                              onClick={handleSaveAndNext}
-                              disabled={saving || !callbackDate}
-                              className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 sidebar-transition disabled:opacity-50"
-                            >
-                              {saving ? "Saving..." : "Schedule Callback"}
-                            </button>
-                            <button
-                              onClick={handleSkipCallback}
-                              className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              <SkipForward className="w-3 h-3 inline mr-1" /> Skip for Now
-                            </button>
-                          </motion.div>
-                        )}
-
-                        {/* Save & Next (when no callback scheduler or after skip) */}
-                        {(!selectedDisp.callbackScheduler || !showCallback) && (
+                  {/* Search dropdown */}
+                  {showDropdown && (
+                    <div className="absolute top-full mt-1 w-full bg-card border border-border rounded-lg shadow-lg z-10 py-1 max-h-60 overflow-y-auto">
+                      {searchLoading && (
+                        <div className="flex items-center justify-center py-3">
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                      {!searchLoading && searchResults.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-3">
+                          No contacts found
+                        </p>
+                      )}
+                      {!searchLoading &&
+                        searchResults.map((c) => (
                           <button
-                            onClick={handleSaveAndNext}
-                            disabled={saving || (selectedDisp.requireNotes && callNotes.length < selectedDisp.minNoteChars)}
-                            className={`w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 sidebar-transition disabled:opacity-50 ${
-                              noteError ? "animate-shake" : ""
-                            }`}
+                            key={c.id}
+                            onClick={() => handleSelectContact(c)}
+                            className="w-full px-3 py-2 text-left hover:bg-accent"
                           >
-                            {saving ? "Saving..." : "Save & Next"}
+                            <p className="font-bold text-sm text-foreground">
+                              {c.first_name} {c.last_name}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {c.phone}
+                            </p>
                           </button>
-                        )}
-                      </div>
-                    )}
+                        ))}
+                    </div>
+                  )}
+                </div>
 
-                    {/* No disposition selected yet */}
-                    {!selectedDisp && (
-                      <p className="text-xs text-muted-foreground text-center py-1">
-                        Select a disposition above or press 1-9
+                {/* Selected contact card */}
+                {selectedContact && (
+                  <div className="bg-accent/50 rounded-lg p-3 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-foreground text-sm">
+                        {selectedContact.first_name} {selectedContact.last_name}
                       </p>
-                    )}
-                  </motion.div>
-                )}
-
-                {/* AI Summary */}
-                {showDisposition && (
-                  <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-2">
-                    <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4 text-primary" /> AI Call Summary
-                    </h3>
-                    <p className="text-sm text-muted-foreground">Client expressed interest in Term Life policy for family coverage. Discussed premium options and requested a follow-up call next Tuesday.</p>
-                    <p className="text-xs text-primary font-medium italic">Suggested: Schedule follow-up appointment for Tuesday</p>
-                    <button className="text-xs bg-primary/10 text-primary px-3 py-1.5 rounded-lg font-medium hover:bg-primary/20 sidebar-transition">
-                      <Save className="w-3 h-3 inline mr-1" /> Save to Contact
+                      <p className="text-xs text-muted-foreground">
+                        {selectedContact.phone}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleCallFromContact}
+                      className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-semibold flex items-center gap-1.5"
+                    >
+                      <Phone className="w-4 h-4" /> Call
                     </button>
                   </div>
                 )}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </>
+
+                {/* SECTION 2 — Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-xs text-muted-foreground">
+                    or dial manually
+                  </span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                {/* SECTION 3 — Keypad */}
+                <div className="space-y-3">
+                  {/* Number display */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-10 px-3 rounded-lg bg-muted flex items-center">
+                      <span className="font-mono text-foreground text-lg text-left truncate">
+                        {dialedNumber}
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleBackspace}
+                      className="w-10 h-10 rounded-lg bg-muted text-foreground flex items-center justify-center hover:bg-accent"
+                    >
+                      <Delete className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* 3x4 Grid */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {keypadKeys.map((key) => (
+                      <button
+                        key={key}
+                        onClick={() => handleKeyPress(key)}
+                        className="h-12 rounded-lg bg-muted text-foreground text-lg font-semibold hover:bg-accent flex items-center justify-center"
+                      >
+                        {key}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Call button when 10+ digits */}
+                  {dialedNumber.length >= 10 && (
+                    <button
+                      onClick={handleCallFromKeypad}
+                      className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center justify-center gap-2"
+                    >
+                      <Phone className="w-5 h-5" /> Call
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
