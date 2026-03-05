@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,7 +10,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useCalendar } from "@/contexts/CalendarContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -36,7 +36,26 @@ const Sidebar: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { user, profile } = useAuth();
   const location = useLocation();
-  const { todayCount } = useCalendar();
+  const [todayCount, setTodayCount] = useState(0);
+
+  useEffect(() => {
+    const fetchTodayCount = async () => {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).toISOString();
+      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+      const { count, error } = await supabase
+        .from('appointments')
+        .select('*', { count: 'exact', head: true })
+        .gte('start_time', startOfDay)
+        .lte('start_time', endOfDay);
+      if (!error && count !== null) {
+        setTodayCount(count);
+      }
+    };
+    fetchTodayCount();
+    const interval = setInterval(fetchTodayCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">

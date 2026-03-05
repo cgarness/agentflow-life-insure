@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Switch } from "@/components/ui/switch";
 import ContactModal from "@/components/contacts/ContactModal";
 import type { Lead } from "@/lib/types";
+import { supabase } from "@/integrations/supabase/client";
 
 // ── Mock campaign data ──
 interface DialerCampaign {
@@ -375,13 +376,26 @@ const DialerPage: React.FC = () => {
     setShowFollowUp(false);
   };
 
-  const handleSaveAndNext = () => {
+  const handleSaveAndNext = async () => {
     if (!selectedDispId) return;
     const disp = hardcodedDispositions.find(d => d.id === selectedDispId);
     if (disp?.requireNotes && callNotes.length < (disp.minNoteChars || 0)) {
       setNoteError(true);
       return;
     }
+
+    if (showFollowUp && followUpDate) {
+      const startTime = new Date(followUpDate);
+      const [hours, minutes] = followUpTime.split(":").map(Number);
+      startTime.setHours(hours, minutes, 0, 0);
+      await supabase.from('appointments').insert([{
+        title: `Callback — ${disp?.name || "Follow Up"}`,
+        contact_name: "John D.",
+        type: "Sales Call",
+        start_time: startTime.toISOString(),
+      }]);
+    }
+
     toast({ title: "Disposition saved. Loading next contact." });
     setSelectedDispId(null);
     setCallNotes("");

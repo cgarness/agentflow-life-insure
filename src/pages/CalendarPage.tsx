@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Plus } from "lucide-react";
 import { useCalendar, CalendarAppointment, CalAppointmentStatus, CalAppointmentType } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 import MonthView from "@/components/calendar/MonthView";
 import WeekView from "@/components/calendar/WeekView";
 import DayView from "@/components/calendar/DayView";
@@ -104,10 +105,56 @@ const CalendarPage: React.FC = () => {
     setModalOpen(true);
   };
 
+  const handleCreateAppointment = async (appt: {
+    title: string;
+    contact_name: string;
+    type: string;
+    start_time: string;
+    end_time?: string;
+    notes?: string;
+  }) => {
+    const { error } = await supabase.from('appointments').insert([appt]);
+    if (error) {
+      toast({ title: "Failed to save appointment", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Appointment scheduled" });
+    fetchAppointments();
+  };
+
   const handleSave = (data: Omit<CalendarAppointment, "id">) => {
     if (modalEditing) {
       updateAppointment(modalEditing.id, data);
     } else {
+      // Save to Supabase
+      const startDate = new Date(data.date);
+      const timeParts = data.startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (timeParts) {
+        let hours = parseInt(timeParts[1]);
+        const minutes = parseInt(timeParts[2]);
+        const ampm = timeParts[3].toUpperCase();
+        if (ampm === "PM" && hours !== 12) hours += 12;
+        if (ampm === "AM" && hours === 12) hours = 0;
+        startDate.setHours(hours, minutes, 0, 0);
+      }
+      const endDate = new Date(data.date);
+      const endParts = data.endTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (endParts) {
+        let hours = parseInt(endParts[1]);
+        const minutes = parseInt(endParts[2]);
+        const ampm = endParts[3].toUpperCase();
+        if (ampm === "PM" && hours !== 12) hours += 12;
+        if (ampm === "AM" && hours === 12) hours = 0;
+        endDate.setHours(hours, minutes, 0, 0);
+      }
+      handleCreateAppointment({
+        title: data.title,
+        contact_name: data.contactName,
+        type: data.type,
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        notes: data.notes,
+      });
       addAppointment(data);
     }
   };
