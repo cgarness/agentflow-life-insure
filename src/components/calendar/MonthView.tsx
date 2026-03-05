@@ -48,10 +48,12 @@ const MonthView: React.FC<Props> = ({
   for (let i = 1; i <= daysInMonth; i++) {
     cells.push({ date: new Date(year, month, i), inMonth: true });
   }
-  while (cells.length < 42) {
+  const totalCells = 35; // 5 rows × 7 cols
+  while (cells.length < totalCells) {
     const d = cells.length - startDay - daysInMonth + 1;
     cells.push({ date: new Date(year, month + 1, d), inMonth: false });
   }
+  cells.length = totalCells;
 
   const monthLabel = currentMonth.toLocaleString("default", { month: "long", year: "numeric" });
   const getApptsForDate = (d: Date) => appointments.filter(a => sameDay(new Date(a.date), d));
