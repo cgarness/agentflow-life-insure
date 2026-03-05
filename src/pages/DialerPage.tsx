@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import ContactModal from "@/components/contacts/ContactModal";
 import type { Lead } from "@/lib/types";
 import { supabase } from "@/integrations/supabase/client";
+import { TelnyxRTC } from "@telnyx/webrtc";
 
 // ── Mock campaign data ──
 interface DialerCampaign {
@@ -254,6 +255,12 @@ const DialerPage: React.FC = () => {
   // Script tab
   const [scriptTab, setScriptTab] = useState(0);
 
+  // Telnyx WebRTC
+  const clientRef = useRef<any>(null);
+  const callRef = useRef<any>(null);
+  const [dialerReady, setDialerReady] = useState(false);
+  const [dialerError, setDialerError] = useState<string | null>(null);
+
   // Close status dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -264,6 +271,65 @@ const DialerPage: React.FC = () => {
     if (statusDropdownOpen) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [statusDropdownOpen]);
+
+  // Telnyx WebRTC client initialization
+  useEffect(() => {
+    let client: any;
+
+    const init = async () => {
+      try {
+        // Fetch a short-lived token from our Supabase Edge Function
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telnyx-token`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+
+        if (!res.ok) throw new Error("Failed to fetch Telnyx token");
+        const { token } = await res.json();
+
+        client = new TelnyxRTC({ login_token: token });
+
+        client.on("telnyx.ready", () => {
+          setDialerReady(true);
+          setDialerError(null);
+        });
+
+        client.on("telnyx.error", (error: any) => {
+          setDialerError("Dialer connection failed. Please refresh.");
+          setDialerReady(false);
+        });
+
+        client.on("telnyx.notification", (notification: any) => {
+          if (notification.type === "callUpdate") {
+            const call = notification.call;
+            if (call.state === "hangup" || call.state === "destroy") {
+              setCallStatus("ended");
+              callRef.current = null;
+            }
+          }
+        });
+
+        clientRef.current = client;
+        await client.connect();
+      } catch (err: any) {
+        setDialerError("Could not initialize dialer. Check your connection.");
+      }
+    };
+
+    init();
+
+    return () => {
+      if (clientRef.current) {
+        clientRef.current.disconnect();
+      }
+    };
+  }, []);
 
   // Call timer
   useEffect(() => {
@@ -328,14 +394,27 @@ const DialerPage: React.FC = () => {
     setDialerOverride(null);
   };
 
-  const handleCall = () => {
+  const handleCall = async () => {
     if (!activeLead) return;
     // DNC check
     if (DNC_NUMBERS.includes(activeLead.phone)) {
       setShowDncWarning(true);
       return;
     }
-    startDialing();
+    if (!clientRef.current || !dialerReady) {
+      toast({ title: "Dialer not ready", description: "Please wait a moment and try again.", variant: "destructive" });
+      return;
+    }
+    try {
+      const call = clientRef.current.newCall({
+        destinationNumber: "+15551234567", // placeholder — will be replaced with real lead phone number in a future prompt
+        callerNumber: "+15551000001",       // placeholder — will be replaced with agent's assigned Telnyx number
+      });
+      callRef.current = call;
+      startDialing();
+    } catch (err) {
+      toast({ title: "Call failed", description: "Could not connect the call.", variant: "destructive" });
+    }
   };
 
   const startDialing = () => {
@@ -352,6 +431,10 @@ const DialerPage: React.FC = () => {
   };
 
   const handleHangUp = () => {
+    if (callRef.current) {
+      callRef.current.hangup();
+      callRef.current = null;
+    }
     if (dialTimerRef.current) clearTimeout(dialTimerRef.current);
     setTotalTalkSeconds(prev => prev + callSeconds);
     setCallStatus("ended");
@@ -764,6 +847,13 @@ const DialerPage: React.FC = () => {
         {/* ═══ RIGHT PANEL — Dispositions ═══ */}
         <div className="space-y-4">
           <div className="bg-card rounded-xl border p-4 space-y-3">
+            {/* Dialer status */}
+            {dialerError && (
+              <div className="text-xs text-destructive text-center px-2">{dialerError}</div>
+            )}
+            {!dialerReady && !dialerError && (
+              <div className="text-xs text-muted-foreground text-center">Connecting dialer...</div>
+            )}
             {/* Call / Hang Up buttons */}
             <div className="flex gap-2">
               <button
