@@ -41,6 +41,15 @@ function timeAgo(dateStr: string): string {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+const dispositionColorMap: Record<string, string> = {
+  "bg-primary": "hsl(var(--primary))",
+  "bg-destructive": "hsl(var(--destructive))",
+  "bg-success": "#22c55e",
+  "bg-warning": "#f59e0b",
+  "bg-muted": "hsl(var(--muted))",
+  "bg-info": "#3b82f6",
+};
+
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -418,7 +427,10 @@ const FloatingDialer: React.FC = () => {
                           </p>
                         </div>
                         {call.disposition_name && (
-                          <span className={`ml-2 shrink-0 px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${call.disposition_color || "bg-muted"}`}>
+                          <span
+                            className="ml-2 shrink-0 px-2.5 py-0.5 rounded-full text-xs font-medium text-white"
+                            style={{ backgroundColor: dispositionColorMap[call.disposition_color ?? ""] ?? "#6b7280" }}
+                          >
                             {call.disposition_name}
                           </span>
                         )}
@@ -494,11 +506,12 @@ const FloatingDialer: React.FC = () => {
                     <button
                       key={d.id}
                       onClick={() => setSelectedDispId(d.id)}
-                      className={`px-3 py-2 rounded-full text-sm font-bold text-white ${d.color} ${
+                      className={`px-3 py-2 rounded-full text-sm font-bold text-white ${
                         selectedDispId === d.id
                           ? "ring-2 ring-offset-2 ring-foreground"
                           : ""
                       }`}
+                      style={{ backgroundColor: dispositionColorMap[d.color] ?? "#6b7280" }}
                     >
                       {d.name}
                     </button>
