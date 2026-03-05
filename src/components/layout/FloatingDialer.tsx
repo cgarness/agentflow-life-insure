@@ -261,7 +261,7 @@ const FloatingDialer: React.FC = () => {
       try {
         const call = clientRef.current.newCall({
           destinationNumber,
-          callerNumber: "+15551000001", // placeholder
+          callerNumber: "+19097381193", // placeholder
         });
         callRef.current = call;
       } catch {
