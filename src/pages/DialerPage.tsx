@@ -408,7 +408,7 @@ const DialerPage: React.FC = () => {
     try {
       const call = clientRef.current.newCall({
         destinationNumber: "+15551234567", // placeholder — will be replaced with real lead phone number in a future prompt
-        callerNumber: "+15551000001",       // placeholder — will be replaced with agent's assigned Telnyx number
+        callerNumber: "+19097381193",       // placeholder — will be replaced with agent's assigned Telnyx number
       });
       callRef.current = call;
       startDialing();
