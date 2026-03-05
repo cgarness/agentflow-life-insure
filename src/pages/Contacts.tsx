@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
+import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
@@ -902,8 +903,8 @@ const Contacts: React.FC = () => {
         onClose={() => setImportModalOpen(false)}
         existingLeads={leads}
         campaigns={mockCampaigns.map(c => ({ id: c.id, name: c.name, type: c.type, status: c.status }))}
-        onImportComplete={(newLeads, historyEntry) => {
-          leadsSupabaseApi.import(newLeads);
+        onImportComplete={async (newLeads, historyEntry) => {
+          await importLeadsToSupabase(newLeads);
           setImportHistory(prev => [historyEntry, ...prev]);
           fetchData();
         }}
