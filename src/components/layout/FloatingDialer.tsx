@@ -41,14 +41,6 @@ function timeAgo(dateStr: string): string {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
-const dispositionColorMap: Record<string, string> = {
-  "bg-primary": "hsl(var(--primary))",
-  "bg-destructive": "hsl(var(--destructive))",
-  "bg-success": "#22c55e",
-  "bg-warning": "#f59e0b",
-  "bg-muted": "hsl(var(--muted))",
-  "bg-info": "#3b82f6",
-};
 
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
@@ -429,7 +421,7 @@ const FloatingDialer: React.FC = () => {
                         {call.disposition_name && (
                           <span
                             className="ml-2 shrink-0 px-2.5 py-0.5 rounded-full text-xs font-medium text-white"
-                            style={{ backgroundColor: dispositionColorMap[call.disposition_color ?? ""] ?? "#6b7280" }}
+                            style={{ backgroundColor: call.disposition_color ?? "#6b7280" }}
                           >
                             {call.disposition_name}
                           </span>
@@ -511,7 +503,12 @@ const FloatingDialer: React.FC = () => {
                           ? "ring-2 ring-offset-2 ring-foreground"
                           : ""
                       }`}
-                      style={{ backgroundColor: dispositionColorMap[d.color] ?? "#6b7280" }}
+                      style={{
+                        backgroundColor: d.color,
+                        boxShadow: selectedDispId === d.id
+                          ? `0 0 10px ${d.color}88`
+                          : "none",
+                      }}
                     >
                       {d.name}
                     </button>
