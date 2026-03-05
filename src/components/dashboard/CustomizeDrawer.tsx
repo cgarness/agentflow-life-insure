@@ -1,5 +1,5 @@
 import React from "react";
-import { X, GripVertical, RotateCcw } from "lucide-react";
+import { X, GripVertical, RotateCcw, Zap, BarChart3, Minimize2, Check } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
   DndContext,
@@ -67,6 +67,77 @@ const SortableItem: React.FC<{
     </div>
   );
 };
+
+interface Preset {
+  id: string;
+  label: string;
+  icon: React.FC<{ className?: string }>;
+  description: string;
+  config: Record<string, boolean>;
+  order: string[];
+}
+
+const PRESETS: Preset[] = [
+  {
+    id: "sales-focus",
+    label: "Sales Focus",
+    icon: Zap,
+    description: "Calls, follow-ups & wins",
+    config: {
+      "stat-cards": true,
+      "daily-briefing": true,
+      "activity-chart": true,
+      "recent-activity": false,
+      "quick-actions": true,
+      "leaderboard": false,
+    },
+    order: ["stat-cards", "daily-briefing", "quick-actions", "activity-chart", "recent-activity", "leaderboard"],
+  },
+  {
+    id: "manager-view",
+    label: "Manager View",
+    icon: BarChart3,
+    description: "Leaderboard & activity",
+    config: {
+      "stat-cards": true,
+      "daily-briefing": false,
+      "activity-chart": true,
+      "recent-activity": true,
+      "quick-actions": false,
+      "leaderboard": true,
+    },
+    order: ["stat-cards", "leaderboard", "activity-chart", "recent-activity", "daily-briefing", "quick-actions"],
+  },
+  {
+    id: "minimal",
+    label: "Minimal",
+    icon: Minimize2,
+    description: "Just the essentials",
+    config: {
+      "stat-cards": true,
+      "daily-briefing": true,
+      "activity-chart": false,
+      "recent-activity": false,
+      "quick-actions": false,
+      "leaderboard": false,
+    },
+    order: ["stat-cards", "daily-briefing", "activity-chart", "recent-activity", "quick-actions", "leaderboard"],
+  },
+];
+
+function applyPreset(preset: Preset, current: WidgetConfig[]): WidgetConfig[] {
+  const labelMap = Object.fromEntries(current.map((w) => [w.id, w.label]));
+  return preset.order.map((id) => ({
+    id,
+    label: labelMap[id] || id,
+    visible: preset.config[id] ?? true,
+  }));
+}
+
+function checkPresetActive(preset: Preset, current: WidgetConfig[]): boolean {
+  return current.every((w) => preset.config[w.id] === w.visible) &&
+    current.map((w) => w.id).join(",") === preset.order.join(",");
+}
 
 const CustomizeDrawer: React.FC<Props> = ({ open, onClose, widgets, onWidgetsChange, onReset }) => {
   const sensors = useSensors(
