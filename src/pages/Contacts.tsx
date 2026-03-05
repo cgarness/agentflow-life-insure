@@ -3,10 +3,9 @@ import { useLocation } from "react-router-dom";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
-  Loader2, ChevronDown, ChevronUp, GripVertical, AlertTriangle, Columns3, Lock,
+  Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2,
 } from "lucide-react";
-import { useResizableColumns } from "@/hooks/useResizableColumns";
 import { clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
@@ -225,28 +224,6 @@ const Contacts: React.FC = () => {
   // Sorting
   const [sortCol, setSortCol] = useState<ColumnKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-
-  // Resizable columns
-  const leadsResize = useResizableColumns({
-    storageKey: "contacts_leads_column_widths",
-    defaultWidths: { name: 180, phone: 140, email: 200, state: 80, status: 110, source: 130, score: 80, aging: 80, agent: 140, dob: 120, health: 120, bestTime: 130, leadSourceAlias: 130, createdDate: 120, lastContacted: 120 },
-    userId: user?.id,
-  });
-  const clientsResize = useResizableColumns({
-    storageKey: "contacts_clients_column_widths",
-    defaultWidths: { name: 180, phone: 140, policyType: 120, carrier: 130, premium: 110, faceAmount: 120, issueDate: 120 },
-    userId: user?.id,
-  });
-  const recruitsResize = useResizableColumns({
-    storageKey: "contacts_recruits_column_widths",
-    defaultWidths: { name: 180, phone: 140, email: 200, status: 110, agent: 140 },
-    userId: user?.id,
-  });
-  const agentsResize = useResizableColumns({
-    storageKey: "contacts_agents_column_widths",
-    defaultWidths: { agent: 200, email: 200, licensedStates: 160, commission: 120, role: 100, status: 100 },
-    userId: user?.id,
-  });
 
   const handleSort = (key: ColumnKey) => {
     if (sortCol === key) {
@@ -625,9 +602,9 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                 <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+                 <table className="w-full text-sm">
                    <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                     <th className="w-10 py-3 px-3" style={{ width: 40 }}>
+                     <th className="w-10 py-3 px-3">
                        <input
                          type="checkbox"
                          checked={isAllSelected}
@@ -637,7 +614,7 @@ const Contacts: React.FC = () => {
                        />
                      </th>
                      {ALL_COLUMNS.filter(Boolean).filter(c => c != null && visibleCols.has(c?.key)).map(col => (
-                       <th key={col?.key} style={{ width: leadsResize.getWidth(col?.key), position: "relative" }} className={`${colAlign(col?.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col?.key)}>
+                       <th key={col?.key} className={`${colAlign(col?.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col?.key)}>
                          <span className="inline-flex items-center gap-1">
                            {col?.label}
                            {sortCol === col?.key ? (
@@ -646,14 +623,9 @@ const Contacts: React.FC = () => {
                              <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
                            )}
                          </span>
-                         <div
-                           onMouseDown={(e) => leadsResize.onMouseDown(col?.key, e)}
-                           onClick={e => e.stopPropagation()}
-                           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors"
-                         />
                        </th>
                      ))}
-                     <th className="w-10 py-3" style={{ width: 40 }}></th>
+                     <th className="w-10 py-3"></th>
                    </tr></thead>
                    <tbody>
                      {sortedLeads.map(l => {
@@ -662,7 +634,7 @@ const Contacts: React.FC = () => {
                          <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
                            <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
                            {ALL_COLUMNS.filter(Boolean).filter(c => c != null && visibleCols.has(c?.key)).map(col => (
-                             <td key={col?.key} style={{ width: leadsResize.getWidth(col?.key), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className={`py-3 ${colAlign(col?.key)}`}>{renderCell(l, col?.key, aging)}</td>
+                             <td key={col?.key} className={`py-3 ${colAlign(col?.key)}`}>{renderCell(l, col?.key, aging)}</td>
                            ))}
                            <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
                          </tr>
@@ -718,27 +690,27 @@ const Contacts: React.FC = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-               <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+               <table className="w-full text-sm">
                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                   <th className="text-left py-3 px-4 font-medium" style={{ width: clientsResize.getWidth("name"), position: "relative" }}>Name<div onMouseDown={e => clientsResize.onMouseDown("name", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: clientsResize.getWidth("phone"), position: "relative" }}>Phone<div onMouseDown={e => clientsResize.onMouseDown("phone", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: clientsResize.getWidth("policyType"), position: "relative" }}>Policy Type<div onMouseDown={e => clientsResize.onMouseDown("policyType", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium hidden lg:table-cell" style={{ width: clientsResize.getWidth("carrier"), position: "relative" }}>Carrier<div onMouseDown={e => clientsResize.onMouseDown("carrier", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: clientsResize.getWidth("premium"), position: "relative" }}>Premium<div onMouseDown={e => clientsResize.onMouseDown("premium", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium hidden lg:table-cell" style={{ width: clientsResize.getWidth("faceAmount"), position: "relative" }}>Face Amount<div onMouseDown={e => clientsResize.onMouseDown("faceAmount", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium hidden xl:table-cell" style={{ width: clientsResize.getWidth("issueDate"), position: "relative" }}>Issue Date<div onMouseDown={e => clientsResize.onMouseDown("issueDate", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="w-10 py-3" style={{ width: 40 }}></th>
+                   <th className="text-left py-3 px-4 font-medium">Name</th>
+                   <th className="text-left py-3 font-medium">Phone</th>
+                   <th className="text-left py-3 font-medium">Policy Type</th>
+                   <th className="text-left py-3 font-medium hidden lg:table-cell">Carrier</th>
+                   <th className="text-left py-3 font-medium">Premium</th>
+                   <th className="text-left py-3 font-medium hidden lg:table-cell">Face Amount</th>
+                   <th className="text-left py-3 font-medium hidden xl:table-cell">Issue Date</th>
+                   <th className="w-10 py-3"></th>
                  </tr></thead>
                  <tbody>
                    {clients.map(c => (
                      <tr key={c.id} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                       <td className="py-3 px-4 font-medium text-foreground" style={{ width: clientsResize.getWidth("name"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.firstName} {c.lastName}</td>
-                       <td className="py-3 font-mono text-xs text-foreground" style={{ width: clientsResize.getWidth("phone"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.phone}</td>
-                       <td className="py-3" style={{ width: clientsResize.getWidth("policyType") }}><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span></td>
-                       <td className="py-3 text-muted-foreground hidden lg:table-cell" style={{ width: clientsResize.getWidth("carrier"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.carrier}</td>
-                       <td className="py-3 text-foreground" style={{ width: clientsResize.getWidth("premium") }}>{c.premiumAmount}</td>
-                       <td className="py-3 text-foreground hidden lg:table-cell" style={{ width: clientsResize.getWidth("faceAmount") }}>{c.faceAmount}</td>
-                       <td className="py-3 text-muted-foreground hidden xl:table-cell" style={{ width: clientsResize.getWidth("issueDate") }}>{c.issueDate}</td>
+                       <td className="py-3 px-4 font-medium text-foreground">{c.firstName} {c.lastName}</td>
+                       <td className="py-3 font-mono text-xs text-foreground">{c.phone}</td>
+                       <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span></td>
+                       <td className="py-3 text-muted-foreground hidden lg:table-cell">{c.carrier}</td>
+                       <td className="py-3 text-foreground">{c.premiumAmount}</td>
+                       <td className="py-3 text-foreground hidden lg:table-cell">{c.faceAmount}</td>
+                       <td className="py-3 text-muted-foreground hidden xl:table-cell">{c.issueDate}</td>
                        <td className="py-3" style={{ width: 40 }}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
                      </tr>
                    ))}
@@ -760,23 +732,23 @@ const Contacts: React.FC = () => {
             </div>
           ) : view === "table" ? (
              <div className="overflow-x-auto">
-               <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+               <table className="w-full text-sm">
                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                   <th className="text-left py-3 px-4 font-medium" style={{ width: recruitsResize.getWidth("name"), position: "relative" }}>Name<div onMouseDown={e => recruitsResize.onMouseDown("name", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: recruitsResize.getWidth("phone"), position: "relative" }}>Phone<div onMouseDown={e => recruitsResize.onMouseDown("phone", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: recruitsResize.getWidth("email"), position: "relative" }}>Email<div onMouseDown={e => recruitsResize.onMouseDown("email", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: recruitsResize.getWidth("status"), position: "relative" }}>Status<div onMouseDown={e => recruitsResize.onMouseDown("status", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="text-left py-3 font-medium" style={{ width: recruitsResize.getWidth("agent"), position: "relative" }}>Agent<div onMouseDown={e => recruitsResize.onMouseDown("agent", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                   <th className="w-10 py-3" style={{ width: 40 }}></th>
+                   <th className="text-left py-3 px-4 font-medium">Name</th>
+                   <th className="text-left py-3 font-medium">Phone</th>
+                   <th className="text-left py-3 font-medium">Email</th>
+                   <th className="text-left py-3 font-medium">Status</th>
+                   <th className="text-left py-3 font-medium">Agent</th>
+                   <th className="w-10 py-3"></th>
                  </tr></thead>
                  <tbody>
                    {recruits.map(r => (
                      <tr key={r.id} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                       <td className="py-3 px-4 font-medium text-foreground" style={{ width: recruitsResize.getWidth("name"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.firstName} {r.lastName}</td>
-                       <td className="py-3 font-mono text-xs text-foreground" style={{ width: recruitsResize.getWidth("phone"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.phone}</td>
-                       <td className="py-3 text-muted-foreground" style={{ width: recruitsResize.getWidth("email"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.email}</td>
-                       <td className="py-3" style={{ width: recruitsResize.getWidth("status") }}><span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{r.status}</span></td>
-                       <td className="py-3 text-foreground" style={{ width: recruitsResize.getWidth("agent"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getAgentName(r.assignedAgentId)}</td>
+                       <td className="py-3 px-4 font-medium text-foreground">{r.firstName} {r.lastName}</td>
+                       <td className="py-3 font-mono text-xs text-foreground">{r.phone}</td>
+                       <td className="py-3 text-muted-foreground">{r.email}</td>
+                       <td className="py-3"><span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{r.status}</span></td>
+                       <td className="py-3 text-foreground">{getAgentName(r.assignedAgentId)}</td>
                        <td className="py-3" style={{ width: 40 }}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
                      </tr>
                    ))}
@@ -811,15 +783,15 @@ const Contacts: React.FC = () => {
       {!loading && tab === "Agents" && (
         <div className="bg-card rounded-xl border overflow-hidden">
           <div className="overflow-x-auto">
-             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+             <table className="w-full text-sm">
                <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                 <th className="text-left py-3 px-4 font-medium" style={{ width: agentsResize.getWidth("agent"), position: "relative" }}>Agent<div onMouseDown={e => agentsResize.onMouseDown("agent", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                 <th className="text-left py-3 font-medium" style={{ width: agentsResize.getWidth("email"), position: "relative" }}>Email<div onMouseDown={e => agentsResize.onMouseDown("email", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                 <th className="text-left py-3 font-medium hidden lg:table-cell" style={{ width: agentsResize.getWidth("licensedStates"), position: "relative" }}>Licensed States<div onMouseDown={e => agentsResize.onMouseDown("licensedStates", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                 <th className="text-left py-3 font-medium" style={{ width: agentsResize.getWidth("commission"), position: "relative" }}>Commission<div onMouseDown={e => agentsResize.onMouseDown("commission", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                 <th className="text-left py-3 font-medium" style={{ width: agentsResize.getWidth("role"), position: "relative" }}>Role<div onMouseDown={e => agentsResize.onMouseDown("role", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                 <th className="text-left py-3 font-medium" style={{ width: agentsResize.getWidth("status"), position: "relative" }}>Status<div onMouseDown={e => agentsResize.onMouseDown("status", e)} className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 transition-colors" /></th>
-                 <th className="w-10 py-3" style={{ width: 40 }}></th>
+                 <th className="text-left py-3 px-4 font-medium">Agent</th>
+                 <th className="text-left py-3 font-medium">Email</th>
+                 <th className="text-left py-3 font-medium hidden lg:table-cell">Licensed States</th>
+                 <th className="text-left py-3 font-medium">Commission</th>
+                 <th className="text-left py-3 font-medium">Role</th>
+                 <th className="text-left py-3 font-medium">Status</th>
+                 <th className="w-10 py-3"></th>
                </tr></thead>
                <tbody>
                  {mockUsers.map(u => {
@@ -827,7 +799,7 @@ const Contacts: React.FC = () => {
                    const availColors: Record<string, string> = { Available: "bg-success", "On Break": "bg-warning", "Do Not Disturb": "bg-destructive", Offline: "bg-muted-foreground/50" };
                    return (
                      <tr key={u.id} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                       <td className="py-3 px-4" style={{ width: agentsResize.getWidth("agent"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                       <td className="py-3 px-4">
                          <div className="flex items-center gap-3">
                            <div className="relative flex-shrink-0">
                              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{u.firstName[0]}{u.lastName[0]}</div>
@@ -836,11 +808,11 @@ const Contacts: React.FC = () => {
                            <span className="font-medium text-foreground truncate">{u.firstName} {u.lastName}</span>
                          </div>
                        </td>
-                       <td className="py-3 text-muted-foreground" style={{ width: agentsResize.getWidth("email"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.email}</td>
-                       <td className="py-3 text-muted-foreground hidden lg:table-cell" style={{ width: agentsResize.getWidth("licensedStates"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.licensedStates.join(", ")}</td>
-                       <td className="py-3 text-foreground" style={{ width: agentsResize.getWidth("commission") }}>{p?.commissionLevel}</td>
-                       <td className="py-3" style={{ width: agentsResize.getWidth("role") }}><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span></td>
-                       <td className="py-3" style={{ width: agentsResize.getWidth("status") }}><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span></td>
+                       <td className="py-3 text-muted-foreground">{u.email}</td>
+                       <td className="py-3 text-muted-foreground hidden lg:table-cell">{p?.licensedStates.join(", ")}</td>
+                       <td className="py-3 text-foreground">{p?.commissionLevel}</td>
+                       <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span></td>
+                       <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span></td>
                        <td className="py-3" style={{ width: 40 }}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
                     </tr>
                   );
