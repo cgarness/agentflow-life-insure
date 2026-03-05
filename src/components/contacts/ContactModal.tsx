@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import { useCalendar } from "@/contexts/CalendarContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
@@ -756,10 +757,45 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       <AppointmentModal
         open={showAppointmentModal}
         onClose={() => setShowAppointmentModal(false)}
-        onSave={(data) => {
+        onSave={async (data) => {
+          // Save to Supabase
+          const startDate = new Date(data.date);
+          const timeParts = data.startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+          if (timeParts) {
+            let hours = parseInt(timeParts[1]);
+            const minutes = parseInt(timeParts[2]);
+            const ampm = timeParts[3].toUpperCase();
+            if (ampm === "PM" && hours !== 12) hours += 12;
+            if (ampm === "AM" && hours === 12) hours = 0;
+            startDate.setHours(hours, minutes, 0, 0);
+          }
+          const endDate = new Date(data.date);
+          const endParts = data.endTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+          if (endParts) {
+            let hours = parseInt(endParts[1]);
+            const minutes = parseInt(endParts[2]);
+            const ampm = endParts[3].toUpperCase();
+            if (ampm === "PM" && hours !== 12) hours += 12;
+            if (ampm === "AM" && hours === 12) hours = 0;
+            endDate.setHours(hours, minutes, 0, 0);
+          }
+          const { error } = await supabase.from('appointments').insert([{
+            title: data.title,
+            contact_name: data.contactName,
+            contact_id: lead?.id,
+            type: data.type,
+            start_time: startDate.toISOString(),
+            end_time: endDate.toISOString(),
+            notes: data.notes,
+          }]);
+          if (error) {
+            toast.error("Failed to schedule appointment");
+            return;
+          }
           addAppointment(data);
           logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
           setShowAppointmentModal(false);
+          toast.success("Appointment scheduled");
         }}
         prefillContactName={lead ? `${lead.firstName} ${lead.lastName}` : undefined}
         prefillContactId={lead?.id}

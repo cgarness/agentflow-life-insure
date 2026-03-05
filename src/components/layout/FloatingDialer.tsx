@@ -13,6 +13,7 @@ import { Calendar as CalendarUI } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 const FloatingDialer: React.FC = () => {
   const [open, setOpen] = useState(false);
@@ -91,6 +92,15 @@ const FloatingDialer: React.FC = () => {
     await new Promise(r => setTimeout(r, 400));
 
     if (selectedDisp.callbackScheduler && callbackDate) {
+      const startTime = new Date(callbackDate);
+      const [hours, minutes] = callbackTime.split(":").map(Number);
+      startTime.setHours(hours, minutes, 0, 0);
+      await supabase.from('appointments').insert([{
+        title: `Callback — ${selectedDisp.name}`,
+        contact_name: "John D.",
+        type: "Sales Call",
+        start_time: startTime.toISOString(),
+      }]);
       toast({
         title: "Callback scheduled",
         description: `${format(callbackDate, "MMM d, yyyy")} at ${callbackTime}`,
