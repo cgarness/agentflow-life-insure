@@ -14,6 +14,171 @@ export type Database = {
   }
   public: {
     Tables: {
+      appointments: {
+        Row: {
+          contact_id: string | null
+          contact_name: string | null
+          created_at: string | null
+          created_by: string | null
+          end_time: string | null
+          id: string
+          notes: string | null
+          start_time: string
+          status: string
+          title: string
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          contact_id?: string | null
+          contact_name?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          end_time?: string | null
+          id?: string
+          notes?: string | null
+          start_time: string
+          status?: string
+          title: string
+          type?: string
+          updated_at?: string | null
+        }
+        Update: {
+          contact_id?: string | null
+          contact_name?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          end_time?: string | null
+          id?: string
+          notes?: string | null
+          start_time?: string
+          status?: string
+          title?: string
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      dispositions: {
+        Row: {
+          automation_id: string | null
+          automation_name: string | null
+          automation_trigger: boolean
+          callback_scheduler: boolean
+          color: string
+          created_at: string
+          id: string
+          is_default: boolean
+          min_note_chars: number
+          name: string
+          require_notes: boolean
+          sort_order: number
+          updated_at: string
+          usage_count: number
+        }
+        Insert: {
+          automation_id?: string | null
+          automation_name?: string | null
+          automation_trigger?: boolean
+          callback_scheduler?: boolean
+          color?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          min_note_chars?: number
+          name: string
+          require_notes?: boolean
+          sort_order?: number
+          updated_at?: string
+          usage_count?: number
+        }
+        Update: {
+          automation_id?: string | null
+          automation_name?: string | null
+          automation_trigger?: boolean
+          callback_scheduler?: boolean
+          color?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          min_note_chars?: number
+          name?: string
+          require_notes?: boolean
+          sort_order?: number
+          updated_at?: string
+          usage_count?: number
+        }
+        Relationships: []
+      }
+      leads: {
+        Row: {
+          age: number | null
+          assigned_agent_id: string
+          best_time_to_call: string | null
+          created_at: string
+          custom_fields: Json | null
+          date_of_birth: string | null
+          email: string
+          first_name: string
+          health_status: string | null
+          id: string
+          last_contacted_at: string | null
+          last_name: string
+          lead_score: number
+          lead_source: string
+          notes: string | null
+          phone: string
+          spouse_info: Json | null
+          state: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          age?: number | null
+          assigned_agent_id?: string
+          best_time_to_call?: string | null
+          created_at?: string
+          custom_fields?: Json | null
+          date_of_birth?: string | null
+          email?: string
+          first_name?: string
+          health_status?: string | null
+          id?: string
+          last_contacted_at?: string | null
+          last_name?: string
+          lead_score?: number
+          lead_source?: string
+          notes?: string | null
+          phone?: string
+          spouse_info?: Json | null
+          state?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          age?: number | null
+          assigned_agent_id?: string
+          best_time_to_call?: string | null
+          created_at?: string
+          custom_fields?: Json | null
+          date_of_birth?: string | null
+          email?: string
+          first_name?: string
+          health_status?: string | null
+          id?: string
+          last_contacted_at?: string | null
+          last_name?: string
+          lead_score?: number
+          lead_source?: string
+          notes?: string | null
+          phone?: string
+          spouse_info?: Json | null
+          state?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           availability_status: string
