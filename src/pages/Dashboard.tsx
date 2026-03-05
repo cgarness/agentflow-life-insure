@@ -428,31 +428,45 @@ const Dashboard: React.FC = () => {
         </button>
       </div>
 
-      {/* Render widgets in order */}
-      {orderedVisible.map((w) => {
-        if (w.id === fullWidthTop || w.id === fullWidthBottom) {
-          return renderWidget(w.id);
+      {/* Render widgets in user order, preserving layout structure */}
+      {(() => {
+        const sections: React.ReactNode[] = [];
+        let i = 0;
+        while (i < orderedVisible.length) {
+          const w = orderedVisible[i];
+          if (w.id === "stat-cards" || w.id === "leaderboard") {
+            sections.push(renderWidget(w.id));
+            i++;
+          } else {
+            // Collect consecutive left/right column widgets
+            const leftBatch: WidgetConfig[] = [];
+            const rightBatch: WidgetConfig[] = [];
+            while (i < orderedVisible.length && orderedVisible[i].id !== "stat-cards" && orderedVisible[i].id !== "leaderboard") {
+              const cur = orderedVisible[i];
+              if (leftIds.has(cur.id)) leftBatch.push(cur);
+              else if (rightIds.has(cur.id)) rightBatch.push(cur);
+              i++;
+            }
+            if (leftBatch.length > 0 || rightBatch.length > 0) {
+              sections.push(
+                <div key={`grid-${leftBatch[0]?.id || rightBatch[0]?.id}`} className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                  {leftBatch.length > 0 && (
+                    <div className="lg:col-span-3 space-y-6">
+                      {leftBatch.map((w) => renderWidget(w.id))}
+                    </div>
+                  )}
+                  {rightBatch.length > 0 && (
+                    <div className={leftBatch.length > 0 ? "lg:col-span-2 space-y-6" : "lg:col-span-5 space-y-6"}>
+                      {rightBatch.map((w) => renderWidget(w.id))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+          }
         }
-        return null;
-      })}
-
-      {/* Two column section — render if any left/right widgets visible */}
-      {hasMiddleSection && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {leftWidgets.length > 0 && (
-            <div className="lg:col-span-3 space-y-6">
-              {leftWidgets.map((w) => renderWidget(w.id))}
-            </div>
-          )}
-          {rightWidgets.length > 0 && (
-            <div className={leftWidgets.length > 0 ? "lg:col-span-2 space-y-6" : "lg:col-span-5 space-y-6"}>
-              {rightWidgets.map((w) => renderWidget(w.id))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Full width bottom widgets (leaderboard) — already rendered above, skip duplicates */}
+        return sections;
+      })()}
 
       <CustomizeDrawer
         open={drawerOpen}
