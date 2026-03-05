@@ -19,7 +19,7 @@ const sections = [
   { icon: UserCircle, label: "My Profile" },
   { icon: Building2, label: "Company Branding" },
   { icon: Users, label: "User Management" },
-  { icon: Phone, label: "Twilio & Phone Numbers" },
+  { icon: Phone, label: "Telnyx & Phone Numbers" },
   { icon: FileText, label: "Call Scripts" },
   { icon: List, label: "Dispositions Manager" },
   { icon: SlidersHorizontal, label: "Contact Management" },
@@ -94,10 +94,10 @@ const SettingsPage: React.FC = () => {
       case 3: // Twilio
         return (
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground">Twilio & Phone Numbers</h3>
+            <h3 className="text-lg font-semibold text-foreground">Telnyx & Phone Numbers</h3>
             <div className="bg-accent/50 rounded-xl p-5 space-y-4">
               <h4 className="font-medium text-foreground">Credentials</h4>
-              {[["Account SID", "AC•••••••••••••••"], ["Auth Token", "•••••••••••••••••"], ["API Key", "SK•••••••••••••••••"], ["API Secret", "•••••••••••••••••"]].map(([k, v]) => (
+              {[["API Key", "KEY•••••••••••••••"], ["Application ID", "•••••••••••••••••"], ["SIP Username", "•••••••••••••••••"], ["SIP Password", "•••••••••••••••••"]].map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between"><span className="text-sm text-muted-foreground">{k}</span><span className="text-sm font-mono text-foreground">{v}</span></div>
               ))}
               <button className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">Test Connection</button>

@@ -108,7 +108,7 @@ export const usersApi = {
       onboardingItems: [
         { key: "license", label: "License Verified", completed: false, completedAt: null },
         { key: "carriers", label: "Carrier Appointments Set Up", completed: false, completedAt: null },
-        { key: "twilio", label: "Twilio Number Assigned", completed: false, completedAt: null },
+        { key: "twilio", label: "Telnyx Number Assigned", completed: false, completedAt: null },
         { key: "training", label: "Training Completed", completed: false, completedAt: null },
         { key: "first_call", label: "First Call Made", completed: false, completedAt: null },
       ],
