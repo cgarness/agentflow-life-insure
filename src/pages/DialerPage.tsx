@@ -285,45 +285,54 @@ const DialerPage: React.FC = () => {
         return;
       }
       try {
-        // Fetch a short-lived token from our Supabase Edge Function
-        const res = await fetch(
+        const response = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telnyx-token`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
             },
           }
         );
 
-        if (!res.ok) throw new Error("Failed to fetch Telnyx token");
-        const { token } = await res.json();
+        if (!response.ok) {
+          throw new Error(`Failed to get credentials: ${response.status}`);
+        }
 
-        client = new TelnyxRTC({ login_token: token });
+        const { username, password } = await response.json();
+
+        client = new TelnyxRTC({
+          login: username,
+          password: password,
+        });
 
         client.on("telnyx.ready", () => {
           setDialerReady(true);
           setDialerError(null);
+          console.log("Telnyx WebRTC ready");
         });
 
         client.on("telnyx.error", (error: any) => {
-          setDialerError("Dialer connection failed. Please refresh.");
+          setDialerError(`Dialer error: ${error.message}`);
           setDialerReady(false);
+          console.error("Telnyx error:", error);
         });
 
         client.on("telnyx.notification", (notification: any) => {
-          if (notification.type === "callUpdate") {
-            const call = notification.call;
-            if (call.state === "hangup" || call.state === "destroy") {
-              setCallStatus("ended");
-              callRef.current = null;
+          if (notification.call) {
+            callRef.current = notification.call;
+            const state = notification.call.state;
+            if (state === "hangup" || state === "destroy") {
+              setOnCall(false);
+              setShowDisposition(true);
+              setSelectedDispId(null);
             }
           }
         });
 
         clientRef.current = client;
-        await client.connect();
+        client.connect();
       } catch (err: any) {
         setDialerError("Could not initialize dialer. Check your connection.");
       }

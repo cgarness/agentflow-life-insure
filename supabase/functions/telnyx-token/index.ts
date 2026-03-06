@@ -2,8 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -20,42 +19,23 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const apiKey = Deno.env.get("TELNYX_API_KEY");
-    if (!apiKey) {
-      throw new Error("TELNYX_API_KEY is not configured");
+    const sipUsername = Deno.env.get("TELNYX_SIP_USERNAME");
+    const sipPassword = Deno.env.get("TELNYX_SIP_PASSWORD");
+
+    if (!sipUsername || !sipPassword) {
+      throw new Error("TELNYX_SIP_USERNAME or TELNYX_SIP_PASSWORD is not configured");
     }
 
-    const connectionId = Deno.env.get("TELNYX_SIP_CONNECTION_ID");
-    if (!connectionId) {
-      throw new Error("TELNYX_SIP_CONNECTION_ID is not configured");
-    }
-
-    const response = await fetch(
-      "https://api.telnyx.com/v2/telephony_credentials",
+    return new Response(
+      JSON.stringify({
+        username: sipUsername,
+        password: sipPassword
+      }),
       {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ connection_id: connectionId }),
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(
-        `Telnyx API returned ${response.status}: ${errorBody}`
-      );
-    }
-
-    const data = await response.json();
-    const token = data.data?.token ?? data.data?.id;
-
-    return new Response(JSON.stringify({ token }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message ?? "Internal server error" }),
