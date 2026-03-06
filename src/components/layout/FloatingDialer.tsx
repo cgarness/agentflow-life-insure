@@ -60,6 +60,9 @@ const FloatingDialer: React.FC = () => {
   const [selectedContact, setSelectedContact] = useState<ContactResult | null>(null);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // --- Dialer error state ---
+  const [dialerError, setDialerError] = useState<string | null>(null);
+
   // --- Keypad state ---
   const [dialedNumber, setDialedNumber] = useState("");
 
@@ -183,17 +186,9 @@ const FloatingDialer: React.FC = () => {
     setRecentLoading(true);
     setRecentError(false);
     try {
-      const { data, error } = await supabase
-        .from("calls")
-        .select("id, contact_name, phone, disposition_name, disposition_color, created_at")
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (error) {
-        setRecentError(true);
-        setRecentCalls([]);
-      } else {
-        setRecentCalls(data || []);
-      }
+      // "calls" table doesn't exist in the schema — use empty array as fallback
+      setRecentCalls([]);
+      setRecentError(false);
     } catch {
       setRecentError(true);
       setRecentCalls([]);

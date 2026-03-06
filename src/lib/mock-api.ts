@@ -339,9 +339,15 @@ export const clientsApi = {
 
 // ---- RECRUITS ----
 export const recruitsApi = {
-  async getAll(): Promise<Recruit[]> {
+  async getAll(search?: string): Promise<Recruit[]> {
     await delay(200);
-    return [...recruits];
+    if (!search) return [...recruits];
+    const q = search.toLowerCase();
+    return recruits.filter(r =>
+      `${r.firstName} ${r.lastName}`.toLowerCase().includes(q) ||
+      r.phone.includes(q) ||
+      r.email.toLowerCase().includes(q)
+    );
   },
   async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">): Promise<Recruit> {
     await delay(300);

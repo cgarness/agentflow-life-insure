@@ -34,7 +34,16 @@ const policyTypeColors: Record<string, string> = {
   "IUL": "bg-info/10 text-info",
 };
 
+const recruitStatusColors: Record<string, string> = {
+  "Prospect": "bg-muted text-muted-foreground",
+  "Contacted": "bg-primary/10 text-primary",
+  "Interview": "bg-warning/10 text-warning",
+  "Licensed": "bg-info/10 text-info",
+  "Active": "bg-success/10 text-success",
+};
+
 const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
+const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 
 // Aging pill helper
 function agingPill(days: number) {
@@ -44,11 +53,9 @@ function agingPill(days: number) {
   return { cls: "bg-green-500/10 text-green-500", label: `${days}d` };
 }
 
-// Column definitions
+// ===== LEAD Column definitions =====
 type ColumnKey = "name" | "phone" | "email" | "state" | "status" | "source" | "score" | "aging" | "agent" | "dob" | "health" | "bestTime" | "leadSourceAlias" | "createdDate" | "lastContacted";
-
 interface ColDef { key: ColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
-
 const ALL_COLUMNS: ColDef[] = [
   { key: "name", label: "Name", defaultVisible: true, locked: true },
   { key: "phone", label: "Phone", defaultVisible: true },
@@ -66,8 +73,47 @@ const ALL_COLUMNS: ColDef[] = [
   { key: "createdDate", label: "Created Date", defaultVisible: false },
   { key: "lastContacted", label: "Last Contacted", defaultVisible: false },
 ];
+const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
 
-const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(Boolean).filter(c => c?.defaultVisible).map(c => c?.key));
+// ===== CLIENT Column definitions =====
+type ClientColumnKey = "name" | "phone" | "policyType" | "carrier" | "premium" | "faceAmount" | "issueDate" | "agent";
+interface ClientColDef { key: ClientColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
+const CLIENT_COLUMNS: ClientColDef[] = [
+  { key: "name", label: "Name", defaultVisible: true, locked: true },
+  { key: "phone", label: "Phone", defaultVisible: true },
+  { key: "policyType", label: "Policy Type", defaultVisible: true },
+  { key: "carrier", label: "Carrier", defaultVisible: true },
+  { key: "premium", label: "Premium", defaultVisible: true },
+  { key: "faceAmount", label: "Face Amount", defaultVisible: true },
+  { key: "issueDate", label: "Issue Date", defaultVisible: true },
+  { key: "agent", label: "Agent", defaultVisible: true },
+];
+const DEFAULT_CLIENT_VISIBLE = new Set(CLIENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
+
+// ===== RECRUIT Column definitions =====
+type RecruitColumnKey = "name" | "phone" | "email" | "status" | "agent";
+interface RecruitColDef { key: RecruitColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
+const RECRUIT_COLUMNS: RecruitColDef[] = [
+  { key: "name", label: "Name", defaultVisible: true, locked: true },
+  { key: "phone", label: "Phone", defaultVisible: true },
+  { key: "email", label: "Email", defaultVisible: true },
+  { key: "status", label: "Status", defaultVisible: true },
+  { key: "agent", label: "Agent", defaultVisible: true },
+];
+const DEFAULT_RECRUIT_VISIBLE = new Set(RECRUIT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
+
+// ===== AGENT Column definitions =====
+type AgentColumnKey = "name" | "email" | "licensedStates" | "commission" | "role" | "status";
+interface AgentColDef { key: AgentColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
+const AGENT_COLUMNS: AgentColDef[] = [
+  { key: "name", label: "Agent", defaultVisible: true, locked: true },
+  { key: "email", label: "Email", defaultVisible: true },
+  { key: "licensedStates", label: "Licensed States", defaultVisible: true },
+  { key: "commission", label: "Commission", defaultVisible: true },
+  { key: "role", label: "Role", defaultVisible: true },
+  { key: "status", label: "Status", defaultVisible: true },
+];
+const DEFAULT_AGENT_VISIBLE = new Set(AGENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
 
 const mockAgents = [
   { id: "u1", name: "Chris G." },
@@ -82,16 +128,24 @@ const AddContactModal: React.FC<{
   open: boolean;
   onClose: () => void;
   onSave: (data: any) => Promise<void>;
-  initial?: Lead | null;
+  initial?: any | null;
   contactType?: string;
 }> = ({ open, onClose, onSave, initial, contactType = "Lead" }) => {
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New" as LeadStatus });
+  const [form, setForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status });
-    else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New" });
-  }, [initial, open]);
+    if (contactType === "Client") {
+      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, policyType: initial.policyType || "Term", carrier: initial.carrier || "", premiumAmount: initial.premiumAmount || "", faceAmount: initial.faceAmount || "", issueDate: initial.issueDate || "" });
+      else setForm({ firstName: "", lastName: "", phone: "", email: "", policyType: "Term", carrier: "", premiumAmount: "", faceAmount: "", issueDate: "" });
+    } else if (contactType === "Recruit") {
+      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, status: initial.status || "Prospect" });
+      else setForm({ firstName: "", lastName: "", phone: "", email: "", status: "Prospect" });
+    } else {
+      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New" });
+      else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New" });
+    }
+  }, [initial, open, contactType]);
 
   if (!open) return null;
 
@@ -120,38 +174,85 @@ const AddContactModal: React.FC<{
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
-              <input required value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+              <input required value={form.firstName || ""} onChange={e => setForm((f: any) => ({ ...f, firstName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
-              <input required value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+              <input required value={form.lastName || ""} onChange={e => setForm((f: any) => ({ ...f, lastName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Phone *</label>
-            <input required value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="(555) 123-4567" />
+            <input required value={form.phone || ""} onChange={e => setForm((f: any) => ({ ...f, phone: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="(555) 123-4567" />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Email *</label>
-            <input required type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+            <input required type="email" value={form.email || ""} onChange={e => setForm((f: any) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-              <input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
+
+          {/* Lead-specific fields */}
+          {contactType === "Lead" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
+                <input value={form.state || ""} onChange={e => setForm((f: any) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
+                <select value={form.leadSource || "Facebook Ads"} onChange={e => setForm((f: any) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                  {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
             </div>
+          )}
+
+          {/* Client-specific fields */}
+          {contactType === "Client" && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Policy Type *</label>
+                  <select required value={form.policyType || "Term"} onChange={e => setForm((f: any) => ({ ...f, policyType: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                    {["Term", "Whole Life", "IUL", "Final Expense"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Carrier *</label>
+                  <input required value={form.carrier || ""} onChange={e => setForm((f: any) => ({ ...f, carrier: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Premium</label>
+                  <input value={form.premiumAmount || ""} onChange={e => setForm((f: any) => ({ ...f, premiumAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$150/mo" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Face Amount</label>
+                  <input value={form.faceAmount || ""} onChange={e => setForm((f: any) => ({ ...f, faceAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$500,000" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
+                <input type="date" value={form.issueDate || ""} onChange={e => setForm((f: any) => ({ ...f, issueDate: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+              </div>
+            </>
+          )}
+
+          {/* Recruit-specific fields */}
+          {contactType === "Recruit" && (
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-              <select value={form.leadSource} onChange={e => setForm(f => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
+              <select value={form.status || "Prospect"} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                {recruitStatuses.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
-          </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent sidebar-transition">Cancel</button>
             <button type="submit" disabled={saving} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition disabled:opacity-50 flex items-center justify-center gap-2">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {initial ? "Save Changes" : "Add Contact"}
+              {initial ? "Save Changes" : `Add ${contactType}`}
             </button>
           </div>
         </form>
@@ -159,8 +260,6 @@ const AddContactModal: React.FC<{
     </div>
   );
 };
-
-
 
 // ---- Delete Confirm ----
 const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: () => void; onClose: () => void; title?: string }> = ({ open, count, onConfirm, onClose, title }) => {
@@ -199,9 +298,14 @@ const Contacts: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [selectedRecruitIds, setSelectedRecruitIds] = useState<Set<string>>(new Set());
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
+  const [editClient, setEditClient] = useState<Client | null>(null);
+  const [editRecruit, setEditRecruit] = useState<Recruit | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sourceStats, setSourceStats] = useState<any[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -211,8 +315,11 @@ const Contacts: React.FC = () => {
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
   const [sourcePerfOpen, setSourcePerfOpen] = useState(false);
 
-  // Column visibility
+  // Column visibility per tab
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE));
+  const [visibleClientCols, setVisibleClientCols] = useState<Set<ClientColumnKey>>(new Set(DEFAULT_CLIENT_VISIBLE));
+  const [visibleRecruitCols, setVisibleRecruitCols] = useState<Set<RecruitColumnKey>>(new Set(DEFAULT_RECRUIT_VISIBLE));
+  const [visibleAgentCols, setVisibleAgentCols] = useState<Set<AgentColumnKey>>(new Set(DEFAULT_AGENT_VISIBLE));
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
 
@@ -221,11 +328,15 @@ const Contacts: React.FC = () => {
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
-  // Sorting
-  const [sortCol, setSortCol] = useState<ColumnKey | null>(null);
+  // Sorting — shared across tabs, reset on tab change
+  const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  const handleSort = (key: ColumnKey) => {
+  // Action menus
+  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleSort = (key: string) => {
     if (sortCol === key) {
       if (sortDir === "asc") setSortDir("desc");
       else { setSortCol(null); setSortDir("asc"); }
@@ -235,6 +346,7 @@ const Contacts: React.FC = () => {
     }
   };
 
+  // ===== Lead sort =====
   const getSortValue = (l: Lead, key: ColumnKey): string | number => {
     switch (key) {
       case "name": return `${l.firstName} ${l.lastName}`.toLowerCase();
@@ -258,22 +370,97 @@ const Contacts: React.FC = () => {
   const sortedLeads = React.useMemo(() => {
     if (!sortCol) return leads;
     return [...leads].sort((a, b) => {
-      const va = getSortValue(a, sortCol);
-      const vb = getSortValue(b, sortCol);
+      const va = getSortValue(a, sortCol as ColumnKey);
+      const vb = getSortValue(b, sortCol as ColumnKey);
       if (va < vb) return sortDir === "asc" ? -1 : 1;
       if (va > vb) return sortDir === "asc" ? 1 : -1;
       return 0;
     });
   }, [leads, sortCol, sortDir]);
 
-  // Close columns dropdown on outside click
+  // ===== Client sort =====
+  const getClientSortValue = (c: Client, key: ClientColumnKey): string | number => {
+    switch (key) {
+      case "name": return `${c.firstName} ${c.lastName}`.toLowerCase();
+      case "phone": return c.phone;
+      case "policyType": return c.policyType;
+      case "carrier": return c.carrier.toLowerCase();
+      case "premium": return c.premiumAmount;
+      case "faceAmount": return c.faceAmount;
+      case "issueDate": return c.issueDate;
+      case "agent": return getAgentName(c.assignedAgentId).toLowerCase();
+      default: return "";
+    }
+  };
+
+  const sortedClients = React.useMemo(() => {
+    if (!sortCol) return clients;
+    return [...clients].sort((a, b) => {
+      const va = getClientSortValue(a, sortCol as ClientColumnKey);
+      const vb = getClientSortValue(b, sortCol as ClientColumnKey);
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [clients, sortCol, sortDir]);
+
+  // ===== Recruit sort =====
+  const getRecruitSortValue = (r: Recruit, key: RecruitColumnKey): string | number => {
+    switch (key) {
+      case "name": return `${r.firstName} ${r.lastName}`.toLowerCase();
+      case "phone": return r.phone;
+      case "email": return r.email.toLowerCase();
+      case "status": return recruitStatuses.indexOf(r.status);
+      case "agent": return getAgentName(r.assignedAgentId).toLowerCase();
+      default: return "";
+    }
+  };
+
+  const sortedRecruits = React.useMemo(() => {
+    if (!sortCol) return recruits;
+    return [...recruits].sort((a, b) => {
+      const va = getRecruitSortValue(a, sortCol as RecruitColumnKey);
+      const vb = getRecruitSortValue(b, sortCol as RecruitColumnKey);
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [recruits, sortCol, sortDir]);
+
+  // ===== Agent sort =====
+  const getAgentSortValue = (u: typeof mockUsers[0], key: AgentColumnKey): string | number => {
+    const p = mockProfiles.find(p => p.userId === u.id);
+    switch (key) {
+      case "name": return `${u.firstName} ${u.lastName}`.toLowerCase();
+      case "email": return u.email.toLowerCase();
+      case "licensedStates": return p?.licensedStates.join(", ") || "";
+      case "commission": return p?.commissionLevel || "";
+      case "role": return u.role;
+      case "status": return u.status;
+      default: return "";
+    }
+  };
+
+  const sortedAgents = React.useMemo(() => {
+    if (!sortCol) return mockUsers;
+    return [...mockUsers].sort((a, b) => {
+      const va = getAgentSortValue(a, sortCol as AgentColumnKey);
+      const vb = getAgentSortValue(b, sortCol as AgentColumnKey);
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [sortCol, sortDir]);
+
+  // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (columnsRef.current && !columnsRef.current.contains(e.target as Node)) setColumnsOpen(false);
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) setActionMenuId(null);
     };
-    if (columnsOpen) document.addEventListener("mousedown", handler);
+    if (columnsOpen || actionMenuId) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [columnsOpen]);
+  }, [columnsOpen, actionMenuId]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -281,7 +468,7 @@ const Contacts: React.FC = () => {
       const [leadData, clientData, recruitData, stats] = await Promise.all([
         leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }),
         clientsApi.getAll(searchQuery),
-        recruitsApi.getAll(),
+        recruitsApi.getAll(searchQuery),
         leadsSupabaseApi.getSourceStats(),
       ]);
       setLeads(leadData);
@@ -295,6 +482,16 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Reset selection and sort on tab change
+  useEffect(() => {
+    setSortCol(null);
+    setSortDir("asc");
+    setColumnsOpen(false);
+    setActionMenuId(null);
+    setBulkAssignOpen(false);
+    setBulkStatusOpen(false);
+  }, [tab]);
+
   // Auto-open a contact modal when navigated with openContactId state
   useEffect(() => {
     const openContactId = (location.state as any)?.openContactId;
@@ -302,13 +499,11 @@ const Contacts: React.FC = () => {
       const match = leads.find(l => l.id === openContactId);
       if (match) {
         setSelectedLead(match);
-        // Clear the state so re-renders don't re-trigger
         window.history.replaceState({}, document.title);
       }
     }
   }, [location.state, leads]);
 
-  // Auto-open a contact modal when navigated with ?contact= query param
   useEffect(() => {
     const contactId = new URLSearchParams(location.search).get("contact");
     if (contactId && leads.length > 0) {
@@ -320,6 +515,7 @@ const Contacts: React.FC = () => {
     }
   }, [location.search, leads]);
 
+  // ===== Lead CRUD =====
   const handleAddLead = async (data: any) => {
     await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
     toast.success("Lead added successfully");
@@ -338,7 +534,7 @@ const Contacts: React.FC = () => {
     fetchData();
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDeleteLeads = async () => {
     const count = selectedIds.size;
     for (const id of selectedIds) await leadsSupabaseApi.delete(id);
     toast.error(`Deleted ${count} leads.`, { duration: 3000, position: "bottom-right" });
@@ -356,15 +552,81 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkAssign = async (agentName: string) => {
-    const count = selectedIds.size;
-    // Mock assign — just show toast
-    toast.success(`Assigned ${count} leads to ${agentName}.`, { duration: 3000, position: "bottom-right" });
-    setSelectedIds(new Set());
+    const currentSelection = tab === "Leads" ? selectedIds : tab === "Clients" ? selectedClientIds : selectedRecruitIds;
+    const count = currentSelection.size;
+    toast.success(`Assigned ${count} ${tab.toLowerCase()} to ${agentName}.`, { duration: 3000, position: "bottom-right" });
+    if (tab === "Leads") setSelectedIds(new Set());
+    else if (tab === "Clients") setSelectedClientIds(new Set());
+    else if (tab === "Recruits") setSelectedRecruitIds(new Set());
     setBulkAssignOpen(false);
   };
 
+  // ===== Client CRUD =====
+  const handleAddClient = async (data: any) => {
+    await clientsApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+    toast.success("Client added successfully");
+    fetchData();
+  };
+
+  const handleDeleteClient = async (id: string) => {
+    await clientsApi.delete(id);
+    toast.success("Client deleted");
+    fetchData();
+  };
+
+  const handleBulkDeleteClients = async () => {
+    const count = selectedClientIds.size;
+    for (const id of selectedClientIds) await clientsApi.delete(id);
+    toast.error(`Deleted ${count} clients.`, { duration: 3000, position: "bottom-right" });
+    setSelectedClientIds(new Set());
+    fetchData();
+  };
+
+  // ===== Recruit CRUD =====
+  const handleAddRecruit = async (data: any) => {
+    await recruitsApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+    toast.success("Recruit added successfully");
+    fetchData();
+  };
+
+  const handleDeleteRecruit = async (id: string) => {
+    await recruitsApi.delete(id);
+    toast.success("Recruit deleted");
+    fetchData();
+  };
+
+  const handleBulkDeleteRecruits = async () => {
+    const count = selectedRecruitIds.size;
+    for (const id of selectedRecruitIds) await recruitsApi.delete(id);
+    toast.error(`Deleted ${count} recruits.`, { duration: 3000, position: "bottom-right" });
+    setSelectedRecruitIds(new Set());
+    fetchData();
+  };
+
+  const handleBulkRecruitStatusChange = async (status: string) => {
+    const count = selectedRecruitIds.size;
+    for (const id of selectedRecruitIds) await recruitsApi.update(id, { status });
+    toast.success(`Updated status for ${count} recruits.`, { duration: 3000, position: "bottom-right" });
+    setSelectedRecruitIds(new Set());
+    setBulkStatusOpen(false);
+    fetchData();
+  };
+
+  const handleBulkAgentStatusChange = async (status: string) => {
+    toast.success(`Updated ${selectedAgentIds.size} agents to ${status}.`, { duration: 3000, position: "bottom-right" });
+    setSelectedAgentIds(new Set());
+    setBulkStatusOpen(false);
+  };
+
+  // ===== Selection helpers =====
   const toggleSelect = (id: string) => setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const toggleAll = () => setSelectedIds(prev => prev.size === leads.length ? new Set() : new Set(leads.map(l => l.id)));
+  const toggleClientSelect = (id: string) => setSelectedClientIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllClients = () => setSelectedClientIds(prev => prev.size === clients.length ? new Set() : new Set(clients.map(c => c.id)));
+  const toggleRecruitSelect = (id: string) => setSelectedRecruitIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllRecruits = () => setSelectedRecruitIds(prev => prev.size === recruits.length ? new Set() : new Set(recruits.map(r => r.id)));
+  const toggleAgentSelect = (id: string) => setSelectedAgentIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAllAgents = () => setSelectedAgentIds(prev => prev.size === mockUsers.length ? new Set() : new Set(mockUsers.map(u => u.id)));
 
   const isAllSelected = selectedIds.size === leads.length && leads.length > 0;
   const isIndeterminate = selectedIds.size > 0 && selectedIds.size < leads.length;
@@ -376,9 +638,7 @@ const Contacts: React.FC = () => {
   // Render cell value for a lead
   const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
     switch (key) {
-      case "name": return (
-        <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>
-      );
+      case "name": return <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>;
       case "phone": return <span className="text-foreground font-mono text-xs">{l.phone}</span>;
       case "email": return <span className="text-muted-foreground">{l.email}</span>;
       case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{l.state}</span>;
@@ -403,7 +663,169 @@ const Contacts: React.FC = () => {
     }
   };
 
-  const colAlign = (key: ColumnKey) => (key === "score" || key === "aging") ? "text-center" : "text-left";
+  const renderClientCell = (c: Client, key: ClientColumnKey) => {
+    switch (key) {
+      case "name": return <span className="font-medium text-foreground">{c.firstName} {c.lastName}</span>;
+      case "phone": return <span className="text-foreground font-mono text-xs">{c.phone}</span>;
+      case "policyType": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span>;
+      case "carrier": return <span className="text-muted-foreground">{c.carrier}</span>;
+      case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
+      case "faceAmount": return <span className="text-foreground">{c.faceAmount}</span>;
+      case "issueDate": return <span className="text-muted-foreground">{c.issueDate}</span>;
+      case "agent": return <span className="text-foreground">{getAgentName(c.assignedAgentId)}</span>;
+      default: return null;
+    }
+  };
+
+  const renderRecruitCell = (r: Recruit, key: RecruitColumnKey) => {
+    switch (key) {
+      case "name": return <span className="font-medium text-foreground">{r.firstName} {r.lastName}</span>;
+      case "phone": return <span className="text-foreground font-mono text-xs">{r.phone}</span>;
+      case "email": return <span className="text-muted-foreground">{r.email}</span>;
+      case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${recruitStatusColors[r.status] || "bg-muted text-muted-foreground"}`}>{r.status}</span>;
+      case "agent": return <span className="text-foreground">{getAgentName(r.assignedAgentId)}</span>;
+      default: return null;
+    }
+  };
+
+  const renderAgentCell = (u: typeof mockUsers[0], key: AgentColumnKey) => {
+    const p = mockProfiles.find(p => p.userId === u.id);
+    const availColors: Record<string, string> = { Available: "bg-success", "On Break": "bg-warning", "Do Not Disturb": "bg-destructive", Offline: "bg-muted-foreground/50" };
+    switch (key) {
+      case "name": return (
+        <div className="flex items-center gap-3">
+          <div className="relative flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{u.firstName[0]}{u.lastName[0]}</div>
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${availColors[u.availabilityStatus] || "bg-muted-foreground/50"}`} />
+          </div>
+          <span className="font-medium text-foreground truncate">{u.firstName} {u.lastName}</span>
+        </div>
+      );
+      case "email": return <span className="text-muted-foreground">{u.email}</span>;
+      case "licensedStates": return <span className="text-muted-foreground">{p?.licensedStates.join(", ")}</span>;
+      case "commission": return <span className="text-foreground">{p?.commissionLevel}</span>;
+      case "role": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span>;
+      case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span>;
+      default: return null;
+    }
+  };
+
+  const colAlign = (key: string) => (key === "score" || key === "aging") ? "text-center" : "text-left";
+
+  // Current tab's active selection count
+  const activeSelectionCount = tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : tab === "Recruits" ? selectedRecruitIds.size : selectedAgentIds.size;
+
+  // Helper to render sortable header
+  const renderSortHeader = (key: string, label: string) => (
+    <th key={key} className={`${colAlign(key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(key)}>
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortCol === key ? (
+          sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 text-primary" />
+        ) : (
+          <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+        )}
+      </span>
+    </th>
+  );
+
+  // Generic columns toggle dropdown
+  const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<any>) => void, defaults: Set<string>) => (
+    <div className="relative" ref={columnsRef}>
+      <button onClick={() => setColumnsOpen(!columnsOpen)} className="h-9 px-3 rounded-md bg-background border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150">
+        <Columns3 className="w-4 h-4" />Columns
+      </button>
+      {columnsOpen && (
+        <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-50">
+          <p className="text-sm font-semibold text-foreground mb-2">Toggle Columns</p>
+          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            {columns.map(col => (
+              <label key={col.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={visible.has(col.key)}
+                  disabled={col.locked}
+                  onChange={() => {
+                    if (col.locked) return;
+                    const next = new Set(visible);
+                    next.has(col.key) ? next.delete(col.key) : next.add(col.key);
+                    setVisible(next);
+                  }}
+                  className="rounded"
+                />
+                {col.label}
+                {col.locked && (
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><Lock className="w-3 h-3 text-muted-foreground" /></TooltipTrigger><TooltipContent>Cannot be hidden</TooltipContent></Tooltip></TooltipProvider>
+                )}
+              </label>
+            ))}
+          </div>
+          <button onClick={() => setVisible(new Set(defaults))} className="text-xs text-primary hover:underline mt-2">Reset to default</button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Generic bulk actions toolbar
+  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void; onDelete: () => void }) => (
+    <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center gap-3 animate-in slide-in-from-top-2 fade-in duration-200">
+      <span className="text-sm font-medium text-primary">{count} selected</span>
+      <div className="w-px h-5 bg-primary/20" />
+      {options.showAssign && (
+        <div className="relative">
+          <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
+          {bulkAssignOpen && (
+            <div className="absolute top-full mt-1 left-0 w-40 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
+              {mockAgents.map(a => (
+                <button key={a.id} onClick={() => handleBulkAssign(a.name)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.name}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {options.showStatus && options.statusList && options.onStatusChange && (
+        <div className="relative">
+          <button onClick={() => { setBulkStatusOpen(!bulkStatusOpen); setBulkAssignOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Change Status</button>
+          {bulkStatusOpen && (
+            <div className="absolute top-full mt-1 left-0 w-44 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
+              {options.statusList.map(s => (
+                <button key={s} onClick={() => options.onStatusChange!(s)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{s}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button>
+      {tab === "Leads" && (
+        <>
+          <TooltipProvider><Tooltip><TooltipTrigger asChild><button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">SMS Blast</button></TooltipTrigger><TooltipContent>Coming soon — configure SMS in Settings</TooltipContent></Tooltip></TooltipProvider>
+          <TooltipProvider><Tooltip><TooltipTrigger asChild><button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">Email Blast</button></TooltipTrigger><TooltipContent>Coming soon — configure Email in Settings</TooltipContent></Tooltip></TooltipProvider>
+        </>
+      )}
+      <div className="flex-1" />
+      <button onClick={onDeselect} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Deselect All</button>
+    </div>
+  );
+
+  // Action menu for rows
+  const renderActionMenu = (id: string, onEdit: () => void, onDelete: () => void) => (
+    <div className="relative" ref={actionMenuId === id ? actionMenuRef : undefined}>
+      <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === id ? null : id); }} className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
+      {actionMenuId === id && (
+        <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
+          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2"><Pencil className="w-3.5 h-3.5" />Edit</button>
+          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2"><Trash2 className="w-3.5 h-3.5" />Delete</button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Determine filter options per tab
+  const filterStatuses = tab === "Leads" ? allStatuses : tab === "Recruits" ? recruitStatuses : [];
+
+  // Which add modal contact type
+  const addContactType = tab === "Clients" ? "Client" : tab === "Recruits" ? "Recruit" : "Lead";
+  const handleAddContact = tab === "Clients" ? handleAddClient : tab === "Recruits" ? handleAddRecruit : handleAddLead;
 
   return (
     <div className="space-y-4">
@@ -412,7 +834,7 @@ const Contacts: React.FC = () => {
       {/* Tabs */}
       <div className="flex border-b">
         {tabs.map(t => (
-          <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); }}
+          <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
             className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>{t}</button>
         ))}
       </div>
@@ -421,7 +843,7 @@ const Contacts: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search contacts..." className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`} className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
         </div>
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-lg p-0.5 border border-border">
@@ -429,74 +851,43 @@ const Contacts: React.FC = () => {
             <button onClick={() => setView("kanban")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}><LayoutGrid className="w-4 h-4" /></button>
           </div>
         )}
-        {/* Columns button */}
-        {tab === "Leads" && view === "table" && (
-          <div className="relative" ref={columnsRef}>
-            <button onClick={() => setColumnsOpen(!columnsOpen)} className="h-9 px-3 rounded-md bg-background border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150">
-              <Columns3 className="w-4 h-4" />Columns
-            </button>
-            {columnsOpen && (
-              <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-50">
-                <p className="text-sm font-semibold text-foreground mb-2">Toggle Columns</p>
-                <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {ALL_COLUMNS.filter(Boolean).filter(col => col != null).map(col => (
-                    <label key={col?.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCols.has(col?.key)}
-                        disabled={col?.locked}
-                        onChange={() => {
-                          if (col?.locked) return;
-                          setVisibleCols(prev => {
-                            const next = new Set(prev);
-                            next.has(col?.key) ? next.delete(col?.key) : next.add(col?.key);
-                            return next;
-                          });
-                        }}
-                        className="rounded"
-                      />
-                      {col?.label}
-                      {col?.locked && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild><Lock className="w-3 h-3 text-muted-foreground" /></TooltipTrigger>
-                            <TooltipContent>Name cannot be hidden</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </label>
-                  ))}
+        {/* Columns toggle — shown for all tabs in table view */}
+        {view === "table" && (
+          tab === "Leads" ? renderColumnsDropdown(ALL_COLUMNS, visibleCols as Set<string>, (s) => setVisibleCols(s as Set<ColumnKey>), DEFAULT_VISIBLE as Set<string>) :
+          tab === "Clients" ? renderColumnsDropdown(CLIENT_COLUMNS, visibleClientCols as Set<string>, (s) => setVisibleClientCols(s as Set<ClientColumnKey>), DEFAULT_CLIENT_VISIBLE as Set<string>) :
+          tab === "Recruits" ? renderColumnsDropdown(RECRUIT_COLUMNS, visibleRecruitCols as Set<string>, (s) => setVisibleRecruitCols(s as Set<RecruitColumnKey>), DEFAULT_RECRUIT_VISIBLE as Set<string>) :
+          renderColumnsDropdown(AGENT_COLUMNS, visibleAgentCols as Set<string>, (s) => setVisibleAgentCols(s as Set<AgentColumnKey>), DEFAULT_AGENT_VISIBLE as Set<string>)
+        )}
+        {/* Filter */}
+        {(tab === "Leads" || tab === "Recruits") && (
+          <div className="relative">
+            <button onClick={() => setFilterOpen(!filterOpen)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Filter className="w-4 h-4" />Filter</button>
+            {filterOpen && (
+              <div className="absolute top-full mt-1 left-0 w-56 bg-card border rounded-lg shadow-lg p-3 z-50 space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
+                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
+                    <option value="">All</option>
+                    {filterStatuses.map(s => <option key={s}>{s}</option>)}
+                  </select>
                 </div>
-                <button onClick={() => setVisibleCols(new Set(DEFAULT_VISIBLE))} className="text-xs text-primary hover:underline mt-2">Reset to default</button>
+                {tab === "Leads" && (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Source</label>
+                    <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
+                      <option value="">All</option>
+                      {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                )}
+                <button onClick={() => { setStatusFilter(""); setSourceFilter(""); setFilterOpen(false); }} className="text-xs text-primary hover:underline">Clear Filters</button>
               </div>
             )}
           </div>
         )}
-        <div className="relative">
-          <button onClick={() => setFilterOpen(!filterOpen)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Filter className="w-4 h-4" />Filter</button>
-          {filterOpen && (
-            <div className="absolute top-full mt-1 left-0 w-56 bg-card border rounded-lg shadow-lg p-3 z-50 space-y-3">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
-                  <option value="">All</option>
-                  {allStatuses.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Source</label>
-                <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
-                  <option value="">All</option>
-                  {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <button onClick={() => { setStatusFilter(""); setSourceFilter(""); setFilterOpen(false); }} className="text-xs text-primary hover:underline">Clear Filters</button>
-            </div>
-          )}
-        </div>
         <div className="flex-1" />
-        <button onClick={() => setImportModalOpen(true)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Upload className="w-4 h-4" />Import CSV</button>
-        <button onClick={() => setAddModalOpen(true)} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" />Add Contact</button>
+        {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Upload className="w-4 h-4" />Import CSV</button>}
+        {tab !== "Agents" && <button onClick={() => setAddModalOpen(true)} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
       {/* Loading */}
@@ -504,103 +895,48 @@ const Contacts: React.FC = () => {
         <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-primary animate-spin" /></div>
       )}
 
-      {/* LEADS TAB - Table View */}
+      {/* ===== LEADS TAB - Table View ===== */}
       {!loading && tab === "Leads" && view === "table" && (
         <>
-          {/* Source Performance - Collapsible */}
-          {(() => {
-            return (
-              <div className="bg-card rounded-xl border border-border">
-                <button
-                  onClick={() => setSourcePerfOpen(prev => !prev)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-left"
-                >
-                  <h3 className="text-sm font-semibold text-foreground">Lead Source Performance</h3>
-                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${sourcePerfOpen ? "rotate-180" : ""}`} />
-                </button>
-                <div
-                  className="overflow-hidden transition-all duration-200 ease-in-out"
-                  style={{ maxHeight: sourcePerfOpen ? "500px" : "0px", opacity: sourcePerfOpen ? 1 : 0 }}
-                >
-                  <div className="px-4 pb-4">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead><tr className="text-muted-foreground border-b">
-                          <th className="text-left py-2 font-medium">Source</th>
-                          <th className="text-right py-2 font-medium">Leads</th>
-                          <th className="text-right py-2 font-medium">Contacted %</th>
-                          <th className="text-right py-2 font-medium">Conversion %</th>
-                          <th className="text-right py-2 font-medium">Policies Sold</th>
-                        </tr></thead>
-                        <tbody>
-                          {sourceStats.map(s => (
-                            <tr key={s.source} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer" onClick={() => setSourceFilter(s.source)}>
-                              <td className="py-2 font-medium text-foreground">{s.source}</td>
-                              <td className="py-2 text-right text-foreground">{s.leads}</td>
-                              <td className="py-2 text-right text-foreground">{s.contacted}</td>
-                              <td className="py-2 text-right text-foreground">{s.conversion}</td>
-                              <td className="py-2 text-right text-foreground">{s.sold}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+          {/* Source Performance */}
+          <div className="bg-card rounded-xl border border-border">
+            <button onClick={() => setSourcePerfOpen(prev => !prev)} className="w-full flex items-center justify-between px-4 py-3 text-left">
+              <h3 className="text-sm font-semibold text-foreground">Lead Source Performance</h3>
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${sourcePerfOpen ? "rotate-180" : ""}`} />
+            </button>
+            <div className="overflow-hidden transition-all duration-200 ease-in-out" style={{ maxHeight: sourcePerfOpen ? "500px" : "0px", opacity: sourcePerfOpen ? 1 : 0 }}>
+              <div className="px-4 pb-4">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-muted-foreground border-b">
+                      <th className="text-left py-2 font-medium">Source</th>
+                      <th className="text-right py-2 font-medium">Leads</th>
+                      <th className="text-right py-2 font-medium">Contacted %</th>
+                      <th className="text-right py-2 font-medium">Conversion %</th>
+                      <th className="text-right py-2 font-medium">Policies Sold</th>
+                    </tr></thead>
+                    <tbody>
+                      {sourceStats.map(s => (
+                        <tr key={s.source} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer" onClick={() => setSourceFilter(s.source)}>
+                          <td className="py-2 font-medium text-foreground">{s.source}</td>
+                          <td className="py-2 text-right text-foreground">{s.leads}</td>
+                          <td className="py-2 text-right text-foreground">{s.contacted}</td>
+                          <td className="py-2 text-right text-foreground">{s.conversion}</td>
+                          <td className="py-2 text-right text-foreground">{s.sold}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            );
-          })()}
-
-          {/* Bulk Actions Toolbar */}
-          {selectedIds.size > 0 && (
-            <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center gap-3 animate-in slide-in-from-top-2 fade-in duration-200">
-              <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
-              <div className="w-px h-5 bg-primary/20" />
-              {/* Assign Agent */}
-              <div className="relative">
-                <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
-                {bulkAssignOpen && (
-                  <div className="absolute top-full mt-1 left-0 w-40 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
-                    {mockAgents.map(a => (
-                      <button key={a.id} onClick={() => handleBulkAssign(a.name)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.name}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {/* Change Status */}
-              <div className="relative">
-                <button onClick={() => { setBulkStatusOpen(!bulkStatusOpen); setBulkAssignOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Change Status</button>
-                {bulkStatusOpen && (
-                  <div className="absolute top-full mt-1 left-0 w-44 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
-                    {allStatuses.map(s => (
-                      <button key={s} onClick={() => handleBulkStatusChange(s)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{s}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {/* Delete */}
-              <button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button>
-              {/* SMS Blast */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">SMS Blast</button>
-                  </TooltipTrigger>
-                  <TooltipContent>Coming soon — configure SMS in Settings</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              {/* Email Blast */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">Email Blast</button>
-                  </TooltipTrigger>
-                  <TooltipContent>Coming soon — configure Email in Settings</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <div className="flex-1" />
-              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Deselect All</button>
             </div>
+          </div>
+
+          {/* Bulk Actions */}
+          {selectedIds.size > 0 && renderBulkActions(
+            selectedIds.size,
+            () => setSelectedIds(new Set()),
+            { showAssign: true, showStatus: true, statusList: allStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus), onDelete: handleBulkDeleteLeads }
           )}
 
           {/* Leads Table */}
@@ -614,46 +950,31 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                 <table className="w-full text-sm">
-                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                     <th className="w-10 py-3 px-3">
-                       <input
-                         type="checkbox"
-                         checked={isAllSelected}
-                         ref={el => { if (el) el.indeterminate = isIndeterminate; }}
-                         onChange={toggleAll}
-                         className="rounded"
-                       />
-                     </th>
-                     {ALL_COLUMNS.filter(Boolean).filter(c => c != null && visibleCols.has(c?.key)).map(col => (
-                       <th key={col?.key} className={`${colAlign(col?.key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group`} onClick={() => handleSort(col?.key)}>
-                         <span className="inline-flex items-center gap-1">
-                           {col?.label}
-                           {sortCol === col?.key ? (
-                             sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 text-primary" />
-                           ) : (
-                             <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
-                           )}
-                         </span>
-                       </th>
-                     ))}
-                     <th className="w-10 py-3"></th>
-                   </tr></thead>
-                   <tbody>
-                     {sortedLeads.map(l => {
-                       const aging = calcAging(l.lastContactedAt);
-                       return (
-                         <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
-                           <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
-                           {ALL_COLUMNS.filter(Boolean).filter(c => c != null && visibleCols.has(c?.key)).map(col => (
-                             <td key={col?.key} className={`py-3 ${colAlign(col?.key)}`}>{renderCell(l, col?.key, aging)}</td>
-                           ))}
-                           <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
-                         </tr>
-                       );
-                     })}
-                   </tbody>
-                 </table>
+                <table className="w-full text-sm">
+                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                    <th className="w-10 py-3 px-3">
+                      <input type="checkbox" checked={isAllSelected} ref={el => { if (el) el.indeterminate = isIndeterminate; }} onChange={toggleAll} className="rounded" />
+                    </th>
+                    {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
+                    <th className="w-10 py-3"></th>
+                  </tr></thead>
+                  <tbody>
+                    {sortedLeads.map(l => {
+                      const aging = calcAging(l.lastContactedAt);
+                      return (
+                        <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`} onClick={() => setSelectedLead(l)}>
+                          <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
+                          {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
+                            <td key={col.key} className={`py-3 ${colAlign(col.key)}`}>{renderCell(l, col.key, aging)}</td>
+                          ))}
+                          <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
+                            {renderActionMenu(l.id, () => setEditLead(l), () => handleDeleteLead(l.id))}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -691,148 +1012,155 @@ const Contacts: React.FC = () => {
         </div>
       )}
 
-      {/* CLIENTS TAB */}
+      {/* ===== CLIENTS TAB ===== */}
       {!loading && tab === "Clients" && (
-        <div className="bg-card rounded-xl border overflow-hidden">
-          {clients.length === 0 ? (
-            <div className="text-center py-12">
-              <ShieldCheck className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <h3 className="font-semibold text-foreground mb-1">No clients yet</h3>
-              <p className="text-sm text-muted-foreground">Convert leads to clients after policy sales.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-               <table className="w-full text-sm">
-                 <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                   <th className="text-left py-3 px-4 font-medium">Name</th>
-                   <th className="text-left py-3 font-medium">Phone</th>
-                   <th className="text-left py-3 font-medium">Policy Type</th>
-                   <th className="text-left py-3 font-medium hidden lg:table-cell">Carrier</th>
-                   <th className="text-left py-3 font-medium">Premium</th>
-                   <th className="text-left py-3 font-medium hidden lg:table-cell">Face Amount</th>
-                   <th className="text-left py-3 font-medium hidden xl:table-cell">Issue Date</th>
-                   <th className="w-10 py-3"></th>
-                 </tr></thead>
-                 <tbody>
-                   {clients.map(c => (
-                     <tr key={c.id} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                       <td className="py-3 px-4 font-medium text-foreground">{c.firstName} {c.lastName}</td>
-                       <td className="py-3 font-mono text-xs text-foreground">{c.phone}</td>
-                       <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span></td>
-                       <td className="py-3 text-muted-foreground hidden lg:table-cell">{c.carrier}</td>
-                       <td className="py-3 text-foreground">{c.premiumAmount}</td>
-                       <td className="py-3 text-foreground hidden lg:table-cell">{c.faceAmount}</td>
-                       <td className="py-3 text-muted-foreground hidden xl:table-cell">{c.issueDate}</td>
-                       <td className="py-3" style={{ width: 40 }}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
-                     </tr>
-                   ))}
-                 </tbody>
-               </table>
-            </div>
+        <>
+          {selectedClientIds.size > 0 && renderBulkActions(
+            selectedClientIds.size,
+            () => setSelectedClientIds(new Set()),
+            { showAssign: true, onDelete: handleBulkDeleteClients }
           )}
-        </div>
-      )}
-
-      {/* RECRUITS TAB */}
-      {!loading && tab === "Recruits" && (
-        <div className="bg-card rounded-xl border overflow-hidden">
-          {recruits.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <h3 className="font-semibold text-foreground mb-1">No recruits yet</h3>
-              <p className="text-sm text-muted-foreground">Start building your recruit pipeline.</p>
-            </div>
-          ) : view === "table" ? (
-             <div className="overflow-x-auto">
-               <table className="w-full text-sm">
-                 <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                   <th className="text-left py-3 px-4 font-medium">Name</th>
-                   <th className="text-left py-3 font-medium">Phone</th>
-                   <th className="text-left py-3 font-medium">Email</th>
-                   <th className="text-left py-3 font-medium">Status</th>
-                   <th className="text-left py-3 font-medium">Agent</th>
-                   <th className="w-10 py-3"></th>
-                 </tr></thead>
-                 <tbody>
-                   {recruits.map(r => (
-                     <tr key={r.id} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                       <td className="py-3 px-4 font-medium text-foreground">{r.firstName} {r.lastName}</td>
-                       <td className="py-3 font-mono text-xs text-foreground">{r.phone}</td>
-                       <td className="py-3 text-muted-foreground">{r.email}</td>
-                       <td className="py-3"><span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{r.status}</span></td>
-                       <td className="py-3 text-foreground">{getAgentName(r.assignedAgentId)}</td>
-                       <td className="py-3" style={{ width: 40 }}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
-                     </tr>
-                   ))}
-                 </tbody>
-               </table>
-             </div>
-          ) : (
-            <div className="flex gap-3 overflow-x-auto pb-4 p-3">
-              {["Prospect", "Contacted", "Interview", "Licensed", "Active"].map(s => {
-                const items = recruits.filter(r => r.status === s);
-                return (
-                  <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-foreground">{s}</span>
-                      <span className="text-xs text-muted-foreground">{items.length}</span>
-                    </div>
-                    {items.map(r => (
-                      <div key={r.id} className="bg-card rounded-lg border p-3">
-                        <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
-                        <p className="text-xs text-muted-foreground">{r.email}</p>
-                      </div>
+          <div className="bg-card rounded-xl border overflow-hidden">
+            {clients.length === 0 ? (
+              <div className="text-center py-12">
+                <ShieldCheck className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                <h3 className="font-semibold text-foreground mb-1">No clients yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">Convert leads to clients after policy sales, or add one manually.</p>
+                <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Client</button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                    <th className="w-10 py-3 px-3">
+                      <input type="checkbox" checked={selectedClientIds.size === clients.length && clients.length > 0} ref={el => { if (el) el.indeterminate = selectedClientIds.size > 0 && selectedClientIds.size < clients.length; }} onChange={toggleAllClients} className="rounded" />
+                    </th>
+                    {CLIENT_COLUMNS.filter(c => visibleClientCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
+                    <th className="w-10 py-3"></th>
+                  </tr></thead>
+                  <tbody>
+                    {sortedClients.map(c => (
+                      <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""}`} onClick={() => toast.info(`Client: ${c.firstName} ${c.lastName}`)}>
+                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => {}} className="rounded" /></td>
+                        {CLIENT_COLUMNS.filter(col => visibleClientCols.has(col.key)).map(col => (
+                          <td key={col.key} className={`py-3 ${colAlign(col.key)}`}>{renderClientCell(c, col.key)}</td>
+                        ))}
+                        <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
+                          {renderActionMenu(c.id, () => setEditClient(c), () => handleDeleteClient(c.id))}
+                        </td>
+                      </tr>
                     ))}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
-      {/* AGENTS TAB */}
-      {!loading && tab === "Agents" && (
-        <div className="bg-card rounded-xl border overflow-hidden">
-          <div className="overflow-x-auto">
-             <table className="w-full text-sm">
-               <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                 <th className="text-left py-3 px-4 font-medium">Agent</th>
-                 <th className="text-left py-3 font-medium">Email</th>
-                 <th className="text-left py-3 font-medium hidden lg:table-cell">Licensed States</th>
-                 <th className="text-left py-3 font-medium">Commission</th>
-                 <th className="text-left py-3 font-medium">Role</th>
-                 <th className="text-left py-3 font-medium">Status</th>
-                 <th className="w-10 py-3"></th>
-               </tr></thead>
-               <tbody>
-                 {mockUsers.map(u => {
-                   const p = mockProfiles.find(p => p.userId === u.id);
-                   const availColors: Record<string, string> = { Available: "bg-success", "On Break": "bg-warning", "Do Not Disturb": "bg-destructive", Offline: "bg-muted-foreground/50" };
-                   return (
-                     <tr key={u.id} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition">
-                       <td className="py-3 px-4">
-                         <div className="flex items-center gap-3">
-                           <div className="relative flex-shrink-0">
-                             <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{u.firstName[0]}{u.lastName[0]}</div>
-                             <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${availColors[u.availabilityStatus] || "bg-muted-foreground/50"}`} />
-                           </div>
-                           <span className="font-medium text-foreground truncate">{u.firstName} {u.lastName}</span>
-                         </div>
-                       </td>
-                       <td className="py-3 text-muted-foreground">{u.email}</td>
-                       <td className="py-3 text-muted-foreground hidden lg:table-cell">{p?.licensedStates.join(", ")}</td>
-                       <td className="py-3 text-foreground">{p?.commissionLevel}</td>
-                       <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span></td>
-                       <td className="py-3"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span></td>
-                       <td className="py-3" style={{ width: 40 }}><button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button></td>
-                    </tr>
+      {/* ===== RECRUITS TAB ===== */}
+      {!loading && tab === "Recruits" && (
+        <>
+          {selectedRecruitIds.size > 0 && view === "table" && renderBulkActions(
+            selectedRecruitIds.size,
+            () => setSelectedRecruitIds(new Set()),
+            { showAssign: true, showStatus: true, statusList: recruitStatuses, onStatusChange: handleBulkRecruitStatusChange, onDelete: handleBulkDeleteRecruits }
+          )}
+          <div className="bg-card rounded-xl border overflow-hidden">
+            {recruits.length === 0 ? (
+              <div className="text-center py-12">
+                <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                <h3 className="font-semibold text-foreground mb-1">No recruits yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">Start building your recruit pipeline.</p>
+                <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Recruit</button>
+              </div>
+            ) : view === "table" ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                    <th className="w-10 py-3 px-3">
+                      <input type="checkbox" checked={selectedRecruitIds.size === recruits.length && recruits.length > 0} ref={el => { if (el) el.indeterminate = selectedRecruitIds.size > 0 && selectedRecruitIds.size < recruits.length; }} onChange={toggleAllRecruits} className="rounded" />
+                    </th>
+                    {RECRUIT_COLUMNS.filter(c => visibleRecruitCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
+                    <th className="w-10 py-3"></th>
+                  </tr></thead>
+                  <tbody>
+                    {sortedRecruits.map(r => (
+                      <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""}`} onClick={() => toast.info(`Recruit: ${r.firstName} ${r.lastName}`)}>
+                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => {}} className="rounded" /></td>
+                        {RECRUIT_COLUMNS.filter(col => visibleRecruitCols.has(col.key)).map(col => (
+                          <td key={col.key} className={`py-3 ${colAlign(col.key)}`}>{renderRecruitCell(r, col.key)}</td>
+                        ))}
+                        <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
+                          {renderActionMenu(r.id, () => setEditRecruit(r), () => handleDeleteRecruit(r.id))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-4 p-3">
+                {recruitStatuses.map(s => {
+                  const items = recruits.filter(r => r.status === s);
+                  return (
+                    <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${recruitStatusColors[s] || "bg-muted text-muted-foreground"}`}>{s}</span>
+                        <span className="text-xs text-muted-foreground">{items.length}</span>
+                      </div>
+                      {items.map(r => (
+                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => toast.info(`Recruit: ${r.firstName} ${r.lastName}`)}>
+                          <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
+                          <p className="text-xs text-muted-foreground">{r.email}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId)}</p>
+                        </div>
+                      ))}
+                      <button onClick={() => setAddModalOpen(true)} className="w-full py-2 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent sidebar-transition">+ Add</button>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
-        </div>
+        </>
+      )}
+
+      {/* ===== AGENTS TAB ===== */}
+      {!loading && tab === "Agents" && (
+        <>
+          {selectedAgentIds.size > 0 && renderBulkActions(
+            selectedAgentIds.size,
+            () => setSelectedAgentIds(new Set()),
+            { showStatus: true, statusList: ["Active", "Inactive"], onStatusChange: handleBulkAgentStatusChange, onDelete: () => toast.error("Cannot delete agents from this view") }
+          )}
+          <div className="bg-card rounded-xl border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                  <th className="w-10 py-3 px-3">
+                    <input type="checkbox" checked={selectedAgentIds.size === mockUsers.length && mockUsers.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < mockUsers.length; }} onChange={toggleAllAgents} className="rounded" />
+                  </th>
+                  {AGENT_COLUMNS.filter(c => visibleAgentCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
+                  <th className="w-10 py-3"></th>
+                </tr></thead>
+                <tbody>
+                  {sortedAgents.map(u => (
+                    <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""}`} onClick={() => toast.info(`Agent: ${u.firstName} ${u.lastName}`)}>
+                      <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => {}} className="rounded" /></td>
+                      {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
+                        <td key={col.key} className={`py-3 ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)}`}>{renderAgentCell(u, col.key)}</td>
+                      ))}
+                      <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
+                        <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Import History (below leads table) */}
@@ -903,11 +1231,19 @@ const Contacts: React.FC = () => {
       )}
 
       {/* Modals */}
-      <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddLead} />
-      <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} />
+      <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddContact} contactType={addContactType} />
+      <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} contactType="Lead" />
+      <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
+      <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit} contactType="Recruit" />
       <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
-      <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDelete} onClose={() => setDeleteConfirmOpen(false)} />
-      <DeleteConfirmModal open={bulkDeleteOpen} count={selectedIds.size} title={`Delete ${selectedIds.size} Leads?`} onConfirm={handleBulkDelete} onClose={() => setBulkDeleteOpen(false)} />
+      <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDeleteLeads} onClose={() => setDeleteConfirmOpen(false)} />
+      <DeleteConfirmModal
+        open={bulkDeleteOpen}
+        count={tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size}
+        title={`Delete ${tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size} ${tab}?`}
+        onConfirm={tab === "Leads" ? handleBulkDeleteLeads : tab === "Clients" ? handleBulkDeleteClients : handleBulkDeleteRecruits}
+        onClose={() => setBulkDeleteOpen(false)}
+      />
 
       {/* Import Modal */}
       <ImportLeadsModal
