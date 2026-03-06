@@ -324,8 +324,7 @@ const DialerPage: React.FC = () => {
             callRef.current = notification.call;
             const state = notification.call.state;
             if (state === "hangup" || state === "destroy") {
-              setOnCall(false);
-              setShowDisposition(true);
+              setCallStatus("ended");
               setSelectedDispId(null);
             }
           }
