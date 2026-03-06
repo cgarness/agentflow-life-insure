@@ -99,6 +99,13 @@ const FloatingDialer: React.FC = () => {
 
     const init = async () => {
       try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error("Microphone permission denied:", err);
+        setDialerError("Microphone access is required to make calls. Please allow microphone access and refresh the page.");
+        return;
+      }
+      try {
         const res = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telnyx-token`,
           {
