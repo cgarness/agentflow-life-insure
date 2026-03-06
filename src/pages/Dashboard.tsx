@@ -3,10 +3,9 @@ import {
   Phone, ShieldCheck, Calendar, Megaphone, TrendingUp, TrendingDown,
   Clock, ArrowRight, PhoneCall, Users, Star, Trophy, Loader2, Settings2,
 } from "lucide-react";
-import { dashboardApi } from "@/lib/mock-api";
+import { dashboardSupabaseApi } from "@/lib/supabase-dashboard";
 import { useAuth } from "@/contexts/AuthContext";
 import { DashboardStats, LeaderboardEntry, WinFeedItem } from "@/lib/types";
-import { calcAging } from "@/lib/mock-data";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import CustomizeDrawer, { WidgetConfig } from "@/components/dashboard/CustomizeDrawer";
@@ -72,13 +71,13 @@ const Dashboard: React.FC = () => {
     const load = async () => {
       setLoading(true);
       const [s, lb, fu, mc, ann, w, act] = await Promise.all([
-        dashboardApi.getStats(),
-        dashboardApi.getLeaderboard(lbPeriod),
-        dashboardApi.getFollowUps(),
-        dashboardApi.getMissedCalls(),
-        dashboardApi.getAnniversaries(),
-        dashboardApi.getWins(),
-        dashboardApi.getRecentActivity(),
+        dashboardSupabaseApi.getStats(),
+        dashboardSupabaseApi.getLeaderboard(lbPeriod),
+        dashboardSupabaseApi.getFollowUps(),
+        dashboardSupabaseApi.getMissedCalls(),
+        dashboardSupabaseApi.getAnniversaries(),
+        dashboardSupabaseApi.getWins(),
+        dashboardSupabaseApi.getRecentActivity(),
       ]);
       setStats(s);
       setLeaderboard(lb);
@@ -94,7 +93,7 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      const s = await dashboardApi.getStats();
+      const s = await dashboardSupabaseApi.getStats();
       setStats(s);
     }, 60000);
     return () => clearInterval(interval);
