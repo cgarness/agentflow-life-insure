@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { X, Phone, Mail, Calendar, Pencil, Trash2, GitMerge, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare } from "lucide-react";
 import { Client, ContactNote, ContactActivity, Call } from "@/lib/types";
 import { mockUsers, mockCalls, getAgentName } from "@/lib/mock-data";
+import { notesSupabaseApi } from "@/lib/supabase-notes";
+import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -106,27 +108,55 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   };
 
   useEffect(() => {
-    if (client) {
+    async function loadData() {
+      if (!client) return;
       setEditForm({ ...client });
-      setLocalNotes(generateMockNotes(client).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
-      setActivities(generateMockActivities(client));
+
+      const [fetchedNotes, fetchedActivities] = await Promise.all([
+        notesSupabaseApi.getByContact(client.id),
+        activitiesSupabaseApi.getByContact(client.id)
+      ]);
+
+      setLocalNotes(fetchedNotes);
+      setActivities(fetchedActivities);
       setCalls(generateMockCalls(client));
       setHistoryItems(generateMockHistory(client));
       setActiveTab("Overview"); setEditMode(false); setHasChanges(false);
       setNewNote(""); setNoteError(""); setPinNewNote(false); setHistoryFilter("All");
       setShowAppt(false); setLastUpdated(new Date().toISOString());
     }
+    loadData();
   }, [client]);
 
   if (!client) return null;
   const agents = mockUsers.filter(u => u.status === "Active");
   const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); };
-  const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); logActivity(`Client updated by ${AGENT_NAME}`, "note"); toast.success("Client updated"); };
+  const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Client updated"); };
   const handleCancel = () => { setEditForm({ ...client }); setEditMode(false); setHasChanges(false); };
   const tryClose = () => { if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
-  const handleAddNote = () => { if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; } setNoteError(""); const n: ContactNote = { id: `note-${Date.now()}`, contactId: client.id, contactType: "client", note: newNote.trim(), pinned: pinNewNote, agentId: "u1", agentName: "Chris G.", createdAt: new Date().toISOString() }; setLocalNotes(prev => [n, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); setNewNote(""); setPinNewNote(false); logActivity(`Note added by ${AGENT_NAME}`, "note"); toast.success("Note added"); };
-  const handleTogglePin = (noteId: string) => { const n = localNotes.find(n => n.id === noteId); const was = n?.pinned; setLocalNotes(prev => prev.map(n => n.id === noteId ? { ...n, pinned: !n.pinned } : n).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); logActivity(was ? `Note unpinned by ${AGENT_NAME}` : `Note pinned by ${AGENT_NAME}`, was ? "note" : "pin"); };
-  const handleDeleteNote = (noteId: string) => { setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null); logActivity(`Note deleted by ${AGENT_NAME}`, "delete"); toast.success("Note deleted"); };
+  const handleAddNote = async () => {
+    if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; }
+    setNoteError("");
+
+    try {
+      const addedNote = await notesSupabaseApi.add(client.id, "client", newNote.trim(), "u1");
+      setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
+      setNewNote(""); setPinNewNote(false);
+      await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" });
+      toast.success("Note added");
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+  const handleTogglePin = async (noteId: string) => {
+    toast.error("Pinning is not currently supported in DB");
+  };
+  const handleDeleteNote = async (noteId: string) => {
+    // Delete note not implemented in DB wrapper yet; optimistic UI only for now 
+    setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null);
+    await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" });
+    toast.success("Note deleted");
+  };
   const fmt = (s: number) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toString().padStart(2, "0")}`; };
   const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 

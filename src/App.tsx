@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
@@ -52,37 +53,39 @@ const App = () => (
     <ThemeProvider attribute="class" defaultTheme="light" storageKey="agentflow-theme">
       <TooltipProvider>
         <AuthProvider>
-          <CalendarProvider>
-            <SidebarProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <ErrorBoundary>
-                <Routes>
-                  <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-                  <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
-                  <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
-                  <Route path="/reset-password" element={<ResetPassword />} />
-                  <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/dialer" element={<DialerPage />} />
-                    <Route path="/contacts" element={<Contacts />} />
-                    <Route path="/conversations" element={<Conversations />} />
-                    <Route path="/calendar" element={<CalendarPage />} />
-                    <Route path="/campaigns" element={<Campaigns />} />
-                    <Route path="/leaderboard" element={<Leaderboard />} />
-                    <Route path="/reports" element={<Reports />} />
-                    <Route path="/ai-agents" element={<AIAgents />} />
-                    <Route path="/training" element={<Training />} />
-                    <Route path="/settings" element={<SettingsPage />} />
-                    <Route path="/agent-profile" element={<AgentProfile />} />
-                  </Route>
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </ErrorBoundary>
-            </BrowserRouter>
-            </SidebarProvider>
-          </CalendarProvider>
+          <NotificationProvider>
+            <CalendarProvider>
+              <SidebarProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <ErrorBoundary>
+                    <Routes>
+                      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+                      <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
+                      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+                      <Route path="/reset-password" element={<ResetPassword />} />
+                      <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/dialer" element={<DialerPage />} />
+                        <Route path="/contacts" element={<Contacts />} />
+                        <Route path="/conversations" element={<Conversations />} />
+                        <Route path="/calendar" element={<CalendarPage />} />
+                        <Route path="/campaigns" element={<Campaigns />} />
+                        <Route path="/leaderboard" element={<Leaderboard />} />
+                        <Route path="/reports" element={<Reports />} />
+                        <Route path="/ai-agents" element={<AIAgents />} />
+                        <Route path="/training" element={<Training />} />
+                        <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="/agent-profile" element={<AgentProfile />} />
+                      </Route>
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </ErrorBoundary>
+                </BrowserRouter>
+              </SidebarProvider>
+            </CalendarProvider>
+          </NotificationProvider>
         </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>

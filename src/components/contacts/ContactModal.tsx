@@ -6,7 +6,9 @@ import {
 } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { Lead, LeadStatus, ContactNote, ContactActivity, Call } from "@/lib/types";
-import { mockUsers, mockCalls, mockNotes, mockActivities, calcAging, getAgentName } from "@/lib/mock-data";
+import { mockUsers, mockCalls, calcAging, getAgentName } from "@/lib/mock-data";
+import { notesSupabaseApi } from "@/lib/supabase-notes";
+import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -214,10 +216,17 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   };
 
   useEffect(() => {
-    if (lead) {
+    async function loadData() {
+      if (!lead) return;
       setEditForm({ ...lead });
-      setLocalNotes(generateMockNotes(lead).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
-      setActivities(generateMockActivities(lead));
+
+      const [fetchedNotes, fetchedActivities] = await Promise.all([
+        notesSupabaseApi.getByContact(lead.id),
+        activitiesSupabaseApi.getByContact(lead.id)
+      ]);
+
+      setLocalNotes(fetchedNotes);
+      setActivities(fetchedActivities);
       setCalls(generateMockCalls(lead));
       setHistoryItems(generateMockHistory(lead));
       setActiveTab("Overview");
@@ -232,6 +241,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setLocalStatus(lead.status);
       setShowAppointmentModal(false);
     }
+    loadData();
   }, [lead]);
 
   useEffect(() => {
@@ -253,7 +263,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     setLocalStatus(newStatus);
     setEditForm(f => ({ ...f, status: newStatus }));
     await onUpdate(lead.id, { status: newStatus });
-    logActivity(`Status changed to ${newStatus}`, "status");
+    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" });
     toast.success(`Status updated to ${newStatus}`);
   };
 
@@ -287,8 +297,12 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     await onUpdate(lead.id, editForm);
     setEditMode(false);
     setHasChanges(false);
-    logActivity(`Contact details updated by ${AGENT_NAME}`, "note");
-    changedFields.forEach(cf => logActivity(cf, "note"));
+
+    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: `Contact details updated by ${AGENT_NAME}`, agentId: "u1" });
+    for (const cf of changedFields) {
+      await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: cf, agentId: "u1" });
+    }
+
     toast.success("Contact updated successfully");
   };
 
@@ -310,40 +324,31 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const handleAddNote = async () => {
     if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; }
     setNoteError("");
-    const note: ContactNote = {
-      id: `note-${Date.now()}`,
-      contactId: lead.id,
-      contactType: "lead",
-      note: newNote.trim(),
-      pinned: pinNewNote,
-      agentId: "u1",
-      agentName: "Chris G.",
-      createdAt: new Date().toISOString(),
-    };
-    setLocalNotes(prev => {
-      const next = [note, ...prev];
-      return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
-    });
-    setNewNote("");
-    setPinNewNote(false);
-    logActivity(`Note added by ${AGENT_NAME}`, "note");
-    toast.success("Note added");
+
+    try {
+      const addedNote = await notesSupabaseApi.add(lead.id, "lead", newNote.trim(), "u1");
+      setLocalNotes(prev => {
+        const next = [addedNote, ...prev];
+        return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+      });
+      setNewNote("");
+      setPinNewNote(false);
+      await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" });
+      toast.success("Note added");
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   };
 
-  const handleTogglePin = (noteId: string) => {
-    const note = localNotes.find(n => n.id === noteId);
-    const wasPinned = note?.pinned;
-    setLocalNotes(prev =>
-      prev.map(n => n.id === noteId ? { ...n, pinned: !n.pinned } : n)
-        .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
-    );
-    logActivity(wasPinned ? `Note unpinned by ${AGENT_NAME}` : `Note pinned by ${AGENT_NAME}`, wasPinned ? "note" : "pin");
+  const handleTogglePin = async (noteId: string) => {
+    toast.error("Pinning is not currently supported in DB");
   };
 
-  const handleDeleteNote = (noteId: string) => {
+  const handleDeleteNote = async (noteId: string) => {
+    // Delete note not implemented in DB wrapper yet; optimistic UI only for now
     setLocalNotes(prev => prev.filter(n => n.id !== noteId));
     setDeleteNoteId(null);
-    logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
+    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" });
     toast.success("Note deleted");
   };
 

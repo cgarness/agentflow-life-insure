@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { X, Phone, Mail, Calendar, Clock, FileText, RefreshCw, MessageSquare, ChevronDown } from "lucide-react";
 import { User, UserProfile, ContactActivity } from "@/lib/types";
 import { mockProfiles } from "@/lib/mock-data";
+import { notesSupabaseApi } from "@/lib/supabase-notes";
+import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -35,19 +37,28 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
     const [localNotes, setLocalNotes] = useState<{ id: string; text: string; ts: string }[]>([]);
 
     useEffect(() => {
-        if (agent) {
+        async function loadData() {
+            if (!agent) return;
             setLocalAvail(agent.availabilityStatus);
-            setActivities(generateMockActivities(agent));
-            setActiveTab("Overview"); setAvailDropdownOpen(false); setNewNote(""); setLocalNotes([]); setLastUpdated(new Date().toISOString());
+
+            const [fetchedNotes, fetchedActivities] = await Promise.all([
+                notesSupabaseApi.getByContact(agent.id),
+                activitiesSupabaseApi.getByContact(agent.id)
+            ]);
+
+            setLocalNotes(fetchedNotes.map((n: any) => ({ id: n.id, text: n.note, ts: n.createdAt })));
+            setActivities(fetchedActivities);
+            setActiveTab("Overview"); setAvailDropdownOpen(false); setNewNote(""); setLastUpdated(new Date().toISOString());
         }
+        loadData();
     }, [agent]);
 
     if (!agent) return null;
     const profile: UserProfile | undefined = mockProfiles.find(p => p.userId === agent.id);
 
-    const handleAvailChange = (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status); const entry: ContactActivity = { id: `act-${Date.now()}`, contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: agent.id, agentName: `${agent.firstName} ${agent.lastName}`, createdAt: new Date().toISOString() }; setActivities(prev => [entry, ...prev]); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
+    const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
 
-    const handleAddNote = () => { if (!newNote.trim()) return; setLocalNotes(prev => [{ id: `n-${Date.now()}`, text: newNote.trim(), ts: new Date().toISOString() }, ...prev]); setNewNote(""); toast.success("Note added"); };
+    const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1"); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } };
 
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 

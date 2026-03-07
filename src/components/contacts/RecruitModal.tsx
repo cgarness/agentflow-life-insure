@@ -3,6 +3,8 @@ import { X, Phone, Mail, Calendar, Pencil, Trash2, Clock, Pin, Headphones, FileT
 import { Recruit, ContactNote, ContactActivity, Call } from "@/lib/types";
 
 import { mockUsers, mockCalls, getAgentName } from "@/lib/mock-data";
+import { notesSupabaseApi } from "@/lib/supabase-notes";
+import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -61,24 +63,34 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
     const logActivity = (description: string, type: string) => { const entry: ContactActivity = { id: `act-${Date.now()}`, contactId: recruit?.id ?? "", contactType: "recruit", type, description, agentId: "u1", agentName: AGENT_NAME, createdAt: new Date().toISOString() }; setActivities(prev => [entry, ...prev]); setLastUpdated(new Date().toISOString()); };
 
     useEffect(() => {
-        if (recruit) {
+        async function loadData() {
+            if (!recruit) return;
             setEditForm({ ...recruit }); setLocalStatus(recruit.status);
-            setLocalNotes(generateMockNotes(recruit).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
-            setActivities(generateMockActivities(recruit)); setCalls(generateMockCalls(recruit)); setHistoryItems(generateMockHistory(recruit));
+
+            const [fetchedNotes, fetchedActivities] = await Promise.all([
+                notesSupabaseApi.getByContact(recruit.id),
+                activitiesSupabaseApi.getByContact(recruit.id)
+            ]);
+
+            setLocalNotes(fetchedNotes);
+            setActivities(fetchedActivities);
+            setCalls(generateMockCalls(recruit));
+            setHistoryItems(generateMockHistory(recruit));
             setActiveTab("Overview"); setEditMode(false); setHasChanges(false); setNewNote(""); setNoteError(""); setPinNewNote(false); setHistoryFilter("All"); setShowAppt(false); setStatusDropdownOpen(false); setLastUpdated(new Date().toISOString());
         }
+        loadData();
     }, [recruit]);
 
     if (!recruit) return null;
     const agents = mockUsers.filter(u => u.status === "Active");
-    const handleStatusChange = async (newStatus: string) => { setStatusDropdownOpen(false); setLocalStatus(newStatus); setEditForm(f => ({ ...f, status: newStatus })); await onUpdate(recruit.id, { status: newStatus }); logActivity(`Status changed to ${newStatus}`, "status"); toast.success(`Status updated to ${newStatus}`); };
+    const handleStatusChange = async (newStatus: string) => { setStatusDropdownOpen(false); setLocalStatus(newStatus); setEditForm(f => ({ ...f, status: newStatus })); await onUpdate(recruit.id, { status: newStatus }); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" }); toast.success(`Status updated to ${newStatus}`); };
     const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); };
-    const handleSave = async () => { await onUpdate(recruit.id, editForm); setEditMode(false); setHasChanges(false); logActivity(`Recruit updated by ${AGENT_NAME}`, "note"); toast.success("Recruit updated"); };
+    const handleSave = async () => { await onUpdate(recruit.id, editForm); setEditMode(false); setHasChanges(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Recruit updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Recruit updated"); };
     const handleCancel = () => { setEditForm({ ...recruit }); setEditMode(false); setHasChanges(false); };
     const tryClose = () => { if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
-    const handleAddNote = () => { if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; } setNoteError(""); const n: ContactNote = { id: `note-${Date.now()}`, contactId: recruit.id, contactType: "recruit", note: newNote.trim(), pinned: pinNewNote, agentId: "u1", agentName: "Chris G.", createdAt: new Date().toISOString() }; setLocalNotes(prev => [n, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); setNewNote(""); setPinNewNote(false); logActivity(`Note added by ${AGENT_NAME}`, "note"); toast.success("Note added"); };
-    const handleTogglePin = (noteId: string) => { const n = localNotes.find(n => n.id === noteId); const was = n?.pinned; setLocalNotes(prev => prev.map(n => n.id === noteId ? { ...n, pinned: !n.pinned } : n).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); logActivity(was ? `Note unpinned` : `Note pinned`, was ? "note" : "pin"); };
-    const handleDeleteNote = (noteId: string) => { setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null); logActivity(`Note deleted`, "delete"); toast.success("Note deleted"); };
+    const handleAddNote = async () => { if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; } setNoteError(""); try { const addedNote = await notesSupabaseApi.add(recruit.id, "recruit", newNote.trim(), "u1"); setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); setNewNote(""); setPinNewNote(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } };
+    const handleTogglePin = async (noteId: string) => { toast.error("Pinning is not currently supported in DB"); };
+    const handleDeleteNote = async (noteId: string) => { setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Note deleted"); };
     const fmt = (s: number) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toString().padStart(2, "0")}`; };
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 

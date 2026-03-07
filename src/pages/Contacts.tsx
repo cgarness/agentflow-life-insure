@@ -6,7 +6,9 @@ import {
   Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2,
 } from "lucide-react";
-import { clientsApi, recruitsApi, notesApi } from "@/lib/mock-api";
+import { clientsSupabaseApi } from "@/lib/supabase-clients";
+import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
+import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
@@ -537,8 +539,8 @@ const Contacts: React.FC = () => {
     try {
       const [leadData, clientData, recruitData, stats] = await Promise.all([
         leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }),
-        clientsApi.getAll(searchQuery),
-        recruitsApi.getAll(searchQuery),
+        clientsSupabaseApi.getAll(searchQuery),
+        recruitsSupabaseApi.getAll(searchQuery),
         leadsSupabaseApi.getSourceStats(),
       ]);
       setLeads(leadData);
@@ -633,20 +635,20 @@ const Contacts: React.FC = () => {
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: any) => {
-    await clientsApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+    await clientsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
     toast.success("Client added successfully");
     fetchData();
   };
 
   const handleDeleteClient = async (id: string) => {
-    await clientsApi.delete(id);
+    await clientsSupabaseApi.delete(id);
     toast.success("Client deleted");
     fetchData();
   };
 
   const handleBulkDeleteClients = async () => {
     const count = selectedClientIds.size;
-    for (const id of selectedClientIds) await clientsApi.delete(id);
+    for (const id of selectedClientIds) await clientsSupabaseApi.delete(id);
     toast.error(`Deleted ${count} clients.`, { duration: 3000, position: "bottom-right" });
     setSelectedClientIds(new Set());
     fetchData();
@@ -654,20 +656,20 @@ const Contacts: React.FC = () => {
 
   // ===== Recruit CRUD =====
   const handleAddRecruit = async (data: any) => {
-    await recruitsApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+    await recruitsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
     toast.success("Recruit added successfully");
     fetchData();
   };
 
   const handleDeleteRecruit = async (id: string) => {
-    await recruitsApi.delete(id);
+    await recruitsSupabaseApi.delete(id);
     toast.success("Recruit deleted");
     fetchData();
   };
 
   const handleBulkDeleteRecruits = async () => {
     const count = selectedRecruitIds.size;
-    for (const id of selectedRecruitIds) await recruitsApi.delete(id);
+    for (const id of selectedRecruitIds) await recruitsSupabaseApi.delete(id);
     toast.error(`Deleted ${count} recruits.`, { duration: 3000, position: "bottom-right" });
     setSelectedRecruitIds(new Set());
     fetchData();
@@ -675,7 +677,7 @@ const Contacts: React.FC = () => {
 
   const handleBulkRecruitStatusChange = async (status: string) => {
     const count = selectedRecruitIds.size;
-    for (const id of selectedRecruitIds) await recruitsApi.update(id, { status });
+    for (const id of selectedRecruitIds) await recruitsSupabaseApi.update(id, { status });
     toast.success(`Updated status for ${count} recruits.`, { duration: 3000, position: "bottom-right" });
     setSelectedRecruitIds(new Set());
     setBulkStatusOpen(false);
@@ -1318,11 +1320,11 @@ const Contacts: React.FC = () => {
       {/* Modals */}
       <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddContact} contactType={addContactType} />
       <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} contactType="Lead" />
-      <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
-      <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit} contactType="Recruit" />
+      <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
+      <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit} contactType="Recruit" />
       <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
-      <ClientModal client={selectedClient} onClose={() => setSelectedClient(null)} onUpdate={async (id, data) => { await clientsApi.update(id, data); toast.success("Client updated"); fetchData(); }} onDelete={handleDeleteClient} />
-      <RecruitModal recruit={selectedRecruit} onClose={() => setSelectedRecruit(null)} onUpdate={async (id, data) => { await recruitsApi.update(id, data); toast.success("Recruit updated"); fetchData(); }} onDelete={handleDeleteRecruit} />
+      <ClientModal client={selectedClient} onClose={() => setSelectedClient(null)} onUpdate={async (id, data) => { await clientsSupabaseApi.update(id, data); toast.success("Client updated"); fetchData(); }} onDelete={handleDeleteClient} />
+      <RecruitModal recruit={selectedRecruit} onClose={() => setSelectedRecruit(null)} onUpdate={async (id, data) => { await recruitsSupabaseApi.update(id, data); toast.success("Recruit updated"); fetchData(); }} onDelete={handleDeleteRecruit} />
       <AgentModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDeleteLeads} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal
