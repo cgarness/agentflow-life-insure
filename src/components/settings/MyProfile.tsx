@@ -10,6 +10,15 @@ import {
   Eye, EyeOff, Lock, Loader2, Upload, User,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { supabase } from "@/integrations/supabase/client";
+
+const NOTIFICATION_PREFERENCE_KEYS = {
+  email: "notifications.email",
+  sms: "notifications.sms",
+  push: "notifications.push",
+  winSound: "notifications.win_sound",
+  pushPermissionDenied: "notifications.push_permission_denied",
+} as const;
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -102,6 +111,15 @@ const MyProfile: React.FC = () => {
   const [pushNotifs, setPushNotifs] = useState(true);
   const [timezone, setTimezone] = useState("Eastern Time (US & Canada)");
   const [prefSaving, setPrefSaving] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
+  const [savedPreferences, setSavedPreferences] = useState({
+    winSound: true,
+    emailNotifs: true,
+    smsNotifs: false,
+    pushNotifs: true,
+    pushPermissionDenied: false,
+  });
 
   // Goals
   const [dailyCalls, setDailyCalls] = useState(50);
@@ -123,6 +141,94 @@ const MyProfile: React.FC = () => {
       setAvatar(profile.avatar_url ?? "");
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadPreferences = async () => {
+      const keys = Object.values(NOTIFICATION_PREFERENCE_KEYS);
+      const { data, error } = await supabase
+        .from("user_preferences")
+        .select("preference_key, preference_value")
+        .eq("user_id", user.id)
+        .in("preference_key", keys);
+
+      if (error) {
+        toast({ title: "Unable to load notification preferences", description: error.message, variant: "destructive" });
+        setPrefsLoaded(true);
+        return;
+      }
+
+      const valueMap = new Map((data ?? []).map((row) => [row.preference_key, row.preference_value]));
+      const loaded = {
+        emailNotifs: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.email) !== false,
+        smsNotifs: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.sms) === true,
+        pushNotifs: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.push) !== false,
+        winSound: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.winSound) !== false,
+        pushPermissionDenied: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.pushPermissionDenied) === true,
+      };
+
+      setEmailNotifs(loaded.emailNotifs);
+      setSmsNotifs(loaded.smsNotifs);
+      setPushNotifs(loaded.pushNotifs);
+      setWinSound(loaded.winSound);
+      setPushPermissionDenied(loaded.pushPermissionDenied);
+      setSavedPreferences(loaded);
+      setPrefsLoaded(true);
+    };
+
+    loadPreferences();
+  }, [user?.id]);
+
+  const persistPushPermissionDenied = async (isDenied: boolean) => {
+    if (!user?.id) return;
+    await supabase
+      .from("user_preferences")
+      .upsert({
+        user_id: user.id,
+        preference_key: NOTIFICATION_PREFERENCE_KEYS.pushPermissionDenied,
+        preference_value: isDenied,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,preference_key" });
+  };
+
+  const handlePushToggle = async (enabled: boolean) => {
+    if (!enabled) {
+      setPushNotifs(false);
+      setPushPermissionDenied(false);
+      return;
+    }
+
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      toast({ title: "Push notifications are not supported in this browser", variant: "destructive" });
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      setPushNotifs(true);
+      setPushPermissionDenied(false);
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    const denied = permission !== "granted";
+    setPushNotifs(!denied);
+    setPushPermissionDenied(denied);
+
+    try {
+      await persistPushPermissionDenied(denied);
+    } catch {
+      // Ignore permission-state persistence failures; save action will retry.
+    }
+
+    if (denied) {
+      toast({
+        title: "Push notifications blocked",
+        description: "Please enable browser notification permission to use desktop push notifications.",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (!user) {
     return (
@@ -174,8 +280,9 @@ const MyProfile: React.FC = () => {
     try {
       await updateProfile({ first_name: firstName.trim(), last_name: lastName.trim(), phone, availability_status: availability });
       toast({ title: "Profile updated successfully.", className: "bg-success text-success-foreground" });
-    } catch (err: any) {
-      toast({ title: "Failed to update profile", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({ title: "Failed to update profile", description: message, variant: "destructive" });
     }
     setProfileSaving(false);
   };
@@ -218,10 +325,40 @@ const MyProfile: React.FC = () => {
 
   // Preferences save
   const handleSavePreferences = async () => {
+    if (!user?.id) return;
+
+    const previous = savedPreferences;
+    const next = { winSound, emailNotifs, smsNotifs, pushNotifs, pushPermissionDenied };
+
     setPrefSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
-    setPrefSaving(false);
-    toast({ title: "Preferences saved.", className: "bg-success text-success-foreground" });
+    try {
+      const rows = [
+        { preference_key: NOTIFICATION_PREFERENCE_KEYS.email, preference_value: emailNotifs },
+        { preference_key: NOTIFICATION_PREFERENCE_KEYS.sms, preference_value: smsNotifs },
+        { preference_key: NOTIFICATION_PREFERENCE_KEYS.push, preference_value: pushNotifs },
+        { preference_key: NOTIFICATION_PREFERENCE_KEYS.winSound, preference_value: winSound },
+        { preference_key: NOTIFICATION_PREFERENCE_KEYS.pushPermissionDenied, preference_value: pushPermissionDenied },
+      ].map((row) => ({ ...row, user_id: user.id, updated_at: new Date().toISOString() }));
+
+      const { error } = await supabase
+        .from("user_preferences")
+        .upsert(rows, { onConflict: "user_id,preference_key" });
+
+      if (error) throw error;
+
+      setSavedPreferences(next);
+      toast({ title: "Preferences saved.", className: "bg-success text-success-foreground" });
+    } catch (err: unknown) {
+      setWinSound(previous.winSound);
+      setEmailNotifs(previous.emailNotifs);
+      setSmsNotifs(previous.smsNotifs);
+      setPushNotifs(previous.pushNotifs);
+      setPushPermissionDenied(previous.pushPermissionDenied);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({ title: "Failed to save preferences", description: message, variant: "destructive" });
+    } finally {
+      setPrefSaving(false);
+    }
   };
 
   // Goals save
@@ -455,9 +592,13 @@ const MyProfile: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-foreground">Desktop Push Notifications</p>
-                  <p className="text-xs text-muted-foreground">Show browser notifications for real-time updates</p>
+                  <p className="text-xs text-muted-foreground">
+                    {pushPermissionDenied
+                      ? "Push blocked by browser permissions. Enable notifications in your browser settings."
+                      : "Show browser notifications for real-time updates"}
+                  </p>
                 </div>
-                <Switch checked={pushNotifs} onCheckedChange={setPushNotifs} />
+                <Switch checked={pushNotifs} onCheckedChange={handlePushToggle} disabled={!prefsLoaded} />
               </div>
             </div>
           </div>

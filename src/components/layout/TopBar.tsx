@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -9,6 +9,8 @@ import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -32,6 +34,35 @@ const statusOptions = [
   { label: "Offline", color: "bg-muted-foreground/50", dotClass: "bg-muted-foreground/50" },
 ];
 
+
+type AppNotificationType = "win" | "missed_call" | "lead_claimed" | "appointment_reminder" | "anniversary" | "system";
+
+interface AppNotificationItem {
+  text: string;
+  time: string;
+  unread: boolean;
+  action?: string;
+  type: AppNotificationType;
+}
+
+const DEFAULT_NOTIFICATIONS: AppNotificationItem[] = [
+  { text: "🎉 Chris G. sold a Term Life policy to John M.!", time: "2 min ago", unread: true, type: "win" },
+  { text: "Missed call from Sarah Williams (FL)", time: "15 min ago", unread: true, action: "Call Back", type: "missed_call" },
+  { text: "New lead assigned: Mike Johnson from Facebook Ads", time: "1 hr ago", unread: true, type: "lead_claimed" },
+  { text: "Campaign 'Q1 Facebook Leads' reached 50% completion", time: "3 hrs ago", unread: false, type: "system" },
+  { text: "Policy anniversary: Robert Chen's Term Life renews in 7 days", time: "5 hrs ago", unread: false, type: "anniversary" },
+];
+
+const NOTIFICATION_PREFERENCE_KEYS = {
+  email: "notifications.email",
+  sms: "notifications.sms",
+  push: "notifications.push",
+  winSound: "notifications.win_sound",
+  pushPermissionDenied: "notifications.push_permission_denied",
+} as const;
+
+type WindowWithWebkitAudioContext = Window & { webkitAudioContext?: typeof AudioContext };
+
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout } = useAuth();
@@ -45,8 +76,66 @@ const TopBar: React.FC = () => {
   const [statusDropdown, setStatusDropdown] = useState(false);
   const [userDropdown, setUserDropdown] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotificationItem[]>(DEFAULT_NOTIFICATIONS);
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    email: true,
+    sms: false,
+    push: true,
+    winSound: true,
+    pushPermissionDenied: false,
+  });
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const currentPage = pageTitles[location.pathname] || "Page";
+  const unreadCount = notifications.filter((n) => n.unread).length;
+
+  const playWinSound = useCallback(() => {
+    if (!notificationPrefs.winSound || typeof window === "undefined") return;
+    const AudioContextCtor = window.AudioContext || (window as WindowWithWebkitAudioContext).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    const context = audioCtxRef.current ?? new AudioContextCtor();
+    audioCtxRef.current = context;
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(760, context.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(520, context.currentTime + 0.22);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.26);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.28);
+  }, [notificationPrefs.winSound]);
+
+  const maybeShowPush = useCallback((notification: AppNotificationItem) => {
+    if (!notificationPrefs.push || notificationPrefs.pushPermissionDenied) return;
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    new Notification("AgentFlow", { body: notification.text });
+  }, [notificationPrefs.push, notificationPrefs.pushPermissionDenied]);
+
+  const surfaceNotification = useCallback((notification: AppNotificationItem) => {
+    const shouldSurfaceToast = notification.type === "missed_call" ? notificationPrefs.sms : notificationPrefs.email;
+    if (shouldSurfaceToast) {
+      toast({ title: "New notification", description: notification.text });
+    }
+
+    if (notification.type === "win") {
+      playWinSound();
+    }
+
+    maybeShowPush(notification);
+  }, [maybeShowPush, notificationPrefs.email, notificationPrefs.sms, playWinSound]);
+
+  const visibleNotifications = useMemo(
+    () => notifications.filter((n) => (n.type === "missed_call" ? notificationPrefs.sms : notificationPrefs.email)),
+    [notifications, notificationPrefs.email, notificationPrefs.sms],
+  );
 
   // Determine dot appearance based on dialer override
   let dotClass = statusOptions[statusIdx].dotClass;
@@ -62,6 +151,59 @@ const TopBar: React.FC = () => {
     dotTooltip = "In a Dialing Session";
     dotPulse = false;
   }
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadPreferences = async () => {
+      const keys = Object.values(NOTIFICATION_PREFERENCE_KEYS);
+      const { data, error } = await supabase
+        .from("user_preferences")
+        .select("preference_key, preference_value")
+        .eq("user_id", user.id)
+        .in("preference_key", keys);
+
+      if (error) return;
+
+      const valueMap = new Map((data ?? []).map((row) => [row.preference_key, row.preference_value]));
+      setNotificationPrefs({
+        email: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.email) !== false,
+        sms: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.sms) === true,
+        push: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.push) !== false,
+        winSound: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.winSound) !== false,
+        pushPermissionDenied: valueMap.get(NOTIFICATION_PREFERENCE_KEYS.pushPermissionDenied) === true,
+      });
+    };
+
+    loadPreferences();
+  }, [user?.id]);
+
+  useEffect(() => {
+    const onNotification = (event: Event) => {
+      const customEvent = event as CustomEvent<Partial<AppNotificationItem>>;
+      if (!customEvent.detail?.text) return;
+
+      const newNotification: AppNotificationItem = {
+        text: customEvent.detail.text,
+        time: customEvent.detail.time ?? "Just now",
+        unread: true,
+        action: customEvent.detail.action,
+        type: customEvent.detail.type ?? "system",
+      };
+
+      setNotifications((prev) => [newNotification, ...prev]);
+      surfaceNotification(newNotification);
+    };
+
+    window.addEventListener("agentflow:notify", onNotification as EventListener);
+    return () => window.removeEventListener("agentflow:notify", onNotification as EventListener);
+  }, [surfaceNotification]);
+
+  useEffect(() => () => {
+    if (audioCtxRef.current) {
+      void audioCtxRef.current.close();
+    }
+  }, []);
 
   return (
     <>
@@ -144,7 +286,7 @@ const TopBar: React.FC = () => {
           <div className="relative">
             <button onClick={() => setNotifOpen(!notifOpen)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition">
               <Bell className="w-4 h-4" />
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">3</span>
+              <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">{unreadCount}</span>
             </button>
           </div>
 
@@ -212,13 +354,7 @@ const TopBar: React.FC = () => {
               ))}
             </div>
             <div className="flex-1 overflow-y-auto">
-              {[
-                { text: "🎉 Chris G. sold a Term Life policy to John M.!", time: "2 min ago", unread: true },
-                { text: "Missed call from Sarah Williams (FL)", time: "15 min ago", unread: true, action: "Call Back" },
-                { text: "New lead assigned: Mike Johnson from Facebook Ads", time: "1 hr ago", unread: true },
-                { text: "Campaign 'Q1 Facebook Leads' reached 50% completion", time: "3 hrs ago", unread: false },
-                { text: "Policy anniversary: Robert Chen's Term Life renews in 7 days", time: "5 hrs ago", unread: false },
-              ].map((n, i) => (
+              {visibleNotifications.map((n, i) => (
                 <div key={i} className={`flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition ${n.unread ? "bg-primary/5" : ""}`}>
                   {n.unread && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
                   <div className="flex-1 min-w-0">
