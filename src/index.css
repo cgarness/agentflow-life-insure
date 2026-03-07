@@ -134,3 +134,68 @@
 .animate-shake {
   animation: shake 0.4s ease-in-out;
 }
+
+/* react-grid-layout overrides */
+.react-grid-layout {
+  position: relative;
+}
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+}
+.react-grid-item.cssTransforms {
+  transition-property: transform, width, height;
+}
+.react-grid-item.resizing {
+  z-index: 1;
+  will-change: width, height;
+  opacity: 0.9;
+}
+.react-grid-item.react-draggable-dragging {
+  z-index: 3;
+  will-change: transform;
+  opacity: 0.85;
+  box-shadow: 0 20px 40px -10px hsl(var(--foreground) / 0.15);
+  border-radius: var(--radius);
+}
+.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.12) !important;
+  border: 2px dashed hsl(var(--primary) / 0.4) !important;
+  border-radius: var(--radius) !important;
+  opacity: 1 !important;
+}
+.react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  z-index: 2;
+}
+.react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid hsl(var(--muted-foreground) / 0.4);
+  border-bottom: 2px solid hsl(var(--muted-foreground) / 0.4);
+  border-radius: 0 0 2px 0;
+}
+.react-resizable-handle:hover::after {
+  border-color: hsl(var(--primary) / 0.7);
+}
+.dashboard-grid-item {
+  height: 100%;
+}
+.dashboard-grid-item > div {
+  height: 100%;
+}
+.dashboard-drag-handle {
+  cursor: grab;
+}
+.dashboard-drag-handle:active {
+  cursor: grabbing;
+}
