@@ -21,6 +21,9 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           end_time: string | null
+          external_event_id: string | null
+          external_last_synced_at: string | null
+          external_provider: string | null
           id: string
           notes: string | null
           start_time: string
@@ -35,6 +38,9 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           end_time?: string | null
+          external_event_id?: string | null
+          external_last_synced_at?: string | null
+          external_provider?: string | null
           id?: string
           notes?: string | null
           start_time: string
@@ -49,6 +55,9 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           end_time?: string | null
+          external_event_id?: string | null
+          external_last_synced_at?: string | null
+          external_provider?: string | null
           id?: string
           notes?: string | null
           start_time?: string

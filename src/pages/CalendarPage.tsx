@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Plus, Phone, MessageSquare, Mail, User, ChevronDown, Pencil, Calendar as CalIcon } from "lucide-react";
-import { useCalendar, CalendarAppointment, CalAppointmentStatus, CalAppointmentType, APPOINTMENT_TYPE_COLORS, APPOINTMENT_STATUS_COLORS } from "@/contexts/CalendarContext";
+import { CalendarAppointment, CalAppointmentStatus, CalAppointmentType, APPOINTMENT_TYPE_COLORS, APPOINTMENT_STATUS_COLORS } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import MonthView from "@/components/calendar/MonthView";
@@ -28,9 +28,27 @@ const VIEWS: { key: ViewType; label: string }[] = [
 const VALID_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"];
 const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
 
+type AppointmentSyncMeta = {
+  externalEventId: string | null;
+};
+
+const timeStringToDate = (baseDate: Date, time: string) => {
+  const date = new Date(baseDate);
+  const parts = time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!parts) return date;
+
+  let hours = parseInt(parts[1]);
+  const minutes = parseInt(parts[2]);
+  const ampm = parts[3].toUpperCase();
+  if (ampm === "PM" && hours !== 12) hours += 12;
+  if (ampm === "AM" && hours === 12) hours = 0;
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+};
+
 const CalendarPage: React.FC = () => {
-  const { addAppointment, updateAppointment } = useCalendar();
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
+  const [appointmentMetaById, setAppointmentMetaById] = useState<Record<string, AppointmentSyncMeta>>({});
   const [view, setView] = useState<ViewType>("month");
   const [currentMonth, setCurrentMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
@@ -105,11 +123,17 @@ const CalendarPage: React.FC = () => {
       return;
     }
 
+    const nextMeta: Record<string, AppointmentSyncMeta> = {};
     const mapped: CalendarAppointment[] = (data || []).map((appt: any) => {
       const startDate = new Date(appt.start_time);
       const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
       const formatTime = (d: Date) =>
         d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+      nextMeta[appt.id] = {
+        externalEventId: appt.external_event_id ?? null,
+      };
+
       return {
         id: appt.id,
         title: appt.title,
@@ -126,8 +150,64 @@ const CalendarPage: React.FC = () => {
     });
 
     setAppointments(mapped);
+    setAppointmentMetaById(nextMeta);
     setLoading(false);
   }, [year, month]);
+
+  const warnExternalSyncFailed = () => {
+    toast({
+      title: "Saved locally, but Google sync failed",
+      description: "This appointment was saved in AgentFlow. Please retry sync from Calendar settings.",
+      variant: "destructive",
+    });
+  };
+
+  const syncAppointmentToGoogle = async (payload: {
+    action: "create" | "update" | "delete";
+    appointmentId: string;
+    title?: string;
+    notes?: string;
+    startTime?: string;
+    endTime?: string;
+    attendeeEmail?: string | null;
+    externalEventId?: string | null;
+  }) => {
+    try {
+      const { error } = await supabase.functions.invoke("google-calendar-sync-appointment", {
+        body: {
+          action: payload.action,
+          appointment_id: payload.appointmentId,
+          title: payload.title,
+          notes: payload.notes,
+          start_time: payload.startTime,
+          end_time: payload.endTime,
+          attendee_email: payload.attendeeEmail,
+          external_event_id: payload.externalEventId,
+        },
+      });
+
+      if (error) {
+        console.error("External calendar sync failed", error);
+        warnExternalSyncFailed();
+      }
+    } catch (error) {
+      console.error("External calendar sync threw", error);
+      warnExternalSyncFailed();
+    }
+  };
+
+  const resolveAttendeeEmail = async (contactId?: string, fallbackEmail?: string | null) => {
+    if (fallbackEmail) return fallbackEmail;
+    if (!contactId) return null;
+
+    const { data } = await supabase
+      .from("leads")
+      .select("email")
+      .eq("id", contactId)
+      .maybeSingle();
+
+    return data?.email || null;
+  };
 
   useEffect(() => {
     fetchAppointments();
@@ -148,81 +228,94 @@ const CalendarPage: React.FC = () => {
     setModalOpen(true);
   };
 
-  const handleCreateAppointment = async (appt: {
-    title: string;
-    contact_name: string;
-    contact_id?: string;
-    type: string;
-    start_time: string;
-    end_time?: string;
-    notes?: string;
-  }) => {
-    const { error } = await supabase.from('appointments').insert([appt]);
-    if (error) {
+  const handleSave = async (data: Omit<CalendarAppointment, "id">) => {
+    const startDate = timeStringToDate(new Date(data.date), data.startTime);
+    const endDate = timeStringToDate(new Date(data.date), data.endTime);
+
+    let contactId = selectedContact?.id || data.contactId || "";
+    let attendeeEmail: string | null = selectedContact?.email || null;
+
+    if (!modalEditing && creatingNew && newFirstName.trim() && newLastName.trim()) {
+      const { data: newLead, error: leadError } = await supabase
+        .from('leads')
+        .insert([{ first_name: newFirstName.trim(), last_name: newLastName.trim() }])
+        .select()
+        .single();
+
+      if (leadError || !newLead) {
+        toast({ title: "Failed to create contact", variant: "destructive" });
+        return;
+      }
+      contactId = newLead.id;
+      attendeeEmail = newLead.email || null;
+    }
+
+    const localPayload = {
+      title: data.title,
+      contact_name: data.contactName,
+      contact_id: contactId || null,
+      type: data.type,
+      start_time: startDate.toISOString(),
+      end_time: endDate.toISOString(),
+      notes: data.notes,
+      status: data.status,
+    };
+
+    if (modalEditing) {
+      const existingMeta = appointmentMetaById[modalEditing.id];
+      const { error } = await supabase
+        .from("appointments")
+        .update(localPayload)
+        .eq("id", modalEditing.id);
+
+      if (error) {
+        toast({ title: "Failed to update appointment", variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Appointment updated" });
+      await fetchAppointments();
+
+      await syncAppointmentToGoogle({
+        action: "update",
+        appointmentId: modalEditing.id,
+        title: data.title,
+        notes: data.notes,
+        startTime: startDate.toISOString(),
+        endTime: endDate.toISOString(),
+        attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
+        externalEventId: existingMeta?.externalEventId,
+      });
+      return;
+    }
+
+    const { data: inserted, error } = await supabase
+      .from('appointments')
+      .insert([localPayload])
+      .select('id')
+      .single();
+
+    if (error || !inserted) {
       toast({ title: "Failed to save appointment", variant: "destructive" });
       return;
     }
+
     toast({ title: "Appointment scheduled" });
-    fetchAppointments();
-  };
+    await fetchAppointments();
 
-  const handleSave = async (data: Omit<CalendarAppointment, "id">) => {
-    if (modalEditing) {
-      updateAppointment(modalEditing.id, data);
-    } else {
-      // Save to Supabase
-      const startDate = new Date(data.date);
-      const timeParts = data.startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if (timeParts) {
-        let hours = parseInt(timeParts[1]);
-        const minutes = parseInt(timeParts[2]);
-        const ampm = timeParts[3].toUpperCase();
-        if (ampm === "PM" && hours !== 12) hours += 12;
-        if (ampm === "AM" && hours === 12) hours = 0;
-        startDate.setHours(hours, minutes, 0, 0);
-      }
-      const endDate = new Date(data.date);
-      const endParts = data.endTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if (endParts) {
-        let hours = parseInt(endParts[1]);
-        const minutes = parseInt(endParts[2]);
-        const ampm = endParts[3].toUpperCase();
-        if (ampm === "PM" && hours !== 12) hours += 12;
-        if (ampm === "AM" && hours === 12) hours = 0;
-        endDate.setHours(hours, minutes, 0, 0);
-      }
-
-      let contactId = selectedContact?.id || "";
-
-      // FIX 2 — If creating new contact, insert into leads first
-      if (creatingNew && newFirstName.trim() && newLastName.trim()) {
-        const { data: newLead, error: leadError } = await supabase
-          .from('leads')
-          .insert([{ first_name: newFirstName.trim(), last_name: newLastName.trim() }])
-          .select()
-          .single();
-
-        if (leadError || !newLead) {
-          toast({ title: "Failed to create contact", variant: "destructive" });
-          return;
-        }
-        contactId = newLead.id;
-      }
-
-      handleCreateAppointment({
-        title: data.title,
-        contact_name: data.contactName,
-        contact_id: contactId,
-        type: data.type,
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
-        notes: data.notes,
-      });
-      addAppointment(data);
-    }
+    await syncAppointmentToGoogle({
+      action: "create",
+      appointmentId: inserted.id,
+      title: data.title,
+      notes: data.notes,
+      startTime: startDate.toISOString(),
+      endTime: endDate.toISOString(),
+      attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
+    });
   };
 
   const handleDeleteAppointment = async (appointmentId: string) => {
+    const externalEventId = appointmentMetaById[appointmentId]?.externalEventId;
     const { error } = await supabase
       .from('appointments')
       .delete()
@@ -233,12 +326,29 @@ const CalendarPage: React.FC = () => {
       toast({ title: "Failed to delete appointment", variant: "destructive" });
       return;
     }
+
     toast({ title: "Appointment deleted" });
-    fetchAppointments();
+    await fetchAppointments();
+
+    await syncAppointmentToGoogle({
+      action: "delete",
+      appointmentId,
+      externalEventId,
+    });
   };
 
-  const handleStatusChange = (id: string, status: CalAppointmentStatus) => {
-    updateAppointment(id, { status });
+  const handleStatusChange = async (id: string, status: CalAppointmentStatus) => {
+    const { error } = await supabase
+      .from("appointments")
+      .update({ status })
+      .eq("id", id);
+
+    if (error) {
+      toast({ title: "Failed to update status", variant: "destructive" });
+      return;
+    }
+
+    await fetchAppointments();
   };
 
   const handleOpenContact = (contactId: string) => {
