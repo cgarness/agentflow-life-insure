@@ -333,8 +333,9 @@ const Contacts: React.FC = () => {
     }
   });
   const [resizingCol, setResizingCol] = useState<string | null>(null);
-  const [startX, setStartX] = useState(0);
-  const [startWidth, setStartWidth] = useState(0);
+  const resizingColRef = useRef<string | null>(null);
+  const startXRef = useRef<number>(0);
+  const startWidthRef = useRef<number>(0);
 
   // Save to localStorage when widths change
   useEffect(() => {
@@ -343,24 +344,26 @@ const Contacts: React.FC = () => {
 
   // Handle global mouse events for resizing
   useEffect(() => {
-    if (!resizingCol) return;
-
     const handleMouseMove = (e: MouseEvent) => {
-      const diffX = e.clientX - startX;
-      const newWidth = Math.max(60, startWidth + diffX); // 60px minimum
+      if (!resizingColRef.current) return;
+      const diffX = e.clientX - startXRef.current;
+      const newWidth = Math.max(60, startWidthRef.current + diffX);
 
       setColumnWidths(prev => ({
         ...prev,
         [tab]: {
           ...(prev[tab] || {}),
-          [resizingCol]: newWidth
+          [resizingColRef.current!]: newWidth
         }
       }));
     };
 
     const handleMouseUp = () => {
-      setResizingCol(null);
-      document.body.style.cursor = 'default';
+      if (resizingColRef.current) {
+        resizingColRef.current = null;
+        setResizingCol(null);
+        document.body.style.cursor = 'default';
+      }
     };
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -370,16 +373,17 @@ const Contacts: React.FC = () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [resizingCol, startX, startWidth, tab]);
+  }, [tab]);
 
   const handleResizeStart = (e: React.MouseEvent, key: string) => {
     e.stopPropagation();
     e.preventDefault();
+    resizingColRef.current = key;
     setResizingCol(key);
-    setStartX(e.clientX);
+    startXRef.current = e.clientX;
     const existingWidth = columnWidths[tab]?.[key];
     // Default width if not set (150px is a reasonable guess for a column)
-    setStartWidth(existingWidth || 150);
+    startWidthRef.current = existingWidth || 150;
     document.body.style.cursor = 'col-resize';
   };
 
@@ -783,8 +787,8 @@ const Contacts: React.FC = () => {
     return (
       <th
         key={key}
-        style={{ width: width ?\`\${width}px\` : 'auto', minWidth: width ? \`\${width}px\` : 'auto' }}
-        className={\`\${colAlign(key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group relative bg-transparent\`} 
+        style={{ width: width ? `${width}px` : 'auto', minWidth: width ? `${width}px` : 'auto' }}
+        className={`${colAlign(key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group relative bg-transparent`}
         onClick={() => !resizingCol && handleSort(key)}
       >
         <span className="inline-flex items-center gap-1">
@@ -795,8 +799,8 @@ const Contacts: React.FC = () => {
             <ArrowUpDown className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
           )}
         </span>
-        <div 
-          className={\`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/50 \${isResizing ? "bg-primary" : "bg-transparent"} transition-colors\`}
+        <div
+          className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/50 ${isResizing ? "bg-primary" : "bg-transparent"} transition-colors`}
           onMouseDown={(e) => handleResizeStart(e, key)}
           onClick={(e) => e.stopPropagation()}
         />
@@ -910,7 +914,7 @@ const Contacts: React.FC = () => {
       <div className="flex border-b">
         {tabs.map(t => (
           <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
-            className={`px-4 py-2.5 text - sm font - medium sidebar - transition ${ tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground" } `}>{t}</button>
+            className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}>{t}</button>
         ))}
       </div>
 
@@ -918,20 +922,20 @@ const Contacts: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={`Search ${ tab.toLowerCase() }...`} className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`} className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
         </div>
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-lg p-0.5 border border-border">
-            <button onClick={() => setView("table")} className={`px - 2.5 py - 1 rounded - md sidebar - transition ${ view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground" } `}><List className="w-4 h-4" /></button>
-            <button onClick={() => setView("kanban")} className={`px - 2.5 py - 1 rounded - md sidebar - transition ${ view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground" } `}><LayoutGrid className="w-4 h-4" /></button>
+            <button onClick={() => setView("table")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><List className="w-4 h-4" /></button>
+            <button onClick={() => setView("kanban")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><LayoutGrid className="w-4 h-4" /></button>
           </div>
         )}
         {/* Columns toggle — shown for all tabs in table view */}
         {view === "table" && (
           tab === "Leads" ? renderColumnsDropdown(ALL_COLUMNS, visibleCols as Set<string>, (s) => setVisibleCols(s as Set<ColumnKey>), DEFAULT_VISIBLE as Set<string>) :
-          tab === "Clients" ? renderColumnsDropdown(CLIENT_COLUMNS, visibleClientCols as Set<string>, (s) => setVisibleClientCols(s as Set<ClientColumnKey>), DEFAULT_CLIENT_VISIBLE as Set<string>) :
-          tab === "Recruits" ? renderColumnsDropdown(RECRUIT_COLUMNS, visibleRecruitCols as Set<string>, (s) => setVisibleRecruitCols(s as Set<RecruitColumnKey>), DEFAULT_RECRUIT_VISIBLE as Set<string>) :
-          renderColumnsDropdown(AGENT_COLUMNS, visibleAgentCols as Set<string>, (s) => setVisibleAgentCols(s as Set<AgentColumnKey>), DEFAULT_AGENT_VISIBLE as Set<string>)
+            tab === "Clients" ? renderColumnsDropdown(CLIENT_COLUMNS, visibleClientCols as Set<string>, (s) => setVisibleClientCols(s as Set<ClientColumnKey>), DEFAULT_CLIENT_VISIBLE as Set<string>) :
+              tab === "Recruits" ? renderColumnsDropdown(RECRUIT_COLUMNS, visibleRecruitCols as Set<string>, (s) => setVisibleRecruitCols(s as Set<RecruitColumnKey>), DEFAULT_RECRUIT_VISIBLE as Set<string>) :
+                renderColumnsDropdown(AGENT_COLUMNS, visibleAgentCols as Set<string>, (s) => setVisibleAgentCols(s as Set<AgentColumnKey>), DEFAULT_AGENT_VISIBLE as Set<string>)
         )}
         {/* Filter */}
         {(tab === "Leads" || tab === "Recruits") && (
@@ -977,7 +981,7 @@ const Contacts: React.FC = () => {
           <div className="bg-card rounded-xl border border-border">
             <button onClick={() => setSourcePerfOpen(prev => !prev)} className="w-full flex items-center justify-between px-4 py-3 text-left">
               <h3 className="text-sm font-semibold text-foreground">Lead Source Performance</h3>
-              <ChevronDown className={`w - 4 h - 4 text - muted - foreground transition - transform duration - 200 ${ sourcePerfOpen ? "rotate-180" : "" } `} />
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${sourcePerfOpen ? "rotate-180" : ""} `} />
             </button>
             <div className="overflow-hidden transition-all duration-200 ease-in-out" style={{ maxHeight: sourcePerfOpen ? "500px" : "0px", opacity: sourcePerfOpen ? 1 : 0 }}>
               <div className="px-4 pb-4">
@@ -1025,7 +1029,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm table-fixed">
+                <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
                     <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
                       <input type="checkbox" checked={isAllSelected} ref={el => { if (el) el.indeterminate = isIndeterminate; }} onChange={toggleAll} className="rounded" />
@@ -1037,10 +1041,10 @@ const Contacts: React.FC = () => {
                     {sortedLeads.map(l => {
                       const aging = calcAging(l.lastContactedAt);
                       return (
-                        <tr key={l.id} className={`border - b last: border - 0 hover: bg - accent / 30 sidebar - transition cursor - pointer ${ selectedIds.has(l.id) ? "bg-primary/5" : "" } `} onClick={() => setSelectedLead(l)}>
-                          <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => {}} className="rounded" /></td>
+                        <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedLead(l)}>
+                          <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => { }} className="rounded" /></td>
                           {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
-                            <td key={col.key} className={`py - 3 ${ colAlign(col.key) } `}>{renderCell(l, col.key, aging)}</td>
+                            <td key={col.key} className={`py-3 ${colAlign(col.key)} `}>{renderCell(l, col.key, aging)}</td>
                           ))}
                           <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                             {renderActionMenu(l.id, () => setEditLead(l), () => handleDeleteLead(l.id))}
@@ -1064,7 +1068,7 @@ const Contacts: React.FC = () => {
             return (
               <div key={status} className="min-w-[250px] bg-accent/50 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text - xs px - 2 py - 0.5 rounded - full font - medium ${ statusColors[status] } `}>{status}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[status]} `}>{status}</span>
                   <span className="text-xs text-muted-foreground">{items.length}</span>
                 </div>
                 {items.map(l => (
@@ -1072,7 +1076,7 @@ const Contacts: React.FC = () => {
                     <p className="text-sm font-medium text-foreground">{l.firstName} {l.lastName}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-muted-foreground">{l.state}</span>
-                      <span className={`text - xs font - bold px - 1.5 py - 0.5 rounded ${ l.leadScore >= 8 ? "bg-success/10 text-success" : "bg-warning/10 text-warning" } `}>{l.leadScore}</span>
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${l.leadScore >= 8 ? "bg-success/10 text-success" : "bg-warning/10 text-warning"} `}>{l.leadScore}</span>
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs text-muted-foreground">{l.leadSource}</span>
@@ -1105,7 +1109,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm table-fixed">
+                <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
                     <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
                       <input type="checkbox" checked={selectedClientIds.size === clients.length && clients.length > 0} ref={el => { if (el) el.indeterminate = selectedClientIds.size > 0 && selectedClientIds.size < clients.length; }} onChange={toggleAllClients} className="rounded" />
@@ -1115,10 +1119,10 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedClients.map(c => (
-                      <tr key={c.id} className={`border - b last: border - 0 hover: bg - accent / 30 sidebar - transition cursor - pointer ${ selectedClientIds.has(c.id) ? "bg-primary/5" : "" } `} onClick={() => toast.info(`Client: ${ c.firstName } ${ c.lastName } `)}>
-                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => {}} className="rounded" /></td>
+                      <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => toast.info(`Client: ${c.firstName} ${c.lastName} `)}>
+                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => { }} className="rounded" /></td>
                         {CLIENT_COLUMNS.filter(col => visibleClientCols.has(col.key)).map(col => (
-                          <td key={col.key} className={`py - 3 ${ colAlign(col.key) } `}>{renderClientCell(c, col.key)}</td>
+                          <td key={col.key} className={`py-3 ${colAlign(col.key)} `}>{renderClientCell(c, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                           {renderActionMenu(c.id, () => setEditClient(c), () => handleDeleteClient(c.id))}
@@ -1151,7 +1155,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : view === "table" ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm table-fixed">
+                <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
                     <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
                       <input type="checkbox" checked={selectedRecruitIds.size === recruits.length && recruits.length > 0} ref={el => { if (el) el.indeterminate = selectedRecruitIds.size > 0 && selectedRecruitIds.size < recruits.length; }} onChange={toggleAllRecruits} className="rounded" />
@@ -1161,10 +1165,10 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedRecruits.map(r => (
-                      <tr key={r.id} className={`border - b last: border - 0 hover: bg - accent / 30 sidebar - transition cursor - pointer ${ selectedRecruitIds.has(r.id) ? "bg-primary/5" : "" } `} onClick={() => toast.info(`Recruit: ${ r.firstName } ${ r.lastName } `)}>
-                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => {}} className="rounded" /></td>
+                      <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => toast.info(`Recruit: ${r.firstName} ${r.lastName} `)}>
+                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => { }} className="rounded" /></td>
                         {RECRUIT_COLUMNS.filter(col => visibleRecruitCols.has(col.key)).map(col => (
-                          <td key={col.key} className={`py - 3 ${ colAlign(col.key) } `}>{renderRecruitCell(r, col.key)}</td>
+                          <td key={col.key} className={`py-3 ${colAlign(col.key)}`} style={{ width: columnWidths[tab]?.[col.key], minWidth: columnWidths[tab]?.[col.key] }}>{renderRecruitCell(r, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                           {renderActionMenu(r.id, () => setEditRecruit(r), () => handleDeleteRecruit(r.id))}
@@ -1181,11 +1185,11 @@ const Contacts: React.FC = () => {
                   return (
                     <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
                       <div className="flex items-center justify-between mb-2">
-                        <span className={`text - xs font - semibold px - 2 py - 0.5 rounded - full ${ recruitStatusColors[s] || "bg-muted text-muted-foreground" } `}>{s}</span>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${recruitStatusColors[s] || "bg-muted text-muted-foreground"} `}>{s}</span>
                         <span className="text-xs text-muted-foreground">{items.length}</span>
                       </div>
                       {items.map(r => (
-                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => toast.info(`Recruit: ${ r.firstName } ${ r.lastName } `)}>
+                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => toast.info(`Recruit: ${r.firstName} ${r.lastName} `)}>
                           <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
                           <p className="text-xs text-muted-foreground">{r.email}</p>
                           <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId)}</p>
@@ -1221,10 +1225,10 @@ const Contacts: React.FC = () => {
                 </tr></thead>
                 <tbody>
                   {sortedAgents.map(u => (
-                    <tr key={u.id} className={`border - b last: border - 0 hover: bg - accent / 30 sidebar - transition cursor - pointer ${ selectedAgentIds.has(u.id) ? "bg-primary/5" : "" } `} onClick={() => toast.info(`Agent: ${ u.firstName } ${ u.lastName } `)}>
-                      <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => {}} className="rounded" /></td>
+                    <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => toast.info(`Agent: ${u.firstName} ${u.lastName} `)}>
+                      <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
                       {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
-                        <td key={col.key} className={`py - 3 ${ col.key === "name" ? "px-4" : "" } ${ colAlign(col.key) } `}>{renderAgentCell(u, col.key)}</td>
+                        <td key={col.key} className={`py-3 ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
                       ))}
                       <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                         <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
@@ -1315,7 +1319,7 @@ const Contacts: React.FC = () => {
       <DeleteConfirmModal
         open={bulkDeleteOpen}
         count={tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size}
-        title={`Delete ${ tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size } ${ tab }?`}
+        title={`Delete ${tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size} ${tab}?`}
         onConfirm={tab === "Leads" ? handleBulkDeleteLeads : tab === "Clients" ? handleBulkDeleteClients : handleBulkDeleteRecruits}
         onClose={() => setBulkDeleteOpen(false)}
       />
@@ -1338,13 +1342,13 @@ const Contacts: React.FC = () => {
         <DeleteConfirmModal
           open={true}
           count={undoConfirm.imported}
-          title={`Remove ${ undoConfirm.imported } leads imported from ${ undoConfirm.fileName }?`}
+          title={`Remove ${undoConfirm.imported} leads imported from ${undoConfirm.fileName}?`}
           onConfirm={async () => {
             for (const id of undoConfirm.importedLeadIds) {
               await leadsSupabaseApi.delete(id);
             }
             setImportHistory(prev => prev.filter(h => h.id !== undoConfirm.id));
-            toast.success(`${ undoConfirm.imported } leads removed`, { duration: 3000, position: "bottom-right" });
+            toast.success(`${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
             setUndoConfirm(null);
             fetchData();
           }}

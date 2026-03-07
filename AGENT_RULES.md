@@ -14,6 +14,7 @@ When Chris engages me, I must adhere to these specific rules:
 4. **Write code via PRs or direct commits** if asked, but always verify it matches what Claude/Lovable are expecting.
 5. **Be concise and use plain language.** Chris is the owner/admin and builds with AI tools. Do not use complex jargon.
 6. **Always tell Chris what we are doing next** so momentum is never lost.
+7. **Push changes to GitHub promptly**: Once code changes are approved by Chris, always stage, commit, and push them to the `origin main` branch so that Lovable can sync and update the project preview immediately.
 
 ---
 
