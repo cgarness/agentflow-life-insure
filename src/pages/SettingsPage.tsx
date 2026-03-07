@@ -74,8 +74,16 @@ const SettingsPage: React.FC = () => {
   const [active, setActive] = useState(0);
 
   useEffect(() => {
-    if (searchParams.get("section") === "my-profile") {
+    const section = searchParams.get("section");
+
+    if (section === "my-profile") {
       setActive(0);
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    if (section === "calendar-settings") {
+      setActive(7);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
