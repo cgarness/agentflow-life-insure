@@ -27,6 +27,26 @@ const availabilityOptions = [
   { label: "Offline", dotClass: "bg-muted-foreground/50" },
 ] as const;
 
+const US_STATES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia",
+  "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
+  "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
+  "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
+  "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
+];
+
+const CARRIERS = [
+  "Aetna",
+  "Ambetter",
+  "Blue Cross Blue Shield",
+  "Cigna",
+  "Humana",
+  "Molina Healthcare",
+  "Mutual of Omaha",
+  "UnitedHealthcare",
+  "Wellcare",
+];
+
 function getPasswordStrength(pw: string) {
   let score = 0;
   if (pw.length >= 8) score++;
@@ -53,6 +73,11 @@ const MyProfile: React.FC = () => {
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [availability, setAvailability] = useState(profile?.availability_status ?? "Available");
   const [avatar, setAvatar] = useState(profile?.avatar_url ?? "");
+  const [npn, setNpn] = useState("");
+  const [stateToAdd, setStateToAdd] = useState("");
+  const [licensedStates, setLicensedStates] = useState<Array<{ state: string; licenseNumber: string }>>([]);
+  const [carrierToAdd, setCarrierToAdd] = useState("");
+  const [selectedCarriers, setSelectedCarriers] = useState<Array<{ carrier: string; writingNumber: string }>>([]);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileErrors, setProfileErrors] = useState<{ firstName?: string; lastName?: string }>({});
 
@@ -155,6 +180,26 @@ const MyProfile: React.FC = () => {
     setProfileSaving(false);
   };
 
+  const addLicensedState = () => {
+    if (!stateToAdd || licensedStates.some((item) => item.state === stateToAdd)) return;
+    setLicensedStates((prev) => [...prev, { state: stateToAdd, licenseNumber: "" }]);
+    setStateToAdd("");
+  };
+
+  const updateStateLicenseNumber = (state: string, licenseNumber: string) => {
+    setLicensedStates((prev) => prev.map((item) => (item.state === state ? { ...item, licenseNumber } : item)));
+  };
+
+  const addCarrier = () => {
+    if (!carrierToAdd || selectedCarriers.some((item) => item.carrier === carrierToAdd)) return;
+    setSelectedCarriers((prev) => [...prev, { carrier: carrierToAdd, writingNumber: "" }]);
+    setCarrierToAdd("");
+  };
+
+  const updateCarrierWritingNumber = (carrier: string, writingNumber: string) => {
+    setSelectedCarriers((prev) => prev.map((item) => (item.carrier === carrier ? { ...item, writingNumber } : item)));
+  };
+
   // Password save
   const handleUpdatePassword = async () => {
     setPwSaving(true);
@@ -253,6 +298,10 @@ const MyProfile: React.FC = () => {
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" />
             </div>
             <div>
+              <label className="text-sm font-medium text-foreground block mb-1.5">NPN (National Producer Number)</label>
+              <Input value={npn} onChange={(e) => setNpn(e.target.value)} placeholder="Enter NPN" />
+            </div>
+            <div>
               <label className="text-sm font-medium text-foreground block mb-1.5">Role</label>
               <div className="h-10 flex items-center">
                 <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">{user.role}</span>
@@ -269,6 +318,62 @@ const MyProfile: React.FC = () => {
                   <option key={o.label} value={o.label}>{o.label}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="md:col-span-2 border border-border rounded-md p-4 space-y-3">
+              <label className="text-sm font-medium text-foreground block">Licensed States</label>
+              <div className="flex flex-col md:flex-row gap-2">
+                <select
+                  value={stateToAdd}
+                  onChange={(e) => setStateToAdd(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select a state</option>
+                  {US_STATES.filter((state) => !licensedStates.some((item) => item.state === state)).map((state) => (
+                    <option key={state} value={state}>{state}</option>
+                  ))}
+                </select>
+                <Button type="button" variant="outline" className="md:w-auto" onClick={addLicensedState} disabled={!stateToAdd}>Add State</Button>
+              </div>
+
+              {licensedStates.map(({ state, licenseNumber }) => (
+                <div key={state}>
+                  <label className="text-sm font-medium text-foreground block mb-1.5">{state} License Number</label>
+                  <Input
+                    value={licenseNumber}
+                    onChange={(e) => updateStateLicenseNumber(state, e.target.value)}
+                    placeholder={`Enter ${state} license number`}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="md:col-span-2 border border-border rounded-md p-4 space-y-3">
+              <label className="text-sm font-medium text-foreground block">Carriers</label>
+              <div className="flex flex-col md:flex-row gap-2">
+                <select
+                  value={carrierToAdd}
+                  onChange={(e) => setCarrierToAdd(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select a carrier</option>
+                  {CARRIERS.filter((carrier) => !selectedCarriers.some((item) => item.carrier === carrier)).map((carrier) => (
+                    <option key={carrier} value={carrier}>{carrier}</option>
+                  ))}
+                </select>
+                <Button type="button" variant="outline" className="md:w-auto" onClick={addCarrier} disabled={!carrierToAdd}>Add Carrier</Button>
+              </div>
+
+              {selectedCarriers.map(({ carrier, writingNumber }) => (
+                <div key={carrier}>
+                  <label className="text-sm font-medium text-foreground block mb-1.5">{carrier} Agent Writing Number</label>
+                  <Input
+                    value={writingNumber}
+                    onChange={(e) => updateCarrierWritingNumber(carrier, e.target.value)}
+                    placeholder={`Enter ${carrier} writing number`}
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
