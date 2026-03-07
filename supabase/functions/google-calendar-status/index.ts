@@ -32,38 +32,19 @@ Deno.serve(async (req) => {
   } = await authClient.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  const { data: integration, error: integrationError } = await authClient
+  const { data, error } = await authClient
     .from("calendar_integrations")
-    .select("id, access_token")
+    .select("calendar_id, sync_mode, sync_enabled, access_token")
     .eq("user_id", user.id)
     .eq("provider", "google")
     .maybeSingle();
 
-  if (integrationError) return json({ error: integrationError.message }, 500);
+  if (error) return json({ error: error.message }, 500);
 
-  if (integration?.access_token) {
-    await fetch("https://oauth2.googleapis.com/revoke", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: integration.access_token }).toString(),
-    });
-  }
-
-  const { error: updateError } = await authClient
-    .from("calendar_integrations")
-    .update({
-      access_token: null,
-      refresh_token: null,
-      token_expires_at: null,
-      sync_enabled: false,
-      calendar_id: "primary",
-      oauth_state: null,
-      oauth_state_expires_at: null,
-    })
-    .eq("user_id", user.id)
-    .eq("provider", "google");
-
-  if (updateError) return json({ error: updateError.message }, 500);
-
-  return json({ disconnected: true });
+  return json({
+    connected: !!data?.access_token,
+    calendarId: data?.calendar_id ?? "",
+    syncMode: data?.sync_mode === "two_way" ? "two_way" : "outbound_only",
+    syncEnabled: !!data?.sync_enabled,
+  });
 });
