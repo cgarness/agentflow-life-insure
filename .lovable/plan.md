@@ -1,70 +1,38 @@
 
 
-# Moveable & Resizable Dashboard Widgets + More Stats
+## Root Cause
 
-## Overview
-Transform the dashboard from a fixed grid into a free-form drag-and-drop, resizable widget layout (like Grafana or Windows widgets). Add several new stat widgets to the customize drawer.
+The **CompanyBranding** and **Permissions** components use **hardcoded inline `style={}` attributes** with dark hex colors like `backgroundColor: "#1E293B"`, `backgroundColor: "#0F172A"`, `color: "#F1F5F9"`, etc. These override the app's theme system regardless of whether light or dark mode is active.
 
-## New Dependency
-Install `react-grid-layout` — the standard React library for draggable + resizable grid layouts. It handles collision detection, grid snapping, responsive breakpoints, and resize handles out of the box. This is far more reliable than building custom drag+resize from scratch.
+Meanwhile, **DispositionsManager** and **ContactManagement** correctly use Tailwind's **semantic CSS variables** — classes like `bg-card`, `text-foreground`, `bg-accent`, `border`, `text-muted-foreground` — which automatically adapt to the current theme (light `:root` or `.dark` vars defined in `index.css`).
 
-## New Widgets to Add (6 additional)
-These will be added to the `DEFAULT_WIDGETS` array and the customize drawer:
+Your app's light mode has:
+- `--background: 0 0% 100%` (white)
+- `--card: 0 0% 100%` (white)
+- `--foreground: 222 47% 11%` (dark text)
 
-| ID | Label | Content |
-|----|-------|---------|
-| `missed-calls` | Missed Calls | Already rendered inside `quick-actions` — extract as standalone widget |
-| `anniversaries` | Policy Anniversaries | Already rendered inside `quick-actions` — extract as standalone widget |
-| `conversion-rate` | Conversion Rate | Stat card showing leads converted to "Closed Won" as a percentage |
-| `avg-talk-time` | Avg Talk Time | Stat card showing average call duration |
-| `pipeline-value` | Pipeline Value | Stat card showing estimated value of active leads |
-| `goals-progress` | Goals Progress | Progress bars for monthly call, sales, and appointment goals |
+But CompanyBranding and Permissions ignore these entirely because they use inline styles forcing dark colors.
 
-## Technical Approach
+## The Fix
 
-### 1. Install `react-grid-layout`
-Add `react-grid-layout` and its types. This gives us `<ResponsiveGridLayout>` with built-in drag handles and resize handles.
+Replace all hardcoded inline `style={{ backgroundColor: "#1E293B" }}` / `color: "#F1F5F9"` / etc. in **CompanyBranding.tsx** and **Permissions.tsx** with the equivalent Tailwind theme classes:
 
-### 2. Define grid layout per widget
-Each widget gets a default grid position (`x, y, w, h`) on a 12-column grid:
-- `stat-cards`: full width (w=12, h=2)
-- `daily-briefing`: w=7, h=4
-- `activity-chart`: w=7, h=3
-- `recent-activity`: w=7, h=3
-- `quick-actions` (Follow Up Queue only): w=5, h=4
-- `missed-calls`: w=5, h=3
-- `anniversaries`: w=5, h=3
-- `leaderboard`: w=12, h=4
-- New stat widgets: w=3, h=2 each
+| Hardcoded style | Correct Tailwind class |
+|---|---|
+| `backgroundColor: "#0F172A"` | `bg-background` |
+| `backgroundColor: "#1E293B"` | `bg-card` |
+| `border: "1px solid #334155"` | `border` |
+| `color: "#F1F5F9"` | `text-foreground` |
+| `color: "#94A3B8"` | `text-muted-foreground` |
+| `color: "#64748B"` | `text-muted-foreground` |
+| `backgroundColor: "#3B82F6"` | `bg-primary` |
+| `backgroundColor: "#334155"` | `bg-muted` or `bg-accent` |
 
-### 3. Persist layout positions + sizes
-Extend the localStorage key to store both widget visibility AND grid layout positions (`{widgets: WidgetConfig[], layouts: ReactGridLayout.Layouts}`).
+This involves:
+1. **CompanyBranding.tsx** — Remove all inline `style={}` on the form card, popover, inputs, and labels. Replace with `className` equivalents (`bg-card border`, `bg-background`, `text-foreground`, etc.)
+2. **Permissions.tsx** — Same treatment across accordion sections, role tabs, radio pills, page/feature rows, data access cards, and the confirm dialog. The `AlertDialogContent` style overrides also need removal.
 
-### 4. Refactor Dashboard.tsx rendering
-- Replace the manual grid logic with `<ResponsiveGridLayout>`
-- Each visible widget wrapped in a `<div key={id}>` grid item
-- Extract `quick-actions` into 3 separate widgets (Follow Up Queue, Missed Calls, Anniversaries)
-- Add render cases for the new stat widgets
+## Prevention Going Forward
 
-### 5. Update CustomizeDrawer
-- Add the 6 new widgets to the list
-- Keep existing drag-to-reorder and toggle functionality (this now controls which widgets appear on the grid)
-
-### 6. Widget chrome
-Each widget card gets:
-- A subtle drag handle bar at the top (using `react-grid-layout`'s `draggableHandle` prop)
-- Resize handle in bottom-right corner (built into `react-grid-layout`)
-- The existing card styling preserved
-
-### 7. CSS for react-grid-layout
-Import the required CSS (`react-grid-layout/css/styles.css`, `react-resizable/css/styles.css`) and add minor overrides for the resize handle and placeholder styling to match the app theme.
-
-## Files to Create/Modify
-- `src/pages/Dashboard.tsx` — replace grid rendering with `ResponsiveGridLayout`, add new widget render cases, persist layout positions
-- `src/components/dashboard/CustomizeDrawer.tsx` — add new widgets to the list
-- `src/index.css` — add react-grid-layout CSS overrides
-- `src/lib/supabase-dashboard.ts` — no changes (new stats derived from existing data)
-
-## Build Error Fix
-The existing build error is about a Deno/Supabase edge function type resolution issue (`openai` package in `supabase/functions/`). This is unrelated to the dashboard and won't block the frontend build. Will address only if it blocks the preview.
+The rule is simple: **never use hardcoded hex colors in inline styles for theme-dependent elements.** Always use Tailwind's semantic classes (`bg-card`, `bg-background`, `text-foreground`, `bg-accent`, `text-muted-foreground`, `border`, `bg-primary`, etc.) which are defined in `index.css` and respond to light/dark mode automatically. Inline `style={{ backgroundColor }}` should only be used for truly dynamic, user-chosen colors (like color swatches/pickers).
 
