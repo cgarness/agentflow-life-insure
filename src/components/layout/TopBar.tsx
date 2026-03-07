@@ -4,8 +4,8 @@ import { useTheme } from "next-themes";
 import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
   User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
-  Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
-} from "lucide-react";
+import { createNotification } from "@/lib/notifications-api";
+import { toast } from "sonner";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
@@ -281,16 +281,24 @@ const TopBar: React.FC = () => {
               <div className="flex items-center gap-3">
                 <button
                   onClick={async () => {
-                    const { createNotification } = await import("@/lib/notifications-api");
-                    if (user) {
+                    console.log("Test button clicked. User:", user?.id);
+                    if (!user) {
+                      toast.error("You must be logged in to send a test notification.");
+                      return;
+                    }
+                    try {
                       await createNotification({
                         user_id: user.id,
                         type: "win",
                         title: "Real-time Test! ✨",
-                        body: "This notification was triggered from the UI using the Supabase API. Realtime is working!",
+                        body: "This notification was triggered from the UI. If you see this, real-time is working!",
                         action_label: "View Contact",
                         action_url: "/contacts"
                       });
+                      toast.success("Test notification sent to Supabase!");
+                    } catch (err: any) {
+                      console.error("Test notification failed:", err);
+                      toast.error(`Error: ${err.message || "Unknown error"}`);
                     }
                   }}
                   className="text-xs text-green-500 hover:underline"

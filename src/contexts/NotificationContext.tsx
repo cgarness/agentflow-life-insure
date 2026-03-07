@@ -70,6 +70,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                     filter: `user_id=eq.${user.id}`,
                 },
                 (payload) => {
+                    console.log("Realtime INSERT received:", payload.new);
                     const newNotification = payload.new as DbNotification;
                     setNotifications((prev) => [newNotification, ...prev]);
                 }

@@ -18,6 +18,7 @@ export async function createNotification(
 
     if (error) {
         console.error("Failed to create notification:", error);
+        throw error;
     }
 }
 
