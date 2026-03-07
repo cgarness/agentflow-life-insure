@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -9,6 +9,8 @@ import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Notification } from "@/lib/types";
+import { notificationsService, notificationFilterTabs, NotificationFilterCategory } from "@/lib/notifications";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -45,6 +47,55 @@ const TopBar: React.FC = () => {
   const [statusDropdown, setStatusDropdown] = useState(false);
   const [userDropdown, setUserDropdown] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [activeNotificationFilter, setActiveNotificationFilter] = useState<NotificationFilterCategory>("All");
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const loadNotifications = async () => {
+      const [items, unread] = await Promise.all([
+        notificationsService.listNotifications(),
+        notificationsService.getUnreadNotificationsCount(),
+      ]);
+
+      setNotifications(items);
+      setUnreadCount(unread);
+    };
+
+    void loadNotifications();
+  }, []);
+
+  const filteredNotifications = useMemo(() => {
+    if (activeNotificationFilter === "All") {
+      return notifications;
+    }
+
+    return notifications.filter((notification) =>
+      notificationsService.getFilterCategory(notification.type) === activeNotificationFilter,
+    );
+  }, [activeNotificationFilter, notifications]);
+
+  const handleMarkAllRead = async () => {
+    await notificationsService.markAllNotificationsRead();
+    setNotifications((previous) => previous.map((notification) => ({ ...notification, read: true })));
+    setUnreadCount(0);
+  };
+
+  const handleMarkRead = async (notificationId: string) => {
+    await notificationsService.markNotificationRead(notificationId);
+    let becameRead = false;
+
+    setNotifications((previous) => previous.map((notification) => {
+      if (notification.id !== notificationId) return notification;
+      if (notification.read) return notification;
+      becameRead = true;
+      return { ...notification, read: true };
+    }));
+
+    if (becameRead) {
+      setUnreadCount((previous) => Math.max(previous - 1, 0));
+    }
+  };
 
   const currentPage = pageTitles[location.pathname] || "Page";
 
@@ -144,7 +195,11 @@ const TopBar: React.FC = () => {
           <div className="relative">
             <button onClick={() => setNotifOpen(!notifOpen)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition">
               <Bell className="w-4 h-4" />
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">3</span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
+                  {unreadCount}
+                </span>
+              )}
             </button>
           </div>
 
@@ -204,28 +259,49 @@ const TopBar: React.FC = () => {
           <div className={`fixed top-0 right-0 w-[380px] max-w-full h-screen bg-card border-l shadow-2xl z-50 flex flex-col`}>
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold text-foreground">Notifications</h2>
-              <button className="text-xs text-primary hover:underline">Mark All Read</button>
+              <button onClick={handleMarkAllRead} className="text-xs text-primary hover:underline">Mark All Read</button>
             </div>
             <div className="flex border-b">
-              {["All", "Calls", "Leads", "System"].map((tab) => (
-                <button key={tab} className="flex-1 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent sidebar-transition first:text-foreground first:border-b-2 first:border-primary">{tab}</button>
-              ))}
+              {notificationFilterTabs.map((tab) => {
+                const isActive = activeNotificationFilter === tab;
+
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveNotificationFilter(tab)}
+                    className={`flex-1 py-2.5 text-sm font-medium hover:text-foreground hover:bg-accent sidebar-transition ${
+                      isActive
+                        ? "text-foreground border-b-2 border-primary"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                );
+              })}
             </div>
             <div className="flex-1 overflow-y-auto">
-              {[
-                { text: "🎉 Chris G. sold a Term Life policy to John M.!", time: "2 min ago", unread: true },
-                { text: "Missed call from Sarah Williams (FL)", time: "15 min ago", unread: true, action: "Call Back" },
-                { text: "New lead assigned: Mike Johnson from Facebook Ads", time: "1 hr ago", unread: true },
-                { text: "Campaign 'Q1 Facebook Leads' reached 50% completion", time: "3 hrs ago", unread: false },
-                { text: "Policy anniversary: Robert Chen's Term Life renews in 7 days", time: "5 hrs ago", unread: false },
-              ].map((n, i) => (
-                <div key={i} className={`flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition ${n.unread ? "bg-primary/5" : ""}`}>
-                  {n.unread && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
+              {filteredNotifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  className={`flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition ${notification.read ? "" : "bg-primary/5"}`}
+                >
+                  {!notification.read && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground">{n.text}</p>
+                    <p className="text-sm text-foreground">{notification.text}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-muted-foreground">{n.time}</span>
-                      {n.action && <button className="text-xs text-primary font-medium hover:underline">{n.action}</button>}
+                      <span className="text-xs text-muted-foreground">{notification.time}</span>
+                      {notification.actionLabel && (
+                        <button className="text-xs text-primary font-medium hover:underline">{notification.actionLabel}</button>
+                      )}
+                      {!notification.read && (
+                        <button
+                          onClick={() => void handleMarkRead(notification.id)}
+                          className="text-xs text-primary font-medium hover:underline"
+                        >
+                          Mark Read
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
