@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   CalendarDays, CalendarRange, List, LayoutGrid, Sun, Clock,
   Plus, MoreVertical, Lock, Pencil, Trash2, Mail, MessageSquare,
@@ -14,7 +14,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Types
 interface AppointmentType {
@@ -30,6 +33,19 @@ interface WorkingDay {
   enabled: boolean;
   start: string;
   end: string;
+}
+
+interface GoogleCalendarItem {
+  id: string;
+  summary: string;
+}
+
+type GoogleSyncMode = "outbound_only" | "two_way";
+
+interface GoogleSyncSettings {
+  connected: boolean;
+  calendarId: string;
+  syncMode: GoogleSyncMode;
 }
 
 const PRESET_COLORS = ["#3B82F6", "#22C55E", "#EF4444", "#F97316", "#A855F7", "#EC4899", "#14B8A6", "#EAB308"];
@@ -68,13 +84,27 @@ const DEFAULT_WORKING_HOURS: WorkingDay[] = [
 
 const timeToMinutes = (t: string) => {
   const [time, period] = t.split(" ");
-  let [h, m] = time.split(":").map(Number);
+  const [parsedH, m] = time.split(":").map(Number);
+  let h = parsedH;
   if (period === "PM" && h !== 12) h += 12;
   if (period === "AM" && h === 12) h = 0;
   return h * 60 + m;
 };
 
+const GOOGLE_SYNC_PREFERENCE_KEY = "calendar_google_sync_settings";
+
+const fetchGoogleCalendarList = async (): Promise<GoogleCalendarItem[]> => {
+  await new Promise(resolve => setTimeout(resolve, 350));
+
+  return [
+    { id: "primary", summary: "Primary Calendar" },
+    { id: "team-sales", summary: "Sales Team Calendar" },
+    { id: "client-reviews", summary: "Client Reviews" },
+  ];
+};
+
 const CalendarSettings: React.FC = () => {
+  const { user } = useAuth();
   // Card 1 - Default View
   const [defaultView, setDefaultView] = useState("Month");
   // Card 2 - First Day
@@ -105,6 +135,173 @@ const CalendarSettings: React.FC = () => {
   const [workingHours, setWorkingHours] = useState<WorkingDay[]>(DEFAULT_WORKING_HOURS);
   const [workingHoursDirty, setWorkingHoursDirty] = useState(false);
   const [workingHoursSaving, setWorkingHoursSaving] = useState(false);
+
+  // Card 8 - Google Calendar Integration
+  const [googleSyncSettings, setGoogleSyncSettings] = useState<GoogleSyncSettings>({
+    connected: false,
+    calendarId: "",
+    syncMode: "outbound_only",
+  });
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarItem[]>([]);
+  const [googlePrefsLoading, setGooglePrefsLoading] = useState(true);
+  const [googlePrefsError, setGooglePrefsError] = useState<string | null>(null);
+  const [googleActionLoading, setGoogleActionLoading] = useState(false);
+  const [googleCalendarsLoading, setGoogleCalendarsLoading] = useState(false);
+  const [googleCalendarsError, setGoogleCalendarsError] = useState<string | null>(null);
+  const [googleSyncSaving, setGoogleSyncSaving] = useState(false);
+
+  const saveGoogleSyncSettings = async (nextSettings: GoogleSyncSettings, showToast = true) => {
+    if (!user?.id) return false;
+
+    setGoogleSyncSaving(true);
+    try {
+      const { error } = await supabase
+        .from("user_preferences")
+        .upsert(
+          {
+            user_id: user.id,
+            preference_key: GOOGLE_SYNC_PREFERENCE_KEY,
+            preference_value: nextSettings,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,preference_key" }
+        );
+
+      if (error) throw error;
+
+      if (showToast) {
+        toast({ title: "Google Calendar sync settings saved", className: "bg-[#22C55E] text-white border-0" });
+      }
+      return true;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Please try again.";
+      toast({ title: "Unable to save Google sync settings", description: message, variant: "destructive" });
+      return false;
+    } finally {
+      setGoogleSyncSaving(false);
+    }
+  };
+
+  const loadGoogleCalendars = async (): Promise<GoogleCalendarItem[]> => {
+    setGoogleCalendarsLoading(true);
+    setGoogleCalendarsError(null);
+    try {
+      const calendars = await fetchGoogleCalendarList();
+      setGoogleCalendars(calendars);
+      return calendars;
+    } catch {
+      setGoogleCalendarsError("Could not load Google calendars.");
+      return [];
+    } finally {
+      setGoogleCalendarsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const loadGoogleSyncSettings = async () => {
+      if (!user?.id) {
+        setGooglePrefsLoading(false);
+        return;
+      }
+
+      setGooglePrefsLoading(true);
+      setGooglePrefsError(null);
+
+      try {
+        const { data, error } = await supabase
+          .from("user_preferences")
+          .select("preference_value")
+          .eq("user_id", user.id)
+          .eq("preference_key", GOOGLE_SYNC_PREFERENCE_KEY)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        const saved = data?.preference_value;
+        if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+          const parsed = saved as Partial<GoogleSyncSettings>;
+          const nextSettings: GoogleSyncSettings = {
+            connected: !!parsed.connected,
+            calendarId: typeof parsed.calendarId === "string" ? parsed.calendarId : "",
+            syncMode: parsed.syncMode === "two_way" ? "two_way" : "outbound_only",
+          };
+          setGoogleSyncSettings(nextSettings);
+
+          if (nextSettings.connected) {
+            await loadGoogleCalendars();
+          }
+        }
+      } catch {
+        setGooglePrefsError("Unable to load Google Calendar integration settings.");
+      } finally {
+        setGooglePrefsLoading(false);
+      }
+    };
+
+    loadGoogleSyncSettings();
+  }, [user?.id]);
+
+  const handleGoogleConnectToggle = async () => {
+    if (!user?.id) {
+      toast({ title: "You must be logged in to manage integration settings", variant: "destructive" });
+      return;
+    }
+
+    setGoogleActionLoading(true);
+    try {
+      if (googleSyncSettings.connected) {
+        const nextSettings: GoogleSyncSettings = {
+          ...googleSyncSettings,
+          connected: false,
+          calendarId: "",
+        };
+
+        const saved = await saveGoogleSyncSettings(nextSettings, false);
+        if (!saved) return;
+
+        setGoogleSyncSettings(nextSettings);
+        setGoogleCalendars([]);
+        toast({ title: "Google Calendar disconnected", className: "bg-[#22C55E] text-white border-0" });
+        return;
+      }
+
+      const calendars = await loadGoogleCalendars();
+
+      const firstCalendarId = calendars[0]?.id ?? "primary";
+      const nextSettings: GoogleSyncSettings = {
+        ...googleSyncSettings,
+        connected: true,
+        calendarId: googleSyncSettings.calendarId || firstCalendarId,
+      };
+      const saved = await saveGoogleSyncSettings(nextSettings, false);
+      if (!saved) return;
+
+      setGoogleSyncSettings(nextSettings);
+      toast({ title: "Google Calendar connected", className: "bg-[#22C55E] text-white border-0" });
+    } finally {
+      setGoogleActionLoading(false);
+    }
+  };
+
+  const handleGoogleCalendarChange = async (calendarId: string) => {
+    const nextSettings: GoogleSyncSettings = {
+      ...googleSyncSettings,
+      calendarId,
+    };
+
+    setGoogleSyncSettings(nextSettings);
+    await saveGoogleSyncSettings(nextSettings);
+  };
+
+  const handleGoogleSyncModeChange = async (syncMode: GoogleSyncMode) => {
+    const nextSettings: GoogleSyncSettings = {
+      ...googleSyncSettings,
+      syncMode,
+    };
+
+    setGoogleSyncSettings(nextSettings);
+    await saveGoogleSyncSettings(nextSettings);
+  };
 
   // Card 1 handlers
   const viewOptions = [
@@ -354,7 +551,86 @@ const CalendarSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Card 5 — Appointment Reminders */}
+      {/* Card 5 — Google Calendar Integration */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Google Calendar Integration</CardTitle>
+              <CardDescription>Connect your Google Calendar and control how events sync.</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge className={googleSyncSettings.connected ? "bg-[#22C55E] text-white" : "bg-muted text-muted-foreground"}>
+                {googleSyncSettings.connected ? "Connected" : "Disconnected"}
+              </Badge>
+              <Button
+                onClick={handleGoogleConnectToggle}
+                disabled={googleActionLoading || googlePrefsLoading}
+                className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white"
+              >
+                {googleActionLoading
+                  ? "Working..."
+                  : googleSyncSettings.connected
+                    ? "Disconnect"
+                    : "Connect"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {googlePrefsLoading && <p className="text-sm text-muted-foreground">Loading integration settings...</p>}
+          {googlePrefsError && <p className="text-sm text-[#EF4444]">{googlePrefsError}</p>}
+
+          {!googlePrefsLoading && (
+            <>
+              <div className="space-y-2">
+                <Label>Google Calendar</Label>
+                <Select
+                  value={googleSyncSettings.calendarId || undefined}
+                  onValueChange={handleGoogleCalendarChange}
+                  disabled={!googleSyncSettings.connected || googleCalendarsLoading || googleSyncSaving}
+                >
+                  <SelectTrigger className="w-72">
+                    <SelectValue placeholder={googleCalendarsLoading ? "Loading calendars..." : "Select calendar"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {googleCalendars.map(calendar => (
+                      <SelectItem key={calendar.id} value={calendar.id}>{calendar.summary}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {googleCalendarsError && <p className="text-xs text-[#EF4444]">{googleCalendarsError}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Sync Mode</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={googleSyncSettings.syncMode === "outbound_only" ? "default" : "outline"}
+                    disabled={!googleSyncSettings.connected || googleSyncSaving}
+                    onClick={() => handleGoogleSyncModeChange("outbound_only")}
+                    className={googleSyncSettings.syncMode === "outbound_only" ? "bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white" : ""}
+                  >
+                    Outbound-only
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={googleSyncSettings.syncMode === "two_way" ? "default" : "outline"}
+                    disabled={!googleSyncSettings.connected || googleSyncSaving}
+                    onClick={() => handleGoogleSyncModeChange("two_way")}
+                    className={googleSyncSettings.syncMode === "two_way" ? "bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white" : ""}
+                  >
+                    2-way Sync
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Card 6 — Appointment Reminders */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Appointment Reminders</CardTitle>
@@ -412,7 +688,7 @@ const CalendarSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Card 6 — Appointment Confirmation */}
+      {/* Card 7 — Appointment Confirmation */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Appointment Confirmation</CardTitle>
@@ -449,7 +725,7 @@ const CalendarSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Card 7 — Working Hours */}
+      {/* Card 8 — Working Hours */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Working Hours</CardTitle>
