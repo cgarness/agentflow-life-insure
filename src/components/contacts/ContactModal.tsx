@@ -360,7 +360,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     const val = (editForm as any)[key] ?? "";
     return (
       <div>
-        <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>
+        <label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>
         {editMode ? (
           <>
             {type === "select" ? (
