@@ -94,6 +94,28 @@ Deno.serve(async (req) => {
       return json({ error: "Missing action or appointment_id" }, 400);
     }
 
+    const { data: localAppointment, error: localAppointmentError } = await supabase
+      .from("appointments")
+      .select("id, sync_source, external_provider, external_event_id")
+      .eq("id", body.appointment_id)
+      .maybeSingle();
+
+    if (localAppointmentError) {
+      return json({ error: `Failed to load appointment metadata: ${localAppointmentError.message}` }, 500);
+    }
+
+    if (!localAppointment?.id) {
+      return json({ error: "Appointment not found" }, 404);
+    }
+
+    if (
+      localAppointment.sync_source === "external" &&
+      localAppointment.external_provider === "google" &&
+      (body.action === "create" || !body.external_event_id || localAppointment.external_event_id === body.external_event_id)
+    ) {
+      return json({ success: true, skipped: true, reason: "loop_prevention_external_source" });
+    }
+
     const { data: integration, error: integrationError } = await supabase
       .from("calendar_integrations")
       .select("calendar_id, access_token, sync_enabled")
@@ -142,6 +164,7 @@ Deno.serve(async (req) => {
           external_provider: "google",
           external_event_id: googleData.id,
           external_last_synced_at: new Date().toISOString(),
+          sync_source: "internal",
         })
         .eq("id", body.appointment_id);
 
@@ -176,6 +199,7 @@ Deno.serve(async (req) => {
         .from("appointments")
         .update({
           external_last_synced_at: new Date().toISOString(),
+          sync_source: "internal",
         })
         .eq("id", body.appointment_id);
 
@@ -209,6 +233,7 @@ Deno.serve(async (req) => {
         .update({
           external_last_synced_at: new Date().toISOString(),
           external_event_id: null,
+          sync_source: "internal",
         })
         .eq("id", body.appointment_id);
 

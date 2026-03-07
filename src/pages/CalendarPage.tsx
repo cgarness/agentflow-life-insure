@@ -259,6 +259,7 @@ const CalendarPage: React.FC = () => {
       end_time: endDate.toISOString(),
       notes: data.notes,
       status: data.status,
+      sync_source: "internal",
     };
 
     if (modalEditing) {
@@ -340,7 +341,7 @@ const CalendarPage: React.FC = () => {
   const handleStatusChange = async (id: string, status: CalAppointmentStatus) => {
     const { error } = await supabase
       .from("appointments")
-      .update({ status })
+      .update({ status, sync_source: "internal" })
       .eq("id", id);
 
     if (error) {
