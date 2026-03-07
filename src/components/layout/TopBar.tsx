@@ -65,15 +65,10 @@ const TopBar: React.FC = () => {
     void loadNotifications();
   }, []);
 
-  const filteredNotifications = useMemo(() => {
-    if (activeNotificationFilter === "All") {
-      return notifications;
-    }
-
-    return notifications.filter((notification) =>
-      notificationsService.getFilterCategory(notification.type) === activeNotificationFilter,
-    );
-  }, [activeNotificationFilter, notifications]);
+  const filteredNotifications = useMemo(
+    () => notificationsService.filterNotifications(notifications, activeNotificationFilter),
+    [activeNotificationFilter, notifications],
+  );
 
   const handleMarkAllRead = async () => {
     await notificationsService.markAllNotificationsRead();

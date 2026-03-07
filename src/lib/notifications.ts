@@ -3,8 +3,8 @@ import { Notification } from "@/lib/types";
 
 export type NotificationFilterCategory = "All" | "Calls" | "Leads" | "System";
 
-const typeToCategoryMap: Record<Notification["type"], NotificationFilterCategory> = {
-  win: "All",
+const typeToCategoryMap: Record<Notification["type"], Exclude<NotificationFilterCategory, "All">> = {
+  win: "System",
   missed_call: "Calls",
   lead_claimed: "Leads",
   appointment_reminder: "System",
@@ -27,7 +27,19 @@ export const notificationsService = {
   async getUnreadNotificationsCount(): Promise<number> {
     return notificationsApi.getUnreadCount();
   },
-  getFilterCategory(notificationType: Notification["type"]): NotificationFilterCategory {
-    return typeToCategoryMap[notificationType] ?? "All";
+  getFilterCategory(notificationType: Notification["type"]): Exclude<NotificationFilterCategory, "All"> {
+    return typeToCategoryMap[notificationType] ?? "System";
+  },
+  filterNotifications(
+    notifications: Notification[],
+    category: NotificationFilterCategory,
+  ): Notification[] {
+    if (category === "All") {
+      return notifications;
+    }
+
+    return notifications.filter((notification) =>
+      typeToCategoryMap[notification.type] === category,
+    );
   },
 };
