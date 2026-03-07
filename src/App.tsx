@@ -19,6 +19,7 @@ import Reports from "./pages/Reports";
 import AIAgents from "./pages/AIAgents";
 import Training from "./pages/Training";
 import SettingsPage from "./pages/SettingsPage";
+import AgentProfile from "./pages/AgentProfile";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -74,6 +75,7 @@ const App = () => (
                     <Route path="/ai-agents" element={<AIAgents />} />
                     <Route path="/training" element={<Training />} />
                     <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/agent-profile" element={<AgentProfile />} />
                   </Route>
                   <Route path="*" element={<NotFound />} />
                 </Routes>
