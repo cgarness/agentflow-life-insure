@@ -59,6 +59,62 @@ export type Database = {
         }
         Relationships: []
       }
+      calendar_integrations: {
+        Row: {
+          access_token: string | null
+          calendar_id: string
+          created_at: string
+          id: string
+          last_sync_at: string | null
+          last_sync_token: string | null
+          provider: string
+          refresh_token: string | null
+          sync_enabled: boolean
+          sync_mode: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          calendar_id: string
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_token?: string | null
+          provider: string
+          refresh_token?: string | null
+          sync_enabled?: boolean
+          sync_mode?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          calendar_id?: string
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_token?: string | null
+          provider?: string
+          refresh_token?: string | null
+          sync_enabled?: boolean
+          sync_mode?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_integrations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       clients: {
         Row: {
           assigned_agent_id: string | null
