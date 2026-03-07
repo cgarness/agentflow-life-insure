@@ -279,6 +279,24 @@ const TopBar: React.FC = () => {
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold text-foreground">Notifications</h2>
               <div className="flex items-center gap-3">
+                <button
+                  onClick={async () => {
+                    const { createNotification } = await import("@/lib/notifications-api");
+                    if (user) {
+                      await createNotification({
+                        user_id: user.id,
+                        type: "win",
+                        title: "Real-time Test! ✨",
+                        body: "This notification was triggered from the UI using the Supabase API. Realtime is working!",
+                        action_label: "View Contact",
+                        action_url: "/contacts"
+                      });
+                    }
+                  }}
+                  className="text-xs text-green-500 hover:underline"
+                >
+                  Send Test
+                </button>
                 {unreadCount > 0 && (
                   <button
                     onClick={() => markAllRead()}
@@ -298,8 +316,8 @@ const TopBar: React.FC = () => {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-2.5 text-sm font-medium sidebar-transition relative ${activeTab === tab
-                      ? "text-foreground border-b-2 border-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    ? "text-foreground border-b-2 border-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
                     }`}
                 >
                   {tab}
