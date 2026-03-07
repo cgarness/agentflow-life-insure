@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -9,6 +9,8 @@ import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { notificationsApi } from "@/lib/mock-api";
+import { Notification } from "@/lib/types";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -32,6 +34,19 @@ const statusOptions = [
   { label: "Offline", color: "bg-muted-foreground/50", dotClass: "bg-muted-foreground/50" },
 ];
 
+const notificationTabs = ["All", "Calls", "Leads", "System"] as const;
+type NotificationTab = typeof notificationTabs[number];
+
+const getNotificationsForTab = (notifications: Notification[], tab: NotificationTab) => {
+  if (tab === "All") return notifications;
+  if (tab === "Calls") return notifications.filter((notification) => notification.type === "missed_call");
+  if (tab === "Leads") return notifications.filter((notification) => notification.type === "lead_claimed");
+
+  return notifications.filter(
+    (notification) => !["missed_call", "lead_claimed"].includes(notification.type),
+  );
+};
+
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout } = useAuth();
@@ -45,6 +60,10 @@ const TopBar: React.FC = () => {
   const [statusDropdown, setStatusDropdown] = useState(false);
   const [userDropdown, setUserDropdown] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [selectedNotificationTab, setSelectedNotificationTab] = useState<NotificationTab>("All");
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
 
   const currentPage = pageTitles[location.pathname] || "Page";
 
@@ -62,6 +81,88 @@ const TopBar: React.FC = () => {
     dotTooltip = "In a Dialing Session";
     dotPulse = false;
   }
+
+  const unreadCount = useMemo(
+    () => notifications.filter((notification) => !notification.read).length,
+    [notifications],
+  );
+
+  const filteredNotifications = useMemo(
+    () => getNotificationsForTab(notifications, selectedNotificationTab),
+    [notifications, selectedNotificationTab],
+  );
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+    setNotificationsError(null);
+
+    try {
+      const data = await notificationsApi.getAll();
+      setNotifications(data);
+    } catch (error) {
+      setNotificationsError(error instanceof Error ? error.message : "Failed to load notifications");
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
+
+  const handleMarkAllRead = useCallback(async () => {
+    const previousNotifications = notifications;
+    const updatedNotifications = notifications.map((notification) => ({ ...notification, read: true }));
+
+    setNotifications(updatedNotifications);
+    setNotificationsError(null);
+
+    try {
+      await notificationsApi.markAllRead();
+    } catch (error) {
+      setNotifications(previousNotifications);
+      setNotificationsError(error instanceof Error ? error.message : "Unable to mark all notifications as read");
+    }
+  }, [notifications]);
+
+  const handleMarkNotificationRead = useCallback(async (notificationId: string) => {
+    let originalNotification: Notification | null = null;
+
+    setNotifications((currentNotifications) =>
+      currentNotifications.map((notification) => {
+        if (notification.id !== notificationId) {
+          return notification;
+        }
+
+        originalNotification = notification;
+        return { ...notification, read: true };
+      }),
+    );
+
+    try {
+      await notificationsApi.markRead(notificationId);
+    } catch (error) {
+      if (originalNotification) {
+        setNotifications((currentNotifications) =>
+          currentNotifications.map((notification) =>
+            notification.id === notificationId ? originalNotification! : notification,
+          ),
+        );
+      }
+
+      setNotificationsError(error instanceof Error ? error.message : "Unable to mark notification as read");
+    }
+  }, []);
+
+  const handleCallBack = useCallback((notification: Notification) => {
+    window.dispatchEvent(
+      new CustomEvent("toggle-floating-dialer", {
+        detail: { source: "notification", notification },
+      }),
+    );
+    setNotifOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    void loadNotifications();
+  }, [notifOpen, loadNotifications]);
 
   return (
     <>
@@ -144,7 +245,11 @@ const TopBar: React.FC = () => {
           <div className="relative">
             <button onClick={() => setNotifOpen(!notifOpen)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition">
               <Bell className="w-4 h-4" />
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">3</span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
+                  {unreadCount}
+                </span>
+              )}
             </button>
           </div>
 
@@ -204,31 +309,88 @@ const TopBar: React.FC = () => {
           <div className={`fixed top-0 right-0 w-[380px] max-w-full h-screen bg-card border-l shadow-2xl z-50 flex flex-col`}>
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold text-foreground">Notifications</h2>
-              <button className="text-xs text-primary hover:underline">Mark All Read</button>
+              <button
+                onClick={handleMarkAllRead}
+                className="text-xs text-primary hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
+                disabled={notificationsLoading || unreadCount === 0}
+              >
+                Mark All Read
+              </button>
             </div>
             <div className="flex border-b">
-              {["All", "Calls", "Leads", "System"].map((tab) => (
-                <button key={tab} className="flex-1 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent sidebar-transition first:text-foreground first:border-b-2 first:border-primary">{tab}</button>
+              {notificationTabs.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setSelectedNotificationTab(tab)}
+                  className={`flex-1 py-2.5 text-sm font-medium hover:text-foreground hover:bg-accent sidebar-transition ${
+                    selectedNotificationTab === tab
+                      ? "text-foreground border-b-2 border-primary"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {tab}
+                </button>
               ))}
             </div>
             <div className="flex-1 overflow-y-auto">
-              {[
-                { text: "🎉 Chris G. sold a Term Life policy to John M.!", time: "2 min ago", unread: true },
-                { text: "Missed call from Sarah Williams (FL)", time: "15 min ago", unread: true, action: "Call Back" },
-                { text: "New lead assigned: Mike Johnson from Facebook Ads", time: "1 hr ago", unread: true },
-                { text: "Campaign 'Q1 Facebook Leads' reached 50% completion", time: "3 hrs ago", unread: false },
-                { text: "Policy anniversary: Robert Chen's Term Life renews in 7 days", time: "5 hrs ago", unread: false },
-              ].map((n, i) => (
-                <div key={i} className={`flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition ${n.unread ? "bg-primary/5" : ""}`}>
-                  {n.unread && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
+              {notificationsLoading && (
+                <div className="px-4 py-6 text-sm text-muted-foreground">Loading notifications...</div>
+              )}
+
+              {!notificationsLoading && notificationsError && (
+                <div className="px-4 py-6 space-y-2">
+                  <p className="text-sm text-destructive">{notificationsError}</p>
+                  <button onClick={() => void loadNotifications()} className="text-xs text-primary hover:underline">
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {!notificationsLoading && !notificationsError && filteredNotifications.length === 0 && (
+                <div className="px-4 py-6 text-sm text-muted-foreground">
+                  No notifications in {selectedNotificationTab.toLowerCase()}.
+                </div>
+              )}
+
+              {!notificationsLoading && !notificationsError && filteredNotifications.map((notification) => (
+                <button
+                  key={notification.id}
+                  type="button"
+                  onClick={() => {
+                    if (!notification.read) {
+                      void handleMarkNotificationRead(notification.id);
+                    }
+                  }}
+                  className={`w-full flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition text-left ${notification.read ? "" : "bg-primary/5"}`}
+                >
+                  {!notification.read && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground">{n.text}</p>
+                    <p className="text-sm text-foreground">{notification.text}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-muted-foreground">{n.time}</span>
-                      {n.action && <button className="text-xs text-primary font-medium hover:underline">{n.action}</button>}
+                      <span className="text-xs text-muted-foreground">{notification.time}</span>
+                      {notification.actionLabel === "Call Back" && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCallBack(notification);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              handleCallBack(notification);
+                            }
+                          }}
+                          className="text-xs text-primary font-medium hover:underline"
+                        >
+                          {notification.actionLabel}
+                        </span>
+                      )}
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
