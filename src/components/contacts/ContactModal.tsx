@@ -360,7 +360,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     const val = (editForm as any)[key] ?? "";
     return (
       <div>
-        <label className="text-xs font-semibold text-muted-foreground block mb-1">{label}</label>
+        <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>
         {editMode ? (
           <>
             {type === "select" ? (
@@ -404,7 +404,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
               <div className="w-14 h-14 rounded-full bg-blue-500 text-white flex items-center justify-center text-lg font-bold shrink-0">
                 {lead.firstName[0]}{lead.lastName[0]}
               </div>
-              <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
+              <h2 className="text-2xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
             </div>
             {/* Status — centered */}
             <div className="flex-1 flex items-center justify-center">
@@ -556,8 +556,8 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                           key={f}
                           onClick={() => setHistoryFilter(f)}
                           className={`px-3 py-1 text-xs font-medium rounded-full transition-all duration-150 ${historyFilter === f
-                              ? "bg-blue-500 text-white"
-                              : "border border-border text-muted-foreground hover:text-foreground"
+                            ? "bg-blue-500 text-white"
+                            : "border border-border text-muted-foreground hover:text-foreground"
                             }`}
                         >
                           {f}

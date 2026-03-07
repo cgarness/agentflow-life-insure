@@ -63,7 +63,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                             <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-bold">{agent.firstName[0]}{agent.lastName[0]}</div>
                             <span className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-background ${availabilityColors[localAvail] || "bg-gray-400"}`} />
                         </div>
-                        <h2 className="text-xl font-bold text-foreground">{agent.firstName} {agent.lastName}</h2>
+                        <h2 className="text-2xl font-bold text-foreground">{agent.firstName} {agent.lastName}</h2>
                     </div>
                     {/* Role badge + Availability — centered */}
                     <div className="flex-1 flex items-center justify-center gap-3">
@@ -94,20 +94,20 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                         <div className="flex-1 overflow-y-auto p-6">
                             {activeTab === "Overview" && <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">First Name</label><p className="text-sm text-foreground mt-0.5">{agent.firstName}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Last Name</label><p className="text-sm text-foreground mt-0.5">{agent.lastName}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Email</label><p className="text-sm text-foreground mt-0.5">{agent.email}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Phone</label><p className="text-sm text-foreground mt-0.5">{agent.phone || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Role</label><p className="text-sm text-foreground mt-0.5">{agent.role}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Status</label><p className="text-sm text-foreground mt-0.5">{agent.status}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Licensed States</label><p className="text-sm text-foreground mt-0.5">{profile?.licensedStates.join(", ") || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Resident State</label><p className="text-sm text-foreground mt-0.5">{profile?.residentState || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Commission Level</label><p className="text-sm text-foreground mt-0.5">{profile?.commissionLevel || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Monthly Call Goal</label><p className="text-sm text-foreground mt-0.5">{profile?.monthlyCallGoal || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Monthly Sales Goal</label><p className="text-sm text-foreground mt-0.5">{profile?.monthlySalesGoal || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Weekly Appt. Goal</label><p className="text-sm text-foreground mt-0.5">{profile?.weeklyAppointmentGoal || "—"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Last Login</label><p className="text-sm text-foreground mt-0.5">{agent.lastLoginAt ? new Date(agent.lastLoginAt).toLocaleDateString() : "Never"}</p></div>
-                                    <div><label className="text-xs font-semibold text-muted-foreground block mb-1">Member Since</label><p className="text-sm text-foreground mt-0.5">{new Date(agent.createdAt).toLocaleDateString()}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">First Name</label><p className="text-sm text-foreground mt-0.5">{agent.firstName}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Last Name</label><p className="text-sm text-foreground mt-0.5">{agent.lastName}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Email</label><p className="text-sm text-foreground mt-0.5">{agent.email}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Phone</label><p className="text-sm text-foreground mt-0.5">{agent.phone || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Role</label><p className="text-sm text-foreground mt-0.5">{agent.role}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Status</label><p className="text-sm text-foreground mt-0.5">{agent.status}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Licensed States</label><p className="text-sm text-foreground mt-0.5">{profile?.licensedStates.join(", ") || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Resident State</label><p className="text-sm text-foreground mt-0.5">{profile?.residentState || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Commission Level</label><p className="text-sm text-foreground mt-0.5">{profile?.commissionLevel || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Monthly Call Goal</label><p className="text-sm text-foreground mt-0.5">{profile?.monthlyCallGoal || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Monthly Sales Goal</label><p className="text-sm text-foreground mt-0.5">{profile?.monthlySalesGoal || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Weekly Appt. Goal</label><p className="text-sm text-foreground mt-0.5">{profile?.weeklyAppointmentGoal || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Last Login</label><p className="text-sm text-foreground mt-0.5">{agent.lastLoginAt ? new Date(agent.lastLoginAt).toLocaleDateString() : "Never"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Member Since</label><p className="text-sm text-foreground mt-0.5">{new Date(agent.createdAt).toLocaleDateString()}</p></div>
                                 </div>
                                 {profile && <div>
                                     <label className="text-xs font-semibold text-muted-foreground block mb-2">Onboarding Progress</label>

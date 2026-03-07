@@ -132,7 +132,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
 
   const renderField = (label: string, key: string, type: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
     const val = (editForm as any)[key] ?? "";
-    return (<div><label className="text-xs font-semibold text-muted-foreground block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : <p className="text-sm text-foreground mt-0.5">{val || "—"}</p>}</div>);
+    return (<div><label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : <p className="text-sm text-foreground mt-0.5">{val || "—"}</p>}</div>);
   };
 
   return (<TooltipProvider>
@@ -144,7 +144,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
           {/* Avatar + Name */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="w-14 h-14 rounded-full bg-green-500 text-white flex items-center justify-center text-lg font-bold shrink-0">{client.firstName[0]}{client.lastName[0]}</div>
-            <h2 className="text-xl font-bold text-foreground">{client.firstName} {client.lastName}</h2>
+            <h2 className="text-2xl font-bold text-foreground">{client.firstName} {client.lastName}</h2>
           </div>
           {/* Policy type badge — centered */}
           <div className="flex-1 flex items-center justify-center">
@@ -183,7 +183,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
                   {renderField("Beneficiary Name", "beneficiaryName")}{renderField("Beneficiary Relationship", "beneficiaryRelationship")}
                   {renderField("Beneficiary Phone", "beneficiaryPhone")}
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground block mb-1">Assigned Agent</label>
+                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>
                     {editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <p className="text-sm text-foreground mt-0.5">{getAgentName(client.assignedAgentId)}</p>}
                   </div>
                 </div>
