@@ -12,6 +12,9 @@ import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
+import ClientModal from "@/components/contacts/ClientModal";
+import RecruitModal from "@/components/contacts/RecruitModal";
+import AgentModal from "@/components/contacts/AgentModal";
 import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -302,6 +305,9 @@ const Contacts: React.FC = () => {
   const [selectedRecruitIds, setSelectedRecruitIds] = useState<Set<string>>(new Set());
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedRecruit, setSelectedRecruit] = useState<Recruit | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<typeof mockUsers[0] | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [editClient, setEditClient] = useState<Client | null>(null);
@@ -1119,7 +1125,7 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedClients.map(c => (
-                      <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => toast.info(`Client: ${c.firstName} ${c.lastName} `)}>
+                      <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedClient(c)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => { }} className="rounded" /></td>
                         {CLIENT_COLUMNS.filter(col => visibleClientCols.has(col.key)).map(col => (
                           <td key={col.key} className={`py-3 ${colAlign(col.key)} `}>{renderClientCell(c, col.key)}</td>
@@ -1165,7 +1171,7 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedRecruits.map(r => (
-                      <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => toast.info(`Recruit: ${r.firstName} ${r.lastName} `)}>
+                      <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedRecruit(r)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => { }} className="rounded" /></td>
                         {RECRUIT_COLUMNS.filter(col => visibleRecruitCols.has(col.key)).map(col => (
                           <td key={col.key} className={`py-3 ${colAlign(col.key)}`} style={{ width: columnWidths[tab]?.[col.key], minWidth: columnWidths[tab]?.[col.key] }}>{renderRecruitCell(r, col.key)}</td>
@@ -1189,7 +1195,7 @@ const Contacts: React.FC = () => {
                         <span className="text-xs text-muted-foreground">{items.length}</span>
                       </div>
                       {items.map(r => (
-                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => toast.info(`Recruit: ${r.firstName} ${r.lastName} `)}>
+                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => setSelectedRecruit(r)}>
                           <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
                           <p className="text-xs text-muted-foreground">{r.email}</p>
                           <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId)}</p>
@@ -1225,7 +1231,7 @@ const Contacts: React.FC = () => {
                 </tr></thead>
                 <tbody>
                   {sortedAgents.map(u => (
-                    <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => toast.info(`Agent: ${u.firstName} ${u.lastName} `)}>
+                    <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
                       <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
                       {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
                         <td key={col.key} className={`py-3 ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
@@ -1315,6 +1321,9 @@ const Contacts: React.FC = () => {
       <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
       <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit} contactType="Recruit" />
       <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
+      <ClientModal client={selectedClient} onClose={() => setSelectedClient(null)} onUpdate={async (id, data) => { await clientsApi.update(id, data); toast.success("Client updated"); fetchData(); }} onDelete={handleDeleteClient} />
+      <RecruitModal recruit={selectedRecruit} onClose={() => setSelectedRecruit(null)} onUpdate={async (id, data) => { await recruitsApi.update(id, data); toast.success("Recruit updated"); fetchData(); }} onDelete={handleDeleteRecruit} />
+      <AgentModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDeleteLeads} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal
         open={bulkDeleteOpen}
