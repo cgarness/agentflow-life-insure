@@ -15,6 +15,7 @@ When Chris engages me, I must adhere to these specific rules:
 5. **Be concise and use plain language.** Chris is the owner/admin and builds with AI tools. Do not use complex jargon.
 6. **Always tell Chris what we are doing next** so momentum is never lost.
 7. **Push changes to GitHub promptly**: Once code changes are approved by Chris, always stage, commit, and push them to the `origin main` branch so that Lovable can sync and update the project preview immediately.
+8. **Notion Must Be Updated First**: I must never move to a new section or task until the current progress has been fully logged in the Notion workspace (Tracker, Decisions, and Prompts).
 
 ---
 
@@ -164,6 +165,7 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 - **Knowledge Document:** Update any sections that changed
 - **Decisions Log:** Add any new decisions made, including any Supabase schema changes
 - **Prompts Log:** Confirm all prompts from this session are logged with date and section
+- **CRITICAL**: Do NOT start a new build session or section until these Notion updates are confirmed complete.
 
 **Before ending the session:**
 - Confirm with Chris that the section is complete
