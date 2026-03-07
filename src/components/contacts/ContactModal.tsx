@@ -20,15 +20,15 @@ import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const US_STATES = [
-  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
-  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
-  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
 ];
 
-const allStatuses: LeadStatus[] = ["New","Contacted","Interested","Follow Up","Hot","Not Interested","Closed Won","Closed Lost"];
-const leadSources = ["Facebook Ads","Google Ads","Direct Mail","Referral","Webinar","Cold Call","TV Ad","Radio Ad","Other"];
-const healthStatuses = ["Excellent","Good","Fair","Poor"];
-const bestTimes = ["Morning 8am-12pm","Afternoon 12pm-5pm","Evening 5pm-8pm","Anytime"];
+const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
+const leadSources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"];
+const healthStatuses = ["Excellent", "Good", "Fair", "Poor"];
+const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", "Anytime"];
 
 const statusBadgeColor: Record<string, string> = {
   New: "bg-gray-500 text-white",
@@ -398,42 +398,42 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
           onClick={e => e.stopPropagation()}
         >
           {/* ===== HERO ===== */}
-          <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-4">
+          <div className="px-6 py-4 border-b border-border flex items-center gap-4 shrink-0">
+            {/* Avatar + Name */}
+            <div className="flex items-center gap-3 shrink-0">
               <div className="w-14 h-14 rounded-full bg-blue-500 text-white flex items-center justify-center text-lg font-bold shrink-0">
                 {lead.firstName[0]}{lead.lastName[0]}
               </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
-                  {/* Status dropdown badge */}
-                  <div className="relative" ref={statusDropdownRef}>
-                     <button
-                      onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                      className={`text-sm px-4 py-2 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${statusBadgeColor[localStatus]}`}
-                    >
-                       {localStatus}
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                    {statusDropdownOpen && (
-                      <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
-                        {allStatuses.map(s => (
-                          <button
-                            key={s}
-                            onClick={() => handleStatusChange(s)}
-                            className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localStatus === s ? "font-semibold" : ""}`}
-                          >
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s]}`} />
-                            {s}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+              <h2 className="text-xl font-bold text-foreground">{lead.firstName} {lead.lastName}</h2>
+            </div>
+            {/* Status — centered */}
+            <div className="flex-1 flex items-center justify-center">
+              <div className="relative" ref={statusDropdownRef}>
+                <button
+                  onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                  className={`text-sm px-4 py-2 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${statusBadgeColor[localStatus]}`}
+                >
+                  {localStatus}
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                {statusDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
+                    {allStatuses.map(s => (
+                      <button
+                        key={s}
+                        onClick={() => handleStatusChange(s)}
+                        className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localStatus === s ? "font-semibold" : ""}`}
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s]}`} />
+                        {s}
+                      </button>
+                    ))}
                   </div>
-                </div>
+                )}
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 flex-wrap shrink-0 h-full">
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 shrink-0">
               <Button className="px-4 py-2.5 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" />Call</Button>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
@@ -451,7 +451,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
               {/* Tabs */}
               <div className="flex items-center justify-between border-b border-border px-6 shrink-0">
                 <div className="flex">
-                  {(["Overview","Notes","History","Calls"] as const).map(t => (
+                  {(["Overview", "Notes", "History", "Calls"] as const).map(t => (
                     <button key={t} onClick={() => setActiveTab(t)}
                       className={`px-4 py-2.5 text-sm font-medium transition-all duration-150 ${activeTab === t ? "text-foreground border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
                       {t}
@@ -555,11 +555,10 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                         <button
                           key={f}
                           onClick={() => setHistoryFilter(f)}
-                          className={`px-3 py-1 text-xs font-medium rounded-full transition-all duration-150 ${
-                            historyFilter === f
+                          className={`px-3 py-1 text-xs font-medium rounded-full transition-all duration-150 ${historyFilter === f
                               ? "bg-blue-500 text-white"
                               : "border border-border text-muted-foreground hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           {f}
                         </button>

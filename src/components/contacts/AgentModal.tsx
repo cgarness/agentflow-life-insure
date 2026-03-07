@@ -56,28 +56,28 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
             <div className="fixed inset-0 bg-black/60" />
             <div className="relative bg-background border border-border rounded-lg shadow-2xl flex flex-col animate-in fade-in duration-150" style={{ width: "90vw", maxWidth: 1100, height: "90vh" }} onClick={e => e.stopPropagation()}>
                 {/* HERO */}
-                <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 shrink-0">
-                    <div className="flex items-center gap-4">
+                <div className="px-6 py-4 border-b border-border flex items-center gap-4 shrink-0">
+                    {/* Avatar + Name */}
+                    <div className="flex items-center gap-3 shrink-0">
                         <div className="relative shrink-0">
                             <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-bold">{agent.firstName[0]}{agent.lastName[0]}</div>
                             <span className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-background ${availabilityColors[localAvail] || "bg-gray-400"}`} />
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-xl font-bold text-foreground">{agent.firstName} {agent.lastName}</h2>
-                                <span className={`text-sm px-3 py-1 rounded-full font-semibold ${roleBadge[agent.role] || "bg-muted text-muted-foreground"}`}>{agent.role}</span>
-                                <div className="relative">
-                                    <button onClick={() => setAvailDropdownOpen(!availDropdownOpen)} className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`}>
-                                        {localAvail}<ChevronDown className="w-3 h-3" />
-                                    </button>
-                                    {availDropdownOpen && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
-                                        {availabilityStatuses.map(s => <button key={s} onClick={() => handleAvailChange(s)} className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localAvail === s ? "font-semibold" : ""}`}><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${availabilityColors[s] || "bg-gray-400"}`} />{s}</button>)}
-                                    </div>}
-                                </div>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-0.5">{agent.email} {agent.phone ? `· ${agent.phone}` : ""}</p>
+                        <h2 className="text-xl font-bold text-foreground">{agent.firstName} {agent.lastName}</h2>
+                    </div>
+                    {/* Role badge + Availability — centered */}
+                    <div className="flex-1 flex items-center justify-center gap-3">
+                        <span className={`text-sm px-3 py-1 rounded-full font-semibold ${roleBadge[agent.role] || "bg-muted text-muted-foreground"}`}>{agent.role}</span>
+                        <div className="relative">
+                            <button onClick={() => setAvailDropdownOpen(!availDropdownOpen)} className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`}>
+                                {localAvail}<ChevronDown className="w-3 h-3" />
+                            </button>
+                            {availDropdownOpen && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
+                                {availabilityStatuses.map(s => <button key={s} onClick={() => handleAvailChange(s)} className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localAvail === s ? "font-semibold" : ""}`}><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${availabilityColors[s] || "bg-gray-400"}`} />{s}</button>)}
+                            </div>}
                         </div>
                     </div>
+                    {/* Action buttons */}
                     <div className="flex items-center gap-2 shrink-0">
                         <Button className="px-4 py-2.5 text-sm bg-blue-500 hover:bg-blue-600 text-white" onClick={() => toast.info("Dialer opening...")}><Phone className="size-4 mr-1" />Call</Button>
                         <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>

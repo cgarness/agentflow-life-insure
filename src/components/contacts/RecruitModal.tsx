@@ -89,24 +89,24 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
             <div className="fixed inset-0 bg-black/60" />
             <div className="relative bg-background border border-border rounded-lg shadow-2xl flex flex-col animate-in fade-in duration-150" style={{ width: "90vw", maxWidth: 1100, height: "90vh" }} onClick={e => e.stopPropagation()}>
                 {/* HERO */}
-                <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 shrink-0">
-                    <div className="flex items-center gap-4">
+                <div className="px-6 py-4 border-b border-border flex items-center gap-4 shrink-0">
+                    {/* Avatar + Name */}
+                    <div className="flex items-center gap-3 shrink-0">
                         <div className="w-14 h-14 rounded-full bg-orange-500 text-white flex items-center justify-center text-lg font-bold shrink-0">{recruit.firstName[0]}{recruit.lastName[0]}</div>
-                        <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-xl font-bold text-foreground">{recruit.firstName} {recruit.lastName}</h2>
-                                <div className="relative">
-                                    <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className={`text-sm px-4 py-1.5 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${recruitStatusBadge[localStatus] || "bg-muted text-muted-foreground"}`}>
-                                        {localStatus}<ChevronDown className="w-3.5 h-3.5" />
-                                    </button>
-                                    {statusDropdownOpen && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[160px]">
-                                        {recruitStatuses.map(s => <button key={s} onClick={() => handleStatusChange(s)} className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localStatus === s ? "font-semibold" : ""}`}><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${recruitStatusDot[s] || "bg-gray-400"}`} />{s}</button>)}
-                                    </div>}
-                                </div>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-0.5">{recruit.phone} · {recruit.email}</p>
+                        <h2 className="text-xl font-bold text-foreground">{recruit.firstName} {recruit.lastName}</h2>
+                    </div>
+                    {/* Status — centered */}
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="relative">
+                            <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className={`text-sm px-4 py-1.5 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${recruitStatusBadge[localStatus] || "bg-muted text-muted-foreground"}`}>
+                                {localStatus}<ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                            {statusDropdownOpen && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[160px]">
+                                {recruitStatuses.map(s => <button key={s} onClick={() => handleStatusChange(s)} className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localStatus === s ? "font-semibold" : ""}`}><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${recruitStatusDot[s] || "bg-gray-400"}`} />{s}</button>)}
+                            </div>}
                         </div>
                     </div>
+                    {/* Action buttons */}
                     <div className="flex items-center gap-2 shrink-0">
                         <Button className="px-4 py-2.5 text-sm bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" />Call</Button>
                         <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
