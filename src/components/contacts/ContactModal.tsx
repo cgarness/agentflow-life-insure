@@ -379,7 +379,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
         ) : (
-          <p className="text-sm text-foreground mt-0.5">{val || "—"}</p>
+          <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{val || "—"}</div>
         )}
       </div>
     );
