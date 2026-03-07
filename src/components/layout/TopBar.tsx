@@ -4,6 +4,8 @@ import { useTheme } from "next-themes";
 import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
   User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
+  Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
+} from "lucide-react";
 import { createNotification } from "@/lib/notifications-api";
 import { toast } from "sonner";
 import { useSidebarContext } from "@/contexts/SidebarContext";
