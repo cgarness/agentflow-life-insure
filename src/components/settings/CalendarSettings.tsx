@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   CalendarDays, CalendarRange, List, LayoutGrid, Sun, Clock,
   Plus, MoreVertical, Lock, Pencil, Trash2, Mail, MessageSquare,
@@ -93,16 +93,6 @@ const timeToMinutes = (t: string) => {
 
 const GOOGLE_SYNC_PREFERENCE_KEY = "calendar_google_sync_settings";
 
-const fetchGoogleCalendarList = async (): Promise<GoogleCalendarItem[]> => {
-  await new Promise(resolve => setTimeout(resolve, 350));
-
-  return [
-    { id: "primary", summary: "Primary Calendar" },
-    { id: "team-sales", summary: "Sales Team Calendar" },
-    { id: "client-reviews", summary: "Client Reviews" },
-  ];
-};
-
 const CalendarSettings: React.FC = () => {
   const { user } = useAuth();
   // Card 1 - Default View
@@ -150,6 +140,13 @@ const CalendarSettings: React.FC = () => {
   const [googleCalendarsError, setGoogleCalendarsError] = useState<string | null>(null);
   const [googleSyncSaving, setGoogleSyncSaving] = useState(false);
 
+  const invokeAuthedFunction = useCallback(async (name: string, body: Record<string, unknown> = {}) => {
+    const { data, error } = await supabase.functions.invoke(name, { body });
+    if (error) throw new Error(error.message || `Failed calling ${name}`);
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }, []);
+
   const saveGoogleSyncSettings = async (nextSettings: GoogleSyncSettings, showToast = true) => {
     if (!user?.id) return false;
 
@@ -164,7 +161,7 @@ const CalendarSettings: React.FC = () => {
             preference_value: nextSettings,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "user_id,preference_key" }
+          { onConflict: "user_id,preference_key" },
         );
 
       if (error) throw error;
@@ -182,20 +179,41 @@ const CalendarSettings: React.FC = () => {
     }
   };
 
-  const loadGoogleCalendars = async (): Promise<GoogleCalendarItem[]> => {
+  const loadGoogleCalendars = useCallback(async (): Promise<GoogleCalendarItem[]> => {
     setGoogleCalendarsLoading(true);
     setGoogleCalendarsError(null);
     try {
-      const calendars = await fetchGoogleCalendarList();
+      const data = await invokeAuthedFunction("google-calendar-list");
+      const calendars = Array.isArray(data?.calendars) ? data.calendars : [];
       setGoogleCalendars(calendars);
       return calendars;
-    } catch {
-      setGoogleCalendarsError("Could not load Google calendars.");
+    } catch (error: unknown) {
+      setGoogleCalendarsError(error instanceof Error ? error.message : "Could not load Google calendars.");
       return [];
     } finally {
       setGoogleCalendarsLoading(false);
     }
-  };
+  }, [invokeAuthedFunction]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("google_connected");
+    const error = params.get("google_error");
+
+    if (!connected && !error) return;
+
+    if (connected === "1") {
+      toast({ title: "Google Calendar connected", className: "bg-[#22C55E] text-white border-0" });
+    }
+
+    if (error) {
+      toast({ title: "Google Calendar connection failed", description: error, variant: "destructive" });
+    }
+
+    params.delete("google_connected");
+    params.delete("google_error");
+    window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+  }, []);
 
   useEffect(() => {
     const loadGoogleSyncSettings = async () => {
@@ -208,28 +226,39 @@ const CalendarSettings: React.FC = () => {
       setGooglePrefsError(null);
 
       try {
-        const { data, error } = await supabase
-          .from("user_preferences")
-          .select("preference_value")
-          .eq("user_id", user.id)
-          .eq("preference_key", GOOGLE_SYNC_PREFERENCE_KEY)
-          .maybeSingle();
+        const [{ data: prefData, error: prefError }, statusData] = await Promise.all([
+          supabase
+            .from("user_preferences")
+            .select("preference_value")
+            .eq("user_id", user.id)
+            .eq("preference_key", GOOGLE_SYNC_PREFERENCE_KEY)
+            .maybeSingle(),
+          invokeAuthedFunction("google-calendar-status"),
+        ]);
 
-        if (error) throw error;
+        if (prefError) throw prefError;
 
-        const saved = data?.preference_value;
-        if (saved && typeof saved === "object" && !Array.isArray(saved)) {
-          const parsed = saved as Partial<GoogleSyncSettings>;
-          const nextSettings: GoogleSyncSettings = {
-            connected: !!parsed.connected,
-            calendarId: typeof parsed.calendarId === "string" ? parsed.calendarId : "",
-            syncMode: parsed.syncMode === "two_way" ? "two_way" : "outbound_only",
-          };
-          setGoogleSyncSettings(nextSettings);
+        const saved = prefData?.preference_value;
+        const parsed = saved && typeof saved === "object" && !Array.isArray(saved)
+          ? (saved as Partial<GoogleSyncSettings>)
+          : {};
 
-          if (nextSettings.connected) {
-            await loadGoogleCalendars();
-          }
+        const nextSettings: GoogleSyncSettings = {
+          connected: !!statusData?.connected,
+          calendarId: typeof statusData?.calendarId === "string"
+            ? statusData.calendarId
+            : typeof parsed.calendarId === "string"
+              ? parsed.calendarId
+              : "",
+          syncMode: statusData?.syncMode === "two_way" || parsed.syncMode === "two_way"
+            ? "two_way"
+            : "outbound_only",
+        };
+
+        setGoogleSyncSettings(nextSettings);
+
+        if (nextSettings.connected) {
+          await loadGoogleCalendars();
         }
       } catch {
         setGooglePrefsError("Unable to load Google Calendar integration settings.");
@@ -239,7 +268,7 @@ const CalendarSettings: React.FC = () => {
     };
 
     loadGoogleSyncSettings();
-  }, [user?.id]);
+  }, [loadGoogleCalendars, user?.id]);
 
   const handleGoogleConnectToggle = async () => {
     if (!user?.id) {
@@ -250,6 +279,8 @@ const CalendarSettings: React.FC = () => {
     setGoogleActionLoading(true);
     try {
       if (googleSyncSettings.connected) {
+        await invokeAuthedFunction("google-calendar-disconnect");
+
         const nextSettings: GoogleSyncSettings = {
           ...googleSyncSettings,
           connected: false,
@@ -265,19 +296,19 @@ const CalendarSettings: React.FC = () => {
         return;
       }
 
-      const calendars = await loadGoogleCalendars();
+      const data = await invokeAuthedFunction("google-oauth-start");
+      const authUrl = data?.authUrl;
+      if (!authUrl || typeof authUrl !== "string") {
+        throw new Error("OAuth URL was not returned by server");
+      }
 
-      const firstCalendarId = calendars[0]?.id ?? "primary";
-      const nextSettings: GoogleSyncSettings = {
-        ...googleSyncSettings,
-        connected: true,
-        calendarId: googleSyncSettings.calendarId || firstCalendarId,
-      };
-      const saved = await saveGoogleSyncSettings(nextSettings, false);
-      if (!saved) return;
-
-      setGoogleSyncSettings(nextSettings);
-      toast({ title: "Google Calendar connected", className: "bg-[#22C55E] text-white border-0" });
+      window.location.assign(authUrl);
+    } catch (error: unknown) {
+      toast({
+        title: "Google Calendar integration failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setGoogleActionLoading(false);
     }
@@ -290,6 +321,10 @@ const CalendarSettings: React.FC = () => {
     };
 
     setGoogleSyncSettings(nextSettings);
+
+    if (nextSettings.connected) {
+      await invokeAuthedFunction("google-calendar-configure", { calendarId, syncMode: nextSettings.syncMode });
+    }
     await saveGoogleSyncSettings(nextSettings);
   };
 
@@ -300,6 +335,13 @@ const CalendarSettings: React.FC = () => {
     };
 
     setGoogleSyncSettings(nextSettings);
+
+    if (nextSettings.connected) {
+      await invokeAuthedFunction("google-calendar-configure", {
+        calendarId: nextSettings.calendarId || "primary",
+        syncMode,
+      });
+    }
     await saveGoogleSyncSettings(nextSettings);
   };
 
