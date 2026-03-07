@@ -61,6 +61,7 @@ export type Database = {
       }
       calendar_integrations: {
         Row: {
+          // bytea in Postgres maps to base64 strings in generated Supabase types
           access_token: string | null
           calendar_id: string
           created_at: string
@@ -76,6 +77,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          // bytea in Postgres maps to base64 strings in generated Supabase types
           access_token?: string | null
           calendar_id: string
           created_at?: string
