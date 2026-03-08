@@ -78,6 +78,8 @@ const Dashboard: React.FC = () => {
   const [gridLayouts, setGridLayouts] = useState<Layouts>({ lg: DEFAULT_LAYOUT });
   const [layoutReady, setLayoutReady] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [briefingOpen, setBriefingOpen] = useState(false);
+  const briefingCheckedRef = useRef(false);
   const widgetsOnOpenRef = useRef<string>("");
 
   // Load from localStorage
