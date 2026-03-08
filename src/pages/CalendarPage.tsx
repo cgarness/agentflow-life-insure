@@ -251,7 +251,8 @@ const CalendarPage: React.FC = () => {
 
   useEffect(() => {
     fetchAppointments();
-  }, [fetchAppointments]);
+    checkGoogleStatus();
+  }, [fetchAppointments, checkGoogleStatus]);
 
   const openSchedule = (defaultDate?: Date, defaultTime?: string) => {
     setModalEditing(null);
