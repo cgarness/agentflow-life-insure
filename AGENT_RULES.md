@@ -188,7 +188,8 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 3. ✅ Company Branding — COMPLETE
 4. ✅ Telnyx & Phone Numbers — COMPLETE
 5. ✅ DNC List Manager — COMPLETE
-6. ⬜ Remaining settings sections
+6. ✅ Call Scripts — COMPLETE
+7. ⬜ Remaining settings sections
 7. ⬜ Main pages tab by tab
 8. ⬜ Connect Supabase (ongoing as each section needs it)
 9. ⬜ Connect real Telnyx
