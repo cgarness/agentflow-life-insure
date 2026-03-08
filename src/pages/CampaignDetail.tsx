@@ -3,13 +3,30 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
   Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Mail,
-  MessageSquare, Tag, UserPlus,
+  MessageSquare, Tag, UserPlus, GripVertical,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface Campaign {
   id: string;
