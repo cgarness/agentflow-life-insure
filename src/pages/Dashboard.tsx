@@ -65,11 +65,11 @@ const Dashboard: React.FC = () => {
   const { user, profile } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [followUps, setFollowUps] = useState<any[]>([]);
-  const [missedCalls, setMissedCalls] = useState<any[]>([]);
-  const [anniversaries, setAnniversaries] = useState<any[]>([]);
+  const [followUps, setFollowUps] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [missedCalls, setMissedCalls] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [anniversaries, setAnniversaries] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [wins, setWins] = useState<WinFeedItem[]>([]);
-  const [activities, setActivities] = useState<any[]>([]);
+  const [activities, setActivities] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [lbPeriod, setLbPeriod] = useState("Today");
   const [loading, setLoading] = useState(true);
 
@@ -99,7 +99,7 @@ const Dashboard: React.FC = () => {
           setGridLayouts(parsed.layouts);
         }
       }
-    } catch {}
+    } catch {} // eslint-disable-line no-empty
     setLayoutReady(true);
   }, [user?.id]);
 

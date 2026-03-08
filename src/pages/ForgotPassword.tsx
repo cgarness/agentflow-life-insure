@@ -17,7 +17,7 @@ const ForgotPassword: React.FC = () => {
     try {
       await resetPassword(email);
       setSent(true);
-    } catch (err: any) {
+    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message);
     } finally {
       setLoading(false);

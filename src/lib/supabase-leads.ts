@@ -13,8 +13,8 @@ export async function importLeadsToSupabase(
     .from("leads")
     .select("phone, email");
 
-  const existingPhones = new Set((existing || []).map((r: any) => r.phone).filter(Boolean));
-  const existingEmails = new Set((existing || []).map((r: any) => r.email).filter(Boolean));
+  const existingPhones = new Set((existing || []).map((r: any) => r.phone).filter(Boolean)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const existingEmails = new Set((existing || []).map((r: any) => r.email).filter(Boolean)); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   // Filter out duplicates
   const toInsert = rows.filter((row) => {

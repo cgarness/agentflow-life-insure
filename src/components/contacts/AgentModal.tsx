@@ -46,7 +46,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                 activitiesSupabaseApi.getByContact(agent.id)
             ]);
 
-            setLocalNotes(fetchedNotes.map((n: any) => ({ id: n.id, text: n.note, ts: n.createdAt })));
+            setLocalNotes(fetchedNotes.map((n: any) => ({ id: n.id, text: n.note, ts: n.createdAt }))); // eslint-disable-line @typescript-eslint/no-explicit-any
             setActivities(fetchedActivities);
             setActiveTab("Overview"); setAvailDropdownOpen(false); setNewNote(""); setLastUpdated(new Date().toISOString());
         }
@@ -58,7 +58,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
 
     const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
 
-    const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1"); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } };
+    const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1"); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 

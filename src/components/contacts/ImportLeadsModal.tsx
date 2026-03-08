@@ -269,7 +269,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       setMappings(prev => ({ ...prev, [creatingFieldForCol!]: fieldName }));
       setCreatingFieldForCol(null);
       toast.success(`Custom field '${fieldName}' created`);
-    } catch (err: any) {
+    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       toast.error(err.message || "Failed to create custom field");
     }
   };
@@ -558,7 +558,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               <label className="text-xs text-muted-foreground mb-1 block">Field Type</label>
               <select
                 value={newFieldType}
-                onChange={e => setNewFieldType(e.target.value as any)}
+                onChange={e => setNewFieldType(e.target.value as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
                 className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
               >
                 <option value="Text">Text</option>

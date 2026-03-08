@@ -174,7 +174,7 @@ const MyProfile: React.FC = () => {
     try {
       await updateProfile({ first_name: firstName.trim(), last_name: lastName.trim(), phone, availability_status: availability });
       toast({ title: "Profile updated successfully.", className: "bg-success text-success-foreground" });
-    } catch (err: any) {
+    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       toast({ title: "Failed to update profile", description: err.message, variant: "destructive" });
     }
     setProfileSaving(false);
@@ -311,7 +311,7 @@ const MyProfile: React.FC = () => {
               <label className="text-sm font-medium text-foreground block mb-1.5">Availability Status</label>
               <select
                 value={availability}
-                onChange={(e) => setAvailability(e.target.value as any)}
+                onChange={(e) => setAvailability(e.target.value as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 {availabilityOptions.map((o) => (

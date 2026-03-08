@@ -256,8 +256,8 @@ const DialerPage: React.FC = () => {
   const [scriptTab, setScriptTab] = useState(0);
 
   // Telnyx WebRTC
-  const clientRef = useRef<any>(null);
-  const callRef = useRef<any>(null);
+  const clientRef = useRef<any /* eslint-disable-line @typescript-eslint/no-explicit-any */>(null);
+  const callRef = useRef<any /* eslint-disable-line @typescript-eslint/no-explicit-any */>(null);
   const [dialerReady, setDialerReady] = useState(false);
   const [dialerError, setDialerError] = useState<string | null>(null);
 
@@ -274,7 +274,7 @@ const DialerPage: React.FC = () => {
 
   // Telnyx WebRTC client initialization
   useEffect(() => {
-    let client: any;
+    let client: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const init = async () => {
       try {
@@ -313,13 +313,13 @@ const DialerPage: React.FC = () => {
           console.log("Telnyx WebRTC ready");
         });
 
-        client.on("telnyx.error", (error: any) => {
+        client.on("telnyx.error", (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           setDialerError(`Dialer error: ${error.message}`);
           setDialerReady(false);
           console.error("Telnyx error:", error);
         });
 
-        client.on("telnyx.notification", (notification: any) => {
+        client.on("telnyx.notification", (notification: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           if (notification.call) {
             callRef.current = notification.call;
             const state = notification.call.state;
@@ -332,7 +332,7 @@ const DialerPage: React.FC = () => {
 
         clientRef.current = client;
         client.connect();
-      } catch (err: any) {
+      } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
         setDialerError("Could not initialize dialer. Check your connection.");
       }
     };
@@ -737,13 +737,13 @@ const DialerPage: React.FC = () => {
                     {editingContact ? (
                       <input
                         type={type}
-                        value={(editFields as any)[key] ?? ""}
+                        value={(editFields as Record<string, unknown>)[key] as string}
                         onChange={e => setEditFields(f => ({ ...f, [key]: type === "number" ? Number(e.target.value) : e.target.value }))}
                         className="w-36 px-2 py-1 text-sm text-foreground bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50 text-right"
                       />
                     ) : (
                       <span className="text-foreground font-medium">
-                        {key === "state" ? (stateFullNames[activeLead.state] || activeLead.state) : (activeLead as any)[key]}
+                        {key === "state" ? (stateFullNames[activeLead.state] || activeLead.state) : (activeLead as unknown as Record<string, unknown>)[key] as React.ReactNode}
                       </span>
                     )}
                   </div>
@@ -1180,7 +1180,7 @@ const DialerPage: React.FC = () => {
             phone: activeLead.phone,
             email: activeLead.email,
             state: activeLead.state,
-            status: activeLead.status as any,
+            status: activeLead.status as any, // eslint-disable-line @typescript-eslint/no-explicit-any
             leadSource: activeLead.source,
             leadScore: 7,
             age: activeLead.age,

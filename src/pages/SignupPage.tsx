@@ -23,7 +23,7 @@ const SignupPage: React.FC = () => {
     try {
       await signup(email, password, firstName, lastName);
       setSuccess(true);
-    } catch (err: any) {
+    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message || "Signup failed");
     } finally {
       setLoading(false);

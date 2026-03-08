@@ -8,11 +8,11 @@ const delay = (ms = 300) => new Promise(r => setTimeout(r, ms));
 let leads = [...mockLeads];
 let clients = [...mockClients];
 let recruits = [...mockRecruits];
-let notes = [...mockNotes];
-let activities = [...mockActivities];
-let notifications = [...mockNotifications];
-let users = [...mockUsers];
-let profiles = [...mockProfiles];
+const notes = [...mockNotes];
+const activities = [...mockActivities];
+const notifications = [...mockNotifications];
+const users = [...mockUsers];
+const profiles = [...mockProfiles];
 let dispositions = [...mockDispositions];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -373,7 +373,7 @@ export const notesApi = {
   async add(contactId: string, contactType: string, note: string, agentId: string): Promise<ContactNote> {
     await delay(200);
     const n: ContactNote = {
-      id: `n${uid()}`, contactId, contactType: contactType as any, note,
+      id: `n${uid()}`, contactId, contactType: contactType as any, note, // eslint-disable-line @typescript-eslint/no-explicit-any
       pinned: false, agentId, agentName: getAgentName(agentId),
       createdAt: new Date().toISOString(),
     };

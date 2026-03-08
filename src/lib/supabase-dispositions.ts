@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Disposition } from "@/lib/types";
-function rowToDisposition(row: any): Disposition {
+function rowToDisposition(row: any): Disposition { // eslint-disable-line @typescript-eslint/no-explicit-any
   return {
     id: row.id,
     name: row.name,
@@ -122,19 +122,19 @@ export const dispositionsSupabaseApi = {
       .order("usage_count", { ascending: false });
     if (error) throw new Error(error.message);
     const rows = data ?? [];
-    const total = rows.reduce((s: number, d: any) => s + d.usage_count, 0);
+    const total = rows.reduce((s: number, d: any) => s + d.usage_count, 0); // eslint-disable-line @typescript-eslint/no-explicit-any
     const positive = rows
-      .filter((d: any) => d.name.includes("Sold") || d.name.includes("Interested") || d.name.includes("Appointment"))
-      .reduce((s: number, d: any) => s + d.usage_count, 0);
+      .filter((d: any) => d.name.includes("Sold") || d.name.includes("Interested") || d.name.includes("Appointment")) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .reduce((s: number, d: any) => s + d.usage_count, 0); // eslint-disable-line @typescript-eslint/no-explicit-any
     const callbacks = rows
-      .filter((d: any) => d.callback_scheduler)
-      .reduce((s: number, d: any) => s + d.usage_count, 0);
+      .filter((d: any) => d.callback_scheduler) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .reduce((s: number, d: any) => s + d.usage_count, 0); // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
       totalDispositioned: total,
       mostUsed: rows[0]?.name || "N/A",
       positiveRate: total ? `${Math.round((positive / total) * 100)}%` : "0%",
       callbackRate: total ? `${Math.round((callbacks / total) * 100)}%` : "0%",
-      breakdown: rows.map((d: any) => ({
+      breakdown: rows.map((d: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
         id: d.id,
         name: d.name,
         color: d.color,

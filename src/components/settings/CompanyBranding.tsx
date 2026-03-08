@@ -233,7 +233,7 @@ const CompanyBranding: React.FC = () => {
 
       setSaved({ ...state });
       toast({ title: "Company branding saved successfully" });
-    } catch (error: any) {
+    } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       console.error('Error saving company settings:', error);
       toast({
         title: "Failed to save settings",

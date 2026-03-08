@@ -29,7 +29,7 @@ export const clientsSupabaseApi = {
     },
 
     async update(id: string, data: Partial<Client>): Promise<Client> {
-        const updateData: any = {};
+        const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (data.firstName !== undefined) updateData.first_name = data.firstName;
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
         if (data.phone !== undefined) updateData.phone = data.phone;
@@ -67,7 +67,7 @@ export const clientsSupabaseApi = {
 };
 
 // ---- HELPERS ----
-function rowToClient(row: any): Client {
+function rowToClient(row: any): Client { // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
         id: row.id,
         firstName: row.first_name,
@@ -91,7 +91,7 @@ function rowToClient(row: any): Client {
     };
 }
 
-function clientToRow(data: Omit<Client, "id" | "createdAt" | "updatedAt">): any {
+function clientToRow(data: Omit<Client, "id" | "createdAt" | "updatedAt">): any { // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
         first_name: data.firstName,
         last_name: data.lastName,

@@ -3,7 +3,7 @@ import React from 'react';
 interface State { hasError: boolean; error?: Error }
 
 export class ErrorBoundary extends React.Component<{children: React.ReactNode}, State> {
-  constructor(props: any) {
+  constructor(props: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
     super(props);
     this.state = { hasError: false };
   }

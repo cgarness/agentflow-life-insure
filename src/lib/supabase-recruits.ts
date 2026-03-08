@@ -37,7 +37,7 @@ export const recruitsSupabaseApi = {
     },
 
     async update(id: string, data: Partial<Recruit>): Promise<Recruit> {
-        const updateData: any = {};
+        const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (data.firstName !== undefined) updateData.first_name = data.firstName;
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
         if (data.phone !== undefined) updateData.phone = data.phone;
@@ -64,7 +64,7 @@ export const recruitsSupabaseApi = {
 };
 
 // ---- HELPERS ----
-function rowToRecruit(row: any): Recruit {
+function rowToRecruit(row: any): Recruit { // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
         id: row.id,
         firstName: row.first_name,

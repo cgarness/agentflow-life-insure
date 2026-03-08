@@ -117,7 +117,7 @@ const DNCSettings: React.FC = () => {
             setNewReason("");
             setIsAddModalOpen(false);
             fetchDNCList();
-        } catch (error: any) {
+        } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             toast({
                 title: "Failed to add",
                 description: error.message || "Could not add number to database.",

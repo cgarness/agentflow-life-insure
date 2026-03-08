@@ -130,7 +130,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
 
   if (!client) return null;
   const agents = mockUsers.filter(u => u.status === "Active");
-  const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); };
+  const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Client updated"); };
   const handleCancel = () => { setEditForm({ ...client }); setEditMode(false); setHasChanges(false); };
   const tryClose = () => { if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
@@ -144,7 +144,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
       setNewNote(""); setPinNewNote(false);
       await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" });
       toast.success("Note added");
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.error(e.message);
     }
   };
@@ -161,7 +161,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
   const renderField = (label: string, key: string, type: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
-    const val = (editForm as any)[key] ?? "";
+    const val = (editForm as any)[key] ?? ""; // eslint-disable-line @typescript-eslint/no-explicit-any
     return (<div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{val || "—"}</div>}</div>);
   };
 

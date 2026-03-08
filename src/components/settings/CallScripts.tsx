@@ -66,7 +66,7 @@ function timeAgo(date: Date): string {
 
 function wordCount(text: string): number {
   if (!text) return 0;
-  const stripped = text.replace(/[#*_\->\[\]()]/g, "").trim();
+  const stripped = text.replace(/[#*_\->[\]()]/g, "").trim();
   if (!stripped) return 0;
   return stripped.split(/\s+/).length;
 }

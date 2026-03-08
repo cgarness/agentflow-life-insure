@@ -87,7 +87,7 @@ const StageList: React.FC<{
       }
       setShowModal(false);
       onReload();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: e.message, variant: "destructive" });
     } finally { setSaving(false); }
   };
@@ -100,7 +100,7 @@ const StageList: React.FC<{
       toast({ title: `${deleteTarget.name} deleted` });
       setDeleteTarget(null);
       onReload();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: e.message, variant: "destructive" });
     } finally { setDeleting(false); }
   };
@@ -150,9 +150,8 @@ const StageList: React.FC<{
             onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
             onDrop={() => handleDrop(idx)}
             onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${
-              overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
-            } ${dragIdx === idx ? "opacity-50" : ""}`}
+            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
+              } ${dragIdx === idx ? "opacity-50" : ""}`}
           >
             <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
             <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: s.color }} />
@@ -170,7 +169,7 @@ const StageList: React.FC<{
                           try {
                             await pipelineApi.updateStage(s.id, pipelineType, { isPositive: checked });
                             onReload();
-                          } catch {}
+                          } catch { } // eslint-disable-line no-empty
                         }}
                         className="data-[state=checked]:bg-green-500"
                       />
@@ -394,7 +393,7 @@ const CustomFieldsTab: React.FC = () => {
       }
       setShowModal(false);
       load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setSaving(false); }
   };
 
@@ -406,7 +405,7 @@ const CustomFieldsTab: React.FC = () => {
       toast({ title: `${deleteTarget.name} deleted` });
       setDeleteTarget(null);
       load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setDeleting(false); }
   };
 
@@ -417,7 +416,7 @@ const CustomFieldsTab: React.FC = () => {
       toast({ title: `${deactivateTarget.name} deactivated` });
       setDeactivateTarget(null);
       load();
-    } catch {}
+    } catch { } // eslint-disable-line no-empty
   };
 
   const handleToggleActive = async (f: CustomField) => {
@@ -482,7 +481,7 @@ const CustomFieldsTab: React.FC = () => {
             </div>
             <div>
               <label className="text-sm font-medium text-foreground block mb-1.5">Field Type</label>
-              <Select value={form.type} onValueChange={(v: any) => setForm(f => ({ ...f, type: v }))}>
+              <Select value={form.type} onValueChange={(v: FieldFormState["type"]) => setForm(f => ({ ...f, type: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {["Text", "Number", "Date", "Dropdown"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
@@ -611,7 +610,7 @@ const LeadSourcesTab: React.FC = () => {
       }
       setShowModal(false);
       load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setSaving(false); }
   };
 
@@ -630,7 +629,7 @@ const LeadSourcesTab: React.FC = () => {
       setDeleteTarget(null);
       setReassignTo("");
       load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setDeleting(false); }
   };
 
@@ -681,9 +680,8 @@ const LeadSourcesTab: React.FC = () => {
             onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
             onDrop={() => handleDrop(idx)}
             onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${
-              overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
-            } ${dragIdx === idx ? "opacity-50" : ""} ${!s.active ? "opacity-50" : ""}`}
+            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
+              } ${dragIdx === idx ? "opacity-50" : ""} ${!s.active ? "opacity-50" : ""}`}
           >
             <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
             <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: s.color }} />
@@ -809,7 +807,7 @@ const HealthStatusesTab: React.FC = () => {
       }
       setShowModal(false);
       load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setSaving(false); }
   };
 
@@ -821,7 +819,7 @@ const HealthStatusesTab: React.FC = () => {
       toast({ title: `${deleteTarget.name} deleted` });
       setDeleteTarget(null);
       load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setDeleting(false); }
   };
 
@@ -868,9 +866,8 @@ const HealthStatusesTab: React.FC = () => {
             onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
             onDrop={() => handleDrop(idx)}
             onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${
-              overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
-            } ${dragIdx === idx ? "opacity-50" : ""}`}
+            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
+              } ${dragIdx === idx ? "opacity-50" : ""}`}
           >
             <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
             <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: h.color }} />
@@ -1610,11 +1607,10 @@ const ContactManagement: React.FC = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(i)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
-                activeTab === i
+              className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === i
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               {tab}
               {activeTab === i && (

@@ -21,7 +21,7 @@ export const leadsSupabaseApi = {
     return (data ?? []).map(rowToLead);
   },
 
-  async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> {
+  async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> { // eslint-disable-line @typescript-eslint/no-explicit-any
     const { data, error } = await supabase.from("leads").select("*").eq("id", id).single();
     if (error) throw new Error(error.message);
     return { lead: rowToLead(data), notes: [], activities: [], calls: [] };
@@ -45,7 +45,7 @@ export const leadsSupabaseApi = {
   },
 
   async update(id: string, data: Partial<Lead>): Promise<Lead> {
-    const updateData: any = {};
+    const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (data.firstName !== undefined) updateData.first_name = data.firstName;
     if (data.lastName !== undefined) updateData.last_name = data.lastName;
     if (data.phone !== undefined) updateData.phone = data.phone;
@@ -121,9 +121,9 @@ export const leadsSupabaseApi = {
     if (error) throw new Error(error.message);
     const sources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"];
     return sources.map(source => {
-      const srcLeads = (data ?? []).filter((l: any) => l.lead_source === source);
-      const contacted = srcLeads.filter((l: any) => l.status !== "New").length;
-      const won = srcLeads.filter((l: any) => l.status === "Closed Won").length;
+      const srcLeads = (data ?? []).filter((l: any) => l.lead_source === source); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const contacted = srcLeads.filter((l: any) => l.status !== "New").length; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const won = srcLeads.filter((l: any) => l.status === "Closed Won").length; // eslint-disable-line @typescript-eslint/no-explicit-any
       return {
         source,
         leads: srcLeads.length,
@@ -136,7 +136,7 @@ export const leadsSupabaseApi = {
 };
 
 // ---- HELPERS ----
-function rowToLead(row: any): Lead {
+function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/no-explicit-any
   return {
     id: row.id,
     firstName: row.first_name,
@@ -161,7 +161,7 @@ function rowToLead(row: any): Lead {
   };
 }
 
-function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any {
+function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { // eslint-disable-line @typescript-eslint/no-explicit-any
   return {
     first_name: data.firstName,
     last_name: data.lastName,

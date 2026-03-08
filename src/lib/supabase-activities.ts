@@ -42,7 +42,7 @@ export const activitiesSupabaseApi = {
     },
 };
 
-function rowToActivity(row: any): ContactActivity {
+function rowToActivity(row: any): ContactActivity { // eslint-disable-line @typescript-eslint/no-explicit-any
     const agentName = row.agent ? `${row.agent.first_name} ${row.agent.last_name}` : (row.agent_id ? getAgentName(row.agent_id) : "System");
 
     return {

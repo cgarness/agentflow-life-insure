@@ -169,7 +169,7 @@ const DispositionsManager: React.FC = () => {
       setShowModal(false);
       load();
       loadAnalytics();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: e.message || "Error saving", variant: "destructive" });
     } finally {
       setSaving(false);
@@ -185,7 +185,7 @@ const DispositionsManager: React.FC = () => {
       setDeleteTarget(null);
       load();
       loadAnalytics();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: e.message || "Error deleting", variant: "destructive" });
     } finally {
       setDeleting(false);

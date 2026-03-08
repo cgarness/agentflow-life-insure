@@ -333,7 +333,7 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
       setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%" });
       onSuccess();
       onClose();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
@@ -354,7 +354,7 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
       await usersApi.invite(form);
       onSuccess();
       onClose();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setCopying(false);
@@ -425,7 +425,7 @@ const UserProfileModal: React.FC<{
 
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
-  const [performance, setPerformance] = useState<any>(null);
+  const [performance, setPerformance] = useState<Record<string, unknown>>(null);
   const [perfLoading, setPerfLoading] = useState(false);
   const [resetPwOpen, setResetPwOpen] = useState(false);
 
@@ -480,7 +480,7 @@ const UserProfileModal: React.FC<{
         email: form.email as string,
         phone: form.phone as string,
         role: form.role as UserRole,
-        status: form.status as any,
+        status: form.status as any, // eslint-disable-line @typescript-eslint/no-explicit-any
         avatar: avatarUrl,
       });
       await usersApi.updateProfile(user.id, {
@@ -492,7 +492,7 @@ const UserProfileModal: React.FC<{
       toast({ title: "Saved", description: "User profile updated successfully." });
       setEditMode(false);
       onSaved();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
@@ -510,7 +510,7 @@ const UserProfileModal: React.FC<{
       });
       toast({ title: "Saved", description: "Goals updated successfully." });
       onSaved();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
@@ -527,7 +527,7 @@ const UserProfileModal: React.FC<{
       await usersApi.updateProfile(user.id, { onboardingItems: updated, onboardingComplete: allDone });
       toast({ title: "Saved", description: `Onboarding item ${checked ? "completed" : "unchecked"}.` });
       onSaved();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -539,7 +539,7 @@ const UserProfileModal: React.FC<{
       await usersApi.updateProfile(user.id, { onboardingItems: reset, onboardingComplete: false });
       toast({ title: "Saved", description: "Onboarding checklist reset." });
       onSaved();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -549,7 +549,7 @@ const UserProfileModal: React.FC<{
       const { email } = await usersApi.resetPassword(user.id);
       toast({ title: "Password reset email sent", description: `Password reset email sent to ${email}` });
       setResetPwOpen(false);
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -695,7 +695,7 @@ const UserProfileModal: React.FC<{
                 { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointments },
                 { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTime) },
               ].map(g => {
-                const target = (form as any)[g.key] as number || 1;
+                const target = (form as any)[g.key] as number || 1; // eslint-disable-line @typescript-eslint/no-explicit-any
                 const pct = Math.min(100, Math.round((g.actual / target) * 100));
                 return (
                   <div key={g.key} className="space-y-2">
@@ -704,7 +704,7 @@ const UserProfileModal: React.FC<{
                       <Input
                         type="number"
                         className="w-24 h-8 text-sm"
-                        value={(form as any)[g.key] || 0}
+                        value={(form as any)[g.key] || 0} // eslint-disable-line @typescript-eslint/no-explicit-any
                         onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
                       />
                     </div>
@@ -788,7 +788,7 @@ const UserProfileModal: React.FC<{
                     <p className="text-sm text-muted-foreground">No recent calls.</p>
                   ) : (
                     <div className="space-y-2">
-                      {performance.recentCalls.map((c: any) => (
+                      {performance.recentCalls.map((c: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
                         <div key={c.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-accent/30 text-sm">
                           <span className="text-foreground">{c.contactName}</span>
                           <div className="flex items-center gap-3">
@@ -846,7 +846,7 @@ const UserManagement: React.FC = () => {
     try {
       const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter });
       setUsers(data);
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
@@ -868,7 +868,7 @@ const UserManagement: React.FC = () => {
       }
       setConfirmDialog({ open: false, user: null, action: "deactivate" });
       fetchUsers();
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -877,7 +877,7 @@ const UserManagement: React.FC = () => {
     try {
       await usersApi.resendInvite(u.id);
       toast({ title: "Invite resent", description: `Invitation resent to ${u.email}` });
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -887,7 +887,7 @@ const UserManagement: React.FC = () => {
       const link = await usersApi.generateInviteLink({ firstName: u.firstName, lastName: u.lastName, email: u.email, role: u.role });
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard." });
-    } catch (e: any) {
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };

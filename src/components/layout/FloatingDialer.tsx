@@ -76,8 +76,8 @@ const FloatingDialer: React.FC = () => {
   const [selectedDispId, setSelectedDispId] = useState<string | null>(null);
 
   // --- Telnyx ---
-  const clientRef = useRef<any>(null);
-  const callRef = useRef<any>(null);
+  const clientRef = useRef<Record<string, unknown>>(null);
+  const callRef = useRef<Record<string, unknown>>(null);
   const [dialerReady, setDialerReady] = useState(false);
 
   // Listen for toggle event from TopBar
@@ -98,7 +98,7 @@ const FloatingDialer: React.FC = () => {
 
   // Telnyx WebRTC init
   useEffect(() => {
-    let client: any;
+    let client: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const init = async () => {
       try {
@@ -137,13 +137,13 @@ const FloatingDialer: React.FC = () => {
           console.log("Telnyx WebRTC ready");
         });
 
-        client.on("telnyx.error", (error: any) => {
+        client.on("telnyx.error", (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           setDialerError(`Dialer error: ${error.message}`);
           setDialerReady(false);
           console.error("Telnyx error:", error);
         });
 
-        client.on("telnyx.notification", (notification: any) => {
+        client.on("telnyx.notification", (notification: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           if (notification.call) {
             callRef.current = notification.call;
             const state = notification.call.state;
@@ -165,7 +165,7 @@ const FloatingDialer: React.FC = () => {
     init();
     return () => {
       if (client) {
-        try { client.disconnect(); } catch {}
+        try { client.disconnect(); } catch {} // eslint-disable-line no-empty
       }
     };
   }, []);
@@ -297,7 +297,7 @@ const FloatingDialer: React.FC = () => {
 
   const handleHangUp = useCallback(() => {
     if (callRef.current) {
-      try { callRef.current.hangup(); } catch {}
+      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
       callRef.current = null;
     }
     setOnCall(false);

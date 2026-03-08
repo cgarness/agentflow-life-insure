@@ -422,7 +422,7 @@ const Permissions: React.FC = () => {
         <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role." icon={LayoutGrid}>
           <div className="space-y-1">
             {pages.map((page, idx) => {
-              const val = isAdmin ? true : (page as any)[activeRole];
+              const val = isAdmin ? true : (page as any)[activeRole]; // eslint-disable-line @typescript-eslint/no-explicit-any
               return (
                 <div
                   key={page.name}
@@ -460,7 +460,7 @@ const Permissions: React.FC = () => {
                 </h4>
                 <div className="space-y-1">
                   {cat.features.map((feat, featIdx) => {
-                    const val = isAdmin ? true : (feat as any)[activeRole];
+                    const val = isAdmin ? true : (feat as any)[activeRole]; // eslint-disable-line @typescript-eslint/no-explicit-any
                     return (
                       <div
                         key={feat.name}
@@ -484,7 +484,7 @@ const Permissions: React.FC = () => {
         <AccordionSection title="Data Access" description="Control how much data this role can see across the platform." icon={Database}>
           <div className="space-y-4">
             {dataAccess.map((item, idx) => {
-              const val = isAdmin ? "all" as DataScope : (item as any)[activeRole] as DataScope;
+              const val = isAdmin ? "all" as DataScope : (item as any)[activeRole] as DataScope; // eslint-disable-line @typescript-eslint/no-explicit-any
               return (
                 <div key={item.label} className="p-3 rounded-lg bg-background">
                   <p className="text-sm font-medium mb-1 text-foreground">{item.label}</p>
@@ -500,7 +500,7 @@ const Permissions: React.FC = () => {
         <AccordionSection title="Commission Visibility" description="Control what commission and earnings information this role can see." icon={DollarSign}>
           <div className="space-y-1">
             {commission.map((item, idx) => {
-              const val = isAdmin ? true : (item as any)[activeRole];
+              const val = isAdmin ? true : (item as any)[activeRole]; // eslint-disable-line @typescript-eslint/no-explicit-any
               return (
                 <div
                   key={item.name}

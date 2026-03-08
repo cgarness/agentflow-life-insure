@@ -132,11 +132,11 @@ const mockAgents = [
 const AddContactModal: React.FC<{
   open: boolean;
   onClose: () => void;
-  onSave: (data: any) => Promise<void>;
-  initial?: any | null;
+  onSave: (data: Partial<Lead & Client & Recruit>) => Promise<void>;
+  initial?: Partial<Lead & Client & Recruit> | null;
   contactType?: string;
 }> = ({ open, onClose, onSave, initial, contactType = "Lead" }) => {
-  const [form, setForm] = useState<any>({});
+  const [form, setForm] = useState<Partial<Lead & Client & Recruit>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -144,8 +144,8 @@ const AddContactModal: React.FC<{
       if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, policyType: initial.policyType || "Term", carrier: initial.carrier || "", premiumAmount: initial.premiumAmount || "", faceAmount: initial.faceAmount || "", issueDate: initial.issueDate || "" });
       else setForm({ firstName: "", lastName: "", phone: "", email: "", policyType: "Term", carrier: "", premiumAmount: "", faceAmount: "", issueDate: "" });
     } else if (contactType === "Recruit") {
-      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, status: initial.status || "Prospect" });
-      else setForm({ firstName: "", lastName: "", phone: "", email: "", status: "Prospect" });
+      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, status: initial.status as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" });
+      else setForm({ firstName: "", lastName: "", phone: "", email: "", status: "Prospect" as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" });
     } else {
       if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New", age: initial.age || "", dateOfBirth: initial.dateOfBirth || "", healthStatus: initial.healthStatus || "", bestTimeToCall: initial.bestTimeToCall || "", notes: initial.notes || "" });
       else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New", age: "", dateOfBirth: "", healthStatus: "", bestTimeToCall: "", notes: "" });
@@ -160,8 +160,8 @@ const AddContactModal: React.FC<{
     try {
       await onSave(form);
       onClose();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -180,20 +180,20 @@ const AddContactModal: React.FC<{
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
-              <input required value={form.firstName || ""} onChange={e => setForm((f: any) => ({ ...f, firstName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+              <input required value={form.firstName || ""} onChange={e => setForm((f) => ({ ...f, firstName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
-              <input required value={form.lastName || ""} onChange={e => setForm((f: any) => ({ ...f, lastName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+              <input required value={form.lastName || ""} onChange={e => setForm((f) => ({ ...f, lastName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Phone *</label>
-            <input required value={form.phone || ""} onChange={e => setForm((f: any) => ({ ...f, phone: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="(555) 123-4567" />
+            <input required value={form.phone || ""} onChange={e => setForm((f) => ({ ...f, phone: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="(555) 123-4567" />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Email *</label>
-            <input required type="email" value={form.email || ""} onChange={e => setForm((f: any) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+            <input required type="email" value={form.email || ""} onChange={e => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
           </div>
 
           {/* Lead-specific fields */}
@@ -202,11 +202,11 @@ const AddContactModal: React.FC<{
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-                  <input value={form.state || ""} onChange={e => setForm((f: any) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
+                  <input value={form.state || ""} onChange={e => setForm((f) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-                  <select value={form.leadSource || "Facebook Ads"} onChange={e => setForm((f: any) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                  <select value={form.leadSource || "Facebook Ads"} onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                     {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
@@ -216,25 +216,25 @@ const AddContactModal: React.FC<{
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Date of Birth</label>
-                  <input type="date" value={form.dateOfBirth || ""} onChange={e => setForm((f: any) => ({ ...f, dateOfBirth: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+                  <input type="date" value={form.dateOfBirth || ""} onChange={e => setForm((f) => ({ ...f, dateOfBirth: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Age</label>
-                  <input type="number" value={form.age || ""} onChange={e => setForm((f: any) => ({ ...f, age: e.target.value ? parseInt(e.target.value) : "" }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="e.g. 45" />
+                  <input type="number" value={form.age || ""} onChange={e => setForm((f) => ({ ...f, age: e.target.value ? parseInt(e.target.value) : undefined }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="e.g. 45" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Health Status</label>
-                  <select value={form.healthStatus || ""} onChange={e => setForm((f: any) => ({ ...f, healthStatus: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                  <select value={form.healthStatus || ""} onChange={e => setForm((f) => ({ ...f, healthStatus: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                     <option value="">Select...</option>
                     {["Excellent", "Good", "Fair", "Poor"].map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Best Time to Call</label>
-                  <select value={form.bestTimeToCall || ""} onChange={e => setForm((f: any) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                  <select value={form.bestTimeToCall || ""} onChange={e => setForm((f) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                     <option value="">Select...</option>
                     {["Morning", "Afternoon", "Evening", "Anytime"].map(s => <option key={s}>{s}</option>)}
                   </select>
@@ -243,7 +243,7 @@ const AddContactModal: React.FC<{
 
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1">Initial Notes</label>
-                <textarea value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="w-full h-20 px-3 py-2 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none resize-none" placeholder="Add any background context..." />
+                <textarea value={form.notes || ""} onChange={e => setForm((f) => ({ ...f, notes: e.target.value }))} className="w-full h-20 px-3 py-2 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none resize-none" placeholder="Add any background context..." />
               </div>
             </>
           )}
@@ -254,28 +254,28 @@ const AddContactModal: React.FC<{
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Policy Type *</label>
-                  <select required value={form.policyType || "Term"} onChange={e => setForm((f: any) => ({ ...f, policyType: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                  <select required value={form.policyType || "Term"} onChange={e => setForm((f) => ({ ...f, policyType: e.target.value as "Term" | "Whole Life" | "IUL" | "Final Expense" }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                     {["Term", "Whole Life", "IUL", "Final Expense"].map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Carrier *</label>
-                  <input required value={form.carrier || ""} onChange={e => setForm((f: any) => ({ ...f, carrier: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+                  <input required value={form.carrier || ""} onChange={e => setForm((f) => ({ ...f, carrier: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Premium</label>
-                  <input value={form.premiumAmount || ""} onChange={e => setForm((f: any) => ({ ...f, premiumAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$150/mo" />
+                  <input value={form.premiumAmount || ""} onChange={e => setForm((f) => ({ ...f, premiumAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$150/mo" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Face Amount</label>
-                  <input value={form.faceAmount || ""} onChange={e => setForm((f: any) => ({ ...f, faceAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$500,000" />
+                  <input value={form.faceAmount || ""} onChange={e => setForm((f) => ({ ...f, faceAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$500,000" />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
-                <input type="date" value={form.issueDate || ""} onChange={e => setForm((f: any) => ({ ...f, issueDate: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+                <input type="date" value={form.issueDate || ""} onChange={e => setForm((f) => ({ ...f, issueDate: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
               </div>
             </>
           )}
@@ -284,7 +284,7 @@ const AddContactModal: React.FC<{
           {contactType === "Recruit" && (
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
-              <select value={form.status || "Prospect"} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+              <select value={form.status || "Prospect"} onChange={e => setForm((f) => ({ ...f, status: e.target.value as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                 {recruitStatuses.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
@@ -352,7 +352,7 @@ const Contacts: React.FC = () => {
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [editRecruit, setEditRecruit] = useState<Recruit | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [sourceStats, setSourceStats] = useState<any[]>([]);
+  const [sourceStats, setSourceStats] = useState<{ source: string; leads: number; contacted: string; conversion: string; sold: number }[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
@@ -603,8 +603,9 @@ const Contacts: React.FC = () => {
 
   // Auto-open a contact modal when navigated with openContactId state
   useEffect(() => {
-    const openContactId = (location.state as any)?.openContactId;
-    if (openContactId && leads.length > 0) {
+    const state = location.state as Record<string, unknown> | null;
+    const openContactId = state?.openContactId;
+    if (openContactId && typeof openContactId === "string" && leads.length > 0) {
       const match = leads.find(l => l.id === openContactId);
       if (match) {
         setSelectedLead(match);
@@ -625,8 +626,8 @@ const Contacts: React.FC = () => {
   }, [location.search, leads]);
 
   // ===== Lead CRUD =====
-  const handleAddLead = async (data: any) => {
-    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
+  const handleAddLead = async (data: Partial<Lead>) => {
+    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" } as unknown as Omit<Lead, "id" | "createdAt" | "updatedAt">);
     toast.success("Lead added successfully");
     fetchData();
   };
@@ -671,8 +672,8 @@ const Contacts: React.FC = () => {
   };
 
   // ===== Client CRUD =====
-  const handleAddClient = async (data: any) => {
-    await clientsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+  const handleAddClient = async (data: Partial<Client>) => {
+    await clientsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">);
     toast.success("Client added successfully");
     fetchData();
   };
@@ -692,8 +693,8 @@ const Contacts: React.FC = () => {
   };
 
   // ===== Recruit CRUD =====
-  const handleAddRecruit = async (data: any) => {
-    await recruitsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+  const handleAddRecruit = async (data: Partial<Recruit>) => {
+    await recruitsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" } as unknown as Omit<Recruit, "id" | "createdAt" | "updatedAt">);
     toast.success("Recruit added successfully");
     fetchData();
   };
@@ -728,13 +729,13 @@ const Contacts: React.FC = () => {
   };
 
   // ===== Selection helpers =====
-  const toggleSelect = (id: string) => setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAll = () => setSelectedIds(prev => prev.size === leads.length ? new Set() : new Set(leads.map(l => l.id)));
-  const toggleClientSelect = (id: string) => setSelectedClientIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleClientSelect = (id: string) => setSelectedClientIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAllClients = () => setSelectedClientIds(prev => prev.size === clients.length ? new Set() : new Set(clients.map(c => c.id)));
-  const toggleRecruitSelect = (id: string) => setSelectedRecruitIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleRecruitSelect = (id: string) => setSelectedRecruitIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAllRecruits = () => setSelectedRecruitIds(prev => prev.size === recruits.length ? new Set() : new Set(recruits.map(r => r.id)));
-  const toggleAgentSelect = (id: string) => setSelectedAgentIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleAgentSelect = (id: string) => setSelectedAgentIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAllAgents = () => setSelectedAgentIds(prev => prev.size === mockUsers.length ? new Set() : new Set(mockUsers.map(u => u.id)));
 
   const isAllSelected = selectedIds.size === leads.length && leads.length > 0;
@@ -854,7 +855,7 @@ const Contacts: React.FC = () => {
   };
 
   // Generic columns toggle dropdown
-  const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<any>) => void, defaults: Set<string>) => (
+  const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<string>) => void, defaults: Set<string>) => (
     <div className="relative" ref={columnsRef}>
       <button onClick={() => setColumnsOpen(!columnsOpen)} className="h-9 px-3 rounded-md bg-background border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150">
         <Columns3 className="w-4 h-4" />Columns
@@ -872,7 +873,7 @@ const Contacts: React.FC = () => {
                   onChange={() => {
                     if (col.locked) return;
                     const next = new Set(visible);
-                    next.has(col.key) ? next.delete(col.key) : next.add(col.key);
+                    if (next.has(col.key)) next.delete(col.key); else next.add(col.key);
                     setVisible(next);
                   }}
                   className="rounded"

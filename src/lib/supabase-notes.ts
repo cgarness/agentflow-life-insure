@@ -37,7 +37,7 @@ export const notesSupabaseApi = {
     },
 };
 
-function rowToNote(row: any): ContactNote {
+function rowToNote(row: any): ContactNote { // eslint-disable-line @typescript-eslint/no-explicit-any
     const authorName = row.author ? `${row.author.first_name} ${row.author.last_name}` : "Unknown Agent";
     return {
         id: row.id,

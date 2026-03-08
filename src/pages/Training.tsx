@@ -119,7 +119,7 @@ const Training: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColor(r.type)}`}>{r.type}</span>
                   {r.duration && <span className="text-xs text-muted-foreground">{r.duration}</span>}
-                  {(r as any).required && <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded-full font-medium">Required</span>}
+                  {("required" in r && r.required) && <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded-full font-medium">Required</span>}
                 </div>
               </div>
             ))}

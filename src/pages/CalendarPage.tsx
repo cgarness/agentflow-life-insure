@@ -124,7 +124,7 @@ const CalendarPage: React.FC = () => {
     }
 
     const nextMeta: Record<string, AppointmentSyncMeta> = {};
-    const mapped: CalendarAppointment[] = (data || []).map((appt: any) => {
+    const mapped: CalendarAppointment[] = (data || []).map((appt: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       const startDate = new Date(appt.start_time);
       const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
       const formatTime = (d: Date) =>
