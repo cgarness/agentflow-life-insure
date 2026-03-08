@@ -1308,6 +1308,73 @@ const DialerPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ── Session Summary Modal ── */}
+      <AnimatePresence>
+        {showSummary && summaryData && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-md p-8 space-y-6"
+            >
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle className="w-7 h-7" />
+                </div>
+                <h2 className="text-xl font-bold text-foreground">Session Complete</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {selectedCampaign?.name} · {fmtDuration(summaryData.duration)}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Calls Made", value: summaryData.calls },
+                  { label: "Connected", value: summaryData.connected },
+                  {
+                    label: "Answer Rate",
+                    value: summaryData.calls > 0
+                      ? `${Math.round((summaryData.connected / summaryData.calls) * 100)}%`
+                      : "0%",
+                  },
+                  { label: "Total Talk Time", value: fmtDuration(summaryData.talkTime) },
+                  {
+                    label: "Avg Call Duration",
+                    value: summaryData.connected > 0
+                      ? fmtTime(Math.round(summaryData.talkTime / summaryData.connected))
+                      : "0:00",
+                  },
+                  {
+                    label: "Conversion Rate",
+                    value: summaryData.calls > 0
+                      ? `${Math.round(((summaryData.connected) / summaryData.calls) * 100)}%`
+                      : "0%",
+                  },
+                ].map((s) => (
+                  <div key={s.label} className="bg-accent/50 rounded-xl p-3 text-center">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                    <p className="text-lg font-bold font-mono text-foreground mt-0.5">{s.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={resetAfterSession}
+                className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-medium hover:bg-primary/90 transition-colors"
+              >
+                Done
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
