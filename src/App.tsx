@@ -27,6 +27,7 @@ import SignupPage from "./pages/SignupPage";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
+import LandingPage from "./pages/LandingPage";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -69,6 +70,7 @@ const App = () => (
                         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
+                        <Route path="/landing" element={<LandingPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/dialer" element={<DialerPage />} />
