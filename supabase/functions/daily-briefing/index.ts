@@ -32,9 +32,9 @@ Rules:
 - Be motivational but professional
 - Mention specific numbers from the data provided
 - If there are overdue follow-ups (aging >= 5 days), flag them as urgent
-- End with a short motivational line
 - Use markdown formatting (bold, bullets)
-- Do NOT use headings (no # or ##)`;
+- Do NOT use headings (no # or ##)
+- At the very end, add a separator line "---" followed by a short motivational or insurance-industry tip of the day on a new line, prefixed with "💡 **Tip of the Day:** ". Make it unique and actionable — rotate between sales tips, mindset advice, client relationship wisdom, and productivity hacks. Never repeat generic platitudes.`;
 
     const userPrompt = `${timeGreeting}, ${firstName || "Agent"}! Here is today's data:
 
