@@ -205,6 +205,10 @@ const DialerPage: React.FC = () => {
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{ calls: number; connected: number; talkTime: number; duration: number } | null>(null);
 
+  /* ── DNC warning ── */
+  const [dncWarning, setDncWarning] = useState(false);
+  const [dncChecking, setDncChecking] = useState(false);
+
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
