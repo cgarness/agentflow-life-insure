@@ -16,6 +16,7 @@ import Contacts from "./pages/Contacts";
 import Conversations from "./pages/Conversations";
 import CalendarPage from "./pages/CalendarPage";
 import Campaigns from "./pages/Campaigns";
+import CampaignDetail from "./pages/CampaignDetail";
 import Leaderboard from "./pages/Leaderboard";
 import Reports from "./pages/Reports";
 import AIAgents from "./pages/AIAgents";
