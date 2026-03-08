@@ -507,6 +507,11 @@ const FloatingDialer: React.FC = () => {
                       View Full Contact &rarr;
                     </button>
                   )}
+                  {activeCallerId && (
+                    <p className="text-xs text-muted-foreground">
+                      Calling from: {formatPhoneDisplay(activeCallerId.callerNumber)}
+                    </p>
+                  )}
                   <p className="text-3xl font-mono text-foreground">
                     {formatTime(callSeconds)}
                   </p>
