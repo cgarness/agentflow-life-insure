@@ -653,6 +653,15 @@ const Dashboard: React.FC = () => {
         onWidgetsChange={setWidgets}
         onReset={handleReset}
       />
+      <DailyBriefingModal
+        open={briefingOpen}
+        onClose={() => setBriefingOpen(false)}
+        firstName={firstName}
+        appointments={appointments}
+        followUps={followUps}
+        anniversaries={anniversaries}
+        stats={stats}
+      />
     </div>
   );
 };
