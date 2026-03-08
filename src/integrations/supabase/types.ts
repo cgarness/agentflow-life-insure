@@ -176,6 +176,159 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_leads: {
+        Row: {
+          age: number | null
+          call_attempts: number | null
+          campaign_id: string
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string | null
+          disposition: string | null
+          email: string | null
+          first_name: string | null
+          id: string
+          last_called_at: string | null
+          last_name: string | null
+          lead_id: string | null
+          locked_at: string | null
+          locked_by: string | null
+          phone: string | null
+          source: string | null
+          state: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          age?: number | null
+          call_attempts?: number | null
+          campaign_id: string
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string | null
+          disposition?: string | null
+          email?: string | null
+          first_name?: string | null
+          id?: string
+          last_called_at?: string | null
+          last_name?: string | null
+          lead_id?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          phone?: string | null
+          source?: string | null
+          state?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          age?: number | null
+          call_attempts?: number | null
+          campaign_id?: string
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string | null
+          disposition?: string | null
+          email?: string | null
+          first_name?: string | null
+          id?: string
+          last_called_at?: string | null
+          last_name?: string | null
+          lead_id?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          phone?: string | null
+          source?: string | null
+          state?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_leads_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_leads_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          allowed_states: Json | null
+          assigned_agent_ids: Json | null
+          calling_hours_end: string | null
+          calling_hours_start: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          dial_mode: string | null
+          id: string
+          leads_contacted: number | null
+          leads_converted: number | null
+          max_retries: number | null
+          name: string
+          retry_interval: number | null
+          script_id: string | null
+          status: string
+          total_leads: number | null
+          type: string
+          updated_at: string | null
+          voicemail_drop_id: string | null
+        }
+        Insert: {
+          allowed_states?: Json | null
+          assigned_agent_ids?: Json | null
+          calling_hours_end?: string | null
+          calling_hours_start?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          dial_mode?: string | null
+          id?: string
+          leads_contacted?: number | null
+          leads_converted?: number | null
+          max_retries?: number | null
+          name: string
+          retry_interval?: number | null
+          script_id?: string | null
+          status?: string
+          total_leads?: number | null
+          type?: string
+          updated_at?: string | null
+          voicemail_drop_id?: string | null
+        }
+        Update: {
+          allowed_states?: Json | null
+          assigned_agent_ids?: Json | null
+          calling_hours_end?: string | null
+          calling_hours_start?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          dial_mode?: string | null
+          id?: string
+          leads_contacted?: number | null
+          leads_converted?: number | null
+          max_retries?: number | null
+          name?: string
+          retry_interval?: number | null
+          script_id?: string | null
+          status?: string
+          total_leads?: number | null
+          type?: string
+          updated_at?: string | null
+          voicemail_drop_id?: string | null
+        }
+        Relationships: []
+      }
       carriers: {
         Row: {
           created_at: string

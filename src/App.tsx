@@ -16,6 +16,7 @@ import Contacts from "./pages/Contacts";
 import Conversations from "./pages/Conversations";
 import CalendarPage from "./pages/CalendarPage";
 import Campaigns from "./pages/Campaigns";
+import CampaignDetail from "./pages/CampaignDetail";
 import Leaderboard from "./pages/Leaderboard";
 import Reports from "./pages/Reports";
 import AIAgents from "./pages/AIAgents";
@@ -82,6 +83,7 @@ const App = () => (
                           <Route path="/conversations" element={<Conversations />} />
                           <Route path="/calendar" element={<CalendarPage />} />
                           <Route path="/campaigns" element={<Campaigns />} />
+                          <Route path="/campaigns/:id" element={<CampaignDetail />} />
                           <Route path="/leaderboard" element={<Leaderboard />} />
                           <Route path="/reports" element={<Reports />} />
                           <Route path="/ai-agents" element={<AIAgents />} />
