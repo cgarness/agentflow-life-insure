@@ -1366,6 +1366,11 @@ const DialerPage: React.FC = () => {
                     <div className="flex items-center justify-center gap-2 text-green-500 text-sm">
                       <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
                     </div>
+                    {activeCallerId && (
+                      <p className="text-xs text-muted-foreground">
+                        Calling from: {formatPhoneDisplay(activeCallerId.callerNumber)}
+                      </p>
+                    )}
                     <div className="flex justify-center gap-4">
                       <Tooltip>
                         <TooltipTrigger asChild>
