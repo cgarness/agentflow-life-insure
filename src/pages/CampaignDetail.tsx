@@ -556,6 +556,8 @@ const CampaignDetail: React.FC = () => {
   const [tab, setTab] = useState("Leads");
   const [leadFilter, setLeadFilter] = useState("All");
   const [addLeadsOpen, setAddLeadsOpen] = useState(false);
+  const [statsDateFrom, setStatsDateFrom] = useState<Date | undefined>(undefined);
+  const [statsDateTo, setStatsDateTo] = useState<Date | undefined>(undefined);
   const [importCSVOpen, setImportCSVOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [removeLeadId, setRemoveLeadId] = useState<string | null>(null);
