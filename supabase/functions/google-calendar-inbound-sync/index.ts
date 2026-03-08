@@ -146,16 +146,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const requiredCronSecret = Deno.env.get("GOOGLE_SYNC_CRON_SECRET");
-    if (requiredCronSecret) {
-      const incomingSecret = req.headers.get("x-cron-secret");
-      if (incomingSecret !== requiredCronSecret) {
-        return json({ error: "Unauthorized" }, 401);
-      }
-    }
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const googleClientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const googleClientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
 
@@ -167,13 +160,39 @@ Deno.serve(async (req) => {
       return json({ error: "GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not configured" }, 500);
     }
 
+    // Determine auth mode: user JWT or cron secret
+    let userIdFilter: string | null = null;
+    const authHeader = req.headers.get("Authorization");
+    const cronSecret = req.headers.get("x-cron-secret");
+    const requiredCronSecret = Deno.env.get("GOOGLE_SYNC_CRON_SECRET");
+
+    if (authHeader?.startsWith("Bearer ") && anonKey) {
+      // User-authenticated on-demand sync
+      const authClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user } } = await authClient.auth.getUser();
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      userIdFilter = user.id;
+    } else if (requiredCronSecret) {
+      if (cronSecret !== requiredCronSecret) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+    }
+
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    const { data: integrations, error: integrationsError } = await supabase
+    let query = supabase
       .from("calendar_integrations")
       .select("id, user_id, provider, calendar_id, access_token, refresh_token, token_expires_at, last_sync_token")
       .eq("provider", "google")
       .eq("sync_enabled", true);
+
+    if (userIdFilter) {
+      query = query.eq("user_id", userIdFilter);
+    }
+
+    const { data: integrations, error: integrationsError } = await query;
 
     if (integrationsError) {
       return json({ error: integrationsError.message }, 500);

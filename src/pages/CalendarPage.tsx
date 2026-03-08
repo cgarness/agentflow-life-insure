@@ -263,6 +263,12 @@ const CalendarPage: React.FC = () => {
   };
 
   const openEdit = (a: CalendarAppointment) => {
+    // Prevent editing external (Google) events
+    const meta = appointmentMetaById[a.id];
+    if (meta?.syncSource === "external") {
+      toast({ title: "This event is managed in Google Calendar", description: "Edit it in Google Calendar to update it here." });
+      return;
+    }
     setModalEditing(a);
     setModalDefaultDate(undefined);
     setModalDefaultTime(undefined);
