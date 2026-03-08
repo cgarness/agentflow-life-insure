@@ -429,6 +429,109 @@ const ImportCSVModal: React.FC<{
   );
 };
 
+// ---- Sortable Lead Row ----
+const SortableLeadRow: React.FC<{
+  lead: CampaignLead;
+  index: number;
+  isAdmin: boolean;
+  isOpenPool: boolean;
+  isDragEnabled: boolean;
+  user: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  agents: AgentProfile[];
+  selectedLeadIds: Set<string>;
+  actionMenuId: string | null;
+  onToggleSelect: (id: string) => void;
+  onQuickCall: (lead: CampaignLead) => void;
+  onActionMenu: (id: string) => void;
+  onRemoveLead: (id: string) => void;
+  onForceRelease: (id: string) => void;
+}> = ({ lead: l, isAdmin, isOpenPool, isDragEnabled, user, agents, selectedLeadIds, actionMenuId, onToggleSelect, onQuickCall, onActionMenu, onRemoveLead, onForceRelease }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: l.id, disabled: !isDragEnabled });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: isDragging ? "relative" as const : undefined,
+    zIndex: isDragging ? 50 : undefined,
+  };
+
+  const hidePhone = isOpenPool && !isAdmin && l.status !== "Claimed" && l.claimed_by !== user?.id;
+  const ownerAgent = l.locked_by ? agents.find(a => a.id === l.locked_by) : l.claimed_by ? agents.find(a => a.id === l.claimed_by) : null;
+
+  return (
+    <tr ref={setNodeRef} style={style} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isDragging ? "bg-accent" : ""}`}>
+      {isDragEnabled && (
+        <td className="py-3 px-1">
+          <button {...attributes} {...listeners} className="text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing p-1">
+            <GripVertical className="w-4 h-4" />
+          </button>
+        </td>
+      )}
+      <td className="py-3 px-3">
+        <input type="checkbox" checked={selectedLeadIds.has(l.id)} onChange={() => onToggleSelect(l.id)} className="rounded accent-[hsl(var(--primary))]" />
+      </td>
+      <td className="py-3 px-1">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onQuickCall(l)}
+                disabled={!l.phone || hidePhone}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                  l.phone && !hidePhone
+                    ? "bg-success/10 text-success hover:bg-success/20"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">{!l.phone ? "No phone number on file" : hidePhone ? "Phone hidden in Open Pool" : "Quick call"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </td>
+      <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
+      <td className="py-3 px-3 text-foreground">
+        {hidePhone ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span> : l.phone}
+      </td>
+      <td className="py-3 px-3 text-foreground">{l.email}</td>
+      <td className="py-3 px-3 text-foreground">{l.state}</td>
+      <td className="py-3 px-3">
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
+      </td>
+      {isOpenPool && isAdmin && (
+        <td className="py-3 px-3 text-sm text-muted-foreground">
+          {ownerAgent ? getAgentDisplayName(ownerAgent) : "—"}
+        </td>
+      )}
+      <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
+      <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
+      <td className="py-3 px-3">
+        {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
+      </td>
+      <td className="py-3 px-3 relative">
+        <button onClick={() => onActionMenu(l.id)} className="text-muted-foreground hover:text-foreground">
+          <MoreHorizontal className="w-4 h-4" />
+        </button>
+        {actionMenuId === l.id && (
+          <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
+            {isOpenPool && isAdmin && l.status === "Locked" && (
+              <button onClick={() => onForceRelease(l.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-warning hover:bg-accent transition-colors">
+                <AlertTriangle className="w-4 h-4" /> Force Release
+              </button>
+            )}
+            <button onClick={() => onRemoveLead(l.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
+              <Trash2 className="w-4 h-4" /> Remove from Campaign
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+};
+
 // ---- MAIN COMPONENT ----
 const CampaignDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
