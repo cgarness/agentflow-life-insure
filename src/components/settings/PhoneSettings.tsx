@@ -247,15 +247,20 @@ const PhoneSettings: React.FC = () => {
                         <h3 className="text-lg font-semibold text-foreground">Telnyx & Phone Numbers</h3>
                         <p className="text-sm text-muted-foreground">Manage your voice and SMS carrier integration via Telnyx.</p>
                     </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleTestConnection}
-                        disabled={isTesting}
-                    >
-                        {isTesting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                        Test Connection
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setIsAddingNumber(true)}>
+                            <Plus className="w-4 h-4 mr-1" /> Add Number
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleTestConnection}
+                            disabled={isTesting}
+                        >
+                            {isTesting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                            Test Connection
+                        </Button>
+                    </div>
                 </div>
 
                 {/* Important Setup Step - Webhook Setup */}
@@ -406,9 +411,6 @@ const PhoneSettings: React.FC = () => {
                             <CardTitle className="text-sm">Owned Numbers</CardTitle>
                             <CardDescription>Phone numbers currently routed to the CRM.</CardDescription>
                         </div>
-                        <Button size="sm" variant="outline" onClick={() => setIsAddingNumber(true)}>
-                            <Plus className="w-4 h-4 mr-1" /> Add Number
-                        </Button>
                     </CardHeader>
                     <CardContent>
                         <Table>
