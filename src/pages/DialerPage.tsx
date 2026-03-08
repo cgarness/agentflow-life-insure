@@ -213,6 +213,14 @@ const DialerPage: React.FC = () => {
   /* ── Right panel data ── */
   const [callHistory, setCallHistory] = useState<CallRecord[]>([]);
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<Record<string, AgentProfile>>({});
+
+  /* ── Conversation History feed ── */
+  const [feedFilter, setFeedFilter] = useState<"all" | "calls" | "notes" | "appointments" | "activity">("all");
+  const [expandedFeedItems, setExpandedFeedItems] = useState<Set<string>>(new Set());
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const feedEndRef = useRef<HTMLDivElement>(null);
 
   /* ── Call script ── */
   const [scriptContent, setScriptContent] = useState<string | null>(null);
