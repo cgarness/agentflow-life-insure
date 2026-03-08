@@ -313,6 +313,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const startCall = (destinationNumber: string) => {
+    setActiveCallerId(currentCallerId);
     if (clientRef.current && dialerReady) {
       try {
         const call = (clientRef.current as any).newCall({
