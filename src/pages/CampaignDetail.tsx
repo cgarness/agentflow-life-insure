@@ -462,6 +462,12 @@ const CampaignDetail: React.FC = () => {
 
   const isAdmin = profile?.role?.toLowerCase() === "admin";
 
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   const fetchCampaign = useCallback(async () => {
     if (!id) return;
     const { data } = await supabase.from("campaigns").select("*").eq("id", id).single();
