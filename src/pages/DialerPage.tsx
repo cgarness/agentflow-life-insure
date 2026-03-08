@@ -260,6 +260,7 @@ const DialerPage: React.FC = () => {
   const callRef = useRef<any /* eslint-disable-line @typescript-eslint/no-explicit-any */>(null);
   const [dialerReady, setDialerReady] = useState(false);
   const [dialerError, setDialerError] = useState<string | null>(null);
+  const [callerNumber, setCallerNumber] = useState<string>("+19097381193"); // fallback
 
   // Close status dropdown on outside click
   useEffect(() => {
@@ -346,6 +347,23 @@ const DialerPage: React.FC = () => {
     };
   }, []);
 
+  // Fetch caller ID from database
+  useEffect(() => {
+    const fetchCallerId = async () => {
+      const { data } = await supabase
+        .from('phone_numbers')
+        .select('phone_number')
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
+
+      if (data?.phone_number) {
+        setCallerNumber(data.phone_number);
+      }
+    };
+    fetchCallerId();
+  }, [selectedCampaign]);
+
   // Call timer
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -422,8 +440,8 @@ const DialerPage: React.FC = () => {
     }
     try {
       const call = clientRef.current.newCall({
-        destinationNumber: "+15551234567", // placeholder — will be replaced with real lead phone number in a future prompt
-        callerNumber: "+19097381193",       // placeholder — will be replaced with agent's assigned Telnyx number
+        destinationNumber: activeLead.phone.replace(/\D/g, ''),
+        callerNumber: callerNumber,
       });
       callRef.current = call;
       startDialing();
