@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import {
   Phone, PhoneOff, Mic, MicOff, Pause, Voicemail,
   Clock, SkipForward, Search, ChevronLeft, Loader2,
-  ArrowRight, AlertTriangle, X, Hash, Delete,
+  ArrowRight, AlertTriangle, X, Hash, Delete, Lock,
   Zap, User, Mail, MapPin, ExternalLink, FileText,
   MessageSquare, CalendarPlus, CheckCircle, Pin,
   PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
@@ -251,6 +251,11 @@ const DialerPage: React.FC = () => {
   const [dncWarning, setDncWarning] = useState(false);
   const [dncChecking, setDncChecking] = useState(false);
 
+  /* ── Lead hover preview cache ── */
+  const [leadLastCalls, setLeadLastCalls] = useState<Record<string, { disposition_name: string | null; started_at: string | null }>>({});
+  const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
+  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
@@ -379,9 +384,28 @@ const DialerPage: React.FC = () => {
       .in("status", ["Queued", "Skipped"])
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
-    setLeads((data as CampaignLead[]) || []);
+    const loadedLeads = (data as CampaignLead[]) || [];
+    setLeads(loadedLeads);
     setCurrentLeadIdx(0);
     setLeadsLoading(false);
+
+    // Batch-fetch last call record per lead for hover preview (single query)
+    const leadIds = loadedLeads.map((l) => l.lead_id).filter(Boolean) as string[];
+    if (leadIds.length > 0) {
+      const { data: callData } = await (supabase as any)
+        .from("calls")
+        .select("contact_id, disposition_name, started_at")
+        .in("contact_id", leadIds)
+        .order("started_at", { ascending: false });
+      if (callData) {
+        // Keep only the most recent call per contact_id
+        const map: Record<string, { disposition_name: string | null; started_at: string | null }> = {};
+        for (const row of callData) {
+          if (!map[row.contact_id]) map[row.contact_id] = { disposition_name: row.disposition_name, started_at: row.started_at };
+        }
+        setLeadLastCalls(map);
+      }
+    }
   }, []);
 
   /* ── Load contact data when current lead changes ── */
@@ -1122,28 +1146,126 @@ const DialerPage: React.FC = () => {
               filteredLeads.map((lead, idx) => {
                 const isCurrent = idx === currentLeadIdx;
                 const localTime = getContactLocalTime(lead.state);
+                const isHovered = hoveredLeadId === lead.id;
+                const lastCall = lead.lead_id ? leadLastCalls[lead.lead_id] : null;
+                const lastCallDispColor = lastCall?.disposition_name ? getDispColor(lastCall.disposition_name) : null;
+
                 return (
-                  <button
+                  <div
                     key={lead.id}
-                    onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
-                    className={cn(
-                      "w-full text-left rounded-lg p-2.5 transition-all border",
-                      isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
-                    )}
+                    className="relative"
+                    onMouseEnter={() => {
+                      hoverTimerRef.current = setTimeout(() => setHoveredLeadId(lead.id), 300);
+                    }}
+                    onMouseLeave={() => {
+                      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                      setHoveredLeadId(null);
+                    }}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
-                      <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 ml-4">
-                      <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
-                      {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
-                      {localTime && <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{localTime}</span>}
-                    </div>
-                    {isCurrent && lockCountdown !== null && (
-                      <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
-                    )}
-                  </button>
+                    <button
+                      onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
+                      className={cn(
+                        "w-full text-left rounded-lg p-2.5 transition-all border",
+                        isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
+                        <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 ml-4">
+                        <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
+                        {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
+                        {localTime && <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{localTime}</span>}
+                      </div>
+                      {isCurrent && lockCountdown !== null && (
+                        <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
+                      )}
+                    </button>
+
+                    {/* ── Hover Preview Card (desktop only) ── */}
+                    <AnimatePresence>
+                      {isHovered && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ duration: 0.15, ease: "easeOut" }}
+                          className="hidden lg:block absolute left-full top-0 ml-2 z-50 w-[280px] bg-card border border-border rounded-lg shadow-lg p-3 space-y-2"
+                        >
+                          {/* Arrow pointing left */}
+                          <div className="absolute left-0 top-4 -translate-x-full">
+                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-border" />
+                          </div>
+                          <div className="absolute left-0 top-4 -translate-x-[calc(100%-1px)]">
+                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-card" />
+                          </div>
+
+                          {/* Name */}
+                          <p className="font-bold text-sm text-foreground">{lead.first_name} {lead.last_name}</p>
+
+                          {/* Phone */}
+                          <p className="font-mono text-xs text-foreground">
+                            {isOpenPool && !isCurrent
+                              ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
+                              : lead.phone}
+                          </p>
+
+                          {/* Email */}
+                          <p className="text-xs text-muted-foreground">
+                            {lead.email || "No email"}
+                          </p>
+
+                          {/* State + Local Time */}
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
+                            {localTime && <span className="text-teal-500">{localTime}</span>}
+                          </div>
+
+                          {/* Lead Score */}
+                          {lead.lead_id ? (() => {
+                            // lead_score not on campaign_leads, show from call_attempts context
+                            return null;
+                          })() : null}
+
+                          {/* Lead Source */}
+                          {lead.source && (
+                            <p className="text-[10px] text-muted-foreground">Source: {lead.source}</p>
+                          )}
+
+                          <div className="border-t border-border pt-2 space-y-1.5">
+                            {/* Last Disposition */}
+                            {lastCall?.disposition_name ? (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <span className="text-muted-foreground">Last:</span>
+                                <span
+                                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                                  style={{
+                                    backgroundColor: lastCallDispColor ? `${lastCallDispColor}20` : undefined,
+                                    color: lastCallDispColor || undefined,
+                                  }}
+                                >
+                                  {lastCall.disposition_name}
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground italic">No previous calls</p>
+                            )}
+
+                            {/* Call Attempts */}
+                            <p className="text-[10px] text-muted-foreground">
+                              {lead.call_attempts > 0 ? `${lead.call_attempts} previous attempt${lead.call_attempts !== 1 ? "s" : ""}` : "First attempt"}
+                            </p>
+
+                            {/* Last Contacted */}
+                            <p className="text-[10px] text-muted-foreground">
+                              {lead.last_called_at ? `Last contacted ${timeAgo(lead.last_called_at)}` : "Never contacted"}
+                            </p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 );
               })
             )}
