@@ -674,17 +674,17 @@ const DialerPage: React.FC = () => {
 
   const handleSaveNote = async () => {
     if (!newNote.trim() || !currentLead?.lead_id) return;
-    await supabase.from("contact_notes").insert({
+    const { data: inserted } = await supabase.from("contact_notes").insert({
       contact_id: currentLead.lead_id,
       contact_type: "lead",
       content: newNote,
       author_id: agentId,
-    });
+    }).select("id, content, pinned, created_at, author_id").single();
     setNewNote("");
-    // Refresh notes
-    const { data } = await supabase.from("contact_notes").select("id, content, pinned, created_at")
-      .eq("contact_id", currentLead.lead_id).order("pinned", { ascending: false }).order("created_at", { ascending: false }).limit(3);
-    setContactNotes(data || []);
+    if (inserted) {
+      // Optimistically add to contactNotes (prepend) so feed updates
+      setContactNotes((prev) => [inserted as any, ...prev]);
+    }
     toast.success("Note saved");
   };
 
