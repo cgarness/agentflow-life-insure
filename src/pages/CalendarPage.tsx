@@ -112,6 +112,38 @@ const CalendarPage: React.FC = () => {
     setNewLastName("");
   };
 
+  // Check Google Calendar connection status
+  const checkGoogleStatus = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("google-calendar-status", { body: {} });
+      if (!error && data?.connected) {
+        setGoogleConnected(true);
+      } else {
+        setGoogleConnected(false);
+      }
+    } catch {
+      setGoogleConnected(false);
+    }
+  }, []);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-calendar-inbound-sync", { body: {} });
+      if (error) {
+        toast({ title: "Sync failed", description: String(error), variant: "destructive" });
+      } else {
+        const imported = data?.imported ?? 0;
+        const updated = data?.updated ?? 0;
+        toast({ title: "Google Calendar synced", description: `${imported} imported, ${updated} updated` });
+        await fetchAppointments();
+      }
+    } catch (e) {
+      toast({ title: "Sync failed", variant: "destructive" });
+    }
+    setSyncing(false);
+  };
+
   const fetchAppointments = useCallback(async () => {
     setLoading(true);
     const startOfMonth = new Date(year, month, 1).toISOString();
@@ -138,6 +170,8 @@ const CalendarPage: React.FC = () => {
 
       nextMeta[appt.id] = {
         externalEventId: appt.external_event_id ?? null,
+        syncSource: appt.sync_source ?? "internal",
+        externalProvider: appt.external_provider ?? null,
       };
 
       return {
