@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, X, Mic, Pause, Voicemail,
-  PhoneOff, Search, Delete, Loader2,
+  PhoneOff, Search, Delete, Loader2, RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { useNavigate } from "react-router-dom";
+import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ContactResult {
   id: string;
@@ -79,23 +81,26 @@ const FloatingDialer: React.FC = () => {
   const clientRef = useRef<Record<string, unknown>>(null);
   const callRef = useRef<Record<string, unknown>>(null);
   const [dialerReady, setDialerReady] = useState(false);
-  const [callerNumber, setCallerNumber] = useState("+10000000000");
 
-  // Fetch caller number from DB
-  useEffect(() => {
-    const fetchCallerNumber = async () => {
-      const { data } = await supabase
-        .from('phone_numbers')
-        .select('phone_number')
-        .eq('status', 'active')
-        .limit(1)
-        .maybeSingle();
-      if (data?.phone_number) {
-        setCallerNumber(data.phone_number);
-      }
-    };
-    fetchCallerNumber();
+  // --- Local Presence phone cache ---
+  const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
+  const [activeCallerId, setActiveCallerId] = useState<CallerIdResult | null>(null);
+
+  const refreshPhoneCache = useCallback(async () => {
+    const cache = await loadPhoneNumbers();
+    setPhoneCache(cache);
   }, []);
+
+  useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
+
+  // Derive caller ID for current destination
+  const currentCallerId = useMemo<CallerIdResult>(() => {
+    const phone = selectedContact?.phone || dialedNumber;
+    if (!phoneCache || !phone) return { callerNumber: "", matchType: "none", matchedAreaCode: null };
+    return pickCallerId(phone, phoneCache);
+  }, [selectedContact?.phone, dialedNumber, phoneCache]);
+
+  const callerNumber = currentCallerId.callerNumber || "+10000000000";
 
   // Listen for toggle event from TopBar
   useEffect(() => {
@@ -308,6 +313,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const startCall = (destinationNumber: string) => {
+    setActiveCallerId(currentCallerId);
     if (clientRef.current && dialerReady) {
       try {
         const call = (clientRef.current as any).newCall({
@@ -501,6 +507,11 @@ const FloatingDialer: React.FC = () => {
                       View Full Contact &rarr;
                     </button>
                   )}
+                  {activeCallerId && (
+                    <p className="text-xs text-muted-foreground">
+                      Calling from: {formatPhoneDisplay(activeCallerId.callerNumber)}
+                    </p>
+                  )}
                   <p className="text-3xl font-mono text-foreground">
                     {formatTime(callSeconds)}
                   </p>
@@ -644,6 +655,30 @@ const FloatingDialer: React.FC = () => {
                         <p className="text-xs text-muted-foreground">
                           {selectedContact.phone}
                         </p>
+                        {/* Caller ID */}
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {currentCallerId.matchType === "local" ? (
+                            <>
+                              <span className="text-[10px] text-muted-foreground">From: {formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                              <span className="bg-green-500/10 text-green-600 px-1 py-0.5 rounded text-[9px] font-medium">Local ({currentCallerId.matchedAreaCode})</span>
+                            </>
+                          ) : currentCallerId.matchType === "default" ? (
+                            <>
+                              <span className="text-[10px] text-muted-foreground">From: {formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                              <span className="bg-muted text-muted-foreground px-1 py-0.5 rounded text-[9px] font-medium">Default</span>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-destructive">No caller ID</span>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button onClick={refreshPhoneCache} className="text-muted-foreground hover:text-foreground p-0.5">
+                                <RefreshCw className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Refresh phone numbers</TooltipContent>
+                          </Tooltip>
+                        </div>
                       </div>
                       <button
                         onClick={handleCallFromContact}

@@ -6,7 +6,7 @@ import {
   Zap, User, Mail, MapPin, ExternalLink, FileText,
   MessageSquare, CalendarPlus, CheckCircle, Pin,
   PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
-  MessageCircle, MailIcon,
+  MessageCircle, MailIcon, RefreshCw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { supabase } from "@/integrations/supabase/client";
+import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { STATE_TIMEZONES, getContactLocalTime } from "@/utils/contactLocalTime";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -231,7 +232,8 @@ const DialerPage: React.FC = () => {
   const callRef = useRef<any>(null);
   const [dialerReady, setDialerReady] = useState(false);
   const [dialerError, setDialerError] = useState<string | null>(null);
-  const [callerNumber, setCallerNumber] = useState("+10000000000");
+  const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
+  const [activeCallerId, setActiveCallerId] = useState<CallerIdResult | null>(null);
 
   /* ── Open Pool / SharkTank ── */
   const [lockCountdown, setLockCountdown] = useState<number | null>(null);
@@ -252,6 +254,15 @@ const DialerPage: React.FC = () => {
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
+
+  /* ── Local Presence caller ID ── */
+  const currentCallerId = useMemo<CallerIdResult>(() => {
+    const phone = quickDialMode ? quickDialNumber : currentLead?.phone ?? "";
+    if (!phoneCache || !phone) return { callerNumber: "", matchType: "none", matchedAreaCode: null };
+    return pickCallerId(phone, phoneCache);
+  }, [currentLead?.phone, quickDialNumber, quickDialMode, phoneCache]);
+
+  const callerNumber = currentCallerId.callerNumber || "+10000000000";
 
   const filteredLeads = useMemo(() => {
     return leads.map((l) => {
@@ -305,11 +316,13 @@ const DialerPage: React.FC = () => {
     return () => { if (client) try { client.disconnect(); } catch {} };
   }, []);
 
-  /* ── Fetch caller number ── */
-  useEffect(() => {
-    supabase.from("phone_numbers").select("phone_number").eq("status", "active").limit(1).maybeSingle()
-      .then(({ data }) => { if (data?.phone_number) setCallerNumber(data.phone_number); });
+  /* ── Load phone numbers cache ── */
+  const refreshPhoneCache = useCallback(async () => {
+    const cache = await loadPhoneNumbers();
+    setPhoneCache(cache);
   }, []);
+
+  useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
 
   /* ── Fetch campaigns ── */
   useEffect(() => {
@@ -637,6 +650,7 @@ const DialerPage: React.FC = () => {
       setLockCountdown(null);
     }
 
+    setActiveCallerId(currentCallerId);
     setCallStatus("connecting");
     setCallSeconds(0);
     setCallStartedAt(new Date());
@@ -703,6 +717,9 @@ const DialerPage: React.FC = () => {
     const contactPhone = quickDialMode ? quickDialNumber : currentLead?.phone ?? "";
 
     // 1. Insert call record
+    const callerIdOutcome = activeCallerId
+      ? JSON.stringify({ caller_id: activeCallerId.callerNumber, match_type: activeCallerId.matchType })
+      : null;
     await supabase.from("calls").insert({
       contact_id: currentLead?.lead_id ?? null,
       contact_type: "lead",
@@ -716,6 +733,7 @@ const DialerPage: React.FC = () => {
       disposition_id: disp.id,
       disposition_name: disp.name,
       notes: dispNotes || null,
+      outcome: callerIdOutcome,
       started_at: startedAt,
       ended_at: endedAt,
     });
@@ -807,6 +825,9 @@ const DialerPage: React.FC = () => {
     // Log call without disposition
     const now = new Date();
     const contactName = currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : "Manual Dial";
+    const skipCallerIdOutcome = activeCallerId
+      ? JSON.stringify({ caller_id: activeCallerId.callerNumber, match_type: activeCallerId.matchType })
+      : null;
     await supabase.from("calls").insert({
       contact_id: currentLead?.lead_id ?? null,
       contact_type: "lead",
@@ -817,6 +838,7 @@ const DialerPage: React.FC = () => {
       campaign_lead_id: currentLead?.id ?? null,
       direction: "outbound",
       duration: callSeconds,
+      outcome: skipCallerIdOutcome,
       started_at: callStartedAt?.toISOString(),
       ended_at: now.toISOString(),
     });
@@ -1257,6 +1279,34 @@ const DialerPage: React.FC = () => {
                       <span className="text-teal-500">{getContactLocalTime(currentLead.state)}</span>
                       {currentLead.source && <span className="text-muted-foreground">{currentLead.source}</span>}
                     </div>
+                    {/* Caller ID display */}
+                    <div className="flex items-center justify-center gap-2 text-xs">
+                      {currentCallerId.matchType === "local" ? (
+                        <>
+                          <span className="text-muted-foreground">Calling from:</span>
+                          <span className="font-mono text-foreground">{formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                          <span className="bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
+                            Local Match ({currentCallerId.matchedAreaCode})
+                          </span>
+                        </>
+                      ) : currentCallerId.matchType === "default" ? (
+                        <>
+                          <span className="text-muted-foreground">Calling from:</span>
+                          <span className="font-mono text-foreground">{formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                          <span className="bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full text-[10px] font-medium">Default</span>
+                        </>
+                      ) : (
+                        <span className="text-destructive">No caller ID — add numbers in Settings</span>
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button onClick={refreshPhoneCache} className="text-muted-foreground hover:text-foreground p-0.5">
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Refresh phone numbers</TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
                 )}
 
@@ -1316,6 +1366,11 @@ const DialerPage: React.FC = () => {
                     <div className="flex items-center justify-center gap-2 text-green-500 text-sm">
                       <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
                     </div>
+                    {activeCallerId && (
+                      <p className="text-xs text-muted-foreground">
+                        Calling from: {formatPhoneDisplay(activeCallerId.callerNumber)}
+                      </p>
+                    )}
                     <div className="flex justify-center gap-4">
                       <Tooltip>
                         <TooltipTrigger asChild>
