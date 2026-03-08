@@ -962,6 +962,39 @@ const CampaignDetail: React.FC = () => {
       {/* STATS TAB */}
       {tab === "Stats" && (
         <div className="space-y-4">
+          {/* Date Range Filter */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground">Date Range:</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("w-[150px] justify-start text-left font-normal", !statsDateFrom && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                  {statsDateFrom ? format(statsDateFrom, "MMM d, yyyy") : "From"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={statsDateFrom} onSelect={setStatsDateFrom} initialFocus className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            <span className="text-muted-foreground">—</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("w-[150px] justify-start text-left font-normal", !statsDateTo && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                  {statsDateTo ? format(statsDateTo, "MMM d, yyyy") : "To"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={statsDateTo} onSelect={setStatsDateTo} initialFocus className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            {(statsDateFrom || statsDateTo) && (
+              <Button variant="ghost" size="sm" onClick={() => { setStatsDateFrom(undefined); setStatsDateTo(undefined); }}>
+                <X className="h-3.5 w-3.5 mr-1" /> Clear
+              </Button>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: "Total Leads", value: campaign.total_leads },
@@ -997,9 +1030,22 @@ const CampaignDetail: React.FC = () => {
 
           {/* Analytics Charts */}
           {leads.length > 0 && (() => {
-            // Leads contacted over time (line chart) — group by date using last_called_at
+            // Filter leads by date range
+            const filteredLeads = leads.filter(l => {
+              if (!l.last_called_at) return !statsDateFrom && !statsDateTo;
+              const d = new Date(l.last_called_at);
+              if (statsDateFrom && d < statsDateFrom) return false;
+              if (statsDateTo) {
+                const endOfDay = new Date(statsDateTo);
+                endOfDay.setHours(23, 59, 59, 999);
+                if (d > endOfDay) return false;
+              }
+              return true;
+            });
+
+            // Leads contacted over time (line chart)
             const contactedByDate: Record<string, number> = {};
-            leads.forEach(l => {
+            filteredLeads.forEach(l => {
               if (l.last_called_at) {
                 const day = new Date(l.last_called_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
                 contactedByDate[day] = (contactedByDate[day] || 0) + 1;
@@ -1011,7 +1057,7 @@ const CampaignDetail: React.FC = () => {
 
             // Disposition breakdown (pie chart)
             const dispCounts: Record<string, number> = {};
-            leads.forEach(l => {
+            filteredLeads.forEach(l => {
               const d = l.disposition || "No Disposition";
               dispCounts[d] = (dispCounts[d] || 0) + 1;
             });
