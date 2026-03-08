@@ -959,6 +959,9 @@ export type Database = {
           id: string
           is_default: boolean | null
           phone_number: string
+          spam_checked_at: string | null
+          spam_score: number | null
+          spam_status: string | null
           status: string | null
           updated_at: string | null
         }
@@ -970,6 +973,9 @@ export type Database = {
           id?: string
           is_default?: boolean | null
           phone_number: string
+          spam_checked_at?: string | null
+          spam_score?: number | null
+          spam_status?: string | null
           status?: string | null
           updated_at?: string | null
         }
@@ -981,6 +987,9 @@ export type Database = {
           id?: string
           is_default?: boolean | null
           phone_number?: string
+          spam_checked_at?: string | null
+          spam_score?: number | null
+          spam_status?: string | null
           status?: string | null
           updated_at?: string | null
         }
