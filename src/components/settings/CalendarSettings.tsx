@@ -155,12 +155,12 @@ const CalendarSettings: React.FC = () => {
       const { error } = await supabase
         .from("user_preferences")
         .upsert(
-          {
+          [{
             user_id: user.id,
             preference_key: GOOGLE_SYNC_PREFERENCE_KEY,
-            preference_value: nextSettings,
+            preference_value: nextSettings as any, // eslint-disable-line @typescript-eslint/no-explicit-any
             updated_at: new Date().toISOString(),
-          },
+          }],
           { onConflict: "user_id,preference_key" },
         );
 

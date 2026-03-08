@@ -61,7 +61,7 @@ export const clientsSupabaseApi = {
     },
 
     async delete(id: string): Promise<void> {
-        const { error } = await supabase.from("clients").delete().eq("id", id);
+        const { error } = await (supabase as any).from("clients").delete().eq("id", id);
         if (error) throw new Error(error.message);
     },
 };

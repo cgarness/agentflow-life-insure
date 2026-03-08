@@ -16,7 +16,7 @@ export const notesSupabaseApi = {
 
     // Add a new note
     async add(contactId: string, contactType: string, note: string, agentId: string): Promise<ContactNote> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("contact_notes")
             .insert({
                 contact_id: contactId,

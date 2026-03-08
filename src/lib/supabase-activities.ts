@@ -24,7 +24,7 @@ export const activitiesSupabaseApi = {
         agentId?: string;
         metadata?: Record<string, unknown>;
     }): Promise<ContactActivity> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("contact_activities")
             .insert({
                 contact_id: data.contactId,
