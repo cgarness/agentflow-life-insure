@@ -324,6 +324,9 @@ const PhoneSettings: React.FC = () => {
                                     className="font-mono text-sm"
                                 />
                             </div>
+                            <Button className="w-full" onClick={handleSaveConfig} disabled={saving}>
+                                {saving ? "Saving..." : "Save Credentials"}
+                            </Button>
                         </CardContent>
                     </Card>
 
