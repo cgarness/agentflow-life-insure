@@ -1403,8 +1403,18 @@ const Contacts: React.FC = () => {
         existingLeads={leads}
         campaigns={mockCampaigns.map(c => ({ id: c.id, name: c.name, type: c.type, status: c.status }))}
         onImportComplete={async (newLeads, historyEntry) => {
-          await importLeadsToSupabase(newLeads);
-          setImportHistory(prev => [historyEntry, ...prev]);
+          const result = await importLeadsToSupabase(newLeads);
+          // Insert import history row into Supabase
+          await supabase.from("import_history").insert({
+            file_name: historyEntry.fileName,
+            total_records: historyEntry.totalRecords,
+            imported: result.imported,
+            duplicates: historyEntry.duplicates + result.duplicates,
+            errors: historyEntry.errors + result.errors,
+            agent_id: user?.id || null,
+            imported_lead_ids: result.importedLeadIds,
+          });
+          await fetchImportHistory();
           fetchData();
         }}
       />
@@ -1414,14 +1424,26 @@ const Contacts: React.FC = () => {
         <DeleteConfirmModal
           open={true}
           count={undoConfirm.imported}
-          title={`Remove ${undoConfirm.imported} leads imported from ${undoConfirm.fileName}?`}
+          title={`This will delete all ${undoConfirm.imported} leads that were imported from this file. This cannot be undone.`}
           onConfirm={async () => {
-            for (const id of undoConfirm.importedLeadIds) {
-              await leadsSupabaseApi.delete(id);
+            // Delete leads whose IDs are in importedLeadIds
+            if (undoConfirm.importedLeadIds.length > 0) {
+              const { error: leadsError } = await supabase
+                .from("leads")
+                .delete()
+                .in("id", undoConfirm.importedLeadIds);
+              if (leadsError) {
+                console.error("Error deleting imported leads:", leadsError);
+                toast.error("Failed to undo import", { duration: 3000, position: "bottom-right" });
+                setUndoConfirm(null);
+                return;
+              }
             }
-            setImportHistory(prev => prev.filter(h => h.id !== undoConfirm.id));
-            toast.success(`${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
+            // Delete the import_history row
+            await supabase.from("import_history").delete().eq("id", undoConfirm.id);
+            toast.success(`Import undone — ${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
             setUndoConfirm(null);
+            await fetchImportHistory();
             fetchData();
           }}
           onClose={() => setUndoConfirm(null)}
