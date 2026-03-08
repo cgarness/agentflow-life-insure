@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
     Phone, Shield, ShieldAlert, ShieldCheck,
     Settings2, Plus, RefreshCw, Trash2,
-    ExternalLink, Loader2, Info, Headphones
+    ExternalLink, Loader2, Info, Headphones, Search, ShoppingCart
 } from "lucide-react";
 import {
     Card, CardContent, CardDescription,
@@ -66,9 +66,13 @@ const PhoneSettings: React.FC = () => {
     });
     const [numbers, setNumbers] = useState<PhoneNumber[]>([]);
     const [isTesting, setIsTesting] = useState(false);
-    const [isAddingNumber, setIsAddingNumber] = useState(false);
-    const [newNumber, setNewNumber] = useState({ phone_number: "", friendly_name: "" });
-    const [adding, setAdding] = useState(false);
+
+    // Search & Buy State
+    const [isBuyingNumber, setIsBuyingNumber] = useState(false);
+    const [searchAreaCode, setSearchAreaCode] = useState("");
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [isProvisioning, setIsProvisioning] = useState<string | null>(null);
 
     useEffect(() => {
         fetchData();
@@ -185,33 +189,57 @@ const PhoneSettings: React.FC = () => {
         }
     };
 
-    const handleAddNumber = async () => {
-        if (!newNumber.phone_number) {
-            toast({ title: "Phone number required", variant: "destructive" });
+    const handleSearchNumbers = async () => {
+        if (!searchAreaCode || searchAreaCode.length < 3) {
+            toast({ title: "Invalid Search", description: "Please enter a valid area code (e.g., 212).", variant: "destructive" });
             return;
         }
 
+        setIsSearching(true);
         try {
-            setAdding(true);
-            const { error } = await supabase
-                .from('phone_numbers')
-                .insert([{
-                    phone_number: newNumber.phone_number,
-                    friendly_name: newNumber.friendly_name,
-                    status: 'active'
-                }]);
+            const { data, error } = await supabase.functions.invoke('telnyx-search-numbers', {
+                body: { area_code: searchAreaCode },
+            });
 
             if (error) throw error;
+            if (data?.error) throw new Error(data.error);
 
-            toast({ title: "Number Added", description: "Successfully registered your Telnyx number." });
-            setNewNumber({ phone_number: "", friendly_name: "" });
-            setIsAddingNumber(false);
-            fetchData();
+            setSearchResults(data?.numbers || []);
+            if (data?.numbers?.length === 0) {
+                toast({ title: "No numbers found", description: "Try a different area code." });
+            }
         } catch (error: any) {
-            console.error("Error adding number:", error);
-            toast({ title: "Failed to add number", description: error.message, variant: "destructive" });
+            console.error("Search error:", error);
+            toast({ title: "Search Failed", description: error.message, variant: "destructive" });
         } finally {
-            setAdding(false);
+            setIsSearching(false);
+        }
+    };
+
+    const handleBuyNumber = async (phoneNumber: string) => {
+        setIsProvisioning(phoneNumber);
+        try {
+            const { data, error } = await supabase.functions.invoke('telnyx-buy-number', {
+                body: { phone_number: phoneNumber },
+            });
+
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+
+            toast({
+                title: "Number Purchased & Configured!",
+                description: "We automatically set up the webhooks, outbound profile, and SIP credentials."
+            });
+
+            setIsBuyingNumber(false);
+            setSearchResults([]);
+            setSearchAreaCode("");
+            fetchData(); // Refresh the numbers list
+        } catch (error: any) {
+            console.error("Provisioning error:", error);
+            toast({ title: "Purchase Failed", description: error.message, variant: "destructive" });
+        } finally {
+            setIsProvisioning(null);
         }
     };
 
@@ -244,12 +272,12 @@ const PhoneSettings: React.FC = () => {
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h3 className="text-lg font-semibold text-foreground">Telnyx & Phone Numbers</h3>
-                        <p className="text-sm text-muted-foreground">Manage your voice and SMS carrier integration via Telnyx.</p>
+                        <h3 className="text-lg font-semibold text-foreground">Phone Systems (Telnyx)</h3>
+                        <p className="text-sm text-muted-foreground">Manage your voice and SMS carrier integration.</p>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setIsAddingNumber(true)}>
-                            <Plus className="w-4 h-4 mr-1" /> Add Number
+                        <Button size="sm" onClick={() => setIsBuyingNumber(true)}>
+                            <ShoppingCart className="w-4 h-4 mr-2" /> Buy Number
                         </Button>
                         <Button
                             variant="outline"
@@ -262,32 +290,6 @@ const PhoneSettings: React.FC = () => {
                         </Button>
                     </div>
                 </div>
-
-                {/* Important Setup Step - Webhook Setup */}
-                <Card className="border-teal-500/50 bg-teal-500/5">
-                    <CardHeader className="py-4">
-                        <CardTitle className="text-sm flex items-center gap-2">
-                            <ExternalLink className="w-4 h-4 text-teal-500" />
-                            Final Infrastructure Step: Inbound Routing
-                        </CardTitle>
-                        <CardDescription>
-                            To receive calls and SMS, you must set the <strong>Webhook URL</strong> in your Telnyx TeXML Application to:
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="pb-4">
-                        <div className="flex items-center gap-2">
-                            <code className="bg-background border px-3 py-1.5 rounded-md text-xs font-mono flex-1 truncate">
-                                https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-webhook
-                            </code>
-                            <Button variant="ghost" size="sm" onClick={() => {
-                                navigator.clipboard.writeText("https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-webhook");
-                                toast({ title: "Copied to clipboard" });
-                            }}>
-                                Copy
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Credentials Card */}
@@ -322,105 +324,6 @@ const PhoneSettings: React.FC = () => {
                                     className="font-mono text-sm"
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <label className="text-xs font-medium uppercase text-muted-foreground">Connection ID</label>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p className="max-w-xs text-xs">Found in <strong>Voice {">"} TeXML Applications</strong>. Often called Application SID.</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </div>
-                                <Input
-                                    value={config.application_sid}
-                                    onChange={e => setConfig({ ...config, application_sid: e.target.value })}
-                                    placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
-                                    className="font-mono text-sm"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <label className="text-xs font-medium uppercase text-muted-foreground">Public Key</label>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p className="max-w-xs">Found alongside your API Key. Starts with 'PK'. Used for webhook verification.</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </div>
-                                <Input
-                                    value={config.api_secret}
-                                    type="password"
-                                    onChange={e => setConfig({ ...config, api_secret: e.target.value })}
-                                    placeholder="PKXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-                                    className="font-mono text-sm"
-                                />
-                            </div>
-                            <Button className="w-full mt-2" onClick={handleSaveConfig} disabled={saving}>
-                                {saving ? "Saving..." : "Update Credentials"}
-                            </Button>
-                        </CardContent>
-                    </Card>
-
-                    {/* SIP Credentials Card */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-sm flex items-center gap-2">
-                                <Headphones className="w-4 h-4 text-primary" />
-                                SIP Authentication
-                            </CardTitle>
-                            <CardDescription>
-                                Used by the browser dialer to log into the network.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <label className="text-xs font-medium uppercase text-muted-foreground">SIP Username</label>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p className="max-w-xs text-xs">Found in your TeXML App settings under <strong>Authentication</strong>.</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </div>
-                                <Input
-                                    value={config.account_sid}
-                                    onChange={e => setConfig({ ...config, account_sid: e.target.value })}
-                                    placeholder="Enter SIP Username"
-                                    className="font-mono text-sm"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <label className="text-xs font-medium uppercase text-muted-foreground">SIP Password</label>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p className="max-w-xs text-xs">The password you set for the SIP credentials.</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </div>
-                                <Input
-                                    value={config.auth_token}
-                                    type="password"
-                                    onChange={e => setConfig({ ...config, auth_token: e.target.value })}
-                                    placeholder="Enter SIP Password"
-                                    className="font-mono text-sm"
-                                />
-                            </div>
-                            <Button variant="secondary" className="w-full mt-2" onClick={handleSaveConfig} disabled={saving}>
-                                {saving ? "Saving..." : "Update SIP Credentials"}
-                            </Button>
                         </CardContent>
                     </Card>
 
@@ -436,19 +339,23 @@ const PhoneSettings: React.FC = () => {
                             <ul className="space-y-2 list-none p-0">
                                 <li className="flex gap-2">
                                     <span className="font-bold text-primary">1.</span>
-                                    <span>Log in to the <strong>Telnyx Portal</strong> and buy a phone number.</span>
+                                    <span>Create a <strong>Telnyx Account</strong> and add a payment method.</span>
                                 </li>
                                 <li className="flex gap-2">
                                     <span className="font-bold text-primary">2.</span>
-                                    <span>Create a <strong>TeXML Application</strong> and copy the <strong>Connection ID</strong> here.</span>
+                                    <span>Navigate to <strong>Account Settings {">"} API Keys</strong>.</span>
                                 </li>
                                 <li className="flex gap-2">
                                     <span className="font-bold text-primary">3.</span>
-                                    <span>Generate an <strong>API Key</strong> and <strong>Public Key</strong> in Account Settings.</span>
+                                    <span>Create an API Key and paste it into the credentials box on the left.</span>
                                 </li>
                                 <li className="flex gap-2">
                                     <span className="font-bold text-primary">4.</span>
-                                    <span>Enter the credentials, save, and then click <strong>Test Connection</strong>.</span>
+                                    <span>Save & Test the connection.</span>
+                                </li>
+                                <li className="flex gap-2">
+                                    <span className="font-bold text-primary">5.</span>
+                                    <span>Click <strong>Buy Number</strong> at the top to search for and instantly provision a new line!</span>
                                 </li>
                             </ul>
                             <div className="pt-2 flex flex-col gap-2">
@@ -484,7 +391,7 @@ const PhoneSettings: React.FC = () => {
                                 {numbers.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center py-8 text-muted-foreground italic">
-                                            No phone numbers found. Registrer your Telnyx number to start testing.
+                                            No phone numbers found. Use the "Buy Number" button to get started.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -518,40 +425,57 @@ const PhoneSettings: React.FC = () => {
                 </Card>
             </div>
 
-            <Dialog open={isAddingNumber} onOpenChange={setIsAddingNumber}>
-                <DialogContent className="sm:max-w-[425px]">
+            <Dialog open={isBuyingNumber} onOpenChange={setIsBuyingNumber}>
+                <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
-                        <DialogTitle>Add Owned Number</DialogTitle>
+                        <DialogTitle>Search & Buy Numbers</DialogTitle>
                         <DialogDescription>
-                            Enter the phone number you purchased in the Telnyx Portal to link it to the CRM.
+                            Find available numbers. When you buy, AgentFlow automatically configures the infrastructure so it's ready to dial instantly.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <label className="text-right text-xs font-medium">Number</label>
+                        <div className="flex gap-2">
                             <Input
-                                placeholder="+1XXXXXXXXXX"
-                                value={newNumber.phone_number}
-                                onChange={e => setNewNumber({ ...newNumber, phone_number: e.target.value })}
-                                className="col-span-3"
+                                placeholder="Enter Area Code (e.g., 212)"
+                                value={searchAreaCode}
+                                onChange={e => setSearchAreaCode(e.target.value)}
+                                className="flex-1"
+                                onKeyDown={(e) => e.key === 'Enter' && handleSearchNumbers()}
                             />
+                            <Button onClick={handleSearchNumbers} disabled={isSearching || searchAreaCode.length < 3}>
+                                {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
+                                Search
+                            </Button>
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <label className="text-right text-xs font-medium">Label</label>
-                            <Input
-                                placeholder="Main Sales Line"
-                                value={newNumber.friendly_name}
-                                onChange={e => setNewNumber({ ...newNumber, friendly_name: e.target.value })}
-                                className="col-span-3"
-                            />
-                        </div>
+
+                        {searchResults.length > 0 && (
+                            <div className="border rounded-md overflow-hidden flex flex-col max-h-[300px]">
+                                <div className="bg-muted px-4 py-2 text-xs font-semibold grid grid-cols-2">
+                                    <div>Number</div>
+                                    <div className="text-right">Action</div>
+                                </div>
+                                <div className="overflow-y-auto">
+                                    {searchResults.map((result) => (
+                                        <div key={result.phone_number} className="flex items-center justify-between px-4 py-3 border-t hover:bg-muted/50 transition-colors">
+                                            <div className="font-mono text-sm">{result.phone_number}</div>
+                                            <Button
+                                                size="sm"
+                                                onClick={() => handleBuyNumber(result.phone_number)}
+                                                disabled={isProvisioning !== null}
+                                            >
+                                                {isProvisioning === result.phone_number ? (
+                                                    <><Loader2 className="w-3 h-3 mr-2 animate-spin" /> Provisioning...</>
+                                                ) : (
+                                                    "Buy Number ($1.00/mo)"
+                                                )}
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddingNumber(false)}>Cancel</Button>
-                        <Button onClick={handleAddNumber} disabled={adding}>
-                            {adding ? "Adding..." : "Register Number"}
-                        </Button>
-                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </TooltipProvider>
