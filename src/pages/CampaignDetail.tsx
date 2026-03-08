@@ -988,6 +988,87 @@ const CampaignDetail: React.FC = () => {
             </div>
           </div>
 
+          {/* Analytics Charts */}
+          {leads.length > 0 && (() => {
+            // Leads contacted over time (line chart) — group by date using last_called_at
+            const contactedByDate: Record<string, number> = {};
+            leads.forEach(l => {
+              if (l.last_called_at) {
+                const day = new Date(l.last_called_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                contactedByDate[day] = (contactedByDate[day] || 0) + 1;
+              }
+            });
+            const lineData = Object.entries(contactedByDate)
+              .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+              .map(([date, count]) => ({ date, contacted: count }));
+
+            // Disposition breakdown (pie chart)
+            const dispCounts: Record<string, number> = {};
+            leads.forEach(l => {
+              const d = l.disposition || "No Disposition";
+              dispCounts[d] = (dispCounts[d] || 0) + 1;
+            });
+            const pieData = Object.entries(dispCounts).map(([name, value]) => ({ name, value }));
+            const PIE_COLORS = [
+              "hsl(var(--primary))", "hsl(var(--success))", "hsl(var(--warning))",
+              "hsl(var(--destructive))", "hsl(var(--info))", "hsl(var(--accent))",
+              "hsl(var(--muted-foreground))", "hsl(210 60% 50%)", "hsl(280 60% 50%)",
+            ];
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Line Chart — Leads Contacted Over Time */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Leads Contacted Over Time</h3>
+                  {lineData.length === 0 ? (
+                    <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No contact activity yet</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={lineData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <RechartsTooltip
+                          contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                          labelStyle={{ color: "hsl(var(--foreground))" }}
+                        />
+                        <Line type="monotone" dataKey="contacted" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: "hsl(var(--primary))" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* Pie Chart — Disposition Breakdown */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Disposition Breakdown</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        style={{ fontSize: 10 }}
+                      >
+                        {pieData.map((_, idx) => (
+                          <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })()}
+
           {leads.length === 0 ? (
             <div className="bg-card rounded-xl border p-8 text-center">
               <BarChart3 className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
