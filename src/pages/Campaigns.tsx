@@ -611,12 +611,27 @@ const Campaigns: React.FC = () => {
               <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />
               <div className="flex items-center justify-between mt-3">
                 <span className="text-xs text-muted-foreground">{relativeTime(c.created_at)}</span>
-                <button
-                  onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}`); }}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
-                >
-                  View Campaign
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={e => { e.stopPropagation(); setDuplicateTarget(c); }}
+                          className="text-xs p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent><p className="text-xs">Duplicate campaign</p></TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <button
+                    onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}`); }}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
+                  >
+                    View Campaign
+                  </button>
+                </div>
               </div>
             </div>
           ))}
