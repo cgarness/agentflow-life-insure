@@ -7,7 +7,7 @@ export const activitiesSupabaseApi = {
     async getByContact(contactId: string): Promise<ContactActivity[]> {
         const { data, error } = await (supabase as any)
             .from("contact_activities")
-            .select("*, agent:profiles(first_name, last_name)")
+            .select("*")
             .eq("contact_id", contactId)
             .order("created_at", { ascending: false });
 
@@ -34,7 +34,7 @@ export const activitiesSupabaseApi = {
                 agent_id: data.agentId || null,
                 metadata: data.metadata || null,
             })
-            .select("*, agent:profiles(first_name, last_name)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);

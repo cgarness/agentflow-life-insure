@@ -6,7 +6,7 @@ export const notesSupabaseApi = {
     async getByContact(contactId: string): Promise<ContactNote[]> {
         const { data, error } = await (supabase as any)
             .from("contact_notes")
-            .select("*, author:profiles(first_name, last_name)")
+            .select("*")
             .eq("contact_id", contactId)
             .order("created_at", { ascending: false });
 
@@ -24,7 +24,7 @@ export const notesSupabaseApi = {
                 content: note,
                 author_id: agentId,
             })
-            .select("*, author:profiles(first_name, last_name)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);
