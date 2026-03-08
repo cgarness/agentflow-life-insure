@@ -255,6 +255,15 @@ const DialerPage: React.FC = () => {
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
 
+  /* ── Local Presence caller ID ── */
+  const currentCallerId = useMemo<CallerIdResult>(() => {
+    const phone = quickDialMode ? quickDialNumber : currentLead?.phone ?? "";
+    if (!phoneCache || !phone) return { callerNumber: "", matchType: "none", matchedAreaCode: null };
+    return pickCallerId(phone, phoneCache);
+  }, [currentLead?.phone, quickDialNumber, quickDialMode, phoneCache]);
+
+  const callerNumber = currentCallerId.callerNumber || "+10000000000";
+
   const filteredLeads = useMemo(() => {
     return leads.map((l) => {
       const hour = getLeadLocalHour(l.state);
