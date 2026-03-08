@@ -575,10 +575,10 @@ const Contacts: React.FC = () => {
     setLoading(true);
     try {
       const [leadData, clientData, recruitData, stats] = await Promise.all([
-        leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }),
-        clientsSupabaseApi.getAll(searchQuery),
-        recruitsSupabaseApi.getAll(searchQuery),
-        leadsSupabaseApi.getSourceStats(),
+        leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }).catch(e => { console.error("Error fetching leads:", e); return []; }),
+        clientsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching clients:", e); return []; }),
+        recruitsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching recruits:", e); return []; }),
+        leadsSupabaseApi.getSourceStats().catch(e => { console.error("Error fetching lead stats:", e); return []; }),
       ]);
       setLeads(leadData);
       setClients(clientData);

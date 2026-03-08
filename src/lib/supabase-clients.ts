@@ -78,7 +78,7 @@ function rowToClient(row: any): Client {
         carrier: row.carrier || "Unknown",
         policyNumber: row.policy_number || "",
         faceAmount: "$0", // Not in schema, mocked
-        premiumAmount: row.premium ? `$${row.premium.toFixed(2)}` : "$0",
+        premiumAmount: row.premium ? `$${Number(row.premium).toFixed(2)}` : "$0",
         issueDate: row.created_at, // Mocking issueDate with created_at for now
         effectiveDate: row.created_at,
         beneficiaryName: row.beneficiary_name || "",
