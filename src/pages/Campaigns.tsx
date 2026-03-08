@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Search, Plus, Megaphone, X, Loader2, Users, Tag,
+  Search, Plus, Megaphone, X, Loader2, Users, Tag, Copy,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -331,6 +331,132 @@ const LeadHealthBar: React.FC<{ total: number; contacted: number; converted: num
   );
 };
 
+// ---- Duplicate Campaign Modal ----
+const DuplicateCampaignModal: React.FC<{
+  campaign: Campaign | null;
+  onClose: () => void;
+  onDuplicated: () => void;
+}> = ({ campaign, onClose, onDuplicated }) => {
+  const { user } = useAuth();
+  const [copyLeads, setCopyLeads] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (campaign) {
+      setNewName(`${campaign.name} (Copy)`);
+      setCopyLeads(false);
+      setSaving(false);
+    }
+  }, [campaign]);
+
+  const handleDuplicate = async () => {
+    if (!campaign || !newName.trim()) return;
+    setSaving(true);
+
+    // 1. Clone campaign
+    const { data: newCampaign, error } = await supabase.from("campaigns").insert({
+      name: newName.trim(),
+      type: campaign.type,
+      description: campaign.description,
+      assigned_agent_ids: campaign.assigned_agent_ids,
+      tags: campaign.tags,
+      status: "Draft",
+      total_leads: copyLeads ? campaign.total_leads : 0,
+      leads_contacted: 0,
+      leads_converted: 0,
+      created_by: user?.id || null,
+    } as any).select("id").single(); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    if (error || !newCampaign) {
+      toast.error("Failed to duplicate campaign", { duration: 3000, position: "bottom-right" });
+      setSaving(false);
+      return;
+    }
+
+    // 2. Optionally copy leads
+    if (copyLeads) {
+      const { data: leads } = await supabase
+        .from("campaign_leads")
+        .select("first_name, last_name, phone, email, age, state, source, lead_id, sort_order")
+        .eq("campaign_id", campaign.id)
+        .order("sort_order", { ascending: true });
+
+      if (leads && leads.length > 0) {
+        const cloned = leads.map((l: any, idx: number) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+          campaign_id: newCampaign.id,
+          first_name: l.first_name,
+          last_name: l.last_name,
+          phone: l.phone,
+          email: l.email,
+          age: l.age,
+          state: l.state,
+          source: l.source,
+          lead_id: l.lead_id,
+          sort_order: l.sort_order ?? idx,
+          status: "Queued",
+        }));
+
+        // Insert in batches of 500
+        for (let i = 0; i < cloned.length; i += 500) {
+          await supabase.from("campaign_leads").insert(cloned.slice(i, i + 500) as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+        }
+      }
+    }
+
+    setSaving(false);
+    toast.success("Campaign duplicated successfully", { duration: 3000, position: "bottom-right" });
+    onDuplicated();
+    onClose();
+  };
+
+  if (!campaign) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Duplicate Campaign</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">New Campaign Name</label>
+          <input
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
+          />
+        </div>
+
+        <label className="flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/30 cursor-pointer transition-colors">
+          <input
+            type="checkbox"
+            checked={copyLeads}
+            onChange={e => setCopyLeads(e.target.checked)}
+            className="accent-[hsl(var(--primary))]"
+          />
+          <div>
+            <span className="text-sm font-medium text-foreground">Copy lead list</span>
+            <p className="text-xs text-muted-foreground">
+              Clone all {campaign.total_leads} leads into the new campaign (statuses reset to Queued)
+            </p>
+          </div>
+        </label>
+
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent transition-colors">Cancel</button>
+          <button onClick={handleDuplicate} disabled={saving || !newName.trim()} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            Duplicate
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ---- Main Campaigns Page ----
 const Campaigns: React.FC = () => {
   const navigate = useNavigate();
@@ -340,6 +466,7 @@ const Campaigns: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<Campaign | null>(null);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
 
@@ -484,12 +611,27 @@ const Campaigns: React.FC = () => {
               <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />
               <div className="flex items-center justify-between mt-3">
                 <span className="text-xs text-muted-foreground">{relativeTime(c.created_at)}</span>
-                <button
-                  onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}`); }}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
-                >
-                  View Campaign
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={e => { e.stopPropagation(); setDuplicateTarget(c); }}
+                          className="text-xs p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent><p className="text-xs">Duplicate campaign</p></TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <button
+                    onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}`); }}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
+                  >
+                    View Campaign
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -497,6 +639,7 @@ const Campaigns: React.FC = () => {
       )}
 
       <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={fetchCampaigns} agents={agents} agentsLoading={agentsLoading} />
+      <DuplicateCampaignModal campaign={duplicateTarget} onClose={() => setDuplicateTarget(null)} onDuplicated={fetchCampaigns} />
     </div>
   );
 };
