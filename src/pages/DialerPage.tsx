@@ -307,11 +307,13 @@ const DialerPage: React.FC = () => {
     return () => { if (client) try { client.disconnect(); } catch {} };
   }, []);
 
-  /* ── Fetch caller number ── */
-  useEffect(() => {
-    supabase.from("phone_numbers").select("phone_number").eq("status", "active").limit(1).maybeSingle()
-      .then(({ data }) => { if (data?.phone_number) setCallerNumber(data.phone_number); });
+  /* ── Load phone numbers cache ── */
+  const refreshPhoneCache = useCallback(async () => {
+    const cache = await loadPhoneNumbers();
+    setPhoneCache(cache);
   }, []);
+
+  useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
 
   /* ── Fetch campaigns ── */
   useEffect(() => {
