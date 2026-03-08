@@ -1126,14 +1126,39 @@ const DialerPage: React.FC = () => {
                 {/* Call controls */}
                 {callStatus === "idle" && (
                   <div className="space-y-3">
-                    <button onClick={handleCall}
-                      className="w-full bg-green-600 text-white rounded-xl py-4 text-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-3">
-                      <Phone className="w-6 h-6" /> Call
-                    </button>
-                    <button onClick={handleSkipLead}
-                      className="w-full border border-border text-muted-foreground rounded-xl py-2.5 text-sm font-medium hover:bg-accent transition-colors flex items-center justify-center gap-2">
-                      <SkipForward className="w-4 h-4" /> Skip
-                    </button>
+                    {/* DNC Warning Banner */}
+                    {dncWarning && (
+                      <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-destructive">
+                          <AlertTriangle className="w-5 h-5 shrink-0" />
+                          <p className="text-sm font-semibold">This number is on the Do Not Call list</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Calling this number may violate DNC regulations. Proceed with caution.</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setDncWarning(false); handleSkipLead(); }}
+                            className="flex-1 border border-border text-foreground rounded-lg py-2 text-sm font-medium hover:bg-accent transition-colors">
+                            Cancel Call
+                          </button>
+                          <button onClick={() => handleCall(true)}
+                            className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-2 text-sm font-medium hover:bg-destructive/90 transition-colors">
+                            Proceed Anyway
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {!dncWarning && (
+                      <>
+                        <button onClick={() => handleCall()}
+                          disabled={dncChecking}
+                          className="w-full bg-green-600 text-white rounded-xl py-4 text-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-3 disabled:opacity-50">
+                          {dncChecking ? <><Loader2 className="w-5 h-5 animate-spin" /> Checking...</> : <><Phone className="w-6 h-6" /> Call</>}
+                        </button>
+                        <button onClick={handleSkipLead}
+                          className="w-full border border-border text-muted-foreground rounded-xl py-2.5 text-sm font-medium hover:bg-accent transition-colors flex items-center justify-center gap-2">
+                          <SkipForward className="w-4 h-4" /> Skip
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
