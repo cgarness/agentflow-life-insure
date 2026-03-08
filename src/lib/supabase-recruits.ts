@@ -19,7 +19,7 @@ export const recruitsSupabaseApi = {
     },
 
     async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">): Promise<Recruit> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("recruits")
             .insert({
                 first_name: data.firstName,
