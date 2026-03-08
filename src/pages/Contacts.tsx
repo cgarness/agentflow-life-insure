@@ -11,6 +11,7 @@ import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
+import { supabase } from "@/integrations/supabase/client";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
@@ -590,6 +591,28 @@ const Contacts: React.FC = () => {
   }, [searchQuery, statusFilter, sourceFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Fetch import history from Supabase
+  const fetchImportHistory = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("import_history")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (!error && data) {
+      setImportHistory(data.map((row: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+        id: row.id,
+        fileName: row.file_name,
+        date: row.created_at,
+        totalRecords: row.total_records,
+        imported: row.imported,
+        duplicates: row.duplicates,
+        errors: row.errors,
+        importedLeadIds: (row.imported_lead_ids as string[]) || [],
+      })));
+    }
+  }, []);
+
+  useEffect(() => { fetchImportHistory(); }, [fetchImportHistory]);
 
   // Reset selection and sort on tab change
   useEffect(() => {
@@ -1306,42 +1329,59 @@ const Contacts: React.FC = () => {
           {importHistoryOpen && (
             <div className="px-4 pb-4">
               {importHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Upload your first CSV to get started.</p>
+                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Use the Import CSV button above to get started.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-muted-foreground">
-                        <th className="text-left py-2 font-medium">Date</th>
                         <th className="text-left py-2 font-medium">File Name</th>
                         <th className="text-right py-2 font-medium">Total</th>
                         <th className="text-right py-2 font-medium">Imported</th>
                         <th className="text-right py-2 font-medium">Duplicates</th>
                         <th className="text-right py-2 font-medium">Errors</th>
+                        <th className="text-left py-2 font-medium pl-4">When</th>
                         <th className="text-right py-2 font-medium">Undo</th>
                       </tr>
                     </thead>
                     <tbody>
                       {importHistory.map(h => {
-                        const hoursSince = (Date.now() - new Date(h.date).getTime()) / (1000 * 60 * 60);
+                        const msSince = Date.now() - new Date(h.date).getTime();
+                        const hoursSince = msSince / (1000 * 60 * 60);
                         const canUndo = hoursSince < 24;
+                        // Relative time
+                        const minsSince = Math.floor(msSince / 60000);
+                        let relativeTime: string;
+                        if (minsSince < 1) relativeTime = "just now";
+                        else if (minsSince < 60) relativeTime = `${minsSince} minute${minsSince > 1 ? "s" : ""} ago`;
+                        else if (hoursSince < 24) relativeTime = `${Math.floor(hoursSince)} hour${Math.floor(hoursSince) > 1 ? "s" : ""} ago`;
+                        else { const days = Math.floor(hoursSince / 24); relativeTime = `${days} day${days > 1 ? "s" : ""} ago`; }
+
                         return (
                           <tr key={h.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors duration-150">
-                            <td className="py-2 text-foreground">{new Date(h.date).toLocaleDateString()} {new Date(h.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
                             <td className="py-2 text-foreground">{h.fileName}</td>
                             <td className="py-2 text-right text-foreground">{h.totalRecords}</td>
-                            <td className="py-2 text-right text-green-500">{h.imported}</td>
-                            <td className="py-2 text-right text-yellow-500">{h.duplicates}</td>
+                            <td className="py-2 text-right text-success">{h.imported}</td>
+                            <td className="py-2 text-right text-warning">{h.duplicates}</td>
                             <td className="py-2 text-right text-destructive">{h.errors}</td>
+                            <td className="py-2 text-left pl-4 text-muted-foreground">{relativeTime}</td>
                             <td className="py-2 text-right">
-                              <button
-                                disabled={!canUndo}
-                                onClick={() => setUndoConfirm(h)}
-                                className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
-                                title={canUndo ? "Undo this import" : "Can only undo within 24 hours"}
-                              >
-                                <Undo2 className="w-4 h-4" />
-                              </button>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      disabled={!canUndo}
+                                      onClick={() => setUndoConfirm(h)}
+                                      className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
+                                    >
+                                      <Undo2 className="w-4 h-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             </td>
                           </tr>
                         );
@@ -1380,8 +1420,18 @@ const Contacts: React.FC = () => {
         existingLeads={leads}
         campaigns={mockCampaigns.map(c => ({ id: c.id, name: c.name, type: c.type, status: c.status }))}
         onImportComplete={async (newLeads, historyEntry) => {
-          await importLeadsToSupabase(newLeads);
-          setImportHistory(prev => [historyEntry, ...prev]);
+          const result = await importLeadsToSupabase(newLeads);
+          // Insert import history row into Supabase
+          await supabase.from("import_history").insert({
+            file_name: historyEntry.fileName,
+            total_records: historyEntry.totalRecords,
+            imported: result.imported,
+            duplicates: historyEntry.duplicates + result.duplicates,
+            errors: historyEntry.errors + result.errors,
+            agent_id: user?.id || null,
+            imported_lead_ids: result.importedLeadIds,
+          });
+          await fetchImportHistory();
           fetchData();
         }}
       />
@@ -1391,14 +1441,26 @@ const Contacts: React.FC = () => {
         <DeleteConfirmModal
           open={true}
           count={undoConfirm.imported}
-          title={`Remove ${undoConfirm.imported} leads imported from ${undoConfirm.fileName}?`}
+          title={`This will delete all ${undoConfirm.imported} leads that were imported from this file. This cannot be undone.`}
           onConfirm={async () => {
-            for (const id of undoConfirm.importedLeadIds) {
-              await leadsSupabaseApi.delete(id);
+            // Delete leads whose IDs are in importedLeadIds
+            if (undoConfirm.importedLeadIds.length > 0) {
+              const { error: leadsError } = await supabase
+                .from("leads")
+                .delete()
+                .in("id", undoConfirm.importedLeadIds);
+              if (leadsError) {
+                console.error("Error deleting imported leads:", leadsError);
+                toast.error("Failed to undo import", { duration: 3000, position: "bottom-right" });
+                setUndoConfirm(null);
+                return;
+              }
             }
-            setImportHistory(prev => prev.filter(h => h.id !== undoConfirm.id));
-            toast.success(`${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
+            // Delete the import_history row
+            await supabase.from("import_history").delete().eq("id", undoConfirm.id);
+            toast.success(`Import undone — ${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
             setUndoConfirm(null);
+            await fetchImportHistory();
             fetchData();
           }}
           onClose={() => setUndoConfirm(null)}

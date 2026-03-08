@@ -503,6 +503,42 @@ export type Database = {
         }
         Relationships: []
       }
+      import_history: {
+        Row: {
+          agent_id: string | null
+          created_at: string | null
+          duplicates: number
+          errors: number
+          file_name: string
+          id: string
+          imported: number
+          imported_lead_ids: Json | null
+          total_records: number
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string | null
+          duplicates?: number
+          errors?: number
+          file_name?: string
+          id?: string
+          imported?: number
+          imported_lead_ids?: Json | null
+          total_records?: number
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string | null
+          duplicates?: number
+          errors?: number
+          file_name?: string
+          id?: string
+          imported?: number
+          imported_lead_ids?: Json | null
+          total_records?: number
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           age: number | null
