@@ -297,7 +297,7 @@ const FloatingDialer: React.FC = () => {
 
   const handleHangUp = useCallback(() => {
     if (callRef.current) {
-      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
+      try { (callRef.current as any).hangup(); } catch {} // eslint-disable-line no-empty
       callRef.current = null;
     }
     setOnCall(false);

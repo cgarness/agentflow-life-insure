@@ -425,7 +425,7 @@ const UserProfileModal: React.FC<{
 
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
-  const [performance, setPerformance] = useState<Record<string, unknown>>(null);
+  const [performance, setPerformance] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [perfLoading, setPerfLoading] = useState(false);
   const [resetPwOpen, setResetPwOpen] = useState(false);
 
