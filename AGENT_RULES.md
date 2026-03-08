@@ -186,8 +186,8 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 1. ✅ User Management — COMPLETE
 2. ✅ Dispositions Manager — COMPLETE
 3. ✅ Company Branding — COMPLETE
-4. 🔄 Telnyx & Phone Numbers — IN PROGRESS
-5. ⬜ DNC List Manager
+4. ✅ Telnyx & Phone Numbers — COMPLETE
+5. ✅ DNC List Manager — COMPLETE
 6. ⬜ Remaining settings sections
 7. ⬜ Main pages tab by tab
 8. ⬜ Connect Supabase (ongoing as each section needs it)
