@@ -1357,7 +1357,207 @@ const DialerPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Call Script */}
+                {/* ── Conversation History Feed ── */}
+                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && currentLead && (
+                  <div className="border border-border rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-accent/50 border-b border-border">
+                      <h3 className="text-sm font-medium text-foreground mb-2">Conversation History</h3>
+                      <div className="flex gap-1 flex-wrap">
+                        {(["all", "calls", "notes", "appointments", "activity"] as const).map((f) => (
+                          <button
+                            key={f}
+                            onClick={() => setFeedFilter(f)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors capitalize",
+                              feedFilter === f
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-muted-foreground hover:bg-muted/80"
+                            )}
+                          >
+                            {f}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="max-h-[400px] overflow-y-auto p-3 space-y-2 bg-muted/10">
+                      {historyLoading ? (
+                        <div className="space-y-2">
+                          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                        </div>
+                      ) : filteredFeed.length === 0 ? (
+                        <div className="text-center py-8">
+                          <MessageSquare className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">No conversation history yet.</p>
+                          <p className="text-xs text-muted-foreground">This will be the first touchpoint.</p>
+                        </div>
+                      ) : (
+                        <>
+                          {filteredFeed.map((item) => {
+                            const expanded = expandedFeedItems.has(item.id);
+                            const borderColors: Record<FeedItemType, string> = {
+                              call: "border-l-green-500",
+                              note: "border-l-blue-500",
+                              appointment: "border-l-purple-500",
+                              activity: "border-l-muted-foreground/50",
+                              sms: "border-l-green-500",
+                              email: "border-l-blue-500",
+                            };
+                            return (
+                              <div
+                                key={item.id}
+                                className={cn(
+                                  "bg-card rounded-lg p-3 border-l-[3px] text-xs",
+                                  borderColors[item.type] || "border-l-muted"
+                                )}
+                              >
+                                {item.type === "call" && (() => {
+                                  const c = item.data as CallRecord;
+                                  const connected = (c.duration ?? 0) > 0;
+                                  const dispColor = getDispColor(c.disposition_name);
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        {connected
+                                          ? <Phone className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                                          : <PhoneMissed className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                        }
+                                        <span className="font-medium text-foreground">
+                                          Call — {connected ? fmtTime(c.duration!) : "No Answer"}
+                                        </span>
+                                        {c.disposition_name && (
+                                          <span
+                                            className="px-1.5 py-0.5 rounded-full text-[10px] font-medium ml-auto"
+                                            style={{
+                                              backgroundColor: dispColor ? `${dispColor}20` : undefined,
+                                              color: dispColor || undefined,
+                                            }}
+                                          >
+                                            {c.disposition_name}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {getAgentFirstName(c.agent_id) && (
+                                        <p className="text-muted-foreground ml-5">{getAgentFirstName(c.agent_id)}</p>
+                                      )}
+                                      {c.notes && (
+                                        <p
+                                          className={cn("text-muted-foreground ml-5 cursor-pointer", !expanded && "line-clamp-2")}
+                                          onClick={() => toggleFeedExpand(item.id)}
+                                        >
+                                          {c.notes}
+                                        </p>
+                                      )}
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "note" && (() => {
+                                  const n = item.data as ContactNote;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Pencil className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                        {n.pinned && (
+                                          <span className="flex items-center gap-0.5 text-primary text-[10px] font-medium">
+                                            <Pin className="w-3 h-3" /> Pinned
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p
+                                        className={cn("text-foreground ml-5 cursor-pointer", !expanded && "line-clamp-3")}
+                                        onClick={() => toggleFeedExpand(item.id)}
+                                      >
+                                        {n.content}
+                                      </p>
+                                      {getAgentFirstName((n as any).author_id) && (
+                                        <p className="text-muted-foreground ml-5">{getAgentFirstName((n as any).author_id)}</p>
+                                      )}
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "appointment" && (() => {
+                                  const a = item.data as AppointmentRecord;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <CalendarDays className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                        <span className="font-medium text-foreground">
+                                          {a.type} — {a.status}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground ml-5">
+                                        {format(new Date(a.start_time), "MMM d, yyyy h:mm a")}
+                                      </p>
+                                      {getAgentFirstName(a.created_by) && (
+                                        <p className="text-muted-foreground ml-5">{getAgentFirstName(a.created_by)}</p>
+                                      )}
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "activity" && (() => {
+                                  const a = item.data as ActivityRecord;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                        <span className="text-foreground">{a.description}</span>
+                                        <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
+                                          {a.activity_type}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "sms" && (() => {
+                                  const a = item.data as ActivityRecord;
+                                  const direction = a.metadata?.direction || "sent";
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <MessageCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                                        <span className="text-foreground flex-1">{a.description}</span>
+                                        <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full capitalize">
+                                          {direction}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "email" && (() => {
+                                  const a = item.data as ActivityRecord;
+                                  const direction = a.metadata?.direction || "sent";
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <MailIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                        <span className="text-foreground flex-1">{a.description}</span>
+                                        <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full capitalize">
+                                          {direction}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            );
+                          })}
+                          <div ref={feedEndRef} />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && (
                   <div className="border border-border rounded-xl overflow-hidden">
                     <button onClick={() => setScriptCollapsed(!scriptCollapsed)}
