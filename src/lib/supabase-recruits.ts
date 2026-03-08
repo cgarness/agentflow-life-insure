@@ -3,7 +3,7 @@ import { Recruit } from "@/lib/types";
 
 export const recruitsSupabaseApi = {
     async getAll(search?: string): Promise<Recruit[]> {
-        let query = supabase
+        let query = (supabase as any)
             .from("recruits")
             .select("*")
             .order("created_at", { ascending: false });
@@ -19,7 +19,7 @@ export const recruitsSupabaseApi = {
     },
 
     async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">): Promise<Recruit> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("recruits")
             .insert({
                 first_name: data.firstName,
@@ -47,7 +47,7 @@ export const recruitsSupabaseApi = {
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
         updateData.updated_at = new Date().toISOString();
 
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("recruits")
             .update(updateData)
             .eq("id", id)
@@ -58,7 +58,7 @@ export const recruitsSupabaseApi = {
     },
 
     async delete(id: string): Promise<void> {
-        const { error } = await supabase.from("recruits").delete().eq("id", id);
+        const { error } = await (supabase as any).from("recruits").delete().eq("id", id);
         if (error) throw new Error(error.message);
     },
 };

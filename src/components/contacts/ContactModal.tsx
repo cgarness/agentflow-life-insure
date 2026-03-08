@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { Lead, LeadStatus, ContactNote, ContactActivity, Call } from "@/lib/types";
-import { mockUsers, mockCalls, calcAging, getAgentName } from "@/lib/mock-data";
+import { mockUsers, mockCalls, mockActivities, mockNotes, calcAging, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";

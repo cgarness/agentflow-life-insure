@@ -3,7 +3,7 @@ import { Client, PolicyType } from "@/lib/types";
 
 export const clientsSupabaseApi = {
     async getAll(search?: string): Promise<Client[]> {
-        let query = supabase
+        let query = (supabase as any)
             .from("clients")
             .select("*")
             .order("created_at", { ascending: false });
@@ -19,7 +19,7 @@ export const clientsSupabaseApi = {
     },
 
     async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">): Promise<Client> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("clients")
             .insert(clientToRow(data))
             .select()
@@ -50,7 +50,7 @@ export const clientsSupabaseApi = {
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
         updateData.updated_at = new Date().toISOString();
 
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("clients")
             .update(updateData)
             .eq("id", id)
@@ -61,7 +61,7 @@ export const clientsSupabaseApi = {
     },
 
     async delete(id: string): Promise<void> {
-        const { error } = await supabase.from("clients").delete().eq("id", id);
+        const { error } = await (supabase as any).from("clients").delete().eq("id", id);
         if (error) throw new Error(error.message);
     },
 };

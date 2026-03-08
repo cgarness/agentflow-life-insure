@@ -56,7 +56,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
     if (!agent) return null;
     const profile: UserProfile | undefined = mockProfiles.find(p => p.userId === agent.id);
 
-    const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
+    const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
 
     const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1"); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 

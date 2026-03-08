@@ -4,7 +4,7 @@ import { ContactNote, ContactType } from "@/lib/types";
 export const notesSupabaseApi = {
     // Get all notes for a specific contact
     async getByContact(contactId: string): Promise<ContactNote[]> {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
             .from("contact_notes")
             .select("*, author:profiles(first_name, last_name)")
             .eq("contact_id", contactId)
@@ -16,7 +16,7 @@ export const notesSupabaseApi = {
 
     // Add a new note
     async add(contactId: string, contactType: string, note: string, agentId: string): Promise<ContactNote> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("contact_notes")
             .insert({
                 contact_id: contactId,
