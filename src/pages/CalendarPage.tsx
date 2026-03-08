@@ -30,6 +30,8 @@ const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Compl
 
 type AppointmentSyncMeta = {
   externalEventId: string | null;
+  syncSource: string;
+  externalProvider: string | null;
 };
 
 const timeStringToDate = (baseDate: Date, time: string) => {
