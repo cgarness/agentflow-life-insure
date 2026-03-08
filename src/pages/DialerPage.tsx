@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import {
   Phone, PhoneOff, Mic, MicOff, Pause, Voicemail,
   Clock, SkipForward, Search, ChevronLeft, Loader2,
-  ArrowRight, AlertTriangle, X, Hash, Delete,
+  ArrowRight, AlertTriangle, X, Hash, Delete, Lock,
   Zap, User, Mail, MapPin, ExternalLink, FileText,
   MessageSquare, CalendarPlus, CheckCircle, Pin,
   PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
