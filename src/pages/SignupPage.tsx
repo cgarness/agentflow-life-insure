@@ -67,6 +67,7 @@ const SignupPage: React.FC = () => {
         @keyframes shimmer { from { background-position:0% 50%; } to { background-position:100% 50%; } }
         @keyframes underlineGrow { from { width:0; } to { width:72%; } }
         @keyframes badgePulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.45; transform:scale(0.75); } }
+        @keyframes accessGrantedFade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
         .signup-input:focus { border-color: #3B82F6 !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important; }
       `}</style>
       <AnimatedBackground />
@@ -87,6 +88,15 @@ const SignupPage: React.FC = () => {
 
           {success ? (
             <div style={{ textAlign: 'center' }}>
+              <div style={{
+                marginBottom: '20px', padding: '14px 18px', borderRadius: '10px',
+                border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)',
+                color: '#22C55E', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em',
+                boxShadow: '0 0 20px rgba(34,197,94,0.2)',
+                animation: 'accessGrantedFade 0.4s ease-out forwards',
+              }}>
+                ✓ ACCOUNT CREATED
+              </div>
               <CheckCircle2 size={48} color="#22C55E" style={{ margin: '0 auto 16px' }} />
               <h2 style={{ color: '#F1F5F9', fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Check Your Email</h2>
               <p style={{ color: '#94A3B8', fontSize: 13, marginBottom: 16 }}>
