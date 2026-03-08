@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
-  Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Clock, Zap,
-  Check, RotateCcw, ShieldAlert, Trophy, Crown, Medal,
+  Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Mail,
+  MessageSquare, Tag, UserPlus,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { STATE_TIMEZONES } from "@/utils/contactLocalTime";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Campaign {
   id: string;
@@ -18,14 +18,10 @@ interface Campaign {
   status: string;
   description: string;
   assigned_agent_ids: string[];
-  dial_mode: string;
+  tags: string[];
   total_leads: number;
   leads_contacted: number;
   leads_converted: number;
-  calling_hours_start: string;
-  calling_hours_end: string;
-  max_retries: number;
-  retry_interval: number;
   created_by: string | null;
   created_at: string;
 }
@@ -111,21 +107,6 @@ function getAgentDisplayName(a: AgentProfile): string {
   return full || a.email || "Unknown";
 }
 
-function getLeadCallableStatus(state: string, callingStart: string, callingEnd: string): "available" | "outside" | "nostate" {
-  if (!state) return "nostate";
-  const tz = STATE_TIMEZONES[state.toUpperCase()];
-  if (!tz) return "nostate";
-  const now = new Date();
-  const hourStr = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "numeric", hour12: false }).format(now);
-  const parts = hourStr.split(":");
-  const currentMinutes = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-  const startParts = callingStart.split(":");
-  const startMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
-  const endParts = callingEnd.split(":");
-  const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
-  return currentMinutes >= startMinutes && currentMinutes < endMinutes ? "available" : "outside";
-}
-
 // ---- CSV helpers ----
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
@@ -165,6 +146,41 @@ function autoMapHeaders(headers: string[]): Record<number, string> {
   });
   return map;
 }
+
+// ---- Tag Input Component ----
+const TagInput: React.FC<{
+  tags: string[];
+  onChange: (tags: string[]) => void;
+  max?: number;
+}> = ({ tags, onChange, max = 10 }) => {
+  const [input, setInput] = useState("");
+  const addTag = (val: string) => {
+    const tag = val.trim();
+    if (!tag || tags.includes(tag) || tags.length >= max) return;
+    onChange([...tags, tag]);
+    setInput("");
+  };
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(input); }
+  };
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {tags.map(tag => (
+          <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs text-foreground">
+            {tag}
+            <button onClick={() => onChange(tags.filter(t => t !== tag))} className="text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
+          </span>
+        ))}
+      </div>
+      {tags.length < max && (
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} onBlur={() => { if (input.trim()) addTag(input); }}
+          placeholder="Type a tag and press Enter..." className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+      )}
+      <p className="text-xs text-muted-foreground mt-1">{tags.length}/{max} tags</p>
+    </div>
+  );
+};
 
 // ---- Delete Confirm Dialog ----
 const ConfirmDialog: React.FC<{
@@ -395,236 +411,6 @@ const ImportCSVModal: React.FC<{
   );
 };
 
-// ---- Countdown Hook ----
-function useCountdown(targetDate: string | null, durationSec: number): number {
-  const [remaining, setRemaining] = useState(() => {
-    if (!targetDate) return 0;
-    const elapsed = (Date.now() - new Date(targetDate).getTime()) / 1000;
-    return Math.max(0, Math.ceil(durationSec - elapsed));
-  });
-  useEffect(() => {
-    if (!targetDate) { setRemaining(0); return; }
-    const update = () => {
-      const elapsed = (Date.now() - new Date(targetDate).getTime()) / 1000;
-      setRemaining(Math.max(0, Math.ceil(durationSec - elapsed)));
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [targetDate, durationSec]);
-  return remaining;
-}
-
-// ---- SharkTank Leaderboard ----
-const SharkTankLeaderboard: React.FC<{
-  leads: CampaignLead[];
-  agents: AgentProfile[];
-}> = ({ leads, agents }) => {
-  const todayLeaderboard = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayISO = todayStart.toISOString();
-
-    const claimedToday = leads.filter(
-      l => l.status === "Claimed" && l.claimed_by && l.claimed_at && l.claimed_at >= todayISO
-    );
-
-    const counts: Record<string, number> = {};
-    claimedToday.forEach(l => {
-      counts[l.claimed_by!] = (counts[l.claimed_by!] || 0) + 1;
-    });
-
-    return Object.entries(counts)
-      .map(([agentId, count]) => {
-        const agent = agents.find(a => a.id === agentId);
-        return { agentId, name: agent ? getAgentDisplayName(agent) : "Unknown", count };
-      })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-  }, [leads, agents]);
-
-  const rankIcons = [
-    <Crown key="1" className="w-4 h-4 text-warning" />,
-    <Medal key="2" className="w-4 h-4 text-muted-foreground" />,
-    <Medal key="3" className="w-4 h-4 text-orange-400" />,
-  ];
-
-  return (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Trophy className="w-4 h-4 text-warning" />
-        <h3 className="text-sm font-bold text-foreground">Today's Leaderboard</h3>
-      </div>
-      {todayLeaderboard.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-2">No claims yet today — be the first!</p>
-      ) : (
-        <div className="space-y-2">
-          {todayLeaderboard.map((entry, i) => (
-            <div
-              key={entry.agentId}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
-                i === 0 ? "bg-warning/10" : "bg-accent/30"
-              }`}
-            >
-              <span className="w-6 flex items-center justify-center">
-                {i < 3 ? rankIcons[i] : <span className="text-xs font-bold text-muted-foreground">{i + 1}</span>}
-              </span>
-              <span className={`flex-1 text-sm truncate ${i === 0 ? "font-bold text-foreground" : "text-foreground"}`}>
-                {entry.name}
-              </span>
-              <span className={`text-sm font-bold ${i === 0 ? "text-warning" : "text-muted-foreground"}`}>
-                {entry.count} {entry.count === 1 ? "claim" : "claims"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ---- SharkTank Lead Card ----
-const SharkTankCard: React.FC<{
-  lead: CampaignLead;
-  currentUserId: string;
-  agents: AgentProfile[];
-  onClaim: (leadId: string) => void;
-  onConfirm: (leadId: string) => void;
-  onRelease: (leadId: string) => void;
-  claiming: string | null;
-}> = ({ lead, currentUserId, agents, onClaim, onConfirm, onRelease, claiming }) => {
-  const countdown = useCountdown(lead.locked_at, 30);
-  const isLockedByMe = lead.status === "Locked" && lead.locked_by === currentUserId;
-  const isLockedByOther = lead.status === "Locked" && lead.locked_by !== currentUserId;
-  const isClaimed = lead.status === "Claimed";
-  const isQueued = lead.status === "Queued";
-
-  const lockerName = useMemo(() => {
-    if (!lead.locked_by) return "Unknown";
-    const a = agents.find(ag => ag.id === lead.locked_by);
-    return a ? getAgentDisplayName(a) : "Another agent";
-  }, [lead.locked_by, agents]);
-
-  const claimerName = useMemo(() => {
-    if (!lead.claimed_by) return "Unknown";
-    const a = agents.find(ag => ag.id === lead.claimed_by);
-    return a ? getAgentDisplayName(a) : "Another agent";
-  }, [lead.claimed_by, agents]);
-
-  return (
-    <div className={`bg-card border rounded-xl p-4 space-y-3 transition-all ${
-      isQueued ? "border-border hover:border-primary/50 hover:shadow-md animate-pulse-subtle" :
-      isLockedByMe ? "border-primary shadow-md" :
-      isLockedByOther ? "border-warning/50 opacity-75" :
-      isClaimed ? "border-success/50 opacity-60" : "border-border"
-    }`}>
-      {/* Name row */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className={`font-semibold ${isLockedByOther ? "text-muted-foreground" : "text-foreground"}`}>
-            {lead.first_name} {lead.last_name}
-          </p>
-          {lead.state && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground mt-1 inline-block">{lead.state}</span>
-          )}
-        </div>
-        {/* Status badges */}
-        {isLockedByOther && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning font-medium whitespace-nowrap">
-            Locked by {lockerName}
-          </span>
-        )}
-        {isLockedByMe && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-            You locked this lead
-          </span>
-        )}
-        {isClaimed && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success font-medium whitespace-nowrap">
-            Claimed by {claimerName}
-          </span>
-        )}
-      </div>
-
-      {/* Phone */}
-      <div className="flex items-center gap-2 text-sm">
-        <Phone className="w-3.5 h-3.5 text-muted-foreground" />
-        {isLockedByMe || isClaimed ? (
-          <span className="text-foreground">{lead.phone}</span>
-        ) : (
-          <span className="text-muted-foreground flex items-center gap-1">
-            <Lock className="w-3 h-3" /> Phone hidden until claimed
-          </span>
-        )}
-      </div>
-
-      {/* Source */}
-      {lead.source && (
-        <p className="text-xs text-muted-foreground">Source: {lead.source}</p>
-      )}
-
-      {/* Countdown timer for locked leads */}
-      {(isLockedByMe || isLockedByOther) && lead.status === "Locked" && (
-        <div className="flex items-center gap-2">
-          <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${countdown <= 10 ? "bg-destructive" : "bg-warning"}`}
-              style={{ width: `${(countdown / 30) * 100}%` }}
-            />
-          </div>
-          <span className={`text-xs font-mono font-medium ${countdown <= 10 ? "text-destructive" : "text-muted-foreground"}`}>
-            {countdown}s
-          </span>
-        </div>
-      )}
-
-      {/* Actions */}
-      {isQueued && (
-        <button
-          onClick={() => onClaim(lead.id)}
-          disabled={claiming === lead.id}
-          className="w-full h-10 rounded-lg bg-success text-success-foreground text-sm font-bold hover:bg-success/90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          {claiming === lead.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-          Claim Lead
-        </button>
-      )}
-      {isLockedByMe && (
-        <div className="flex gap-2">
-          <button
-            onClick={() => onConfirm(lead.id)}
-            className="flex-1 h-10 rounded-lg bg-success text-success-foreground text-sm font-bold hover:bg-success/90 transition-all flex items-center justify-center gap-2"
-          >
-            <Check className="w-4 h-4" /> Confirm Claim
-          </button>
-          <button
-            onClick={() => onRelease(lead.id)}
-            className="h-10 px-4 rounded-lg border border-border text-muted-foreground text-sm font-medium hover:bg-accent transition-colors flex items-center gap-2"
-          >
-            <RotateCcw className="w-4 h-4" /> Release
-          </button>
-        </div>
-      )}
-      {isLockedByOther && (
-        <button disabled className="w-full h-10 rounded-lg bg-muted text-muted-foreground text-sm font-medium cursor-not-allowed opacity-50">
-          Locked — waiting...
-        </button>
-      )}
-    </div>
-  );
-};
-
-// ---- Celebration overlay ----
-const CelebrationOverlay: React.FC<{ show: boolean }> = ({ show }) => {
-  if (!show) return null;
-  return (
-    <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center">
-      <div className="text-6xl animate-bounce">🎉</div>
-    </div>
-  );
-};
-
 // ---- MAIN COMPONENT ----
 const CampaignDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -644,9 +430,11 @@ const CampaignDetail: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [removeLeadId, setRemoveLeadId] = useState<string | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState<string | null>(null);
-  const [showCelebration, setShowCelebration] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Bulk selection
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkRemoveConfirm, setBulkRemoveConfirm] = useState(false);
 
   // Settings form
   const [settingsForm, setSettingsForm] = useState<Partial<Campaign>>({});
@@ -655,13 +443,12 @@ const CampaignDetail: React.FC = () => {
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
 
   const isAdmin = profile?.role?.toLowerCase() === "admin";
-  const isOpenPool = campaign?.type === "Open Pool";
 
   const fetchCampaign = useCallback(async () => {
     if (!id) return;
     const { data } = await supabase.from("campaigns").select("*").eq("id", id).single();
     if (data) {
-      const c = { ...data, assigned_agent_ids: data.assigned_agent_ids || [] } as Campaign;
+      const c = { ...data, assigned_agent_ids: data.assigned_agent_ids || [], tags: data.tags || [] } as Campaign;
       setCampaign(c);
       setSettingsForm(c);
     }
@@ -673,7 +460,6 @@ const CampaignDetail: React.FC = () => {
     if (!silent) setLeadsLoading(true);
     const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("created_at", { ascending: false });
     setLeads((data as CampaignLead[]) || []);
-    setLastRefresh(Date.now());
     if (!silent) setLeadsLoading(false);
   }, [id]);
 
@@ -686,123 +472,14 @@ const CampaignDetail: React.FC = () => {
 
   useEffect(() => { fetchCampaign(); fetchLeads(); fetchAgents(); }, [fetchCampaign, fetchLeads, fetchAgents]);
 
-  // ---- Open Pool polling: refresh every 5 seconds + clean up expired locks ----
-  useEffect(() => {
-    if (!isOpenPool || tab !== "Leads" || !id) return;
-    const interval = setInterval(async () => {
-      // Clean up expired locks
-      await supabase
-        .from("campaign_leads")
-        .update({ status: "Queued", locked_by: null, locked_at: null } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .eq("campaign_id", id)
-        .eq("status", "Locked")
-        .lt("locked_at", new Date(Date.now() - 30000).toISOString());
-      // Refresh queue
-      fetchLeads(true);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isOpenPool, tab, id, fetchLeads]);
-
   const existingLeadIds = useMemo(() => new Set(leads.map(l => l.lead_id).filter(Boolean) as string[]), [leads]);
 
   const filteredLeads = useMemo(() => {
-    let filtered = leads;
-    if (leadFilter === "Callable Now" && campaign) {
-      filtered = leads.filter(l => getLeadCallableStatus(l.state, campaign.calling_hours_start, campaign.calling_hours_end) === "available");
-    } else if (leadFilter !== "All") {
-      filtered = leads.filter(l => l.status === leadFilter);
+    if (leadFilter !== "All") {
+      return leads.filter(l => l.status === leadFilter);
     }
-    return filtered;
-  }, [leads, leadFilter, campaign]);
-
-  // Open Pool stats
-  const poolStats = useMemo(() => {
-    const available = leads.filter(l => l.status === "Queued").length;
-    const locked = leads.filter(l => l.status === "Locked").length;
-    const claimed = leads.filter(l => l.status === "Claimed").length;
-    return { available, locked, claimed };
-  }, [leads]);
-
-  // ---- Claim flow ----
-  const handleClaimLead = async (leadId: string) => {
-    if (!user) return;
-    setClaiming(leadId);
-    // Conditional update: only if still Queued
-    const { data, error } = await supabase
-      .from("campaign_leads")
-      .update({ status: "Locked", locked_by: user.id, locked_at: new Date().toISOString() } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .eq("id", leadId)
-      .eq("status", "Queued")
-      .select();
-    if (error || !data || data.length === 0) {
-      toast.error("This lead was just claimed by another agent", { duration: 3000, position: "bottom-right" });
-      fetchLeads(true);
-    } else {
-      fetchLeads(true);
-    }
-    setClaiming(null);
-  };
-
-  const handleConfirmClaim = async (leadId: string) => {
-    if (!user || !campaign) return;
-    const lead = leads.find(l => l.id === leadId);
-    if (!lead) return;
-
-    // Update campaign_leads
-    const { error } = await supabase
-      .from("campaign_leads")
-      .update({ status: "Claimed", claimed_by: user.id, claimed_at: new Date().toISOString() } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .eq("id", leadId);
-    if (error) { toast.error("Failed to confirm claim", { duration: 3000, position: "bottom-right" }); return; }
-
-    // Create lead in main leads table
-    await supabase.from("leads").insert({
-      first_name: lead.first_name,
-      last_name: lead.last_name,
-      phone: lead.phone,
-      email: lead.email,
-      state: lead.state,
-      age: lead.age,
-      assigned_agent_id: user.id,
-      lead_source: campaign.name,
-      status: "New",
-    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-
-    // Increment leads_contacted
-    await supabase.from("campaigns").update({
-      leads_contacted: (campaign.leads_contacted || 0) + 1,
-    } as any).eq("id", campaign.id); // eslint-disable-line @typescript-eslint/no-explicit-any
-
-    toast.success("Lead claimed! Added to your contacts.", { duration: 3000, position: "bottom-right" });
-
-    // Celebration
-    setShowCelebration(true);
-    setTimeout(() => setShowCelebration(false), 1500);
-
-    fetchLeads(true);
-    fetchCampaign();
-  };
-
-  const handleReleaseLead = async (leadId: string) => {
-    const { error } = await supabase
-      .from("campaign_leads")
-      .update({ status: "Queued", locked_by: null, locked_at: null } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .eq("id", leadId);
-    if (error) { toast.error("Failed to release lead", { duration: 3000, position: "bottom-right" }); return; }
-    toast.success("Lead released back to the pool", { duration: 3000, position: "bottom-right" });
-    fetchLeads(true);
-  };
-
-  const handleForceRelease = async (leadId: string) => {
-    const { error } = await supabase
-      .from("campaign_leads")
-      .update({ status: "Queued", locked_by: null, locked_at: null } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .eq("id", leadId);
-    if (error) { toast.error("Failed to force release", { duration: 3000, position: "bottom-right" }); return; }
-    toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
-    setActionMenuId(null);
-    fetchLeads(true);
-  };
+    return leads;
+  }, [leads, leadFilter]);
 
   // Status actions
   const updateStatus = async (newStatus: string) => {
@@ -835,6 +512,61 @@ const CampaignDetail: React.FC = () => {
     }
   };
 
+  // Bulk remove
+  const handleBulkRemove = async () => {
+    const ids = Array.from(selectedLeadIds);
+    if (ids.length === 0) return;
+    const { error } = await supabase.from("campaign_leads").delete().in("id", ids);
+    if (error) { toast.error("Failed to remove leads", { duration: 3000, position: "bottom-right" }); return; }
+    toast.success(`${ids.length} leads removed from campaign`, { duration: 3000, position: "bottom-right" });
+    setSelectedLeadIds(new Set());
+    setBulkRemoveConfirm(false);
+    fetchLeads();
+    if (id) {
+      const { count } = await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", id);
+      await supabase.from("campaigns").update({ total_leads: count || 0 } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+      fetchCampaign();
+    }
+  };
+
+  // Bulk assign agent
+  const handleBulkAssign = async (agentId: string) => {
+    const ids = Array.from(selectedLeadIds);
+    if (ids.length === 0) return;
+    const { error } = await supabase.from("campaign_leads").update({ claimed_by: agentId } as any).in("id", ids); // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (error) { toast.error("Failed to assign agent", { duration: 3000, position: "bottom-right" }); return; }
+    const agent = agents.find(a => a.id === agentId);
+    toast.success(`${ids.length} leads assigned to ${agent ? getAgentDisplayName(agent) : "agent"}`, { duration: 3000, position: "bottom-right" });
+    setSelectedLeadIds(new Set());
+    setBulkAssignOpen(false);
+    fetchLeads(true);
+  };
+
+  // Quick call
+  const handleQuickCall = (lead: CampaignLead) => {
+    if (!lead.phone) return;
+    window.dispatchEvent(new CustomEvent("quick-call", {
+      detail: { name: `${lead.first_name} ${lead.last_name}`.trim(), phone: lead.phone, contactId: lead.lead_id || lead.id }
+    }));
+  };
+
+  // Toggle selection
+  const toggleLeadSelection = (id: string) => {
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedLeadIds.size === filteredLeads.length) {
+      setSelectedLeadIds(new Set());
+    } else {
+      setSelectedLeadIds(new Set(filteredLeads.map(l => l.id)));
+    }
+  };
+
   // Settings
   const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const toggleSettingsAgent = (agentId: string) => {
@@ -847,9 +579,10 @@ const CampaignDetail: React.FC = () => {
     if (!id) return;
     setSettingsSaving(true);
     const { error } = await supabase.from("campaigns").update({
-      name: settingsForm.name, description: settingsForm.description, dial_mode: settingsForm.dial_mode,
-      assigned_agent_ids: settingsForm.assigned_agent_ids, calling_hours_start: settingsForm.calling_hours_start,
-      calling_hours_end: settingsForm.calling_hours_end, max_retries: settingsForm.max_retries, retry_interval: settingsForm.retry_interval,
+      name: settingsForm.name,
+      description: settingsForm.description,
+      assigned_agent_ids: settingsForm.assigned_agent_ids,
+      tags: settingsForm.tags,
     } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
     setSettingsSaving(false);
     if (error) { toast.error("Failed to save: " + error.message, { duration: 3000, position: "bottom-right" }); return; }
@@ -863,6 +596,8 @@ const CampaignDetail: React.FC = () => {
     leads.forEach(l => { counts[l.status] = (counts[l.status] || 0) + 1; });
     return counts;
   }, [leads]);
+
+  const callsCount = useMemo(() => leads.filter(l => l.call_attempts > 0).length, [leads]);
 
   if (loading) {
     return (
@@ -884,17 +619,10 @@ const CampaignDetail: React.FC = () => {
   }
 
   const contactRate = campaign.total_leads > 0 ? Math.round((campaign.leads_contacted / campaign.total_leads) * 100) : 0;
-
-  // Separate leads for Open Pool agent view
-  const queueLeads = filteredLeads.filter(l => l.status === "Queued" || l.status === "Locked");
-  const claimedLeads = filteredLeads.filter(l => l.status === "Claimed");
-  const otherLeads = filteredLeads.filter(l => !["Queued", "Locked", "Claimed"].includes(l.status));
-  const secondsAgo = Math.floor((Date.now() - lastRefresh) / 1000);
+  const isOpenPool = campaign.type === "Open Pool";
 
   return (
     <div className="space-y-4">
-      <CelebrationOverlay show={showCelebration} />
-
       {/* Header */}
       <button onClick={() => navigate("/campaigns")} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Campaigns
@@ -941,217 +669,171 @@ const CampaignDetail: React.FC = () => {
       {/* LEADS TAB */}
       {tab === "Leads" && (
         <div className="space-y-4">
-          {/* Top bar — always present */}
+          {/* Top bar */}
           <div className="flex items-center gap-3 flex-wrap">
-            {(isAdmin || !isOpenPool) && (
-              <>
-                <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
-                  <Plus className="w-4 h-4" /> Add Leads
-                </button>
-                <button onClick={() => setImportCSVOpen(true)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
-                  <Upload className="w-4 h-4" /> Import CSV
-                </button>
-              </>
-            )}
+            <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+              <Plus className="w-4 h-4" /> Add Leads
+            </button>
+            <button onClick={() => setImportCSVOpen(true)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
+              <Upload className="w-4 h-4" /> Import CSV
+            </button>
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{leads.length} leads</span>
             <select value={leadFilter} onChange={e => setLeadFilter(e.target.value)} className="h-8 px-2 rounded-lg bg-muted text-sm text-foreground border border-border">
               <option value="All">All</option>
-              <option value="Callable Now">Callable Now</option>
               {["Queued", "Locked", "Claimed", "Called", "Skipped", "Completed", "Failed"].map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
 
-          {/* ======= OPEN POOL: AGENT CARD VIEW ======= */}
-          {isOpenPool && !isAdmin && (
-            <>
-              {/* SharkTank Banner */}
-              <div className="bg-gradient-to-r from-orange-500/10 via-destructive/5 to-orange-500/10 border border-orange-500/20 rounded-xl p-4 flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Zap className="w-6 h-6 text-orange-500" />
-                  <div>
-                    <h3 className="text-sm font-bold text-foreground">SharkTank Mode</h3>
-                    <p className="text-xs text-muted-foreground">Claim leads before other agents — first to confirm wins!</p>
+          {/* Bulk action bar */}
+          {selectedLeadIds.size > 0 && (
+            <div className="flex items-center gap-3 flex-wrap bg-accent/50 border border-border rounded-lg px-4 py-2.5">
+              <span className="text-sm font-medium text-foreground">{selectedLeadIds.size} selected</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button disabled className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed">
+                      <MessageSquare className="w-4 h-4" /> SMS Blast
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><p className="text-xs">Coming soon — configure SMS in Settings first</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button disabled className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed">
+                      <Mail className="w-4 h-4" /> Email Blast
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><p className="text-xs">Coming soon — configure Email in Settings first</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <div className="relative">
+                <button onClick={() => setBulkAssignOpen(!bulkAssignOpen)} className="px-3 py-1.5 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
+                  <UserPlus className="w-4 h-4" /> Assign Agent
+                </button>
+                {bulkAssignOpen && (
+                  <div className="absolute z-10 mt-1 bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto w-48">
+                    {agents.map(a => (
+                      <button key={a.id} onClick={() => handleBulkAssign(a.id)} className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-foreground">
+                        {getAgentDisplayName(a)}
+                      </button>
+                    ))}
                   </div>
-                </div>
-               <div className="flex gap-4 ml-auto text-xs">
-                  <span className="text-success font-medium">{poolStats.available} available</span>
-                  <span className="text-warning font-medium">{poolStats.locked} locked</span>
-                  <span className="text-primary font-medium">{poolStats.claimed} claimed</span>
-                </div>
+                )}
               </div>
-
-              {/* Live Leaderboard Widget */}
-              <SharkTankLeaderboard leads={leads} agents={agents} />
-
-              {leadsLoading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
-                </div>
-              ) : queueLeads.length === 0 && claimedLeads.length === 0 && otherLeads.length === 0 ? (
-                <div className="bg-card rounded-xl border p-8 text-center">
-                  <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-muted-foreground text-sm">No leads in this campaign yet.</p>
-                </div>
-              ) : (
-                <>
-                  {/* Available Queue */}
-                  {queueLeads.length > 0 && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-orange-500" /> Available to Claim ({queueLeads.length})
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {queueLeads.map(l => (
-                          <SharkTankCard
-                            key={l.id}
-                            lead={l}
-                            currentUserId={user?.id || ""}
-                            agents={agents}
-                            onClaim={handleClaimLead}
-                            onConfirm={handleConfirmClaim}
-                            onRelease={handleReleaseLead}
-                            claiming={claiming}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Claimed section */}
-                  {claimedLeads.length > 0 && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <Check className="w-4 h-4 text-success" /> Claimed ({claimedLeads.length})
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {claimedLeads.map(l => (
-                          <SharkTankCard
-                            key={l.id}
-                            lead={l}
-                            currentUserId={user?.id || ""}
-                            agents={agents}
-                            onClaim={handleClaimLead}
-                            onConfirm={handleConfirmClaim}
-                            onRelease={handleReleaseLead}
-                            claiming={claiming}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Other statuses */}
-                  {otherLeads.length > 0 && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-muted-foreground mb-3">Other ({otherLeads.length})</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {otherLeads.map(l => (
-                          <SharkTankCard
-                            key={l.id}
-                            lead={l}
-                            currentUserId={user?.id || ""}
-                            agents={agents}
-                            onClaim={handleClaimLead}
-                            onConfirm={handleConfirmClaim}
-                            onRelease={handleReleaseLead}
-                            claiming={claiming}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* Last updated */}
-              <p className="text-xs text-muted-foreground text-center">
-                Last updated {secondsAgo < 5 ? "just now" : `${secondsAgo}s ago`} · Auto-refreshes every 5s
-              </p>
-            </>
+              <button onClick={() => setBulkRemoveConfirm(true)} className="px-3 py-1.5 rounded-lg border border-destructive text-destructive text-sm font-medium flex items-center gap-2 hover:bg-destructive/10 transition-colors">
+                <Trash2 className="w-4 h-4" /> Remove Selected
+              </button>
+              <button onClick={() => setSelectedLeadIds(new Set())} className="text-xs text-muted-foreground hover:text-foreground ml-auto">Deselect All</button>
+            </div>
           )}
 
-          {/* ======= ADMIN TABLE VIEW (Open Pool) or ALL other campaign types ======= */}
-          {(!isOpenPool || isAdmin) && (
-            <>
-              {leadsLoading ? (
-                <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-              ) : filteredLeads.length === 0 ? (
-                <div className="bg-card rounded-xl border p-8 text-center">
-                  <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads to get started.</p>
-                </div>
-              ) : (
-                <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="border-b bg-accent/50 text-muted-foreground">
-                      <th className="text-left py-3 px-3 font-medium">Name</th>
-                      <th className="text-left py-3 px-3 font-medium">Phone</th>
-                      <th className="text-left py-3 px-3 font-medium">Email</th>
-                      <th className="text-left py-3 px-3 font-medium">State</th>
-                      <th className="text-left py-3 px-3 font-medium">Status</th>
-                      {isOpenPool && isAdmin && <th className="text-left py-3 px-3 font-medium">Locked/Claimed By</th>}
-                      <th className="text-left py-3 px-3 font-medium">Callable</th>
-                      <th className="text-center py-3 px-3 font-medium">Attempts</th>
-                      <th className="text-left py-3 px-3 font-medium">Last Called</th>
-                      <th className="text-left py-3 px-3 font-medium">Disposition</th>
-                      <th className="w-12 py-3"></th>
-                    </tr></thead>
-                    <tbody>
-                      {filteredLeads.map(l => {
-                        const hidePhone = campaign.type === "Open Pool" && l.status === "Queued" && l.locked_by !== user?.id;
-                        const callableStatus = getLeadCallableStatus(l.state, campaign.calling_hours_start, campaign.calling_hours_end);
-                        const ownerAgent = l.locked_by ? agents.find(a => a.id === l.locked_by) : l.claimed_by ? agents.find(a => a.id === l.claimed_by) : null;
-                        return (
-                          <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                            <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
-                            <td className="py-3 px-3 text-foreground">
-                              {hidePhone ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span> : l.phone}
-                            </td>
-                            <td className="py-3 px-3 text-foreground">{l.email}</td>
-                            <td className="py-3 px-3 text-foreground">{l.state}</td>
-                            <td className="py-3 px-3">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
-                            </td>
-                            {isOpenPool && isAdmin && (
-                              <td className="py-3 px-3 text-sm text-muted-foreground">
-                                {ownerAgent ? getAgentDisplayName(ownerAgent) : "—"}
-                              </td>
-                            )}
-                            <td className="py-3 px-3">
-                              {callableStatus === "available" && <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-success/10 text-success">Available</span>}
-                              {callableStatus === "outside" && <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Outside Hours</span>}
-                              {callableStatus === "nostate" && <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">No State</span>}
-                            </td>
-                            <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
-                            <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
-                            <td className="py-3 px-3">
-                              {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
-                            </td>
-                            <td className="py-3 px-3 relative">
-                              <button onClick={() => setActionMenuId(actionMenuId === l.id ? null : l.id)} className="text-muted-foreground hover:text-foreground">
-                                <MoreHorizontal className="w-4 h-4" />
-                              </button>
-                              {actionMenuId === l.id && (
-                                <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
-                                  {isOpenPool && isAdmin && l.status === "Locked" && (
-                                    <button onClick={() => handleForceRelease(l.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-warning hover:bg-accent transition-colors">
-                                      <ShieldAlert className="w-4 h-4" /> Force Release
-                                    </button>
-                                  )}
-                                  <button onClick={() => { setRemoveLeadId(l.id); setActionMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
-                                    <Trash2 className="w-4 h-4" /> Remove from Campaign
-                                  </button>
-                                </div>
+          {/* Table */}
+          {leadsLoading ? (
+            <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="bg-card rounded-xl border p-8 text-center">
+              <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
+              <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads to get started.</p>
+            </div>
+          ) : (
+            <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-accent/50 text-muted-foreground">
+                  <th className="w-10 py-3 px-3">
+                    <input type="checkbox" checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0} onChange={toggleSelectAll} className="rounded accent-[hsl(var(--primary))]" />
+                  </th>
+                  <th className="w-10 py-3 px-1"></th>
+                  <th className="text-left py-3 px-3 font-medium">Name</th>
+                  <th className="text-left py-3 px-3 font-medium">Phone</th>
+                  <th className="text-left py-3 px-3 font-medium">Email</th>
+                  <th className="text-left py-3 px-3 font-medium">State</th>
+                  <th className="text-left py-3 px-3 font-medium">Status</th>
+                  {isOpenPool && isAdmin && <th className="text-left py-3 px-3 font-medium">Locked/Claimed By</th>}
+                  <th className="text-center py-3 px-3 font-medium">Attempts</th>
+                  <th className="text-left py-3 px-3 font-medium">Last Called</th>
+                  <th className="text-left py-3 px-3 font-medium">Disposition</th>
+                  <th className="w-12 py-3"></th>
+                </tr></thead>
+                <tbody>
+                  {filteredLeads.map(l => {
+                    const hidePhone = isOpenPool && !isAdmin && l.status !== "Claimed" && l.claimed_by !== user?.id;
+                    const ownerAgent = l.locked_by ? agents.find(a => a.id === l.locked_by) : l.claimed_by ? agents.find(a => a.id === l.claimed_by) : null;
+                    return (
+                      <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
+                        <td className="py-3 px-3">
+                          <input type="checkbox" checked={selectedLeadIds.has(l.id)} onChange={() => toggleLeadSelection(l.id)} className="rounded accent-[hsl(var(--primary))]" />
+                        </td>
+                        <td className="py-3 px-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => handleQuickCall(l)}
+                                  disabled={!l.phone || hidePhone}
+                                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                                    l.phone && !hidePhone
+                                      ? "bg-success/10 text-success hover:bg-success/20"
+                                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                                  }`}
+                                >
+                                  <Phone className="w-3.5 h-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">{!l.phone ? "No phone number on file" : hidePhone ? "Phone hidden in Open Pool" : "Quick call"}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </td>
+                        <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
+                        <td className="py-3 px-3 text-foreground">
+                          {hidePhone ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span> : l.phone}
+                        </td>
+                        <td className="py-3 px-3 text-foreground">{l.email}</td>
+                        <td className="py-3 px-3 text-foreground">{l.state}</td>
+                        <td className="py-3 px-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
+                        </td>
+                        {isOpenPool && isAdmin && (
+                          <td className="py-3 px-3 text-sm text-muted-foreground">
+                            {ownerAgent ? getAgentDisplayName(ownerAgent) : "—"}
+                          </td>
+                        )}
+                        <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
+                        <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
+                        <td className="py-3 px-3">
+                          {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
+                        </td>
+                        <td className="py-3 px-3 relative">
+                          <button onClick={() => setActionMenuId(actionMenuId === l.id ? null : l.id)} className="text-muted-foreground hover:text-foreground">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                          {actionMenuId === l.id && (
+                            <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
+                              {isOpenPool && isAdmin && l.status === "Locked" && (
+                                <button onClick={async () => {
+                                  await supabase.from("campaign_leads").update({ status: "Queued", locked_by: null, locked_at: null } as any).eq("id", l.id); // eslint-disable-line @typescript-eslint/no-explicit-any
+                                  toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
+                                  setActionMenuId(null);
+                                  fetchLeads(true);
+                                }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-warning hover:bg-accent transition-colors">
+                                  <AlertTriangle className="w-4 h-4" /> Force Release
+                                </button>
                               )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
+                              <button onClick={() => { setRemoveLeadId(l.id); setActionMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
+                                <Trash2 className="w-4 h-4" /> Remove from Campaign
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -1171,6 +853,25 @@ const CampaignDetail: React.FC = () => {
                 <p className="text-2xl font-bold text-foreground">{s.value}</p>
               </div>
             ))}
+          </div>
+
+          {/* Channel Activity */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-card rounded-xl border p-4 text-center">
+              <Phone className="w-5 h-5 text-primary mx-auto mb-2" />
+              <p className="text-xs text-muted-foreground mb-1">Calls</p>
+              <p className="text-2xl font-bold text-foreground">{callsCount}</p>
+            </div>
+            <div className="bg-card rounded-xl border p-4 text-center opacity-60">
+              <MessageSquare className="w-5 h-5 text-muted-foreground mx-auto mb-2" />
+              <p className="text-xs text-muted-foreground mb-1">SMS Sent</p>
+              <p className="text-sm font-medium text-muted-foreground">Coming Soon</p>
+            </div>
+            <div className="bg-card rounded-xl border p-4 text-center opacity-60">
+              <Mail className="w-5 h-5 text-muted-foreground mx-auto mb-2" />
+              <p className="text-xs text-muted-foreground mb-1">Emails Sent</p>
+              <p className="text-sm font-medium text-muted-foreground">Coming Soon</p>
+            </div>
           </div>
 
           {leads.length === 0 ? (
@@ -1216,17 +917,6 @@ const CampaignDetail: React.FC = () => {
             <p className="text-sm text-foreground bg-muted/50 rounded-lg px-3 py-2 border border-border">{campaign.type} <span className="text-xs text-muted-foreground">(cannot be changed)</span></p>
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Dial Mode</label>
-            <div className="flex gap-3">
-              {["Power", "Predictive"].map(m => (
-                <label key={m} className={`flex-1 flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${settingsForm.dial_mode === m ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}>
-                  <input type="radio" checked={settingsForm.dial_mode === m} onChange={() => handleSettingsChange("dial_mode", m)} className="accent-[hsl(var(--primary))]" />
-                  <span className="text-sm font-medium text-foreground">{m}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">
               {campaign.type === "Personal" ? "Assigned Agent" : "Assigned Agents"}
             </label>
@@ -1260,26 +950,9 @@ const CampaignDetail: React.FC = () => {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours Start (lead's local time)</label>
-              <input type="time" value={settingsForm.calling_hours_start || "09:00"} onChange={e => handleSettingsChange("calling_hours_start", e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours End (lead's local time)</label>
-              <input type="time" value={settingsForm.calling_hours_end || "17:00"} onChange={e => handleSettingsChange("calling_hours_end", e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground -mt-2">Leads will only be available for calling when their local time falls within this window</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Max Retries</label>
-              <input type="number" min={1} max={10} value={settingsForm.max_retries || 3} onChange={e => handleSettingsChange("max_retries", Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Retry Interval (minutes)</label>
-              <input type="number" min={1} value={settingsForm.retry_interval || 60} onChange={e => handleSettingsChange("retry_interval", Math.max(1, parseInt(e.target.value) || 60))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Tags</label>
+            <TagInput tags={(settingsForm.tags || []) as string[]} onChange={t => handleSettingsChange("tags", t)} max={10} />
           </div>
           <button onClick={saveSettings} disabled={!settingsDirty || settingsSaving} className="h-9 px-6 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-2">
             {settingsSaving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -1293,6 +966,7 @@ const CampaignDetail: React.FC = () => {
       <ImportCSVModal open={importCSVOpen} onClose={() => setImportCSVOpen(false)} campaignId={id!} onImported={() => { fetchLeads(); fetchCampaign(); }} />
       <ConfirmDialog open={deleteConfirm} title="Delete Campaign?" message="Are you sure you want to delete this campaign? This will also remove all leads assigned to it. This cannot be undone." onConfirm={handleDelete} onClose={() => setDeleteConfirm(false)} />
       <ConfirmDialog open={!!removeLeadId} title="Remove Lead?" message="Remove this lead from the campaign? The lead itself won't be deleted." confirmLabel="Remove" onConfirm={handleRemoveLead} onClose={() => setRemoveLeadId(null)} />
+      <ConfirmDialog open={bulkRemoveConfirm} title="Remove Selected Leads?" message={`Remove ${selectedLeadIds.size} leads from this campaign?`} confirmLabel="Remove" onConfirm={handleBulkRemove} onClose={() => setBulkRemoveConfirm(false)} />
     </div>
   );
 };

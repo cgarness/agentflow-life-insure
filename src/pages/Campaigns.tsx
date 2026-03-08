@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Search, Plus, Megaphone, X, Loader2, Users, Phone, BarChart3,
+  Search, Plus, Megaphone, X, Loader2, Users, Tag,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Types
 interface Campaign {
@@ -16,14 +17,10 @@ interface Campaign {
   status: string;
   description: string;
   assigned_agent_ids: string[];
-  dial_mode: string;
+  tags: string[];
   total_leads: number;
   leads_contacted: number;
   leads_converted: number;
-  calling_hours_start: string;
-  calling_hours_end: string;
-  max_retries: number;
-  retry_interval: number;
   created_by: string | null;
   created_at: string;
 }
@@ -67,6 +64,55 @@ function getAgentDisplayName(a: AgentProfile): string {
   return full || a.email || "Unknown";
 }
 
+// ---- Tag Input Component ----
+const TagInput: React.FC<{
+  tags: string[];
+  onChange: (tags: string[]) => void;
+  max?: number;
+}> = ({ tags, onChange, max = 10 }) => {
+  const [input, setInput] = useState("");
+
+  const addTag = (val: string) => {
+    const tag = val.trim();
+    if (!tag || tags.includes(tag) || tags.length >= max) return;
+    onChange([...tags, tag]);
+    setInput("");
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(input);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {tags.map(tag => (
+          <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs text-foreground">
+            {tag}
+            <button onClick={() => onChange(tags.filter(t => t !== tag))} className="text-muted-foreground hover:text-foreground">
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      {tags.length < max && (
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => { if (input.trim()) addTag(input); }}
+          placeholder="Type a tag and press Enter..."
+          className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
+        />
+      )}
+      <p className="text-xs text-muted-foreground mt-1">{tags.length}/{max} tags</p>
+    </div>
+  );
+};
+
 // ---- Create Campaign Modal ----
 const CreateCampaignModal: React.FC<{
   open: boolean;
@@ -79,11 +125,8 @@ const CreateCampaignModal: React.FC<{
   const [name, setName] = useState("");
   const [type, setType] = useState("Personal");
   const [description, setDescription] = useState("");
-  const [dialMode, setDialMode] = useState("Power");
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
-  const [callingStart, setCallingStart] = useState("09:00");
-  const [callingEnd, setCallingEnd] = useState("17:00");
-  const [maxRetries, setMaxRetries] = useState(3);
+  const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState(false);
   const [agentError, setAgentError] = useState(false);
@@ -91,13 +134,11 @@ const CreateCampaignModal: React.FC<{
 
   useEffect(() => {
     if (open) {
-      setName(""); setType("Personal"); setDescription(""); setDialMode("Power");
-      setSelectedAgents([]); setCallingStart("09:00"); setCallingEnd("17:00");
-      setMaxRetries(3); setSaving(false); setNameError(false); setAgentError(false);
+      setName(""); setType("Personal"); setDescription("");
+      setSelectedAgents([]); setTags([]); setSaving(false); setNameError(false); setAgentError(false);
     }
   }, [open]);
 
-  // For Personal type, only single agent
   useEffect(() => {
     if (type === "Personal" && selectedAgents.length > 1) {
       setSelectedAgents([selectedAgents[0]]);
@@ -126,11 +167,8 @@ const CreateCampaignModal: React.FC<{
       name: name.trim(),
       type,
       description: description.trim(),
-      dial_mode: dialMode,
       assigned_agent_ids: selectedAgents,
-      calling_hours_start: callingStart,
-      calling_hours_end: callingEnd,
-      max_retries: maxRetries,
+      tags: tags,
       status: "Draft",
       created_by: user?.id || null,
     } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -200,17 +238,10 @@ const CreateCampaignModal: React.FC<{
           <p className="text-xs text-muted-foreground text-right">{description.length}/500</p>
         </div>
 
-        {/* Dial Mode */}
+        {/* Tags */}
         <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1">Dial Mode</label>
-          <div className="flex gap-3">
-            {["Power", "Predictive"].map(m => (
-              <label key={m} className={`flex-1 flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${dialMode === m ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}>
-                <input type="radio" name="dialMode" checked={dialMode === m} onChange={() => setDialMode(m)} className="accent-[hsl(var(--primary))]" />
-                <span className="text-sm font-medium text-foreground">{m}</span>
-              </label>
-            ))}
-          </div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Tags</label>
+          <TagInput tags={tags} onChange={setTags} max={10} />
         </div>
 
         {/* Assigned Agents */}
@@ -261,25 +292,6 @@ const CreateCampaignModal: React.FC<{
           {agentError && <p className="text-xs text-destructive mt-1">At least one agent must be assigned</p>}
         </div>
 
-        {/* Calling Hours */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours Start (lead's local time)</label>
-            <input type="time" value={callingStart} onChange={e => setCallingStart(e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours End (lead's local time)</label>
-            <input type="time" value={callingEnd} onChange={e => setCallingEnd(e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground -mt-2">Leads will only be available for calling when their local time falls within this window</p>
-
-        {/* Max Retries */}
-        <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1">Max Retries</label>
-          <input type="number" min={1} max={10} value={maxRetries} onChange={e => setMaxRetries(Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-        </div>
-
         {/* Footer */}
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={onClose} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent transition-colors">Cancel</button>
@@ -290,6 +302,32 @@ const CreateCampaignModal: React.FC<{
         </div>
       </div>
     </div>
+  );
+};
+
+// ---- Lead Health Bar ----
+const LeadHealthBar: React.FC<{ total: number; contacted: number; converted: number }> = ({ total, contacted, converted }) => {
+  if (total === 0) return <div className="h-1.5 w-full bg-muted rounded-full mt-3" />;
+  const convertedPct = (converted / total) * 100;
+  const contactedPct = ((contacted - converted) / total) * 100;
+  const untouched = total - contacted;
+  const untouchedPct = (untouched / total) * 100;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="h-1.5 w-full bg-muted rounded-full mt-3 overflow-hidden flex">
+            {convertedPct > 0 && <div className="h-full bg-success transition-all" style={{ width: `${convertedPct}%` }} />}
+            {contactedPct > 0 && <div className="h-full bg-primary transition-all" style={{ width: `${contactedPct}%` }} />}
+            {untouchedPct > 0 && <div className="h-full bg-muted-foreground/20 transition-all" style={{ width: `${untouchedPct}%` }} />}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">{converted} converted · {contacted} contacted · {untouched} untouched</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 };
 
@@ -315,6 +353,7 @@ const Campaigns: React.FC = () => {
       setCampaigns(data.map((r: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
         ...r,
         assigned_agent_ids: r.assigned_agent_ids || [],
+        tags: r.tags || [],
       })));
     }
     setLoading(false);
@@ -417,6 +456,16 @@ const Campaigns: React.FC = () => {
               {c.description && (
                 <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{c.description}</p>
               )}
+              {/* Tags */}
+              {c.tags && c.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {c.tags.map((tag: string) => (
+                    <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-[10px] text-muted-foreground">
+                      <Tag className="w-2.5 h-2.5" />{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-4 mb-3">
                 <div className="text-center">
                   <p className="text-lg font-bold text-foreground">{c.total_leads}</p>
@@ -431,11 +480,10 @@ const Campaigns: React.FC = () => {
                   <p className="text-[10px] text-muted-foreground">Converted</p>
                 </div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{c.dial_mode}</span>
-                  <span className="text-xs text-muted-foreground">{relativeTime(c.created_at)}</span>
-                </div>
+              {/* Lead Health Bar */}
+              <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-xs text-muted-foreground">{relativeTime(c.created_at)}</span>
                 <button
                   onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}`); }}
                   className="text-xs px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
