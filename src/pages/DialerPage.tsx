@@ -251,6 +251,11 @@ const DialerPage: React.FC = () => {
   const [dncWarning, setDncWarning] = useState(false);
   const [dncChecking, setDncChecking] = useState(false);
 
+  /* ── Lead hover preview cache ── */
+  const [leadLastCalls, setLeadLastCalls] = useState<Record<string, { disposition_name: string | null; started_at: string | null }>>({});
+  const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
+  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
