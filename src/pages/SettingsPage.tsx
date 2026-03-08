@@ -10,6 +10,11 @@ import CalendarSettings from "@/components/settings/CalendarSettings";
 import MyProfile from "@/components/settings/MyProfile";
 import PhoneSettings from "@/components/settings/PhoneSettings";
 import DNCSettings from "@/components/settings/DNCSettings";
+import EmailSMSTemplates from "@/components/settings/EmailSMSTemplates";
+import Carriers from "@/components/settings/Carriers";
+import GoalSetting from "@/components/settings/GoalSetting";
+import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
+import ActivityLog from "@/components/settings/ActivityLog";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -43,33 +48,6 @@ const sections = [
   { icon: Clock, label: "Activity Log" },
 ];
 
-
-const carriers = [
-  "Mutual of Omaha", "Transamerica", "Prudential", "John Hancock", "MetLife",
-  "AIG", "Lincoln Financial", "Nationwide", "Pacific Life", "Protective",
-];
-
-const dispositions = [
-  { name: "Not Available", color: "bg-muted", auto: false },
-  { name: "Left Voicemail", color: "bg-primary", auto: true },
-  { name: "Not Interested", color: "bg-destructive", auto: false },
-  { name: "Call Back Later", color: "bg-warning", auto: true },
-  { name: "Interested", color: "bg-success", auto: false },
-  { name: "Appointment Set", color: "bg-info", auto: true },
-];
-
-const activityLog = [
-  { action: "Updated campaign 'Q1 Facebook Leads'", user: "Chris G.", time: "10 min ago" },
-  { action: "Added new user: James Wilson", user: "Chris G.", time: "1 hr ago" },
-  { action: "Changed disposition 'Hot Lead' color", user: "Chris G.", time: "2 hrs ago" },
-  { action: "Uploaded voicemail drop 'Term Life Intro'", user: "Sarah J.", time: "3 hrs ago" },
-  { action: "Modified call script 'Whole Life Script'", user: "Chris G.", time: "5 hrs ago" },
-  { action: "Purchased phone number (555) 999-0001", user: "Chris G.", time: "Yesterday" },
-  { action: "Updated business hours", user: "Chris G.", time: "Yesterday" },
-  { action: "Created automation 'New Lead SMS'", user: "Lisa R.", time: "2 days ago" },
-  { action: "Added carrier: Pacific Life", user: "Chris G.", time: "3 days ago" },
-  { action: "Updated AI agent 'Sarah' instructions", user: "Chris G.", time: "4 days ago" },
-];
 
 const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -113,26 +91,14 @@ const SettingsPage: React.FC = () => {
       case 8: // Permissions
         return <Permissions />;
 
+      case 10: // Email & SMS Templates
+        return <EmailSMSTemplates />;
+
       case 11: // Carriers
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">Carriers</h3>
-              <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90"><Plus className="w-4 h-4" /> Add Carrier</button>
-            </div>
-            <div className="bg-card rounded-xl border divide-y">
-              {carriers.map((c) => (
-                <div key={c} className="flex items-center justify-between px-4 py-3 hover:bg-accent/30 sidebar-transition">
-                  <span className="text-sm font-medium text-foreground">{c}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded-full font-medium">Appointed</span>
-                    <input type="text" placeholder="Portal URL" className="h-7 px-2 rounded bg-accent text-xs text-foreground w-40 focus:ring-1 focus:ring-primary/50" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <Carriers />;
+
+      case 15: // Goal Setting
+        return <GoalSetting />;
 
       case 14: // Call Monitoring
         return (
@@ -182,26 +148,11 @@ const SettingsPage: React.FC = () => {
       case 19: // DNC List
         return <DNCSettings />;
 
+      case 21: // Custom Menu Links
+        return <CustomMenuLinks />;
+
       case 22: // Activity Log
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">Activity Log</h3>
-              <button className="px-3 py-1.5 rounded-lg bg-accent text-foreground text-sm flex items-center gap-2 hover:bg-accent/80">Export CSV</button>
-            </div>
-            <div className="bg-card rounded-xl border divide-y">
-              {activityLog.map((a, i) => (
-                <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-accent/30 sidebar-transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{a.user.split(" ").map(w => w[0]).join("")}</div>
-                    <div><p className="text-sm text-foreground">{a.action}</p><p className="text-xs text-muted-foreground">{a.user}</p></div>
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0">{a.time}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <ActivityLog />;
 
       default: {
         const Icon = sections[active].icon;
