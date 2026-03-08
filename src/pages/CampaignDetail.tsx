@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
-  Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Clock,
+  Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Clock, Zap,
+  Check, RotateCcw, ShieldAlert,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,6 +45,10 @@ interface CampaignLead {
   last_called_at: string | null;
   disposition: string | null;
   locked_by: string | null;
+  locked_at: string | null;
+  claimed_by: string | null;
+  claimed_at: string | null;
+  source: string | null;
 }
 
 interface AgentProfile {
@@ -106,34 +111,19 @@ function getAgentDisplayName(a: AgentProfile): string {
   return full || a.email || "Unknown";
 }
 
-// Callable status helper
 function getLeadCallableStatus(state: string, callingStart: string, callingEnd: string): "available" | "outside" | "nostate" {
   if (!state) return "nostate";
   const tz = STATE_TIMEZONES[state.toUpperCase()];
   if (!tz) return "nostate";
-
   const now = new Date();
-  const hourStr = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false,
-  }).format(now);
-  
-  // Parse "HH:MM" from formatted string
+  const hourStr = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "numeric", hour12: false }).format(now);
   const parts = hourStr.split(":");
   const currentMinutes = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-  
   const startParts = callingStart.split(":");
   const startMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
-  
   const endParts = callingEnd.split(":");
   const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
-
-  if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
-    return "available";
-  }
-  return "outside";
+  return currentMinutes >= startMinutes && currentMinutes < endMinutes ? "available" : "outside";
 }
 
 // ---- CSV helpers ----
@@ -169,10 +159,7 @@ function autoMapHeaders(headers: string[]): Record<number, string> {
   headers.forEach((h, i) => {
     const lower = h.toLowerCase().trim();
     for (const [field, variants] of Object.entries(FIELD_MAP)) {
-      if (variants.some(v => lower === v || lower.includes(v))) {
-        map[i] = field;
-        break;
-      }
+      if (variants.some(v => lower === v || lower.includes(v))) { map[i] = field; break; }
     }
     if (!map[i]) map[i] = "skip";
   });
@@ -231,47 +218,28 @@ const AddLeadsModal: React.FC<{
   const fetchLeads = async (q = "") => {
     setLoading(true);
     let query = supabase.from("leads").select("id, first_name, last_name, phone, email, state, age, status").limit(100);
-    if (q) {
-      query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`);
-    }
+    if (q) { query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`); }
     const { data } = await query;
     setLeads((data as LeadRow[]) || []);
     setLoading(false);
   };
 
   const handleSearch = () => fetchLeads(search);
-
   const toggleLead = (id: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   };
 
   const handleAdd = async () => {
     const toAdd = leads.filter(l => selected.has(l.id) && !existingLeadIds.has(l.id));
     if (toAdd.length === 0) return;
     setAdding(true);
-    const rows = toAdd.map(l => ({
-      campaign_id: campaignId,
-      lead_id: l.id,
-      first_name: l.first_name,
-      last_name: l.last_name,
-      phone: l.phone,
-      email: l.email,
-      state: l.state,
-      age: l.age,
-      status: "Queued",
-    }));
+    const rows = toAdd.map(l => ({ campaign_id: campaignId, lead_id: l.id, first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email, state: l.state, age: l.age, status: "Queued" }));
     const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (error) {
-      toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" });
-    } else {
+    if (error) { toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" }); }
+    else {
       await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 } as any).eq("id", campaignId); // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.success(`${toAdd.length} leads added to campaign`, { duration: 3000, position: "bottom-right" });
-      onAdded();
-      onClose();
+      onAdded(); onClose();
     }
     setAdding(false);
   };
@@ -312,19 +280,11 @@ const AddLeadsModal: React.FC<{
                   const already = existingLeadIds.has(l.id);
                   return (
                     <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                      <td className="py-2 px-3">
-                        <input type="checkbox" disabled={already} checked={selected.has(l.id)} onChange={() => toggleLead(l.id)} className="rounded accent-[hsl(var(--primary))]" />
-                      </td>
+                      <td className="py-2 px-3"><input type="checkbox" disabled={already} checked={selected.has(l.id)} onChange={() => toggleLead(l.id)} className="rounded accent-[hsl(var(--primary))]" /></td>
                       <td className="py-2 text-foreground">{l.first_name} {l.last_name}</td>
                       <td className="py-2 text-foreground">{l.phone}</td>
                       <td className="py-2 text-foreground">{l.state}</td>
-                      <td className="py-2">
-                        {already ? (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Already added</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">{l.status}</span>
-                        )}
-                      </td>
+                      <td className="py-2">{already ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Already added</span> : <span className="text-xs text-muted-foreground">{l.status}</span>}</td>
                     </tr>
                   );
                 })}
@@ -356,9 +316,7 @@ const ImportCSVModal: React.FC<{
   const [importing, setImporting] = useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (open) { setStep(1); setFile(null); setHeaders([]); setRows([]); setMappings({}); }
-  }, [open]);
+  useEffect(() => { if (open) { setStep(1); setFile(null); setHeaders([]); setRows([]); setMappings({}); } }, [open]);
 
   const handleFile = (f: File) => {
     if (!f.name.endsWith(".csv")) return;
@@ -366,10 +324,7 @@ const ImportCSVModal: React.FC<{
     const reader = new FileReader();
     reader.onload = e => {
       const { headers: h, rows: r } = parseCSV(e.target?.result as string);
-      setHeaders(h);
-      setRows(r);
-      setMappings(autoMapHeaders(h));
-      setStep(2);
+      setHeaders(h); setRows(r); setMappings(autoMapHeaders(h)); setStep(2);
     };
     reader.readAsText(f);
   };
@@ -377,32 +332,15 @@ const ImportCSVModal: React.FC<{
   const doImport = async () => {
     setImporting(true);
     const fieldToCol: Record<string, number> = {};
-    Object.entries(mappings).forEach(([idx, field]) => {
-      if (field !== "skip") fieldToCol[field] = Number(idx);
-    });
-    const getVal = (row: string[], field: string) => {
-      const idx = fieldToCol[field];
-      return idx !== undefined ? row[idx]?.trim() || "" : "";
-    };
-
-    const toInsert = rows.map(row => ({
-      campaign_id: campaignId,
-      first_name: getVal(row, "first_name"),
-      last_name: getVal(row, "last_name"),
-      phone: getVal(row, "phone"),
-      email: getVal(row, "email"),
-      state: getVal(row, "state"),
-      status: "Queued",
-    })).filter(r => r.phone || r.first_name);
-
+    Object.entries(mappings).forEach(([idx, field]) => { if (field !== "skip") fieldToCol[field] = Number(idx); });
+    const getVal = (row: string[], field: string) => { const idx = fieldToCol[field]; return idx !== undefined ? row[idx]?.trim() || "" : ""; };
+    const toInsert = rows.map(row => ({ campaign_id: campaignId, first_name: getVal(row, "first_name"), last_name: getVal(row, "last_name"), phone: getVal(row, "phone"), email: getVal(row, "email"), state: getVal(row, "state"), status: "Queued" })).filter(r => r.phone || r.first_name);
     const { error } = await supabase.from("campaign_leads").insert(toInsert as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (error) {
-      toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
-    } else {
+    if (error) { toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" }); }
+    else {
       await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 } as any).eq("id", campaignId); // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.success(`${toInsert.length} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
-      onImported();
-      onClose();
+      onImported(); onClose();
     }
     setImporting(false);
   };
@@ -417,7 +355,6 @@ const ImportCSVModal: React.FC<{
           <h2 className="text-lg font-semibold text-foreground">Import CSV to Campaign</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
-
         {step === 1 && (
           <div className="border-2 border-dashed rounded-lg p-12 text-center cursor-pointer hover:border-primary/50 transition-colors border-border" onClick={() => fileRef.current?.click()}>
             <Upload className="w-8 h-8 text-primary mx-auto mb-3" />
@@ -425,7 +362,6 @@ const ImportCSVModal: React.FC<{
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
           </div>
         )}
-
         {step === 2 && (
           <>
             <p className="text-sm text-muted-foreground">{file?.name} — {rows.length} rows detected. Map your columns:</p>
@@ -459,12 +395,173 @@ const ImportCSVModal: React.FC<{
   );
 };
 
+// ---- Countdown Hook ----
+function useCountdown(targetDate: string | null, durationSec: number): number {
+  const [remaining, setRemaining] = useState(() => {
+    if (!targetDate) return 0;
+    const elapsed = (Date.now() - new Date(targetDate).getTime()) / 1000;
+    return Math.max(0, Math.ceil(durationSec - elapsed));
+  });
+  useEffect(() => {
+    if (!targetDate) { setRemaining(0); return; }
+    const update = () => {
+      const elapsed = (Date.now() - new Date(targetDate).getTime()) / 1000;
+      setRemaining(Math.max(0, Math.ceil(durationSec - elapsed)));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [targetDate, durationSec]);
+  return remaining;
+}
+
+// ---- SharkTank Lead Card ----
+const SharkTankCard: React.FC<{
+  lead: CampaignLead;
+  currentUserId: string;
+  agents: AgentProfile[];
+  onClaim: (leadId: string) => void;
+  onConfirm: (leadId: string) => void;
+  onRelease: (leadId: string) => void;
+  claiming: string | null;
+}> = ({ lead, currentUserId, agents, onClaim, onConfirm, onRelease, claiming }) => {
+  const countdown = useCountdown(lead.locked_at, 30);
+  const isLockedByMe = lead.status === "Locked" && lead.locked_by === currentUserId;
+  const isLockedByOther = lead.status === "Locked" && lead.locked_by !== currentUserId;
+  const isClaimed = lead.status === "Claimed";
+  const isQueued = lead.status === "Queued";
+
+  const lockerName = useMemo(() => {
+    if (!lead.locked_by) return "Unknown";
+    const a = agents.find(ag => ag.id === lead.locked_by);
+    return a ? getAgentDisplayName(a) : "Another agent";
+  }, [lead.locked_by, agents]);
+
+  const claimerName = useMemo(() => {
+    if (!lead.claimed_by) return "Unknown";
+    const a = agents.find(ag => ag.id === lead.claimed_by);
+    return a ? getAgentDisplayName(a) : "Another agent";
+  }, [lead.claimed_by, agents]);
+
+  return (
+    <div className={`bg-card border rounded-xl p-4 space-y-3 transition-all ${
+      isQueued ? "border-border hover:border-primary/50 hover:shadow-md animate-pulse-subtle" :
+      isLockedByMe ? "border-primary shadow-md" :
+      isLockedByOther ? "border-warning/50 opacity-75" :
+      isClaimed ? "border-success/50 opacity-60" : "border-border"
+    }`}>
+      {/* Name row */}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className={`font-semibold ${isLockedByOther ? "text-muted-foreground" : "text-foreground"}`}>
+            {lead.first_name} {lead.last_name}
+          </p>
+          {lead.state && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground mt-1 inline-block">{lead.state}</span>
+          )}
+        </div>
+        {/* Status badges */}
+        {isLockedByOther && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning font-medium whitespace-nowrap">
+            Locked by {lockerName}
+          </span>
+        )}
+        {isLockedByMe && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+            You locked this lead
+          </span>
+        )}
+        {isClaimed && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success font-medium whitespace-nowrap">
+            Claimed by {claimerName}
+          </span>
+        )}
+      </div>
+
+      {/* Phone */}
+      <div className="flex items-center gap-2 text-sm">
+        <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+        {isLockedByMe || isClaimed ? (
+          <span className="text-foreground">{lead.phone}</span>
+        ) : (
+          <span className="text-muted-foreground flex items-center gap-1">
+            <Lock className="w-3 h-3" /> Phone hidden until claimed
+          </span>
+        )}
+      </div>
+
+      {/* Source */}
+      {lead.source && (
+        <p className="text-xs text-muted-foreground">Source: {lead.source}</p>
+      )}
+
+      {/* Countdown timer for locked leads */}
+      {(isLockedByMe || isLockedByOther) && lead.status === "Locked" && (
+        <div className="flex items-center gap-2">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${countdown <= 10 ? "bg-destructive" : "bg-warning"}`}
+              style={{ width: `${(countdown / 30) * 100}%` }}
+            />
+          </div>
+          <span className={`text-xs font-mono font-medium ${countdown <= 10 ? "text-destructive" : "text-muted-foreground"}`}>
+            {countdown}s
+          </span>
+        </div>
+      )}
+
+      {/* Actions */}
+      {isQueued && (
+        <button
+          onClick={() => onClaim(lead.id)}
+          disabled={claiming === lead.id}
+          className="w-full h-10 rounded-lg bg-success text-success-foreground text-sm font-bold hover:bg-success/90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {claiming === lead.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+          Claim Lead
+        </button>
+      )}
+      {isLockedByMe && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => onConfirm(lead.id)}
+            className="flex-1 h-10 rounded-lg bg-success text-success-foreground text-sm font-bold hover:bg-success/90 transition-all flex items-center justify-center gap-2"
+          >
+            <Check className="w-4 h-4" /> Confirm Claim
+          </button>
+          <button
+            onClick={() => onRelease(lead.id)}
+            className="h-10 px-4 rounded-lg border border-border text-muted-foreground text-sm font-medium hover:bg-accent transition-colors flex items-center gap-2"
+          >
+            <RotateCcw className="w-4 h-4" /> Release
+          </button>
+        </div>
+      )}
+      {isLockedByOther && (
+        <button disabled className="w-full h-10 rounded-lg bg-muted text-muted-foreground text-sm font-medium cursor-not-allowed opacity-50">
+          Locked — waiting...
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ---- Celebration overlay ----
+const CelebrationOverlay: React.FC<{ show: boolean }> = ({ show }) => {
+  if (!show) return null;
+  return (
+    <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center">
+      <div className="text-6xl animate-bounce">🎉</div>
+    </div>
+  );
+};
 
 // ---- MAIN COMPONENT ----
 const CampaignDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [leads, setLeads] = useState<CampaignLead[]>([]);
@@ -479,12 +576,18 @@ const CampaignDetail: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [removeLeadId, setRemoveLeadId] = useState<string | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState<string | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
 
   // Settings form
   const [settingsForm, setSettingsForm] = useState<Partial<Campaign>>({});
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
+
+  const isAdmin = profile?.role?.toLowerCase() === "admin";
+  const isOpenPool = campaign?.type === "Open Pool";
 
   const fetchCampaign = useCallback(async () => {
     if (!id) return;
@@ -497,28 +600,40 @@ const CampaignDetail: React.FC = () => {
     setLoading(false);
   }, [id]);
 
-  const fetchLeads = useCallback(async () => {
+  const fetchLeads = useCallback(async (silent = false) => {
     if (!id) return;
-    setLeadsLoading(true);
+    if (!silent) setLeadsLoading(true);
     const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("created_at", { ascending: false });
     setLeads((data as CampaignLead[]) || []);
-    setLeadsLoading(false);
+    setLastRefresh(Date.now());
+    if (!silent) setLeadsLoading(false);
   }, [id]);
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, first_name, last_name, email, role");
-    if (data) {
-      setAgents(
-        (data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")
-      );
-    }
+    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role");
+    if (data) { setAgents((data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")); }
     setAgentsLoading(false);
   }, []);
 
   useEffect(() => { fetchCampaign(); fetchLeads(); fetchAgents(); }, [fetchCampaign, fetchLeads, fetchAgents]);
+
+  // ---- Open Pool polling: refresh every 5 seconds + clean up expired locks ----
+  useEffect(() => {
+    if (!isOpenPool || tab !== "Leads" || !id) return;
+    const interval = setInterval(async () => {
+      // Clean up expired locks
+      await supabase
+        .from("campaign_leads")
+        .update({ status: "Queued", locked_by: null, locked_at: null } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .eq("campaign_id", id)
+        .eq("status", "Locked")
+        .lt("locked_at", new Date(Date.now() - 30000).toISOString());
+      // Refresh queue
+      fetchLeads(true);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isOpenPool, tab, id, fetchLeads]);
 
   const existingLeadIds = useMemo(() => new Set(leads.map(l => l.lead_id).filter(Boolean) as string[]), [leads]);
 
@@ -531,6 +646,95 @@ const CampaignDetail: React.FC = () => {
     }
     return filtered;
   }, [leads, leadFilter, campaign]);
+
+  // Open Pool stats
+  const poolStats = useMemo(() => {
+    const available = leads.filter(l => l.status === "Queued").length;
+    const locked = leads.filter(l => l.status === "Locked").length;
+    const claimed = leads.filter(l => l.status === "Claimed").length;
+    return { available, locked, claimed };
+  }, [leads]);
+
+  // ---- Claim flow ----
+  const handleClaimLead = async (leadId: string) => {
+    if (!user) return;
+    setClaiming(leadId);
+    // Conditional update: only if still Queued
+    const { data, error } = await supabase
+      .from("campaign_leads")
+      .update({ status: "Locked", locked_by: user.id, locked_at: new Date().toISOString() } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .eq("id", leadId)
+      .eq("status", "Queued")
+      .select();
+    if (error || !data || data.length === 0) {
+      toast.error("This lead was just claimed by another agent", { duration: 3000, position: "bottom-right" });
+      fetchLeads(true);
+    } else {
+      fetchLeads(true);
+    }
+    setClaiming(null);
+  };
+
+  const handleConfirmClaim = async (leadId: string) => {
+    if (!user || !campaign) return;
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+
+    // Update campaign_leads
+    const { error } = await supabase
+      .from("campaign_leads")
+      .update({ status: "Claimed", claimed_by: user.id, claimed_at: new Date().toISOString() } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .eq("id", leadId);
+    if (error) { toast.error("Failed to confirm claim", { duration: 3000, position: "bottom-right" }); return; }
+
+    // Create lead in main leads table
+    await supabase.from("leads").insert({
+      first_name: lead.first_name,
+      last_name: lead.last_name,
+      phone: lead.phone,
+      email: lead.email,
+      state: lead.state,
+      age: lead.age,
+      assigned_agent_id: user.id,
+      lead_source: campaign.name,
+      status: "New",
+    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // Increment leads_contacted
+    await supabase.from("campaigns").update({
+      leads_contacted: (campaign.leads_contacted || 0) + 1,
+    } as any).eq("id", campaign.id); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    toast.success("Lead claimed! Added to your contacts.", { duration: 3000, position: "bottom-right" });
+
+    // Celebration
+    setShowCelebration(true);
+    setTimeout(() => setShowCelebration(false), 1500);
+
+    fetchLeads(true);
+    fetchCampaign();
+  };
+
+  const handleReleaseLead = async (leadId: string) => {
+    const { error } = await supabase
+      .from("campaign_leads")
+      .update({ status: "Queued", locked_by: null, locked_at: null } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .eq("id", leadId);
+    if (error) { toast.error("Failed to release lead", { duration: 3000, position: "bottom-right" }); return; }
+    toast.success("Lead released back to the pool", { duration: 3000, position: "bottom-right" });
+    fetchLeads(true);
+  };
+
+  const handleForceRelease = async (leadId: string) => {
+    const { error } = await supabase
+      .from("campaign_leads")
+      .update({ status: "Queued", locked_by: null, locked_at: null } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .eq("id", leadId);
+    if (error) { toast.error("Failed to force release", { duration: 3000, position: "bottom-right" }); return; }
+    toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
+    setActionMenuId(null);
+    fetchLeads(true);
+  };
 
   // Status actions
   const updateStatus = async (newStatus: string) => {
@@ -564,32 +768,20 @@ const CampaignDetail: React.FC = () => {
   };
 
   // Settings
-  const handleSettingsChange = (key: string, value: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-    setSettingsForm(prev => ({ ...prev, [key]: value }));
-    setSettingsDirty(true);
-  };
-
+  const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const toggleSettingsAgent = (agentId: string) => {
     const current = (settingsForm.assigned_agent_ids || []) as string[];
-    if (settingsForm.type === "Personal") {
-      handleSettingsChange("assigned_agent_ids", [agentId]);
-    } else {
-      handleSettingsChange("assigned_agent_ids", current.includes(agentId) ? current.filter(a => a !== agentId) : [...current, agentId]);
-    }
+    if (settingsForm.type === "Personal") { handleSettingsChange("assigned_agent_ids", [agentId]); }
+    else { handleSettingsChange("assigned_agent_ids", current.includes(agentId) ? current.filter(a => a !== agentId) : [...current, agentId]); }
   };
 
   const saveSettings = async () => {
     if (!id) return;
     setSettingsSaving(true);
     const { error } = await supabase.from("campaigns").update({
-      name: settingsForm.name,
-      description: settingsForm.description,
-      dial_mode: settingsForm.dial_mode,
-      assigned_agent_ids: settingsForm.assigned_agent_ids,
-      calling_hours_start: settingsForm.calling_hours_start,
-      calling_hours_end: settingsForm.calling_hours_end,
-      max_retries: settingsForm.max_retries,
-      retry_interval: settingsForm.retry_interval,
+      name: settingsForm.name, description: settingsForm.description, dial_mode: settingsForm.dial_mode,
+      assigned_agent_ids: settingsForm.assigned_agent_ids, calling_hours_start: settingsForm.calling_hours_start,
+      calling_hours_end: settingsForm.calling_hours_end, max_retries: settingsForm.max_retries, retry_interval: settingsForm.retry_interval,
     } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
     setSettingsSaving(false);
     if (error) { toast.error("Failed to save: " + error.message, { duration: 3000, position: "bottom-right" }); return; }
@@ -598,7 +790,6 @@ const CampaignDetail: React.FC = () => {
     fetchCampaign();
   };
 
-  // Stats computation
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     leads.forEach(l => { counts[l.status] = (counts[l.status] || 0) + 1; });
@@ -626,8 +817,16 @@ const CampaignDetail: React.FC = () => {
 
   const contactRate = campaign.total_leads > 0 ? Math.round((campaign.leads_contacted / campaign.total_leads) * 100) : 0;
 
+  // Separate leads for Open Pool agent view
+  const queueLeads = filteredLeads.filter(l => l.status === "Queued" || l.status === "Locked");
+  const claimedLeads = filteredLeads.filter(l => l.status === "Claimed");
+  const otherLeads = filteredLeads.filter(l => !["Queued", "Locked", "Claimed"].includes(l.status));
+  const secondsAgo = Math.floor((Date.now() - lastRefresh) / 1000);
+
   return (
     <div className="space-y-4">
+      <CelebrationOverlay show={showCelebration} />
+
       {/* Header */}
       <button onClick={() => navigate("/campaigns")} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Campaigns
@@ -674,13 +873,18 @@ const CampaignDetail: React.FC = () => {
       {/* LEADS TAB */}
       {tab === "Leads" && (
         <div className="space-y-4">
+          {/* Top bar — always present */}
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
-              <Plus className="w-4 h-4" /> Add Leads
-            </button>
-            <button onClick={() => setImportCSVOpen(true)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
-              <Upload className="w-4 h-4" /> Import CSV
-            </button>
+            {(isAdmin || !isOpenPool) && (
+              <>
+                <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+                  <Plus className="w-4 h-4" /> Add Leads
+                </button>
+                <button onClick={() => setImportCSVOpen(true)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
+                  <Upload className="w-4 h-4" /> Import CSV
+                </button>
+              </>
+            )}
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{leads.length} leads</span>
             <select value={leadFilter} onChange={e => setLeadFilter(e.target.value)} className="h-8 px-2 rounded-lg bg-muted text-sm text-foreground border border-border">
               <option value="All">All</option>
@@ -689,84 +893,194 @@ const CampaignDetail: React.FC = () => {
             </select>
           </div>
 
-          {leadsLoading ? (
-            <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-          ) : filteredLeads.length === 0 ? (
-            <div className="bg-card rounded-xl border p-8 text-center">
-              <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads to get started.</p>
-            </div>
-          ) : (
-            <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-accent/50 text-muted-foreground">
-                  <th className="text-left py-3 px-3 font-medium">Name</th>
-                  <th className="text-left py-3 px-3 font-medium">Phone</th>
-                  <th className="text-left py-3 px-3 font-medium">Email</th>
-                  <th className="text-left py-3 px-3 font-medium">State</th>
-                  <th className="text-left py-3 px-3 font-medium">Status</th>
-                  <th className="text-left py-3 px-3 font-medium">Callable</th>
-                  <th className="text-center py-3 px-3 font-medium">Attempts</th>
-                  <th className="text-left py-3 px-3 font-medium">Last Called</th>
-                  <th className="text-left py-3 px-3 font-medium">Disposition</th>
-                  <th className="w-12 py-3"></th>
-                </tr></thead>
-                <tbody>
-                  {filteredLeads.map(l => {
-                    const hidePhone = campaign.type === "Open Pool" && l.status === "Queued" && l.locked_by !== user?.id;
-                    const callableStatus = getLeadCallableStatus(l.state, campaign.calling_hours_start, campaign.calling_hours_end);
-                    return (
-                      <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                        <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
-                        <td className="py-3 px-3 text-foreground">
-                          {hidePhone ? (
-                            <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
-                          ) : l.phone}
-                        </td>
-                        <td className="py-3 px-3 text-foreground">{l.email}</td>
-                        <td className="py-3 px-3 text-foreground">{l.state}</td>
-                        <td className="py-3 px-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
-                        </td>
-                        <td className="py-3 px-3">
-                          {callableStatus === "available" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-success/10 text-success">Available</span>
-                          )}
-                          {callableStatus === "outside" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Outside Hours</span>
-                          )}
-                          {callableStatus === "nostate" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">No State</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
-                        <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
-                        <td className="py-3 px-3">
-                          {l.disposition ? (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span>
-                          ) : "—"}
-                        </td>
-                        <td className="py-3 px-3 relative">
-                          <button onClick={() => setActionMenuId(actionMenuId === l.id ? null : l.id)} className="text-muted-foreground hover:text-foreground">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
-                          {actionMenuId === l.id && (
-                            <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
-                              <button
-                                onClick={() => { setRemoveLeadId(l.id); setActionMenuId(null); }}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" /> Remove from Campaign
+          {/* ======= OPEN POOL: AGENT CARD VIEW ======= */}
+          {isOpenPool && !isAdmin && (
+            <>
+              {/* SharkTank Banner */}
+              <div className="bg-gradient-to-r from-orange-500/10 via-destructive/5 to-orange-500/10 border border-orange-500/20 rounded-xl p-4 flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-6 h-6 text-orange-500" />
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">SharkTank Mode</h3>
+                    <p className="text-xs text-muted-foreground">Claim leads before other agents — first to confirm wins!</p>
+                  </div>
+                </div>
+                <div className="flex gap-4 ml-auto text-xs">
+                  <span className="text-success font-medium">{poolStats.available} available</span>
+                  <span className="text-warning font-medium">{poolStats.locked} locked</span>
+                  <span className="text-primary font-medium">{poolStats.claimed} claimed</span>
+                </div>
+              </div>
+
+              {leadsLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+                </div>
+              ) : queueLeads.length === 0 && claimedLeads.length === 0 && otherLeads.length === 0 ? (
+                <div className="bg-card rounded-xl border p-8 text-center">
+                  <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
+                  <p className="text-muted-foreground text-sm">No leads in this campaign yet.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Available Queue */}
+                  {queueLeads.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-orange-500" /> Available to Claim ({queueLeads.length})
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {queueLeads.map(l => (
+                          <SharkTankCard
+                            key={l.id}
+                            lead={l}
+                            currentUserId={user?.id || ""}
+                            agents={agents}
+                            onClaim={handleClaimLead}
+                            onConfirm={handleConfirmClaim}
+                            onRelease={handleReleaseLead}
+                            claiming={claiming}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Claimed section */}
+                  {claimedLeads.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                        <Check className="w-4 h-4 text-success" /> Claimed ({claimedLeads.length})
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {claimedLeads.map(l => (
+                          <SharkTankCard
+                            key={l.id}
+                            lead={l}
+                            currentUserId={user?.id || ""}
+                            agents={agents}
+                            onClaim={handleClaimLead}
+                            onConfirm={handleConfirmClaim}
+                            onRelease={handleReleaseLead}
+                            claiming={claiming}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Other statuses */}
+                  {otherLeads.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-muted-foreground mb-3">Other ({otherLeads.length})</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {otherLeads.map(l => (
+                          <SharkTankCard
+                            key={l.id}
+                            lead={l}
+                            currentUserId={user?.id || ""}
+                            agents={agents}
+                            onClaim={handleClaimLead}
+                            onConfirm={handleConfirmClaim}
+                            onRelease={handleReleaseLead}
+                            claiming={claiming}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Last updated */}
+              <p className="text-xs text-muted-foreground text-center">
+                Last updated {secondsAgo < 5 ? "just now" : `${secondsAgo}s ago`} · Auto-refreshes every 5s
+              </p>
+            </>
+          )}
+
+          {/* ======= ADMIN TABLE VIEW (Open Pool) or ALL other campaign types ======= */}
+          {(!isOpenPool || isAdmin) && (
+            <>
+              {leadsLoading ? (
+                <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+              ) : filteredLeads.length === 0 ? (
+                <div className="bg-card rounded-xl border p-8 text-center">
+                  <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
+                  <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads to get started.</p>
+                </div>
+              ) : (
+                <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b bg-accent/50 text-muted-foreground">
+                      <th className="text-left py-3 px-3 font-medium">Name</th>
+                      <th className="text-left py-3 px-3 font-medium">Phone</th>
+                      <th className="text-left py-3 px-3 font-medium">Email</th>
+                      <th className="text-left py-3 px-3 font-medium">State</th>
+                      <th className="text-left py-3 px-3 font-medium">Status</th>
+                      {isOpenPool && isAdmin && <th className="text-left py-3 px-3 font-medium">Locked/Claimed By</th>}
+                      <th className="text-left py-3 px-3 font-medium">Callable</th>
+                      <th className="text-center py-3 px-3 font-medium">Attempts</th>
+                      <th className="text-left py-3 px-3 font-medium">Last Called</th>
+                      <th className="text-left py-3 px-3 font-medium">Disposition</th>
+                      <th className="w-12 py-3"></th>
+                    </tr></thead>
+                    <tbody>
+                      {filteredLeads.map(l => {
+                        const hidePhone = campaign.type === "Open Pool" && l.status === "Queued" && l.locked_by !== user?.id;
+                        const callableStatus = getLeadCallableStatus(l.state, campaign.calling_hours_start, campaign.calling_hours_end);
+                        const ownerAgent = l.locked_by ? agents.find(a => a.id === l.locked_by) : l.claimed_by ? agents.find(a => a.id === l.claimed_by) : null;
+                        return (
+                          <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
+                            <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
+                            <td className="py-3 px-3 text-foreground">
+                              {hidePhone ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span> : l.phone}
+                            </td>
+                            <td className="py-3 px-3 text-foreground">{l.email}</td>
+                            <td className="py-3 px-3 text-foreground">{l.state}</td>
+                            <td className="py-3 px-3">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
+                            </td>
+                            {isOpenPool && isAdmin && (
+                              <td className="py-3 px-3 text-sm text-muted-foreground">
+                                {ownerAgent ? getAgentDisplayName(ownerAgent) : "—"}
+                              </td>
+                            )}
+                            <td className="py-3 px-3">
+                              {callableStatus === "available" && <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-success/10 text-success">Available</span>}
+                              {callableStatus === "outside" && <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Outside Hours</span>}
+                              {callableStatus === "nostate" && <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">No State</span>}
+                            </td>
+                            <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
+                            <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
+                            <td className="py-3 px-3">
+                              {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
+                            </td>
+                            <td className="py-3 px-3 relative">
+                              <button onClick={() => setActionMenuId(actionMenuId === l.id ? null : l.id)} className="text-muted-foreground hover:text-foreground">
+                                <MoreHorizontal className="w-4 h-4" />
                               </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                              {actionMenuId === l.id && (
+                                <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
+                                  {isOpenPool && isAdmin && l.status === "Locked" && (
+                                    <button onClick={() => handleForceRelease(l.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-warning hover:bg-accent transition-colors">
+                                      <ShieldAlert className="w-4 h-4" /> Force Release
+                                    </button>
+                                  )}
+                                  <button onClick={() => { setRemoveLeadId(l.id); setActionMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
+                                    <Trash2 className="w-4 h-4" /> Remove from Campaign
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -803,16 +1117,7 @@ const CampaignDetail: React.FC = () => {
                   <div key={status} className="flex items-center gap-3">
                     <span className="text-xs w-20 text-muted-foreground">{status}</span>
                     <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${
-                          status === "Completed" ? "bg-success" :
-                          status === "Failed" ? "bg-destructive" :
-                          status === "Called" ? "bg-info" :
-                          status === "Locked" || status === "Claimed" ? "bg-warning" :
-                          "bg-primary/40"
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
+                      <div className={`h-full rounded-full transition-all ${status === "Completed" ? "bg-success" : status === "Failed" ? "bg-destructive" : status === "Called" ? "bg-info" : status === "Locked" || status === "Claimed" ? "bg-warning" : "bg-primary/40"}`} style={{ width: `${pct}%` }} />
                     </div>
                     <span className="text-xs text-foreground w-16 text-right">{count} ({pct}%)</span>
                   </div>
@@ -915,21 +1220,8 @@ const CampaignDetail: React.FC = () => {
       {/* Modals */}
       <AddLeadsModal open={addLeadsOpen} onClose={() => setAddLeadsOpen(false)} campaignId={id!} existingLeadIds={existingLeadIds} onAdded={() => { fetchLeads(); fetchCampaign(); }} />
       <ImportCSVModal open={importCSVOpen} onClose={() => setImportCSVOpen(false)} campaignId={id!} onImported={() => { fetchLeads(); fetchCampaign(); }} />
-      <ConfirmDialog
-        open={deleteConfirm}
-        title="Delete Campaign?"
-        message="Are you sure you want to delete this campaign? This will also remove all leads assigned to it. This cannot be undone."
-        onConfirm={handleDelete}
-        onClose={() => setDeleteConfirm(false)}
-      />
-      <ConfirmDialog
-        open={!!removeLeadId}
-        title="Remove Lead?"
-        message="Remove this lead from the campaign? The lead itself won't be deleted."
-        confirmLabel="Remove"
-        onConfirm={handleRemoveLead}
-        onClose={() => setRemoveLeadId(null)}
-      />
+      <ConfirmDialog open={deleteConfirm} title="Delete Campaign?" message="Are you sure you want to delete this campaign? This will also remove all leads assigned to it. This cannot be undone." onConfirm={handleDelete} onClose={() => setDeleteConfirm(false)} />
+      <ConfirmDialog open={!!removeLeadId} title="Remove Lead?" message="Remove this lead from the campaign? The lead itself won't be deleted." confirmLabel="Remove" onConfirm={handleRemoveLead} onClose={() => setRemoveLeadId(null)} />
     </div>
   );
 };
