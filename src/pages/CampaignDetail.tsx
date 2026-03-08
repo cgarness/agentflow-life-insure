@@ -9,7 +9,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+} from "recharts";
 import {
   DndContext,
   closestCenter,
@@ -472,7 +476,7 @@ const SortableLeadRow: React.FC<{
       </td>
       <td className="py-3 px-1">
         <TooltipProvider>
-          <Tooltip>
+          <UITooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => onQuickCall(l)}
@@ -489,7 +493,7 @@ const SortableLeadRow: React.FC<{
             <TooltipContent>
               <p className="text-xs">{!l.phone ? "No phone number on file" : hidePhone ? "Phone hidden in Open Pool" : "Quick call"}</p>
             </TooltipContent>
-          </Tooltip>
+          </UITooltip>
         </TooltipProvider>
       </td>
       <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
@@ -838,24 +842,24 @@ const CampaignDetail: React.FC = () => {
             <div className="flex items-center gap-3 flex-wrap bg-accent/50 border border-border rounded-lg px-4 py-2.5">
               <span className="text-sm font-medium text-foreground">{selectedLeadIds.size} selected</span>
               <TooltipProvider>
-                <Tooltip>
+                <UITooltip>
                   <TooltipTrigger asChild>
                     <button disabled className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed">
                       <MessageSquare className="w-4 h-4" /> SMS Blast
                     </button>
                   </TooltipTrigger>
                   <TooltipContent><p className="text-xs">Coming soon — configure SMS in Settings first</p></TooltipContent>
-                </Tooltip>
+                </UITooltip>
               </TooltipProvider>
               <TooltipProvider>
-                <Tooltip>
+                <UITooltip>
                   <TooltipTrigger asChild>
                     <button disabled className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed">
                       <Mail className="w-4 h-4" /> Email Blast
                     </button>
                   </TooltipTrigger>
                   <TooltipContent><p className="text-xs">Coming soon — configure Email in Settings first</p></TooltipContent>
-                </Tooltip>
+                </UITooltip>
               </TooltipProvider>
               <div className="relative">
                 <button onClick={() => setBulkAssignOpen(!bulkAssignOpen)} className="px-3 py-1.5 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
@@ -983,6 +987,87 @@ const CampaignDetail: React.FC = () => {
               <p className="text-sm font-medium text-muted-foreground">Coming Soon</p>
             </div>
           </div>
+
+          {/* Analytics Charts */}
+          {leads.length > 0 && (() => {
+            // Leads contacted over time (line chart) — group by date using last_called_at
+            const contactedByDate: Record<string, number> = {};
+            leads.forEach(l => {
+              if (l.last_called_at) {
+                const day = new Date(l.last_called_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                contactedByDate[day] = (contactedByDate[day] || 0) + 1;
+              }
+            });
+            const lineData = Object.entries(contactedByDate)
+              .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+              .map(([date, count]) => ({ date, contacted: count }));
+
+            // Disposition breakdown (pie chart)
+            const dispCounts: Record<string, number> = {};
+            leads.forEach(l => {
+              const d = l.disposition || "No Disposition";
+              dispCounts[d] = (dispCounts[d] || 0) + 1;
+            });
+            const pieData = Object.entries(dispCounts).map(([name, value]) => ({ name, value }));
+            const PIE_COLORS = [
+              "hsl(var(--primary))", "hsl(var(--success))", "hsl(var(--warning))",
+              "hsl(var(--destructive))", "hsl(var(--info))", "hsl(var(--accent))",
+              "hsl(var(--muted-foreground))", "hsl(210 60% 50%)", "hsl(280 60% 50%)",
+            ];
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Line Chart — Leads Contacted Over Time */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Leads Contacted Over Time</h3>
+                  {lineData.length === 0 ? (
+                    <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No contact activity yet</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={lineData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <RechartsTooltip
+                          contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                          labelStyle={{ color: "hsl(var(--foreground))" }}
+                        />
+                        <Line type="monotone" dataKey="contacted" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: "hsl(var(--primary))" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* Pie Chart — Disposition Breakdown */}
+                <div className="bg-card rounded-xl border p-6">
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Disposition Breakdown</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        style={{ fontSize: 10 }}
+                      >
+                        {pieData.map((_, idx) => (
+                          <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })()}
 
           {leads.length === 0 ? (
             <div className="bg-card rounded-xl border p-8 text-center">

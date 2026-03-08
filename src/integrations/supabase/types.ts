@@ -176,6 +176,91 @@ export type Database = {
         }
         Relationships: []
       }
+      calls: {
+        Row: {
+          agent_id: string | null
+          campaign_id: string | null
+          campaign_lead_id: string | null
+          contact_id: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          contact_type: string | null
+          created_at: string | null
+          direction: string | null
+          disposition_id: string | null
+          disposition_name: string | null
+          duration: number | null
+          ended_at: string | null
+          id: string
+          notes: string | null
+          outcome: string | null
+          recording_url: string | null
+          started_at: string | null
+        }
+        Insert: {
+          agent_id?: string | null
+          campaign_id?: string | null
+          campaign_lead_id?: string | null
+          contact_id?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          contact_type?: string | null
+          created_at?: string | null
+          direction?: string | null
+          disposition_id?: string | null
+          disposition_name?: string | null
+          duration?: number | null
+          ended_at?: string | null
+          id?: string
+          notes?: string | null
+          outcome?: string | null
+          recording_url?: string | null
+          started_at?: string | null
+        }
+        Update: {
+          agent_id?: string | null
+          campaign_id?: string | null
+          campaign_lead_id?: string | null
+          contact_id?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          contact_type?: string | null
+          created_at?: string | null
+          direction?: string | null
+          disposition_id?: string | null
+          disposition_name?: string | null
+          duration?: number | null
+          ended_at?: string | null
+          id?: string
+          notes?: string | null
+          outcome?: string | null
+          recording_url?: string | null
+          started_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calls_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_campaign_lead_id_fkey"
+            columns: ["campaign_lead_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_disposition_id_fkey"
+            columns: ["disposition_id"]
+            isOneToOne: false
+            referencedRelation: "dispositions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_leads: {
         Row: {
           age: number | null
@@ -535,6 +620,59 @@ export type Database = {
           url?: string
         }
         Relationships: []
+      }
+      dialer_sessions: {
+        Row: {
+          agent_id: string | null
+          calls_connected: number | null
+          calls_made: number | null
+          campaign_id: string | null
+          campaign_name: string | null
+          created_at: string | null
+          ended_at: string | null
+          id: string
+          mode: string | null
+          policies_sold: number | null
+          started_at: string | null
+          total_talk_time: number | null
+        }
+        Insert: {
+          agent_id?: string | null
+          calls_connected?: number | null
+          calls_made?: number | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          mode?: string | null
+          policies_sold?: number | null
+          started_at?: string | null
+          total_talk_time?: number | null
+        }
+        Update: {
+          agent_id?: string | null
+          calls_connected?: number | null
+          calls_made?: number | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          mode?: string | null
+          policies_sold?: number | null
+          started_at?: string | null
+          total_talk_time?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dialer_sessions_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       dispositions: {
         Row: {
