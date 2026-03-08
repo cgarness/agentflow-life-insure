@@ -3,13 +3,30 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
   Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Mail,
-  MessageSquare, Tag, UserPlus,
+  MessageSquare, Tag, UserPlus, GripVertical,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface Campaign {
   id: string;
@@ -45,6 +62,7 @@ interface CampaignLead {
   claimed_by: string | null;
   claimed_at: string | null;
   source: string | null;
+  sort_order: number;
 }
 
 interface AgentProfile {
@@ -411,6 +429,109 @@ const ImportCSVModal: React.FC<{
   );
 };
 
+// ---- Sortable Lead Row ----
+const SortableLeadRow: React.FC<{
+  lead: CampaignLead;
+  index: number;
+  isAdmin: boolean;
+  isOpenPool: boolean;
+  isDragEnabled: boolean;
+  user: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  agents: AgentProfile[];
+  selectedLeadIds: Set<string>;
+  actionMenuId: string | null;
+  onToggleSelect: (id: string) => void;
+  onQuickCall: (lead: CampaignLead) => void;
+  onActionMenu: (id: string) => void;
+  onRemoveLead: (id: string) => void;
+  onForceRelease: (id: string) => void;
+}> = ({ lead: l, isAdmin, isOpenPool, isDragEnabled, user, agents, selectedLeadIds, actionMenuId, onToggleSelect, onQuickCall, onActionMenu, onRemoveLead, onForceRelease }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: l.id, disabled: !isDragEnabled });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: isDragging ? "relative" as const : undefined,
+    zIndex: isDragging ? 50 : undefined,
+  };
+
+  const hidePhone = isOpenPool && !isAdmin && l.status !== "Claimed" && l.claimed_by !== user?.id;
+  const ownerAgent = l.locked_by ? agents.find(a => a.id === l.locked_by) : l.claimed_by ? agents.find(a => a.id === l.claimed_by) : null;
+
+  return (
+    <tr ref={setNodeRef} style={style} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isDragging ? "bg-accent" : ""}`}>
+      {isDragEnabled && (
+        <td className="py-3 px-1">
+          <button {...attributes} {...listeners} className="text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing p-1">
+            <GripVertical className="w-4 h-4" />
+          </button>
+        </td>
+      )}
+      <td className="py-3 px-3">
+        <input type="checkbox" checked={selectedLeadIds.has(l.id)} onChange={() => onToggleSelect(l.id)} className="rounded accent-[hsl(var(--primary))]" />
+      </td>
+      <td className="py-3 px-1">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onQuickCall(l)}
+                disabled={!l.phone || hidePhone}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                  l.phone && !hidePhone
+                    ? "bg-success/10 text-success hover:bg-success/20"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">{!l.phone ? "No phone number on file" : hidePhone ? "Phone hidden in Open Pool" : "Quick call"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </td>
+      <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
+      <td className="py-3 px-3 text-foreground">
+        {hidePhone ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span> : l.phone}
+      </td>
+      <td className="py-3 px-3 text-foreground">{l.email}</td>
+      <td className="py-3 px-3 text-foreground">{l.state}</td>
+      <td className="py-3 px-3">
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
+      </td>
+      {isOpenPool && isAdmin && (
+        <td className="py-3 px-3 text-sm text-muted-foreground">
+          {ownerAgent ? getAgentDisplayName(ownerAgent) : "—"}
+        </td>
+      )}
+      <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
+      <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
+      <td className="py-3 px-3">
+        {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
+      </td>
+      <td className="py-3 px-3 relative">
+        <button onClick={() => onActionMenu(l.id)} className="text-muted-foreground hover:text-foreground">
+          <MoreHorizontal className="w-4 h-4" />
+        </button>
+        {actionMenuId === l.id && (
+          <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
+            {isOpenPool && isAdmin && l.status === "Locked" && (
+              <button onClick={() => onForceRelease(l.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-warning hover:bg-accent transition-colors">
+                <AlertTriangle className="w-4 h-4" /> Force Release
+              </button>
+            )}
+            <button onClick={() => onRemoveLead(l.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
+              <Trash2 className="w-4 h-4" /> Remove from Campaign
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+};
+
 // ---- MAIN COMPONENT ----
 const CampaignDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -444,6 +565,12 @@ const CampaignDetail: React.FC = () => {
 
   const isAdmin = profile?.role?.toLowerCase() === "admin";
 
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   const fetchCampaign = useCallback(async () => {
     if (!id) return;
     const { data } = await supabase.from("campaigns").select("*").eq("id", id).single();
@@ -458,7 +585,7 @@ const CampaignDetail: React.FC = () => {
   const fetchLeads = useCallback(async (silent = false) => {
     if (!id) return;
     if (!silent) setLeadsLoading(true);
-    const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("created_at", { ascending: false });
+    const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
     setLeads((data as CampaignLead[]) || []);
     if (!silent) setLeadsLoading(false);
   }, [id]);
@@ -566,8 +693,30 @@ const CampaignDetail: React.FC = () => {
       setSelectedLeadIds(new Set(filteredLeads.map(l => l.id)));
     }
   };
+  // Drag and drop reorder (admin only)
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !isAdmin || leadFilter !== "All") return;
+    const oldIndex = leads.findIndex(l => l.id === active.id);
+    const newIndex = leads.findIndex(l => l.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(leads, oldIndex, newIndex);
+    setLeads(reordered);
+    // Persist sort_order
+    const updates = reordered.map((l, i) => ({ id: l.id, sort_order: i }));
+    // Batch update in chunks
+    for (let i = 0; i < updates.length; i += 50) {
+      const chunk = updates.slice(i, i + 50);
+      await Promise.all(
+        chunk.map(u =>
+          supabase.from("campaign_leads").update({ sort_order: u.sort_order } as any).eq("id", u.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+        )
+      );
+    }
+    toast.success("Queue order updated", { duration: 3000, position: "bottom-right" });
+  };
 
-  // Settings
+
   const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const toggleSettingsAgent = (agentId: string) => {
     const current = (settingsForm.assigned_agent_ids || []) as string[];
@@ -738,102 +887,63 @@ const CampaignDetail: React.FC = () => {
               <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads to get started.</p>
             </div>
           ) : (
-            <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-accent/50 text-muted-foreground">
-                  <th className="w-10 py-3 px-3">
-                    <input type="checkbox" checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0} onChange={toggleSelectAll} className="rounded accent-[hsl(var(--primary))]" />
-                  </th>
-                  <th className="w-10 py-3 px-1"></th>
-                  <th className="text-left py-3 px-3 font-medium">Name</th>
-                  <th className="text-left py-3 px-3 font-medium">Phone</th>
-                  <th className="text-left py-3 px-3 font-medium">Email</th>
-                  <th className="text-left py-3 px-3 font-medium">State</th>
-                  <th className="text-left py-3 px-3 font-medium">Status</th>
-                  {isOpenPool && isAdmin && <th className="text-left py-3 px-3 font-medium">Locked/Claimed By</th>}
-                  <th className="text-center py-3 px-3 font-medium">Attempts</th>
-                  <th className="text-left py-3 px-3 font-medium">Last Called</th>
-                  <th className="text-left py-3 px-3 font-medium">Disposition</th>
-                  <th className="w-12 py-3"></th>
-                </tr></thead>
-                <tbody>
-                  {filteredLeads.map(l => {
-                    const hidePhone = isOpenPool && !isAdmin && l.status !== "Claimed" && l.claimed_by !== user?.id;
-                    const ownerAgent = l.locked_by ? agents.find(a => a.id === l.locked_by) : l.claimed_by ? agents.find(a => a.id === l.claimed_by) : null;
-                    return (
-                      <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                        <td className="py-3 px-3">
-                          <input type="checkbox" checked={selectedLeadIds.has(l.id)} onChange={() => toggleLeadSelection(l.id)} className="rounded accent-[hsl(var(--primary))]" />
-                        </td>
-                        <td className="py-3 px-1">
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  onClick={() => handleQuickCall(l)}
-                                  disabled={!l.phone || hidePhone}
-                                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                                    l.phone && !hidePhone
-                                      ? "bg-success/10 text-success hover:bg-success/20"
-                                      : "bg-muted text-muted-foreground cursor-not-allowed"
-                                  }`}
-                                >
-                                  <Phone className="w-3.5 h-3.5" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">{!l.phone ? "No phone number on file" : hidePhone ? "Phone hidden in Open Pool" : "Quick call"}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </td>
-                        <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
-                        <td className="py-3 px-3 text-foreground">
-                          {hidePhone ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span> : l.phone}
-                        </td>
-                        <td className="py-3 px-3 text-foreground">{l.email}</td>
-                        <td className="py-3 px-3 text-foreground">{l.state}</td>
-                        <td className="py-3 px-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
-                        </td>
-                        {isOpenPool && isAdmin && (
-                          <td className="py-3 px-3 text-sm text-muted-foreground">
-                            {ownerAgent ? getAgentDisplayName(ownerAgent) : "—"}
-                          </td>
-                        )}
-                        <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
-                        <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
-                        <td className="py-3 px-3">
-                          {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
-                        </td>
-                        <td className="py-3 px-3 relative">
-                          <button onClick={() => setActionMenuId(actionMenuId === l.id ? null : l.id)} className="text-muted-foreground hover:text-foreground">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
-                          {actionMenuId === l.id && (
-                            <div className="absolute right-0 top-full z-10 bg-card border rounded-lg shadow-lg py-1 w-48">
-                              {isOpenPool && isAdmin && l.status === "Locked" && (
-                                <button onClick={async () => {
-                                  await supabase.from("campaign_leads").update({ status: "Queued", locked_by: null, locked_at: null } as any).eq("id", l.id); // eslint-disable-line @typescript-eslint/no-explicit-any
-                                  toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
-                                  setActionMenuId(null);
-                                  fetchLeads(true);
-                                }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-warning hover:bg-accent transition-colors">
-                                  <AlertTriangle className="w-4 h-4" /> Force Release
-                                </button>
-                              )}
-                              <button onClick={() => { setRemoveLeadId(l.id); setActionMenuId(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors">
-                                <Trash2 className="w-4 h-4" /> Remove from Campaign
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto">
+                {isAdmin && leadFilter === "All" && (
+                  <div className="px-4 py-2 bg-accent/30 border-b border-border flex items-center gap-2">
+                    <GripVertical className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">Drag rows to reorder the call queue priority</p>
+                  </div>
+                )}
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b bg-accent/50 text-muted-foreground">
+                    {isAdmin && leadFilter === "All" && <th className="w-10 py-3 px-1"></th>}
+                    <th className="w-10 py-3 px-3">
+                      <input type="checkbox" checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0} onChange={toggleSelectAll} className="rounded accent-[hsl(var(--primary))]" />
+                    </th>
+                    <th className="w-10 py-3 px-1"></th>
+                    <th className="text-left py-3 px-3 font-medium">Name</th>
+                    <th className="text-left py-3 px-3 font-medium">Phone</th>
+                    <th className="text-left py-3 px-3 font-medium">Email</th>
+                    <th className="text-left py-3 px-3 font-medium">State</th>
+                    <th className="text-left py-3 px-3 font-medium">Status</th>
+                    {isOpenPool && isAdmin && <th className="text-left py-3 px-3 font-medium">Locked/Claimed By</th>}
+                    <th className="text-center py-3 px-3 font-medium">Attempts</th>
+                    <th className="text-left py-3 px-3 font-medium">Last Called</th>
+                    <th className="text-left py-3 px-3 font-medium">Disposition</th>
+                    <th className="w-12 py-3"></th>
+                  </tr></thead>
+                  <SortableContext items={filteredLeads.map(l => l.id)} strategy={verticalListSortingStrategy}>
+                    <tbody>
+                      {filteredLeads.map((l, idx) => (
+                        <SortableLeadRow
+                          key={l.id}
+                          lead={l}
+                          index={idx}
+                          isAdmin={isAdmin}
+                          isOpenPool={isOpenPool}
+                          isDragEnabled={isAdmin && leadFilter === "All"}
+                          user={user}
+                          agents={agents}
+                          selectedLeadIds={selectedLeadIds}
+                          actionMenuId={actionMenuId}
+                          onToggleSelect={toggleLeadSelection}
+                          onQuickCall={handleQuickCall}
+                          onActionMenu={(id) => setActionMenuId(actionMenuId === id ? null : id)}
+                          onRemoveLead={(id) => { setRemoveLeadId(id); setActionMenuId(null); }}
+                          onForceRelease={async (id) => {
+                            await supabase.from("campaign_leads").update({ status: "Queued", locked_by: null, locked_at: null } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+                            toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
+                            setActionMenuId(null);
+                            fetchLeads(true);
+                          }}
+                        />
+                      ))}
+                    </tbody>
+                  </SortableContext>
+                </table>
+              </div>
+            </DndContext>
           )}
         </div>
       )}

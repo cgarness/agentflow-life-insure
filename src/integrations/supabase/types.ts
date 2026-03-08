@@ -194,6 +194,7 @@ export type Database = {
           locked_at: string | null
           locked_by: string | null
           phone: string | null
+          sort_order: number | null
           source: string | null
           state: string | null
           status: string | null
@@ -216,6 +217,7 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           phone?: string | null
+          sort_order?: number | null
           source?: string | null
           state?: string | null
           status?: string | null
@@ -238,6 +240,7 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           phone?: string | null
+          sort_order?: number | null
           source?: string | null
           state?: string | null
           status?: string | null
