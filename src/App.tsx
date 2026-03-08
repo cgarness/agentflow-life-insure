@@ -27,7 +27,7 @@ import SignupPage from "./pages/SignupPage";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
-import LandingPage from "./pages/LandingPage";
+
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
