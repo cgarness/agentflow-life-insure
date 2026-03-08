@@ -952,28 +952,34 @@ export type Database = {
       }
       phone_numbers: {
         Row: {
+          area_code: string | null
           assigned_to: string | null
           created_at: string | null
           friendly_name: string | null
           id: string
+          is_default: boolean | null
           phone_number: string
           status: string | null
           updated_at: string | null
         }
         Insert: {
+          area_code?: string | null
           assigned_to?: string | null
           created_at?: string | null
           friendly_name?: string | null
           id?: string
+          is_default?: boolean | null
           phone_number: string
           status?: string | null
           updated_at?: string | null
         }
         Update: {
+          area_code?: string | null
           assigned_to?: string | null
           created_at?: string | null
           friendly_name?: string | null
           id?: string
+          is_default?: boolean | null
           phone_number?: string
           status?: string | null
           updated_at?: string | null
