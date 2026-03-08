@@ -45,13 +45,18 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           end_time: string | null
+          external_event_id: string | null
+          external_last_synced_at: string | null
+          external_provider: string | null
           id: string
           notes: string | null
           start_time: string
           status: string
+          sync_source: string
           title: string
           type: string
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           contact_id?: string | null
@@ -59,13 +64,18 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           end_time?: string | null
+          external_event_id?: string | null
+          external_last_synced_at?: string | null
+          external_provider?: string | null
           id?: string
           notes?: string | null
           start_time: string
           status?: string
+          sync_source?: string
           title: string
           type?: string
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           contact_id?: string | null
@@ -73,13 +83,66 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           end_time?: string | null
+          external_event_id?: string | null
+          external_last_synced_at?: string | null
+          external_provider?: string | null
           id?: string
           notes?: string | null
           start_time?: string
           status?: string
+          sync_source?: string
           title?: string
           type?: string
           updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      calendar_integrations: {
+        Row: {
+          access_token: string | null
+          calendar_id: string | null
+          created_at: string
+          id: string
+          last_sync_at: string | null
+          last_sync_token: string | null
+          provider: string
+          refresh_token: string | null
+          sync_enabled: boolean
+          sync_mode: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          calendar_id?: string | null
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_token?: string | null
+          provider?: string
+          refresh_token?: string | null
+          sync_enabled?: boolean
+          sync_mode?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          calendar_id?: string | null
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_token?: string | null
+          provider?: string
+          refresh_token?: string | null
+          sync_enabled?: boolean
+          sync_mode?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }

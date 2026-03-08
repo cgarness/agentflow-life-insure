@@ -1,4 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+// Telnyx check connection edge function
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
