@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/hooks/use-toast";
 import CustomizeDrawer, { WidgetConfig } from "@/components/dashboard/CustomizeDrawer";
+import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -77,6 +78,8 @@ const Dashboard: React.FC = () => {
   const [gridLayouts, setGridLayouts] = useState<Layouts>({ lg: DEFAULT_LAYOUT });
   const [layoutReady, setLayoutReady] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [briefingOpen, setBriefingOpen] = useState(false);
+  const briefingCheckedRef = useRef(false);
   const widgetsOnOpenRef = useRef<string>("");
 
   // Load from localStorage
@@ -131,9 +134,20 @@ const Dashboard: React.FC = () => {
       setWins(w);
       setActivities(act);
       setLoading(false);
+
+      // First-login-of-day briefing check
+      if (!briefingCheckedRef.current && user?.id) {
+        briefingCheckedRef.current = true;
+        const today = new Date().toISOString().split("T")[0];
+        const key = `briefing-last-shown-${user.id}`;
+        if (localStorage.getItem(key) !== today) {
+          setBriefingOpen(true);
+          localStorage.setItem(key, today);
+        }
+      }
     };
     load();
-  }, [lbPeriod]);
+  }, [lbPeriod, user?.id]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -638,6 +652,15 @@ const Dashboard: React.FC = () => {
         widgets={widgets}
         onWidgetsChange={setWidgets}
         onReset={handleReset}
+      />
+      <DailyBriefingModal
+        open={briefingOpen}
+        onClose={() => setBriefingOpen(false)}
+        firstName={firstName}
+        appointments={appointments}
+        followUps={followUps}
+        anniversaries={anniversaries}
+        stats={stats}
       />
     </div>
   );
