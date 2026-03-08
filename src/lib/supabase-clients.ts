@@ -19,7 +19,7 @@ export const clientsSupabaseApi = {
     },
 
     async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">): Promise<Client> {
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("clients")
             .insert(clientToRow(data))
             .select()
