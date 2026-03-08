@@ -19,7 +19,7 @@ const fadeUp = {
 
 const stagger = { visible: { transition: { staggerChildren: 0.08 } } };
 
-function MagneticButton({ children, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
+function MagneticButton({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
 
@@ -39,7 +39,7 @@ function MagneticButton({ children, className = "", ...props }: React.ButtonHTML
       onMouseMove={handleMove}
       onMouseLeave={() => setPos({ x: 0, y: 0 })}
       className={className}
-      {...props}
+      onClick={onClick}
     >
       {children}
     </motion.button>
