@@ -104,6 +104,27 @@ const FloatingDialer: React.FC = () => {
     return () => window.removeEventListener("toggle-floating-dialer", handler);
   }, []);
 
+  // Listen for quick-call event from campaign leads
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.phone) {
+        const nameParts = (detail.name || "").split(" ");
+        setSelectedContact({
+          id: detail.contactId || "",
+          first_name: nameParts[0] || "",
+          last_name: nameParts.slice(1).join(" ") || "",
+          phone: detail.phone,
+        });
+        setSearchTerm(detail.name || detail.phone);
+        setActiveTab("dial");
+        setOpen(true);
+      }
+    };
+    window.addEventListener("quick-call", handler);
+    return () => window.removeEventListener("quick-call", handler);
+  }, []);
+
   // Call timer
   useEffect(() => {
     let timer: NodeJS.Timeout;

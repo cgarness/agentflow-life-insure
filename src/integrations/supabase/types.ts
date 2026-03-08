@@ -262,70 +262,49 @@ export type Database = {
       }
       campaigns: {
         Row: {
-          allowed_states: Json | null
           assigned_agent_ids: Json | null
-          calling_hours_end: string | null
-          calling_hours_start: string | null
           created_at: string | null
           created_by: string | null
           description: string | null
-          dial_mode: string | null
           id: string
           leads_contacted: number | null
           leads_converted: number | null
-          max_retries: number | null
           name: string
-          retry_interval: number | null
-          script_id: string | null
           status: string
+          tags: Json | null
           total_leads: number | null
           type: string
           updated_at: string | null
-          voicemail_drop_id: string | null
         }
         Insert: {
-          allowed_states?: Json | null
           assigned_agent_ids?: Json | null
-          calling_hours_end?: string | null
-          calling_hours_start?: string | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
-          dial_mode?: string | null
           id?: string
           leads_contacted?: number | null
           leads_converted?: number | null
-          max_retries?: number | null
           name: string
-          retry_interval?: number | null
-          script_id?: string | null
           status?: string
+          tags?: Json | null
           total_leads?: number | null
           type?: string
           updated_at?: string | null
-          voicemail_drop_id?: string | null
         }
         Update: {
-          allowed_states?: Json | null
           assigned_agent_ids?: Json | null
-          calling_hours_end?: string | null
-          calling_hours_start?: string | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
-          dial_mode?: string | null
           id?: string
           leads_contacted?: number | null
           leads_converted?: number | null
-          max_retries?: number | null
           name?: string
-          retry_interval?: number | null
-          script_id?: string | null
           status?: string
+          tags?: Json | null
           total_leads?: number | null
           type?: string
           updated_at?: string | null
-          voicemail_drop_id?: string | null
         }
         Relationships: []
       }
