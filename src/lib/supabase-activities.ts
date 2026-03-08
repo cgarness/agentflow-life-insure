@@ -5,7 +5,7 @@ import { getAgentName } from "@/lib/mock-data";
 export const activitiesSupabaseApi = {
     // Get all activities for a specific contact
     async getByContact(contactId: string): Promise<ContactActivity[]> {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
             .from("contact_activities")
             .select("*, agent:profiles(first_name, last_name)")
             .eq("contact_id", contactId)
