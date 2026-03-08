@@ -13,6 +13,7 @@ const LoginPage: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [accessGranted, setAccessGranted] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +21,8 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       await login(email, password);
-      navigate("/");
+      setAccessGranted(true);
+      setTimeout(() => navigate("/"), 1200);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message || "Invalid credentials");
     } finally {
