@@ -62,6 +62,7 @@ interface CampaignLead {
   claimed_by: string | null;
   claimed_at: string | null;
   source: string | null;
+  sort_order: number;
 }
 
 interface AgentProfile {
