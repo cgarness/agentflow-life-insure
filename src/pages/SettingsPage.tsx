@@ -9,6 +9,7 @@ import CallScripts from "@/components/settings/CallScripts";
 import CalendarSettings from "@/components/settings/CalendarSettings";
 import MyProfile from "@/components/settings/MyProfile";
 import PhoneSettings from "@/components/settings/PhoneSettings";
+import DNCSettings from "@/components/settings/DNCSettings";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -179,29 +180,7 @@ const SettingsPage: React.FC = () => {
         );
 
       case 19: // DNC List
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">DNC List Manager <span className="text-sm font-normal text-muted-foreground ml-2">47 numbers</span></h3>
-              <div className="flex gap-2">
-                <button className="px-3 py-1.5 rounded-lg bg-accent text-foreground text-sm flex items-center gap-2 hover:bg-accent/80"><Upload className="w-4 h-4" /> Import CSV</button>
-                <button className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90"><Plus className="w-4 h-4" /> Add Number</button>
-              </div>
-            </div>
-            <div className="relative max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><input type="text" placeholder="Search numbers..." className="w-full h-9 pl-9 pr-4 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" /></div>
-            <div className="bg-card rounded-xl border divide-y">
-              {["(555) 111-0001", "(555) 222-0002", "(555) 333-0003", "(555) 444-0004", "(555) 555-0005"].map((n) => (
-                <div key={n} className="flex items-center justify-between px-4 py-3">
-                  <span className="text-sm font-mono text-foreground">{n}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">Added Jan 15, 2025</span>
-                    <button className="text-xs text-destructive hover:underline">Remove</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <DNCSettings />;
 
       case 22: // Activity Log
         return (
