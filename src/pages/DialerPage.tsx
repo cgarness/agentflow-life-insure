@@ -717,6 +717,9 @@ const DialerPage: React.FC = () => {
     const contactPhone = quickDialMode ? quickDialNumber : currentLead?.phone ?? "";
 
     // 1. Insert call record
+    const callerIdOutcome = activeCallerId
+      ? JSON.stringify({ caller_id: activeCallerId.callerNumber, match_type: activeCallerId.matchType })
+      : null;
     await supabase.from("calls").insert({
       contact_id: currentLead?.lead_id ?? null,
       contact_type: "lead",
@@ -730,6 +733,7 @@ const DialerPage: React.FC = () => {
       disposition_id: disp.id,
       disposition_name: disp.name,
       notes: dispNotes || null,
+      outcome: callerIdOutcome,
       started_at: startedAt,
       ended_at: endedAt,
     });
