@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
     Phone, Shield, ShieldAlert, ShieldCheck,
     Settings2, Plus, RefreshCw, Trash2,
-    ExternalLink, Loader2, Info
+    ExternalLink, Loader2, Info, Headphones
 } from "lucide-react";
 import {
     Card, CardContent, CardDescription,
@@ -363,6 +363,63 @@ const PhoneSettings: React.FC = () => {
                             </div>
                             <Button className="w-full mt-2" onClick={handleSaveConfig} disabled={saving}>
                                 {saving ? "Saving..." : "Update Credentials"}
+                            </Button>
+                        </CardContent>
+                    </Card>
+
+                    {/* SIP Credentials Card */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-sm flex items-center gap-2">
+                                <Headphones className="w-4 h-4 text-primary" />
+                                SIP Authentication
+                            </CardTitle>
+                            <CardDescription>
+                                Used by the browser dialer to log into the network.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-medium uppercase text-muted-foreground">SIP Username</label>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            <p className="max-w-xs text-xs">Found in your TeXML App settings under <strong>Authentication</strong>.</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </div>
+                                <Input
+                                    value={config.account_sid}
+                                    onChange={e => setConfig({ ...config, account_sid: e.target.value })}
+                                    placeholder="Enter SIP Username"
+                                    className="font-mono text-sm"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-medium uppercase text-muted-foreground">SIP Password</label>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            <p className="max-w-xs text-xs">The password you set for the SIP credentials.</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </div>
+                                <Input
+                                    value={config.auth_token}
+                                    type="password"
+                                    onChange={e => setConfig({ ...config, auth_token: e.target.value })}
+                                    placeholder="Enter SIP Password"
+                                    className="font-mono text-sm"
+                                />
+                            </div>
+                            <Button variant="secondary" className="w-full mt-2" onClick={handleSaveConfig} disabled={saving}>
+                                {saving ? "Saving..." : "Update SIP Credentials"}
                             </Button>
                         </CardContent>
                     </Card>
