@@ -825,6 +825,9 @@ const DialerPage: React.FC = () => {
     // Log call without disposition
     const now = new Date();
     const contactName = currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : "Manual Dial";
+    const skipCallerIdOutcome = activeCallerId
+      ? JSON.stringify({ caller_id: activeCallerId.callerNumber, match_type: activeCallerId.matchType })
+      : null;
     await supabase.from("calls").insert({
       contact_id: currentLead?.lead_id ?? null,
       contact_type: "lead",
@@ -835,6 +838,7 @@ const DialerPage: React.FC = () => {
       campaign_lead_id: currentLead?.id ?? null,
       direction: "outbound",
       duration: callSeconds,
+      outcome: skipCallerIdOutcome,
       started_at: callStartedAt?.toISOString(),
       ended_at: now.toISOString(),
     });
