@@ -1,1 +1,37 @@
 project_id = "jncvvsvckxhqgqvkppmj"
+
+[functions.google-oauth-start]
+verify_jwt = false
+
+[functions.google-oauth-callback]
+verify_jwt = false
+
+[functions.google-calendar-list]
+verify_jwt = false
+
+[functions.google-calendar-status]
+verify_jwt = false
+
+[functions.google-calendar-configure]
+verify_jwt = false
+
+[functions.google-calendar-disconnect]
+verify_jwt = false
+
+[functions.google-calendar-sync-appointment]
+verify_jwt = false
+
+[functions.google-calendar-inbound-sync]
+verify_jwt = false
+
+[functions.telnyx-token]
+verify_jwt = false
+
+[functions.telnyx-buy-number]
+verify_jwt = false
+
+[functions.telnyx-search-numbers]
+verify_jwt = false
+
+[functions.telnyx-check-connection]
+verify_jwt = false
