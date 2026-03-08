@@ -1,27 +1,45 @@
 
 
-## Plan: Add Dev-Only Auth Bypass via Query Parameter
+## Redo Landing Page — Modern Desktop-Focused Feature Showcase
 
-**What**: Allow bypassing authentication in development by adding `?bypass_auth=true` to the URL. This lets the browser automation tool access protected routes without logging in.
+### Overview
+Rebuild `src/pages/LandingPage.tsx` with the same dark theme and blue/green color palette, but redesigned to be desktop-optimized and to deeply showcase each of the 11 system features (Dashboard, Dialer, Contacts, Conversations, Calendar, Campaigns, Leaderboard, Reports, AI Agents, Training, Settings).
 
-**How**: Modify the `ProtectedRoute` component in `src/App.tsx` (lines 36-45) to check for the `bypass_auth=true` query parameter. The bypass will only work in development mode (`import.meta.env.DEV`).
+### Design Direction
+- Dark background (#030303) with blue-to-green gradient accents (indigo, blue, cyan, emerald, teal)
+- Glassmorphism cards with subtle border glow on hover
+- Framer Motion scroll-triggered animations throughout
+- Desktop-first layout — no mobile hamburger menu, wider grids, larger typography
+- Each feature gets a dedicated visual card with a mock UI preview inside it
 
-```typescript
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const searchParams = new URLSearchParams(window.location.search);
-  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
-  
-  if (bypassAuth) return <>{children}</>;
-  if (isLoading) return (/* spinner */);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-};
-```
+### Sections
 
-**Safety**: `import.meta.env.DEV` is `false` in production builds, so the bypass is completely stripped out. No security risk in deployed builds.
+1. **Sticky Nav** — Logo, anchor links (Features, Platform, Testimonials), Sign In / Get Started buttons
 
-**Usage**: When asking me to test, I'll navigate to e.g. `/settings?bypass_auth=true`.
+2. **Hero** — Large gradient headline, subtitle, two CTAs (magnetic buttons), floating stat badges, animated mesh gradient background, large mock dashboard screenshot placeholder
 
-**Note**: Profile-dependent features (user name, avatar, etc.) will show empty/null since there's no actual session. But it's sufficient for testing UI and OAuth flows.
+3. **Trusted By** — Logo marquee (same companies)
+
+4. **Features Overview** — Section header + 3-column bento grid of all 11 features. Each card contains:
+   - Icon + title + description
+   - A small mock UI visual (terminal for AI, waveform for Dialer, inbox preview for Conversations, etc.)
+   - Glass card with colored gradient glow on hover
+   - Larger "hero" cards for the 3 flagship features (AI Agents, Dialer, Smart CRM)
+
+5. **Platform Deep-Dive** — Tabbed showcase section with tabs for each major feature group. Clicking a tab shows a large visual placeholder with descriptive text. Groups: AI & Automation, Communication, Management, Performance.
+
+6. **Stats Bar** — 4 key metrics in a row
+
+7. **Testimonials** — 3 glass cards with star ratings and quotes
+
+8. **Final CTA** — "Ready to transform your agency?" with glowing button
+
+9. **Footer** — Same structure, Product/Resources/Company columns
+
+### Technical Details
+- Single file replacement: `src/pages/LandingPage.tsx`
+- All existing imports (framer-motion, lucide-react, react-router-dom, Button) reused
+- MagneticButton and Section helper components kept
+- No mobile-specific breakpoints or hamburger menu
+- Feature data array expanded to cover all 11 sidebar menu items with unique gradients and mock UI snippets
 
