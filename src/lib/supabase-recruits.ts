@@ -47,7 +47,7 @@ export const recruitsSupabaseApi = {
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
         updateData.updated_at = new Date().toISOString();
 
-        const { data: row, error } = await supabase
+        const { data: row, error } = await (supabase as any)
             .from("recruits")
             .update(updateData)
             .eq("id", id)
