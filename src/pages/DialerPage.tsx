@@ -571,13 +571,6 @@ const DialerPage: React.FC = () => {
 
     // 4. Update campaign counts
     if (selectedCampaign) {
-      const campaignUpdates: any = {};
-      campaignUpdates.leads_contacted = (selectedCampaign as any).leads_contacted ? (selectedCampaign as any).leads_contacted + 1 : 1;
-      if (disp.name.includes("Sold") || disp.name.includes("Appointment")) {
-        campaignUpdates.leads_converted = ((selectedCampaign as any).leads_converted ?? 0) + 1;
-      }
-      // Use RPC or direct update
-      await supabase.rpc("" as any).catch(() => {}); // skip if no RPC
       // Direct increment approach
       const { data: cData } = await supabase.from("campaigns").select("leads_contacted, leads_converted").eq("id", selectedCampaign.id).single();
       if (cData) {
