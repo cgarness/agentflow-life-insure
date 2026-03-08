@@ -650,6 +650,7 @@ const DialerPage: React.FC = () => {
       setLockCountdown(null);
     }
 
+    setActiveCallerId(currentCallerId);
     setCallStatus("connecting");
     setCallSeconds(0);
     setCallStartedAt(new Date());
