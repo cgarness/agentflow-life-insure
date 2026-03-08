@@ -3,7 +3,7 @@ import { Client, PolicyType } from "@/lib/types";
 
 export const clientsSupabaseApi = {
     async getAll(search?: string): Promise<Client[]> {
-        let query = supabase
+        let query = (supabase as any)
             .from("clients")
             .select("*")
             .order("created_at", { ascending: false });
