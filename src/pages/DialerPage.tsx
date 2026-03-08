@@ -464,9 +464,27 @@ const DialerPage: React.FC = () => {
     setCallbackDate(undefined);
   };
 
-  const handleCall = async () => {
+  const handleCall = async (bypassDnc = false) => {
     const number = quickDialMode ? quickDialNumber : currentLead?.phone;
     if (!number) return;
+
+    // DNC check
+    if (!bypassDnc) {
+      setDncChecking(true);
+      const cleaned = number.replace(/\D/g, "");
+      const { data: dncHit } = await supabase
+        .from("dnc_list")
+        .select("id")
+        .or(`phone_number.eq.${cleaned},phone_number.eq.${number}`)
+        .limit(1)
+        .maybeSingle();
+      setDncChecking(false);
+      if (dncHit) {
+        setDncWarning(true);
+        return;
+      }
+    }
+    setDncWarning(false);
 
     if (!clientRef.current || !dialerReady) {
       toast.error("Dialer not ready. Please wait and try again.");
