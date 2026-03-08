@@ -81,23 +81,26 @@ const FloatingDialer: React.FC = () => {
   const clientRef = useRef<Record<string, unknown>>(null);
   const callRef = useRef<Record<string, unknown>>(null);
   const [dialerReady, setDialerReady] = useState(false);
-  const [callerNumber, setCallerNumber] = useState("+10000000000");
 
-  // Fetch caller number from DB
-  useEffect(() => {
-    const fetchCallerNumber = async () => {
-      const { data } = await supabase
-        .from('phone_numbers')
-        .select('phone_number')
-        .eq('status', 'active')
-        .limit(1)
-        .maybeSingle();
-      if (data?.phone_number) {
-        setCallerNumber(data.phone_number);
-      }
-    };
-    fetchCallerNumber();
+  // --- Local Presence phone cache ---
+  const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
+  const [activeCallerId, setActiveCallerId] = useState<CallerIdResult | null>(null);
+
+  const refreshPhoneCache = useCallback(async () => {
+    const cache = await loadPhoneNumbers();
+    setPhoneCache(cache);
   }, []);
+
+  useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
+
+  // Derive caller ID for current destination
+  const currentCallerId = useMemo<CallerIdResult>(() => {
+    const phone = selectedContact?.phone || dialedNumber;
+    if (!phoneCache || !phone) return { callerNumber: "", matchType: "none", matchedAreaCode: null };
+    return pickCallerId(phone, phoneCache);
+  }, [selectedContact?.phone, dialedNumber, phoneCache]);
+
+  const callerNumber = currentCallerId.callerNumber || "+10000000000";
 
   // Listen for toggle event from TopBar
   useEffect(() => {
