@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/hooks/use-toast";
 import CustomizeDrawer, { WidgetConfig } from "@/components/dashboard/CustomizeDrawer";
+import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
