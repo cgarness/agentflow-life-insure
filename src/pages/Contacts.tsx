@@ -21,6 +21,7 @@ import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { faker } from "@faker-js/faker";
 
 const statusColors: Record<string, string> = {
   "New": "bg-muted text-muted-foreground",
@@ -147,8 +148,8 @@ const AddContactModal: React.FC<{
       if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, status: initial.status || "Prospect" });
       else setForm({ firstName: "", lastName: "", phone: "", email: "", status: "Prospect" });
     } else {
-      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New" });
-      else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New" });
+      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New", age: initial.age || "", dateOfBirth: initial.dateOfBirth || "", healthStatus: initial.healthStatus || "", bestTimeToCall: initial.bestTimeToCall || "", notes: initial.notes || "" });
+      else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New", age: "", dateOfBirth: "", healthStatus: "", bestTimeToCall: "", notes: "" });
     }
   }, [initial, open, contactType]);
 
@@ -167,12 +168,41 @@ const AddContactModal: React.FC<{
     }
   };
 
+  const handleFillDummyData = () => {
+    if (contactType === "Lead") {
+      setForm({
+        ...form,
+        firstName: faker.person.firstName(),
+        lastName: faker.person.lastName(),
+        phone: faker.phone.number({ style: 'national' }),
+        email: faker.internet.email(),
+        state: faker.location.state({ abbreviated: true }),
+        leadSource: faker.helpers.arrayElement(["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"]),
+        status: faker.helpers.arrayElement(["New", "New", "Contacted", "Interested"]),
+        age: faker.number.int({ min: 25, max: 80 }),
+        dateOfBirth: faker.date.birthdate({ min: 25, max: 80, mode: 'age' }).toISOString().split('T')[0],
+        healthStatus: faker.helpers.arrayElement(["Excellent", "Good", "Fair", "Poor"]),
+        bestTimeToCall: faker.helpers.arrayElement(["Morning", "Afternoon", "Evening", "Anytime"]),
+        notes: faker.lorem.sentence(),
+      });
+      toast.success("Filled with simulated realistic data");
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95">
+      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <style dangerouslySetInnerHTML={{ __html: `::-webkit-scrollbar { display: none; }` }} />
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">{initial ? "Edit" : "Add New"} {contactType}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-foreground">{initial ? "Edit" : "Add New"} {contactType}</h2>
+            {contactType === "Lead" && !initial && (
+              <button type="button" onClick={handleFillDummyData} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition-colors">
+                Fill Dummy Data
+              </button>
+            )}
+          </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -197,18 +227,54 @@ const AddContactModal: React.FC<{
 
           {/* Lead-specific fields */}
           {contactType === "Lead" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-                <input value={form.state || ""} onChange={e => setForm((f: any) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
+                  <input value={form.state || ""} onChange={e => setForm((f: any) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
+                  <select value={form.leadSource || "Facebook Ads"} onChange={e => setForm((f: any) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                    {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-                <select value={form.leadSource || "Facebook Ads"} onChange={e => setForm((f: any) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                  {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
-                </select>
+
+              {/* Additional Lead Info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Date of Birth</label>
+                  <input type="date" value={form.dateOfBirth || ""} onChange={e => setForm((f: any) => ({ ...f, dateOfBirth: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Age</label>
+                  <input type="number" value={form.age || ""} onChange={e => setForm((f: any) => ({ ...f, age: e.target.value ? parseInt(e.target.value) : "" }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="e.g. 45" />
+                </div>
               </div>
-            </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Health Status</label>
+                  <select value={form.healthStatus || ""} onChange={e => setForm((f: any) => ({ ...f, healthStatus: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                    <option value="">Select...</option>
+                    {["Excellent", "Good", "Fair", "Poor"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">Best Time to Call</label>
+                  <select value={form.bestTimeToCall || ""} onChange={e => setForm((f: any) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                    <option value="">Select...</option>
+                    {["Morning", "Afternoon", "Evening", "Anytime"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">Initial Notes</label>
+                <textarea value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="w-full h-20 px-3 py-2 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none resize-none" placeholder="Add any background context..." />
+              </div>
+            </>
           )}
 
           {/* Client-specific fields */}
@@ -587,9 +653,15 @@ const Contacts: React.FC = () => {
     }
   }, [location.search, leads]);
 
+  // Helper to ensure we only send a valid UUID or null to Supabase
+  const getValidAgentId = () => {
+    const id = user?.id || "";
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
+  };
+
   // ===== Lead CRUD =====
   const handleAddLead = async (data: any) => {
-    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
+    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: getValidAgentId() });
     toast.success("Lead added successfully");
     fetchData();
   };
@@ -635,7 +707,7 @@ const Contacts: React.FC = () => {
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: any) => {
-    await clientsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+    await clientsSupabaseApi.create({ ...data, assignedAgentId: getValidAgentId() });
     toast.success("Client added successfully");
     fetchData();
   };
@@ -656,7 +728,7 @@ const Contacts: React.FC = () => {
 
   // ===== Recruit CRUD =====
   const handleAddRecruit = async (data: any) => {
-    await recruitsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
+    await recruitsSupabaseApi.create({ ...data, assignedAgentId: getValidAgentId() });
     toast.success("Recruit added successfully");
     fetchData();
   };
