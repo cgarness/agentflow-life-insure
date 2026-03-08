@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { phone_number } = await req.json();
+        const { phone_number, api_key: directApiKey } = await req.json();
 
         if (!phone_number) {
             throw new Error("Phone number is required");
@@ -60,16 +60,21 @@ Deno.serve(async (req) => {
             Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
         );
 
-        // 1. Get API Key and existing setup from settings
-        const { data: config, error: fetchError } = await supabaseClient
-            .from("phone_settings")
-            .select("*")
-            .eq("id", SINGLETON_ID)
-            .maybeSingle();
+        // 1. Get API Key - prefer directly passed key, fall back to database
+        let apiKey = directApiKey;
 
-        if (fetchError) throw fetchError;
-        const apiKey = config?.api_key;
-        if (!apiKey) throw new Error("Telnyx API key not found in Settings");
+        if (!apiKey) {
+            const { data: config, error: fetchError } = await supabaseClient
+                .from("phone_settings")
+                .select("*")
+                .eq("id", SINGLETON_ID)
+                .maybeSingle();
+
+            if (fetchError) throw fetchError;
+            apiKey = config?.api_key;
+        }
+
+        if (!apiKey) throw new Error("Telnyx API key not found. Please save your API Key in Settings first.");
 
         const webhookUrl = "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-webhook";
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");

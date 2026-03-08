@@ -14,29 +14,33 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { area_code, limit = 10 } = await req.json();
+        const { area_code, api_key: directApiKey, limit = 10 } = await req.json();
 
         if (!area_code) {
             throw new Error("Area code is required");
         }
 
-        const supabaseClient = createClient(
-            Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-        );
-
-        // Get Telnyx API Key from database
-        const { data: config, error: fetchError } = await supabaseClient
-            .from("phone_settings")
-            .select("api_key")
-            .eq("id", SINGLETON_ID)
-            .maybeSingle();
-
-        if (fetchError) throw fetchError;
-        const apiKey = config?.api_key;
+        // Try to use the API key passed directly first, then fall back to database
+        let apiKey = directApiKey;
 
         if (!apiKey) {
-            throw new Error("Telnyx API key not found in Settings");
+            const supabaseClient = createClient(
+                Deno.env.get("SUPABASE_URL") ?? "",
+                Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+            );
+
+            const { data: config, error: fetchError } = await supabaseClient
+                .from("phone_settings")
+                .select("api_key")
+                .eq("id", SINGLETON_ID)
+                .maybeSingle();
+
+            if (fetchError) throw fetchError;
+            apiKey = config?.api_key;
+        }
+
+        if (!apiKey) {
+            throw new Error("Telnyx API key not found. Please save your API Key in Settings first.");
         }
 
         // Search Telnyx numbers

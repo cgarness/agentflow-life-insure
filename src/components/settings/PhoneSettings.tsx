@@ -198,7 +198,7 @@ const PhoneSettings: React.FC = () => {
         setIsSearching(true);
         try {
             const { data, error } = await supabase.functions.invoke('telnyx-search-numbers', {
-                body: { area_code: searchAreaCode },
+                body: { area_code: searchAreaCode, api_key: config.api_key },
             });
 
             if (error) throw error;
@@ -220,7 +220,7 @@ const PhoneSettings: React.FC = () => {
         setIsProvisioning(phoneNumber);
         try {
             const { data, error } = await supabase.functions.invoke('telnyx-buy-number', {
-                body: { phone_number: phoneNumber },
+                body: { phone_number: phoneNumber, api_key: config.api_key },
             });
 
             if (error) throw error;
