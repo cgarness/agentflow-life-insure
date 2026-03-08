@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
         return new Response(
             JSON.stringify({ error: error.message ?? "Internal server error" }),
             {
-                status: 500,
+                status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             }
         );
