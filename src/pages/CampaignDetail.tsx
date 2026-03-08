@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
   Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Clock, Zap,
-  Check, RotateCcw, ShieldAlert,
+  Check, RotateCcw, ShieldAlert, Trophy, Crown, Medal,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -414,6 +414,74 @@ function useCountdown(targetDate: string | null, durationSec: number): number {
   }, [targetDate, durationSec]);
   return remaining;
 }
+
+// ---- SharkTank Leaderboard ----
+const SharkTankLeaderboard: React.FC<{
+  leads: CampaignLead[];
+  agents: AgentProfile[];
+}> = ({ leads, agents }) => {
+  const todayLeaderboard = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayISO = todayStart.toISOString();
+
+    const claimedToday = leads.filter(
+      l => l.status === "Claimed" && l.claimed_by && l.claimed_at && l.claimed_at >= todayISO
+    );
+
+    const counts: Record<string, number> = {};
+    claimedToday.forEach(l => {
+      counts[l.claimed_by!] = (counts[l.claimed_by!] || 0) + 1;
+    });
+
+    return Object.entries(counts)
+      .map(([agentId, count]) => {
+        const agent = agents.find(a => a.id === agentId);
+        return { agentId, name: agent ? getAgentDisplayName(agent) : "Unknown", count };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [leads, agents]);
+
+  const rankIcons = [
+    <Crown key="1" className="w-4 h-4 text-warning" />,
+    <Medal key="2" className="w-4 h-4 text-muted-foreground" />,
+    <Medal key="3" className="w-4 h-4 text-orange-400" />,
+  ];
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Trophy className="w-4 h-4 text-warning" />
+        <h3 className="text-sm font-bold text-foreground">Today's Leaderboard</h3>
+      </div>
+      {todayLeaderboard.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-2">No claims yet today — be the first!</p>
+      ) : (
+        <div className="space-y-2">
+          {todayLeaderboard.map((entry, i) => (
+            <div
+              key={entry.agentId}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                i === 0 ? "bg-warning/10" : "bg-accent/30"
+              }`}
+            >
+              <span className="w-6 flex items-center justify-center">
+                {i < 3 ? rankIcons[i] : <span className="text-xs font-bold text-muted-foreground">{i + 1}</span>}
+              </span>
+              <span className={`flex-1 text-sm truncate ${i === 0 ? "font-bold text-foreground" : "text-foreground"}`}>
+                {entry.name}
+              </span>
+              <span className={`text-sm font-bold ${i === 0 ? "text-warning" : "text-muted-foreground"}`}>
+                {entry.count} {entry.count === 1 ? "claim" : "claims"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ---- SharkTank Lead Card ----
 const SharkTankCard: React.FC<{
@@ -905,12 +973,15 @@ const CampaignDetail: React.FC = () => {
                     <p className="text-xs text-muted-foreground">Claim leads before other agents — first to confirm wins!</p>
                   </div>
                 </div>
-                <div className="flex gap-4 ml-auto text-xs">
+               <div className="flex gap-4 ml-auto text-xs">
                   <span className="text-success font-medium">{poolStats.available} available</span>
                   <span className="text-warning font-medium">{poolStats.locked} locked</span>
                   <span className="text-primary font-medium">{poolStats.claimed} claimed</span>
                 </div>
               </div>
+
+              {/* Live Leaderboard Widget */}
+              <SharkTankLeaderboard leads={leads} agents={agents} />
 
               {leadsLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
