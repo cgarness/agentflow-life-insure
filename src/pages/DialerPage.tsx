@@ -377,22 +377,119 @@ const DialerPage: React.FC = () => {
       setContactNotes([]);
       setCallHistory([]);
       setActivities([]);
+      setAppointments([]);
       return;
     }
     const lid = currentLead.lead_id;
-    // notes
-    supabase.from("contact_notes").select("id, content, pinned, created_at")
-      .eq("contact_id", lid).order("pinned", { ascending: false }).order("created_at", { ascending: false }).limit(3)
-      .then(({ data }) => setContactNotes(data || []));
-    // call history
-    supabase.from("calls").select("id, contact_name, duration, disposition_name, started_at, agent_id")
-      .eq("contact_id", lid).order("started_at", { ascending: false }).limit(10)
-      .then(({ data }) => setCallHistory((data as CallRecord[]) || []));
-    // activities
-    supabase.from("contact_activities").select("id, activity_type, description, created_at")
-      .eq("contact_id", lid).order("created_at", { ascending: false }).limit(10)
-      .then(({ data }) => setActivities((data as ActivityRecord[]) || []));
+    setHistoryLoading(true);
+
+    const fetchAll = async () => {
+      // notes (all, not just 3)
+      const notesP = supabase.from("contact_notes").select("id, content, pinned, created_at, author_id")
+        .eq("contact_id", lid).order("created_at", { ascending: false });
+      // call history
+      const callsP = supabase.from("calls").select("id, contact_name, duration, disposition_name, disposition_id, started_at, ended_at, agent_id, notes")
+        .eq("contact_id", lid).order("started_at", { ascending: false });
+      // activities
+      const activitiesP = supabase.from("contact_activities").select("id, activity_type, description, created_at, metadata")
+        .eq("contact_id", lid).order("created_at", { ascending: false });
+      // appointments
+      const apptP = supabase.from("appointments").select("id, title, type, status, start_time, contact_name, created_by, created_at")
+        .eq("contact_id", lid).order("created_at", { ascending: false });
+
+      const [notesRes, callsRes, activitiesRes, apptRes] = await Promise.all([notesP, callsP, activitiesP, apptP]);
+      
+      const notes = notesRes.data || [];
+      const calls = (callsRes.data as CallRecord[]) || [];
+      const acts = (activitiesRes.data as ActivityRecord[]) || [];
+      const appts = (apptRes.data as AppointmentRecord[]) || [];
+
+      setContactNotes(notes);
+      setCallHistory(calls);
+      setActivities(acts);
+      setAppointments(appts);
+
+      // Collect unique agent IDs from calls and fetch profiles
+      const agentIds = new Set<string>();
+      calls.forEach((c) => { if (c.agent_id) agentIds.add(c.agent_id); });
+      notes.forEach((n: any) => { if (n.author_id) agentIds.add(n.author_id); });
+      appts.forEach((a) => { if (a.created_by) agentIds.add(a.created_by); });
+      
+      if (agentIds.size > 0) {
+        const { data: profiles } = await supabase.from("profiles")
+          .select("id, first_name, last_name")
+          .in("id", Array.from(agentIds));
+        if (profiles) {
+          const map: Record<string, AgentProfile> = {};
+          profiles.forEach((p: any) => { map[p.id] = p; });
+          setAgentProfiles(map);
+        }
+      }
+      setHistoryLoading(false);
+    };
+    fetchAll();
   }, [currentLead?.lead_id]);
+
+  /* ── Build unified conversation feed ── */
+  const conversationFeed = useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [];
+
+    callHistory.forEach((c) => {
+      items.push({ id: `call-${c.id}`, type: "call", timestamp: c.started_at || c.ended_at || "", data: c });
+    });
+    contactNotes.forEach((n) => {
+      items.push({ id: `note-${n.id}`, type: "note", timestamp: n.created_at, data: n });
+    });
+    appointments.forEach((a) => {
+      items.push({ id: `appt-${a.id}`, type: "appointment", timestamp: a.created_at, data: a });
+    });
+    activities.forEach((a) => {
+      if (a.activity_type === "sms") {
+        items.push({ id: `sms-${a.id}`, type: "sms", timestamp: a.created_at, data: a });
+      } else if (a.activity_type === "email") {
+        items.push({ id: `email-${a.id}`, type: "email", timestamp: a.created_at, data: a });
+      } else {
+        items.push({ id: `activity-${a.id}`, type: "activity", timestamp: a.created_at, data: a });
+      }
+    });
+
+    items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return items;
+  }, [callHistory, contactNotes, appointments, activities]);
+
+  const filteredFeed = useMemo(() => {
+    if (feedFilter === "all") return conversationFeed;
+    if (feedFilter === "calls") return conversationFeed.filter((i) => i.type === "call");
+    if (feedFilter === "notes") return conversationFeed.filter((i) => i.type === "note");
+    if (feedFilter === "appointments") return conversationFeed.filter((i) => i.type === "appointment");
+    if (feedFilter === "activity") return conversationFeed.filter((i) => i.type === "activity" || i.type === "sms" || i.type === "email");
+    return conversationFeed;
+  }, [conversationFeed, feedFilter]);
+
+  /* ── Auto-scroll feed to bottom ── */
+  useEffect(() => {
+    if (feedEndRef.current) feedEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [filteredFeed.length]);
+
+  const getAgentFirstName = (agentId: string | null) => {
+    if (!agentId) return "";
+    const p = agentProfiles[agentId];
+    return p ? p.first_name : "";
+  };
+
+  const toggleFeedExpand = (id: string) => {
+    setExpandedFeedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const getDispColor = (dispName: string | null) => {
+    if (!dispName) return null;
+    const d = dispositions.find((d) => d.name === dispName);
+    return d?.color ?? null;
+  };
 
   /* ── Open Pool polling ── */
   useEffect(() => {
