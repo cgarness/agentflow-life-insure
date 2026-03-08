@@ -842,24 +842,24 @@ const CampaignDetail: React.FC = () => {
             <div className="flex items-center gap-3 flex-wrap bg-accent/50 border border-border rounded-lg px-4 py-2.5">
               <span className="text-sm font-medium text-foreground">{selectedLeadIds.size} selected</span>
               <TooltipProvider>
-                <Tooltip>
+                <UITooltip>
                   <TooltipTrigger asChild>
                     <button disabled className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed">
                       <MessageSquare className="w-4 h-4" /> SMS Blast
                     </button>
                   </TooltipTrigger>
                   <TooltipContent><p className="text-xs">Coming soon — configure SMS in Settings first</p></TooltipContent>
-                </Tooltip>
+                </UITooltip>
               </TooltipProvider>
               <TooltipProvider>
-                <Tooltip>
+                <UITooltip>
                   <TooltipTrigger asChild>
                     <button disabled className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed">
                       <Mail className="w-4 h-4" /> Email Blast
                     </button>
                   </TooltipTrigger>
                   <TooltipContent><p className="text-xs">Coming soon — configure Email in Settings first</p></TooltipContent>
-                </Tooltip>
+                </UITooltip>
               </TooltipProvider>
               <div className="relative">
                 <button onClick={() => setBulkAssignOpen(!bulkAssignOpen)} className="px-3 py-1.5 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
