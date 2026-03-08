@@ -556,6 +556,80 @@ export type Database = {
           }
         ]
       }
+      phone_settings: {
+        Row: {
+          account_sid: string | null
+          api_key: string | null
+          api_secret: string | null
+          application_sid: string | null
+          auth_token: string | null
+          created_at: string | null
+          id: string
+          provider: string
+          updated_at: string | null
+        }
+        Insert: {
+          account_sid?: string | null
+          api_key?: string | null
+          api_secret?: string | null
+          application_sid?: string | null
+          auth_token?: string | null
+          created_at?: string | null
+          id?: string
+          provider?: string
+          updated_at?: string | null
+        }
+        Update: {
+          account_sid?: string | null
+          api_key?: string | null
+          api_secret?: string | null
+          application_sid?: string | null
+          auth_token?: string | null
+          created_at?: string | null
+          id?: string
+          provider?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      phone_numbers: {
+        Row: {
+          assigned_to: string | null
+          created_at: string | null
+          friendly_name: string | null
+          id: string
+          phone_number: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string | null
+          friendly_name?: string | null
+          id?: string
+          phone_number: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string | null
+          friendly_name?: string | null
+          id?: string
+          phone_number?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "phone_numbers_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       company_settings: {
         Row: {
           company_name: string

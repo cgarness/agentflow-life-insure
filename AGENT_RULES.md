@@ -183,9 +183,9 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 
 **Settings priority order:**
 1. ✅ User Management — COMPLETE
-2. 🔄 Dispositions Manager — IN PROGRESS
-3. ⬜ Company Branding
-4. ⬜ Twilio & Phone Numbers
+2. ✅ Dispositions Manager — COMPLETE
+3. ✅ Company Branding — COMPLETE
+4. 🔄 Twilio & Phone Numbers — IN PROGRESS
 5. ⬜ DNC List Manager
 6. ⬜ Remaining settings sections
 7. ⬜ Main pages tab by tab

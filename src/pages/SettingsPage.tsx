@@ -8,6 +8,7 @@ import CompanyBranding from "@/components/settings/CompanyBranding";
 import CallScripts from "@/components/settings/CallScripts";
 import CalendarSettings from "@/components/settings/CalendarSettings";
 import MyProfile from "@/components/settings/MyProfile";
+import PhoneSettings from "@/components/settings/PhoneSettings";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -19,7 +20,7 @@ const sections = [
   { icon: UserCircle, label: "My Profile" },
   { icon: Building2, label: "Company Branding" },
   { icon: Users, label: "User Management" },
-  { icon: Phone, label: "Telnyx & Phone Numbers" },
+  { icon: Phone, label: "Twilio & Phone Numbers" },
   { icon: FileText, label: "Call Scripts" },
   { icon: List, label: "Dispositions Manager" },
   { icon: SlidersHorizontal, label: "Contact Management" },
@@ -100,27 +101,7 @@ const SettingsPage: React.FC = () => {
       case 4: // Call Scripts
         return <CallScripts />;
       case 3: // Twilio
-        return (
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground">Telnyx & Phone Numbers</h3>
-            <div className="bg-accent/50 rounded-xl p-5 space-y-4">
-              <h4 className="font-medium text-foreground">Credentials</h4>
-              {[["API Key", "KEY•••••••••••••••"], ["Application ID", "•••••••••••••••••"], ["SIP Username", "•••••••••••••••••"], ["SIP Password", "•••••••••••••••••"]].map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between"><span className="text-sm text-muted-foreground">{k}</span><span className="text-sm font-mono text-foreground">{v}</span></div>
-              ))}
-              <button className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">Test Connection</button>
-            </div>
-            <div className="bg-card rounded-xl border p-5 space-y-3">
-              <h4 className="font-medium text-foreground">Owned Numbers</h4>
-              {["(555) 100-0001", "(555) 100-0002"].map((n) => (
-                <div key={n} className="flex items-center justify-between py-2 border-b last:border-0">
-                  <span className="text-sm font-mono text-foreground">{n}</span>
-                  <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded-full">Clean</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <PhoneSettings />;
 
       case 5: // Dispositions
         return <DispositionsManager />;
@@ -267,9 +248,8 @@ const SettingsPage: React.FC = () => {
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium px-3 py-2">Account</p>
             <button
               onClick={() => setActive(0)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${
-                active === 0 ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${active === 0 ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
+                }`}
             >
               <UserCircle className="w-4 h-4 shrink-0" />
               <span className="truncate">My Profile</span>
@@ -281,9 +261,8 @@ const SettingsPage: React.FC = () => {
                 <button
                   key={s.label}
                   onClick={() => setActive(i)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${
-                    active === i ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
-                  }`}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${active === i ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
+                    }`}
                 >
                   <s.icon className="w-4 h-4 shrink-0" />
                   <span className="truncate">{s.label}</span>
