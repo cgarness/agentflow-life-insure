@@ -639,6 +639,7 @@ const Campaigns: React.FC = () => {
       )}
 
       <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={fetchCampaigns} agents={agents} agentsLoading={agentsLoading} />
+      <DuplicateCampaignModal campaign={duplicateTarget} onClose={() => setDuplicateTarget(null)} onDuplicated={fetchCampaigns} />
     </div>
   );
 };
