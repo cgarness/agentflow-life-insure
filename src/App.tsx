@@ -8,6 +8,7 @@ import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
+import { BrandingProvider } from "@/contexts/BrandingContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import DialerPage from "./pages/DialerPage";
@@ -53,39 +54,41 @@ const App = () => (
     <ThemeProvider attribute="class" defaultTheme="light" storageKey="agentflow-theme">
       <TooltipProvider>
         <AuthProvider>
-          <NotificationProvider>
-            <CalendarProvider>
-              <SidebarProvider>
-                <Toaster />
-                <Sonner />
-                <BrowserRouter>
-                  <ErrorBoundary>
-                    <Routes>
-                      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-                      <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
-                      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
-                      <Route path="/reset-password" element={<ResetPassword />} />
-                      <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/dialer" element={<DialerPage />} />
-                        <Route path="/contacts" element={<Contacts />} />
-                        <Route path="/conversations" element={<Conversations />} />
-                        <Route path="/calendar" element={<CalendarPage />} />
-                        <Route path="/campaigns" element={<Campaigns />} />
-                        <Route path="/leaderboard" element={<Leaderboard />} />
-                        <Route path="/reports" element={<Reports />} />
-                        <Route path="/ai-agents" element={<AIAgents />} />
-                        <Route path="/training" element={<Training />} />
-                        <Route path="/settings" element={<SettingsPage />} />
-                        <Route path="/agent-profile" element={<AgentProfile />} />
-                      </Route>
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
-                  </ErrorBoundary>
-                </BrowserRouter>
-              </SidebarProvider>
-            </CalendarProvider>
-          </NotificationProvider>
+          <BrandingProvider>
+            <NotificationProvider>
+              <CalendarProvider>
+                <SidebarProvider>
+                  <Toaster />
+                  <Sonner />
+                  <BrowserRouter>
+                    <ErrorBoundary>
+                      <Routes>
+                        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+                        <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
+                        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+                        <Route path="/reset-password" element={<ResetPassword />} />
+                        <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/dialer" element={<DialerPage />} />
+                          <Route path="/contacts" element={<Contacts />} />
+                          <Route path="/conversations" element={<Conversations />} />
+                          <Route path="/calendar" element={<CalendarPage />} />
+                          <Route path="/campaigns" element={<Campaigns />} />
+                          <Route path="/leaderboard" element={<Leaderboard />} />
+                          <Route path="/reports" element={<Reports />} />
+                          <Route path="/ai-agents" element={<AIAgents />} />
+                          <Route path="/training" element={<Training />} />
+                          <Route path="/settings" element={<SettingsPage />} />
+                          <Route path="/agent-profile" element={<AgentProfile />} />
+                        </Route>
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                    </ErrorBoundary>
+                  </BrowserRouter>
+                </SidebarProvider>
+              </CalendarProvider>
+            </NotificationProvider>
+          </BrandingProvider>
         </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>

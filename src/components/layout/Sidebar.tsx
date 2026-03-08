@@ -10,6 +10,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const menuItems = [
@@ -35,6 +36,7 @@ const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { theme, setTheme } = useTheme();
   const { user, profile } = useAuth();
+  const { branding } = useBranding();
   const location = useLocation();
   const [todayCount, setTodayCount] = useState(0);
 
@@ -62,15 +64,35 @@ const Sidebar: React.FC = () => {
       {/* Logo */}
       <div className="flex items-center h-16 px-4 border-b border-sidebar-border shrink-0">
         {collapsed ? (
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center mx-auto">
-            <span className="text-primary-foreground font-bold text-sm">AF</span>
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto"
+            style={{ backgroundColor: branding.primaryColor || '#3B82F6' }}
+          >
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt="Logo" className="w-full h-full object-cover rounded-lg" />
+            ) : (
+              <span className="text-white font-bold text-sm">
+                {(branding.companyName || "AF").substring(0, 2).toUpperCase()}
+              </span>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <span className="text-primary-foreground font-bold text-sm">AF</span>
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+              style={{ backgroundColor: branding.primaryColor || '#3B82F6' }}
+            >
+              {branding.logoUrl ? (
+                <img src={branding.logoUrl} alt="Logo" className="w-full h-full object-cover rounded-lg" />
+              ) : (
+                <span className="text-white font-bold text-sm">
+                  {(branding.companyName || "AF").substring(0, 2).toUpperCase()}
+                </span>
+              )}
             </div>
-            <span className="font-bold text-base text-sidebar-accent-foreground whitespace-nowrap">AgentFlow</span>
+            <span className="font-bold text-base text-sidebar-accent-foreground whitespace-nowrap">
+              {branding.companyName || "AgentFlow"}
+            </span>
           </div>
         )}
       </div>

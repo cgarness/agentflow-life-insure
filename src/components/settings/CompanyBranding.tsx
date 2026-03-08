@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Upload, X, Image, Globe, Clock, Palette, Phone, Building2, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { supabase } from "@/integrations/supabase/client";
 
 interface BrandingState {
   companyName: string;
@@ -15,6 +16,8 @@ interface BrandingState {
   primaryColor: string;
   companyPhone: string;
 }
+
+const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 
 const DEFAULTS: BrandingState = {
   companyName: "",
@@ -30,24 +33,28 @@ const DEFAULTS: BrandingState = {
 };
 
 const TIMEZONES = [
-  { group: "US & Canada", options: [
-    { value: "America/New_York", label: "America/New_York (Eastern Time)" },
-    { value: "America/Chicago", label: "America/Chicago (Central Time)" },
-    { value: "America/Denver", label: "America/Denver (Mountain Time)" },
-    { value: "America/Los_Angeles", label: "America/Los_Angeles (Pacific Time)" },
-    { value: "America/Anchorage", label: "America/Anchorage (Alaska Time)" },
-    { value: "Pacific/Honolulu", label: "Pacific/Honolulu (Hawaii Time)" },
-  ]},
-  { group: "Other", options: [
-    { value: "Europe/London", label: "Europe/London (GMT)" },
-    { value: "Europe/Paris", label: "Europe/Paris (CET)" },
-    { value: "Europe/Berlin", label: "Europe/Berlin (CET)" },
-    { value: "Asia/Tokyo", label: "Asia/Tokyo (JST)" },
-    { value: "Asia/Shanghai", label: "Asia/Shanghai (CST)" },
-    { value: "Asia/Kolkata", label: "Asia/Kolkata (IST)" },
-    { value: "Australia/Sydney", label: "Australia/Sydney (AEST)" },
-    { value: "America/Sao_Paulo", label: "America/Sao_Paulo (BRT)" },
-  ]},
+  {
+    group: "US & Canada", options: [
+      { value: "America/New_York", label: "America/New_York (Eastern Time)" },
+      { value: "America/Chicago", label: "America/Chicago (Central Time)" },
+      { value: "America/Denver", label: "America/Denver (Mountain Time)" },
+      { value: "America/Los_Angeles", label: "America/Los_Angeles (Pacific Time)" },
+      { value: "America/Anchorage", label: "America/Anchorage (Alaska Time)" },
+      { value: "Pacific/Honolulu", label: "Pacific/Honolulu (Hawaii Time)" },
+    ]
+  },
+  {
+    group: "Other", options: [
+      { value: "Europe/London", label: "Europe/London (GMT)" },
+      { value: "Europe/Paris", label: "Europe/Paris (CET)" },
+      { value: "Europe/Berlin", label: "Europe/Berlin (CET)" },
+      { value: "Asia/Tokyo", label: "Asia/Tokyo (JST)" },
+      { value: "Asia/Shanghai", label: "Asia/Shanghai (CST)" },
+      { value: "Asia/Kolkata", label: "Asia/Kolkata (IST)" },
+      { value: "Australia/Sydney", label: "Australia/Sydney (AEST)" },
+      { value: "America/Sao_Paulo", label: "America/Sao_Paulo (BRT)" },
+    ]
+  },
 ];
 
 const DATE_FORMATS = [
@@ -80,6 +87,7 @@ const CompanyBranding: React.FC = () => {
   const [state, setState] = useState<BrandingState>({ ...DEFAULTS });
   const [saved, setSaved] = useState<BrandingState>({ ...DEFAULTS });
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [nameError, setNameError] = useState(false);
   const [hexInput, setHexInput] = useState(DEFAULTS.primaryColor);
   const [hexError, setHexError] = useState(false);
@@ -91,6 +99,49 @@ const CompanyBranding: React.FC = () => {
   const update = useCallback((patch: Partial<BrandingState>) => {
     setState(prev => ({ ...prev, ...patch }));
     setNameError(false);
+  }, []);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        console.log("Fetching company settings for ID:", SINGLETON_ID);
+        const { data, error } = await supabase
+          .from('company_settings')
+          .select('*')
+          .eq('id', SINGLETON_ID)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data) {
+          console.log("Found settings record:", data);
+          const loadedState: BrandingState = {
+            companyName: data.company_name || "",
+            logoUrl: data.logo_url,
+            logoName: data.logo_name,
+            faviconUrl: data.favicon_url,
+            faviconName: data.favicon_name,
+            timezone: data.timezone || DEFAULTS.timezone,
+            dateFormat: data.date_format || DEFAULTS.dateFormat,
+            timeFormat: data.time_format || DEFAULTS.timeFormat,
+            primaryColor: data.primary_color || DEFAULTS.primaryColor,
+            companyPhone: data.company_phone || "",
+          };
+          setState(loadedState);
+          setSaved(loadedState);
+          setHexInput(loadedState.primaryColor);
+        } else {
+          console.log("No settings record found. Table might be empty or ID mismatch.");
+        }
+      } catch (error) {
+        console.error('Error fetching company settings:', error);
+        toast({ title: "Failed to load settings", variant: "destructive" });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSettings();
   }, []);
 
   useEffect(() => {
@@ -143,18 +194,55 @@ const CompanyBranding: React.FC = () => {
     e.target.value = "";
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!state.companyName.trim()) {
       setNameError(true);
       toast({ title: "Please fix the errors before saving", variant: "destructive" });
       return;
     }
     setSaving(true);
-    setTimeout(() => {
+    console.log("Saving company settings with payload:", state);
+
+    try {
+      const payload = {
+        id: SINGLETON_ID,
+        company_name: state.companyName,
+        logo_url: state.logoUrl,
+        logo_name: state.logoName,
+        favicon_url: state.faviconUrl,
+        favicon_name: state.faviconName,
+        timezone: state.timezone,
+        date_format: state.dateFormat,
+        time_format: state.timeFormat,
+        primary_color: state.primaryColor,
+        company_phone: state.companyPhone,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
+        .from('company_settings')
+        .upsert(payload, { onConflict: 'id' })
+        .select();
+
+      if (error) {
+        console.error("Supabase upsert error:", error);
+        throw error;
+      }
+
+      console.log("Save successful. Data returned:", data);
+
       setSaved({ ...state });
-      setSaving(false);
       toast({ title: "Company branding saved successfully" });
-    }, 800);
+    } catch (error: any) {
+      console.error('Error saving company settings:', error);
+      toast({
+        title: "Failed to save settings",
+        description: error.message || "Unknown error occurred",
+        variant: "destructive"
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent, type: "logo" | "favicon") => {
@@ -170,6 +258,14 @@ const CompanyBranding: React.FC = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -181,11 +277,10 @@ const CompanyBranding: React.FC = () => {
         <button
           onClick={handleSave}
           disabled={!isDirty || saving}
-          className={`px-5 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors ${
-            isDirty && !saving
-              ? "bg-primary cursor-pointer opacity-100"
-              : "bg-muted cursor-not-allowed opacity-70"
-          }`}
+          className={`px-5 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors ${isDirty && !saving
+            ? "bg-primary cursor-pointer opacity-100"
+            : "bg-muted cursor-not-allowed opacity-70"
+            }`}
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin" />}
           Save Changes

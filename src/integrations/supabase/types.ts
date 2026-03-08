@@ -556,6 +556,54 @@ export type Database = {
           }
         ]
       }
+      company_settings: {
+        Row: {
+          company_name: string
+          company_phone: string | null
+          created_at: string
+          date_format: string | null
+          favicon_name: string | null
+          favicon_url: string | null
+          id: string
+          logo_name: string | null
+          logo_url: string | null
+          primary_color: string | null
+          time_format: string | null
+          timezone: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_name: string
+          company_phone?: string | null
+          created_at?: string
+          date_format?: string | null
+          favicon_name?: string | null
+          favicon_url?: string | null
+          id?: string
+          logo_name?: string | null
+          logo_url?: string | null
+          primary_color?: string | null
+          time_format?: string | null
+          timezone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string
+          company_phone?: string | null
+          created_at?: string
+          date_format?: string | null
+          favicon_name?: string | null
+          favicon_url?: string | null
+          id?: string
+          logo_name?: string | null
+          logo_url?: string | null
+          primary_color?: string | null
+          time_format?: string | null
+          timezone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

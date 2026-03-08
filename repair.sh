@@ -1,0 +1,15 @@
+npx supabase migration repair --status reverted 20260303233508
+npx supabase migration repair --status reverted 20260304225558
+npx supabase migration repair --status reverted 20260304232944
+npx supabase migration repair --status reverted 20260305154544
+npx supabase migration repair --status applied 20260303233510
+npx supabase migration repair --status applied 20260304000001
+npx supabase migration repair --status applied 20260307090000
+npx supabase migration repair --status applied 20260307101000
+npx supabase migration repair --status applied 20260307233600
+npx supabase migration repair --status applied 20260307235939
+npx supabase migration repair --status applied 20260308093000
+npx supabase migration repair --status applied 20260308120000
+npx supabase migration repair --status applied 20260308143000
+npx supabase migration repair --status applied 20260308170000
+npx supabase migration repair --status applied 20260308171000
