@@ -1,38 +1,45 @@
 
 
-## Root Cause
+## Redo Landing Page — Modern Desktop-Focused Feature Showcase
 
-The **CompanyBranding** and **Permissions** components use **hardcoded inline `style={}` attributes** with dark hex colors like `backgroundColor: "#1E293B"`, `backgroundColor: "#0F172A"`, `color: "#F1F5F9"`, etc. These override the app's theme system regardless of whether light or dark mode is active.
+### Overview
+Rebuild `src/pages/LandingPage.tsx` with the same dark theme and blue/green color palette, but redesigned to be desktop-optimized and to deeply showcase each of the 11 system features (Dashboard, Dialer, Contacts, Conversations, Calendar, Campaigns, Leaderboard, Reports, AI Agents, Training, Settings).
 
-Meanwhile, **DispositionsManager** and **ContactManagement** correctly use Tailwind's **semantic CSS variables** — classes like `bg-card`, `text-foreground`, `bg-accent`, `border`, `text-muted-foreground` — which automatically adapt to the current theme (light `:root` or `.dark` vars defined in `index.css`).
+### Design Direction
+- Dark background (#030303) with blue-to-green gradient accents (indigo, blue, cyan, emerald, teal)
+- Glassmorphism cards with subtle border glow on hover
+- Framer Motion scroll-triggered animations throughout
+- Desktop-first layout — no mobile hamburger menu, wider grids, larger typography
+- Each feature gets a dedicated visual card with a mock UI preview inside it
 
-Your app's light mode has:
-- `--background: 0 0% 100%` (white)
-- `--card: 0 0% 100%` (white)
-- `--foreground: 222 47% 11%` (dark text)
+### Sections
 
-But CompanyBranding and Permissions ignore these entirely because they use inline styles forcing dark colors.
+1. **Sticky Nav** — Logo, anchor links (Features, Platform, Testimonials), Sign In / Get Started buttons
 
-## The Fix
+2. **Hero** — Large gradient headline, subtitle, two CTAs (magnetic buttons), floating stat badges, animated mesh gradient background, large mock dashboard screenshot placeholder
 
-Replace all hardcoded inline `style={{ backgroundColor: "#1E293B" }}` / `color: "#F1F5F9"` / etc. in **CompanyBranding.tsx** and **Permissions.tsx** with the equivalent Tailwind theme classes:
+3. **Trusted By** — Logo marquee (same companies)
 
-| Hardcoded style | Correct Tailwind class |
-|---|---|
-| `backgroundColor: "#0F172A"` | `bg-background` |
-| `backgroundColor: "#1E293B"` | `bg-card` |
-| `border: "1px solid #334155"` | `border` |
-| `color: "#F1F5F9"` | `text-foreground` |
-| `color: "#94A3B8"` | `text-muted-foreground` |
-| `color: "#64748B"` | `text-muted-foreground` |
-| `backgroundColor: "#3B82F6"` | `bg-primary` |
-| `backgroundColor: "#334155"` | `bg-muted` or `bg-accent` |
+4. **Features Overview** — Section header + 3-column bento grid of all 11 features. Each card contains:
+   - Icon + title + description
+   - A small mock UI visual (terminal for AI, waveform for Dialer, inbox preview for Conversations, etc.)
+   - Glass card with colored gradient glow on hover
+   - Larger "hero" cards for the 3 flagship features (AI Agents, Dialer, Smart CRM)
 
-This involves:
-1. **CompanyBranding.tsx** — Remove all inline `style={}` on the form card, popover, inputs, and labels. Replace with `className` equivalents (`bg-card border`, `bg-background`, `text-foreground`, etc.)
-2. **Permissions.tsx** — Same treatment across accordion sections, role tabs, radio pills, page/feature rows, data access cards, and the confirm dialog. The `AlertDialogContent` style overrides also need removal.
+5. **Platform Deep-Dive** — Tabbed showcase section with tabs for each major feature group. Clicking a tab shows a large visual placeholder with descriptive text. Groups: AI & Automation, Communication, Management, Performance.
 
-## Prevention Going Forward
+6. **Stats Bar** — 4 key metrics in a row
 
-The rule is simple: **never use hardcoded hex colors in inline styles for theme-dependent elements.** Always use Tailwind's semantic classes (`bg-card`, `bg-background`, `text-foreground`, `bg-accent`, `text-muted-foreground`, `border`, `bg-primary`, etc.) which are defined in `index.css` and respond to light/dark mode automatically. Inline `style={{ backgroundColor }}` should only be used for truly dynamic, user-chosen colors (like color swatches/pickers).
+7. **Testimonials** — 3 glass cards with star ratings and quotes
+
+8. **Final CTA** — "Ready to transform your agency?" with glowing button
+
+9. **Footer** — Same structure, Product/Resources/Company columns
+
+### Technical Details
+- Single file replacement: `src/pages/LandingPage.tsx`
+- All existing imports (framer-motion, lucide-react, react-router-dom, Button) reused
+- MagneticButton and Section helper components kept
+- No mobile-specific breakpoints or hamburger menu
+- Feature data array expanded to cover all 11 sidebar menu items with unique gradients and mock UI snippets
 
