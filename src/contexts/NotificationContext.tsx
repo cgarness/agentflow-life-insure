@@ -46,7 +46,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             .order("created_at", { ascending: false })
             .limit(100);
 
-        if (!error && data) {
+        if (error) {
+            console.error("Failed to fetch notifications:", error);
+        }
+
+        if (data) {
             setNotifications(data);
         }
         setIsLoading(false);
@@ -103,7 +107,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                     setNotifications((prev) => prev.filter((n) => n.id !== deleted.id));
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === "CHANNEL_ERROR") {
+                    console.error("Notification realtime channel error");
+                }
+            });
 
         channelRef.current = channel;
 
@@ -126,28 +134,58 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const unreadCount = notifications.filter((n) => !n.read).length;
 
     const markRead = useCallback(async (id: string) => {
+        if (!user) return;
+
         // Optimistic update
+        const previousNotifications = notifications;
         setNotifications((prev) =>
             prev.map((n) => (n.id === id ? { ...n, read: true } : n))
         );
-        await supabase.from("notifications").update({ read: true }).eq("id", id);
-    }, []);
+        const { error } = await supabase
+            .from("notifications")
+            .update({ read: true })
+            .eq("id", id)
+            .eq("user_id", user.id);
+
+        if (error) {
+            console.error("Failed to mark notification as read:", error);
+            setNotifications(previousNotifications);
+        }
+    }, [notifications, user]);
 
     const markAllRead = useCallback(async () => {
         if (!user) return;
         // Optimistic update
+        const previousNotifications = notifications;
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-        await supabase
+        const { error } = await supabase
             .from("notifications")
             .update({ read: true })
             .eq("user_id", user.id)
             .eq("read", false);
-    }, [user]);
+
+        if (error) {
+            console.error("Failed to mark all notifications as read:", error);
+            setNotifications(previousNotifications);
+        }
+    }, [notifications, user]);
 
     const deleteNotification = useCallback(async (id: string) => {
+        if (!user) return;
+
+        const previousNotifications = notifications;
         setNotifications((prev) => prev.filter((n) => n.id !== id));
-        await supabase.from("notifications").delete().eq("id", id);
-    }, []);
+        const { error } = await supabase
+            .from("notifications")
+            .delete()
+            .eq("id", id)
+            .eq("user_id", user.id);
+
+        if (error) {
+            console.error("Failed to delete notification:", error);
+            setNotifications(previousNotifications);
+        }
+    }, [notifications, user]);
 
     return (
         <NotificationContext.Provider

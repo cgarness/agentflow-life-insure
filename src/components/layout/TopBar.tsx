@@ -6,8 +6,6 @@ import {
   User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
 } from "lucide-react";
-import { createNotification } from "@/lib/notifications-api";
-import { toast } from "sonner";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
@@ -76,7 +74,7 @@ const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout } = useAuth();
   const { dialerOverride } = useAgentStatus();
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, isLoading, markRead, markAllRead, deleteNotification } = useNotifications();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -281,32 +279,6 @@ const TopBar: React.FC = () => {
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold text-foreground">Notifications</h2>
               <div className="flex items-center gap-3">
-                <button
-                  onClick={async () => {
-                    console.log("Test button clicked. User:", user?.id);
-                    if (!user) {
-                      toast.error("You must be logged in to send a test notification.");
-                      return;
-                    }
-                    try {
-                      await createNotification({
-                        user_id: user.id,
-                        type: "win",
-                        title: "Real-time Test! ✨",
-                        body: "This notification was triggered from the UI. If you see this, real-time is working!",
-                        action_label: "View Contact",
-                        action_url: "/contacts"
-                      });
-                      toast.success("Test notification sent to Supabase!");
-                    } catch (err: any) {
-                      console.error("Test notification failed:", err);
-                      toast.error(`Error: ${err.message || "Unknown error"}`);
-                    }
-                  }}
-                  className="text-xs text-green-500 hover:underline"
-                >
-                  Send Test
-                </button>
                 {unreadCount > 0 && (
                   <button
                     onClick={() => markAllRead()}
@@ -340,34 +312,46 @@ const TopBar: React.FC = () => {
               ))}
             </div>
             <div className="flex-1 overflow-y-auto">
-              {filteredNotifications.length === 0 ? (
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                  <p className="text-sm">Loading notifications...</p>
+                </div>
+              ) : filteredNotifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
                   <Bell className="w-8 h-8 mb-2 opacity-30" />
                   <p className="text-sm">No notifications</p>
                 </div>
               ) : (
                 filteredNotifications.map((n) => (
-                  <button
+                  <div
                     key={n.id}
-                    onClick={() => handleNotifClick(n)}
                     className={`w-full flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition text-left ${!n.read ? "bg-primary/5" : ""
                       }`}
                   >
-                    <div className="mt-0.5 shrink-0">
-                      {getNotifIcon(n.type)}
-                    </div>
-                    {!n.read && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{n.title}</p>
-                      <p className="text-sm text-muted-foreground line-clamp-2">{n.body}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-muted-foreground">{timeAgo(n.created_at)}</span>
-                        {n.action_label && n.action_url && (
-                          <span className="text-xs text-primary font-medium">{n.action_label}</span>
-                        )}
+                    <button onClick={() => handleNotifClick(n)} className="flex items-start gap-3 flex-1 min-w-0 text-left">
+                      <div className="mt-0.5 shrink-0">
+                        {getNotifIcon(n.type)}
                       </div>
-                    </div>
-                  </button>
+                      {!n.read && <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{n.title}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{n.body}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-muted-foreground">{timeAgo(n.created_at)}</span>
+                          {n.action_label && n.action_url && (
+                            <span className="text-xs text-primary font-medium">{n.action_label}</span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => deleteNotification(n.id)}
+                      className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                      aria-label="Delete notification"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
