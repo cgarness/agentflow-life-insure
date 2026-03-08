@@ -205,6 +205,10 @@ const DialerPage: React.FC = () => {
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{ calls: number; connected: number; talkTime: number; duration: number } | null>(null);
 
+  /* ── DNC warning ── */
+  const [dncWarning, setDncWarning] = useState(false);
+  const [dncChecking, setDncChecking] = useState(false);
+
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
@@ -460,9 +464,27 @@ const DialerPage: React.FC = () => {
     setCallbackDate(undefined);
   };
 
-  const handleCall = async () => {
+  const handleCall = async (bypassDnc = false) => {
     const number = quickDialMode ? quickDialNumber : currentLead?.phone;
     if (!number) return;
+
+    // DNC check
+    if (!bypassDnc) {
+      setDncChecking(true);
+      const cleaned = number.replace(/\D/g, "");
+      const { data: dncHit } = await supabase
+        .from("dnc_list")
+        .select("id")
+        .or(`phone_number.eq.${cleaned},phone_number.eq.${number}`)
+        .limit(1)
+        .maybeSingle();
+      setDncChecking(false);
+      if (dncHit) {
+        setDncWarning(true);
+        return;
+      }
+    }
+    setDncWarning(false);
 
     if (!clientRef.current || !dialerReady) {
       toast.error("Dialer not ready. Please wait and try again.");
@@ -1104,14 +1126,39 @@ const DialerPage: React.FC = () => {
                 {/* Call controls */}
                 {callStatus === "idle" && (
                   <div className="space-y-3">
-                    <button onClick={handleCall}
-                      className="w-full bg-green-600 text-white rounded-xl py-4 text-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-3">
-                      <Phone className="w-6 h-6" /> Call
-                    </button>
-                    <button onClick={handleSkipLead}
-                      className="w-full border border-border text-muted-foreground rounded-xl py-2.5 text-sm font-medium hover:bg-accent transition-colors flex items-center justify-center gap-2">
-                      <SkipForward className="w-4 h-4" /> Skip
-                    </button>
+                    {/* DNC Warning Banner */}
+                    {dncWarning && (
+                      <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-destructive">
+                          <AlertTriangle className="w-5 h-5 shrink-0" />
+                          <p className="text-sm font-semibold">This number is on the Do Not Call list</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Calling this number may violate DNC regulations. Proceed with caution.</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setDncWarning(false); handleSkipLead(); }}
+                            className="flex-1 border border-border text-foreground rounded-lg py-2 text-sm font-medium hover:bg-accent transition-colors">
+                            Cancel Call
+                          </button>
+                          <button onClick={() => handleCall(true)}
+                            className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-2 text-sm font-medium hover:bg-destructive/90 transition-colors">
+                            Proceed Anyway
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {!dncWarning && (
+                      <>
+                        <button onClick={() => handleCall()}
+                          disabled={dncChecking}
+                          className="w-full bg-green-600 text-white rounded-xl py-4 text-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-3 disabled:opacity-50">
+                          {dncChecking ? <><Loader2 className="w-5 h-5 animate-spin" /> Checking...</> : <><Phone className="w-6 h-6" /> Call</>}
+                        </button>
+                        <button onClick={handleSkipLead}
+                          className="w-full border border-border text-muted-foreground rounded-xl py-2.5 text-sm font-medium hover:bg-accent transition-colors flex items-center justify-center gap-2">
+                          <SkipForward className="w-4 h-4" /> Skip
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
