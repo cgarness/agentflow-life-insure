@@ -47,9 +47,9 @@ Deno.serve(async (req) => {
             throw new Error(errorData.errors?.[0]?.detail || "Authentication failed with Telnyx");
         }
 
-    } catch (error) {
+    } catch (error: unknown) {
         return new Response(
-            JSON.stringify({ success: false, error: error.message ?? "Internal server error" }),
+            JSON.stringify({ success: false, error: error instanceof Error ? error.message : "Internal server error" }),
             {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
