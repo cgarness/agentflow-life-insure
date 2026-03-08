@@ -1279,6 +1279,34 @@ const DialerPage: React.FC = () => {
                       <span className="text-teal-500">{getContactLocalTime(currentLead.state)}</span>
                       {currentLead.source && <span className="text-muted-foreground">{currentLead.source}</span>}
                     </div>
+                    {/* Caller ID display */}
+                    <div className="flex items-center justify-center gap-2 text-xs">
+                      {currentCallerId.matchType === "local" ? (
+                        <>
+                          <span className="text-muted-foreground">Calling from:</span>
+                          <span className="font-mono text-foreground">{formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                          <span className="bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
+                            Local Match ({currentCallerId.matchedAreaCode})
+                          </span>
+                        </>
+                      ) : currentCallerId.matchType === "default" ? (
+                        <>
+                          <span className="text-muted-foreground">Calling from:</span>
+                          <span className="font-mono text-foreground">{formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                          <span className="bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full text-[10px] font-medium">Default</span>
+                        </>
+                      ) : (
+                        <span className="text-destructive">No caller ID — add numbers in Settings</span>
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button onClick={refreshPhoneCache} className="text-muted-foreground hover:text-foreground p-0.5">
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Refresh phone numbers</TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
                 )}
 
