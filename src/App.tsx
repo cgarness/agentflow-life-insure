@@ -35,6 +35,10 @@ const queryClient = new QueryClient();
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuth();
+  const searchParams = new URLSearchParams(window.location.search);
+  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
+
+  if (bypassAuth) return <>{children}</>;
   if (isLoading) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
