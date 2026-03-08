@@ -34,7 +34,7 @@ export const activitiesSupabaseApi = {
                 agent_id: data.agentId || null,
                 metadata: data.metadata || null,
             })
-            .select("*, agent:profiles(first_name, last_name)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);

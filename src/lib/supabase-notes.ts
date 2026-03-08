@@ -24,7 +24,7 @@ export const notesSupabaseApi = {
                 content: note,
                 author_id: agentId,
             })
-            .select("*, author:profiles(first_name, last_name)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);
