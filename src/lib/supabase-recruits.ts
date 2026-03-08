@@ -3,7 +3,7 @@ import { Recruit } from "@/lib/types";
 
 export const recruitsSupabaseApi = {
     async getAll(search?: string): Promise<Recruit[]> {
-        let query = supabase
+        let query = (supabase as any)
             .from("recruits")
             .select("*")
             .order("created_at", { ascending: false });
