@@ -655,6 +655,30 @@ const FloatingDialer: React.FC = () => {
                         <p className="text-xs text-muted-foreground">
                           {selectedContact.phone}
                         </p>
+                        {/* Caller ID */}
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {currentCallerId.matchType === "local" ? (
+                            <>
+                              <span className="text-[10px] text-muted-foreground">From: {formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                              <span className="bg-green-500/10 text-green-600 px-1 py-0.5 rounded text-[9px] font-medium">Local ({currentCallerId.matchedAreaCode})</span>
+                            </>
+                          ) : currentCallerId.matchType === "default" ? (
+                            <>
+                              <span className="text-[10px] text-muted-foreground">From: {formatPhoneDisplay(currentCallerId.callerNumber)}</span>
+                              <span className="bg-muted text-muted-foreground px-1 py-0.5 rounded text-[9px] font-medium">Default</span>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-destructive">No caller ID</span>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button onClick={refreshPhoneCache} className="text-muted-foreground hover:text-foreground p-0.5">
+                                <RefreshCw className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Refresh phone numbers</TooltipContent>
+                          </Tooltip>
+                        </div>
                       </div>
                       <button
                         onClick={handleCallFromContact}
