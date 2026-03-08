@@ -4,7 +4,9 @@ import {
   Clock, SkipForward, Search, ChevronLeft, Loader2,
   ArrowRight, AlertTriangle, X, Hash, Delete,
   Zap, User, Mail, MapPin, ExternalLink, FileText,
-  MessageSquare, CalendarPlus, CheckCircle,
+  MessageSquare, CalendarPlus, CheckCircle, Pin,
+  PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
+  MessageCircle, MailIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
