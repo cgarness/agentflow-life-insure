@@ -134,9 +134,20 @@ const Dashboard: React.FC = () => {
       setWins(w);
       setActivities(act);
       setLoading(false);
+
+      // First-login-of-day briefing check
+      if (!briefingCheckedRef.current && user?.id) {
+        briefingCheckedRef.current = true;
+        const today = new Date().toISOString().split("T")[0];
+        const key = `briefing-last-shown-${user.id}`;
+        if (localStorage.getItem(key) !== today) {
+          setBriefingOpen(true);
+          localStorage.setItem(key, today);
+        }
+      }
     };
     load();
-  }, [lbPeriod]);
+  }, [lbPeriod, user?.id]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
