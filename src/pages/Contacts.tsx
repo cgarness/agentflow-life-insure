@@ -147,8 +147,8 @@ const AddContactModal: React.FC<{
       if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, status: initial.status as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" });
       else setForm({ firstName: "", lastName: "", phone: "", email: "", status: "Prospect" as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" });
     } else {
-      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New", age: initial.age || "", dateOfBirth: initial.dateOfBirth || "", healthStatus: initial.healthStatus || "", bestTimeToCall: initial.bestTimeToCall || "", notes: initial.notes || "" });
-      else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New", age: "", dateOfBirth: "", healthStatus: "", bestTimeToCall: "", notes: "" });
+      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New", age: initial.age as any || "", dateOfBirth: initial.dateOfBirth || "", healthStatus: initial.healthStatus || "", bestTimeToCall: initial.bestTimeToCall || "", notes: initial.notes || "" });
+      else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New", age: "" as any, dateOfBirth: "", healthStatus: "", bestTimeToCall: "", notes: "" });
     }
   }, [initial, open, contactType]);
 
