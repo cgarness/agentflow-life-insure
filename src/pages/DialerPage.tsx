@@ -1157,7 +1157,7 @@ const DialerPage: React.FC = () => {
                 )}
 
                 {/* Call Script */}
-                {callStatus !== "ended" && (
+                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && (
                   <div className="border border-border rounded-xl overflow-hidden">
                     <button onClick={() => setScriptCollapsed(!scriptCollapsed)}
                       className="w-full flex items-center justify-between px-4 py-2.5 bg-accent/50 hover:bg-accent transition-colors">
