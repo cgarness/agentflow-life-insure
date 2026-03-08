@@ -476,7 +476,7 @@ const CampaignDetail: React.FC = () => {
   const fetchLeads = useCallback(async (silent = false) => {
     if (!id) return;
     if (!silent) setLeadsLoading(true);
-    const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("created_at", { ascending: false });
+    const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
     setLeads((data as CampaignLead[]) || []);
     if (!silent) setLeadsLoading(false);
   }, [id]);
