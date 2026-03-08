@@ -32,6 +32,7 @@ interface AgentProfile {
   id: string;
   first_name: string;
   last_name: string;
+  email: string;
   role: string;
 }
 
@@ -61,13 +62,19 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function getAgentDisplayName(a: AgentProfile): string {
+  const full = `${a.first_name} ${a.last_name}`.trim();
+  return full || a.email || "Unknown";
+}
+
 // ---- Create Campaign Modal ----
 const CreateCampaignModal: React.FC<{
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
   agents: AgentProfile[];
-}> = ({ open, onClose, onCreated, agents }) => {
+  agentsLoading: boolean;
+}> = ({ open, onClose, onCreated, agents, agentsLoading }) => {
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [type, setType] = useState("Personal");
@@ -220,26 +227,34 @@ const CreateCampaignModal: React.FC<{
               <span className={selectedAgents.length ? "text-foreground" : "text-muted-foreground"}>
                 {selectedAgents.length === 0
                   ? "Select agent(s)..."
-                  : agents.filter(a => selectedAgents.includes(a.id)).map(a => `${a.first_name} ${a.last_name}`).join(", ")}
+                  : agents.filter(a => selectedAgents.includes(a.id)).map(a => getAgentDisplayName(a)).join(", ")}
               </span>
               <Users className="w-4 h-4 text-muted-foreground" />
             </button>
             {agentDropdownOpen && (
               <div className="absolute z-10 mt-1 w-full bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                {agents.map(a => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => toggleAgent(a.id)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-                  >
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedAgents.includes(a.id) ? "bg-primary border-primary" : "border-border"}`}>
-                      {selectedAgents.includes(a.id) && <span className="text-primary-foreground text-[10px]">✓</span>}
-                    </div>
-                    <span className="text-foreground">{a.first_name} {a.last_name}</span>
-                  </button>
-                ))}
-                {agents.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">No agents found</p>}
+                {agentsLoading ? (
+                  <div className="flex items-center justify-center gap-2 px-3 py-4">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Loading agents...</span>
+                  </div>
+                ) : agents.length === 0 ? (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">No agents available — add agents in User Management first</p>
+                ) : (
+                  agents.map(a => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => toggleAgent(a.id)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedAgents.includes(a.id) ? "bg-primary border-primary" : "border-border"}`}>
+                        {selectedAgents.includes(a.id) && <span className="text-primary-foreground text-[10px]">✓</span>}
+                      </div>
+                      <span className="text-foreground">{getAgentDisplayName(a)}</span>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -249,14 +264,15 @@ const CreateCampaignModal: React.FC<{
         {/* Calling Hours */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours Start</label>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours Start (lead's local time)</label>
             <input type="time" value={callingStart} onChange={e => setCallingStart(e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours End</label>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours End (lead's local time)</label>
             <input type="time" value={callingEnd} onChange={e => setCallingEnd(e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
           </div>
         </div>
+        <p className="text-xs text-muted-foreground -mt-2">Leads will only be available for calling when their local time falls within this window</p>
 
         {/* Max Retries */}
         <div>
@@ -287,6 +303,7 @@ const Campaigns: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
@@ -304,11 +321,16 @@ const Campaigns: React.FC = () => {
   }, []);
 
   const fetchAgents = useCallback(async () => {
+    setAgentsLoading(true);
     const { data } = await supabase
       .from("profiles")
-      .select("id, first_name, last_name, role")
-      .neq("role", "admin");
-    if (data) setAgents(data as AgentProfile[]);
+      .select("id, first_name, last_name, email, role");
+    if (data) {
+      setAgents(
+        (data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")
+      );
+    }
+    setAgentsLoading(false);
   }, []);
 
   useEffect(() => { fetchCampaigns(); fetchAgents(); }, [fetchCampaigns, fetchAgents]);
@@ -426,7 +448,7 @@ const Campaigns: React.FC = () => {
         </div>
       )}
 
-      <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={fetchCampaigns} agents={agents} />
+      <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={fetchCampaigns} agents={agents} agentsLoading={agentsLoading} />
     </div>
   );
 };

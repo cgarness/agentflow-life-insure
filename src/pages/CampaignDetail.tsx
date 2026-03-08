@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
-  Lock, Trash2, AlertTriangle, Users, Phone, BarChart3,
+  Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Clock,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { STATE_TIMEZONES } from "@/utils/contactLocalTime";
 
 interface Campaign {
   id: string;
@@ -49,6 +50,7 @@ interface AgentProfile {
   id: string;
   first_name: string;
   last_name: string;
+  email: string;
   role: string;
 }
 
@@ -97,6 +99,41 @@ function relativeTime(dateStr: string | null): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
+}
+
+function getAgentDisplayName(a: AgentProfile): string {
+  const full = `${a.first_name} ${a.last_name}`.trim();
+  return full || a.email || "Unknown";
+}
+
+// Callable status helper
+function getLeadCallableStatus(state: string, callingStart: string, callingEnd: string): "available" | "outside" | "nostate" {
+  if (!state) return "nostate";
+  const tz = STATE_TIMEZONES[state.toUpperCase()];
+  if (!tz) return "nostate";
+
+  const now = new Date();
+  const hourStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).format(now);
+  
+  // Parse "HH:MM" from formatted string
+  const parts = hourStr.split(":");
+  const currentMinutes = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+  
+  const startParts = callingStart.split(":");
+  const startMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+  
+  const endParts = callingEnd.split(":");
+  const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+
+  if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
+    return "available";
+  }
+  return "outside";
 }
 
 // ---- CSV helpers ----
@@ -231,7 +268,6 @@ const AddLeadsModal: React.FC<{
     if (error) {
       toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" });
     } else {
-      // Update total_leads
       await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 } as any).eq("id", campaignId); // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.success(`${toAdd.length} leads added to campaign`, { duration: 3000, position: "bottom-right" });
       onAdded();
@@ -433,6 +469,7 @@ const CampaignDetail: React.FC = () => {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [leads, setLeads] = useState<CampaignLead[]>([]);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [tab, setTab] = useState("Leads");
@@ -469,8 +506,16 @@ const CampaignDetail: React.FC = () => {
   }, [id]);
 
   const fetchAgents = useCallback(async () => {
-    const { data } = await supabase.from("profiles").select("id, first_name, last_name, role").neq("role", "admin");
-    if (data) setAgents(data as AgentProfile[]);
+    setAgentsLoading(true);
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name, email, role");
+    if (data) {
+      setAgents(
+        (data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")
+      );
+    }
+    setAgentsLoading(false);
   }, []);
 
   useEffect(() => { fetchCampaign(); fetchLeads(); fetchAgents(); }, [fetchCampaign, fetchLeads, fetchAgents]);
@@ -478,9 +523,14 @@ const CampaignDetail: React.FC = () => {
   const existingLeadIds = useMemo(() => new Set(leads.map(l => l.lead_id).filter(Boolean) as string[]), [leads]);
 
   const filteredLeads = useMemo(() => {
-    if (leadFilter === "All") return leads;
-    return leads.filter(l => l.status === leadFilter);
-  }, [leads, leadFilter]);
+    let filtered = leads;
+    if (leadFilter === "Callable Now" && campaign) {
+      filtered = leads.filter(l => getLeadCallableStatus(l.state, campaign.calling_hours_start, campaign.calling_hours_end) === "available");
+    } else if (leadFilter !== "All") {
+      filtered = leads.filter(l => l.status === leadFilter);
+    }
+    return filtered;
+  }, [leads, leadFilter, campaign]);
 
   // Status actions
   const updateStatus = async (newStatus: string) => {
@@ -506,7 +556,6 @@ const CampaignDetail: React.FC = () => {
     toast.success("Lead removed from campaign", { duration: 3000, position: "bottom-right" });
     setRemoveLeadId(null);
     fetchLeads();
-    // Update total count
     if (id) {
       const { count } = await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", id);
       await supabase.from("campaigns").update({ total_leads: count || 0 } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -635,6 +684,7 @@ const CampaignDetail: React.FC = () => {
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{leads.length} leads</span>
             <select value={leadFilter} onChange={e => setLeadFilter(e.target.value)} className="h-8 px-2 rounded-lg bg-muted text-sm text-foreground border border-border">
               <option value="All">All</option>
+              <option value="Callable Now">Callable Now</option>
               {["Queued", "Locked", "Claimed", "Called", "Skipped", "Completed", "Failed"].map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
@@ -655,6 +705,7 @@ const CampaignDetail: React.FC = () => {
                   <th className="text-left py-3 px-3 font-medium">Email</th>
                   <th className="text-left py-3 px-3 font-medium">State</th>
                   <th className="text-left py-3 px-3 font-medium">Status</th>
+                  <th className="text-left py-3 px-3 font-medium">Callable</th>
                   <th className="text-center py-3 px-3 font-medium">Attempts</th>
                   <th className="text-left py-3 px-3 font-medium">Last Called</th>
                   <th className="text-left py-3 px-3 font-medium">Disposition</th>
@@ -663,6 +714,7 @@ const CampaignDetail: React.FC = () => {
                 <tbody>
                   {filteredLeads.map(l => {
                     const hidePhone = campaign.type === "Open Pool" && l.status === "Queued" && l.locked_by !== user?.id;
+                    const callableStatus = getLeadCallableStatus(l.state, campaign.calling_hours_start, campaign.calling_hours_end);
                     return (
                       <tr key={l.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
                         <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
@@ -675,6 +727,17 @@ const CampaignDetail: React.FC = () => {
                         <td className="py-3 px-3 text-foreground">{l.state}</td>
                         <td className="py-3 px-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${LEAD_STATUS_COLORS[l.status] || "bg-muted text-muted-foreground"}`}>{l.status}</span>
+                        </td>
+                        <td className="py-3 px-3">
+                          {callableStatus === "available" && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-success/10 text-success">Available</span>
+                          )}
+                          {callableStatus === "outside" && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-destructive/10 text-destructive">Outside Hours</span>
+                          )}
+                          {callableStatus === "nostate" && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground">No State</span>
+                          )}
                         </td>
                         <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
                         <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
@@ -794,34 +857,44 @@ const CampaignDetail: React.FC = () => {
             <div className="relative">
               <button type="button" onClick={() => setAgentDropdownOpen(!agentDropdownOpen)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-left border border-border flex items-center justify-between">
                 <span className={(settingsForm.assigned_agent_ids as string[] || []).length ? "text-foreground" : "text-muted-foreground"}>
-                  {(settingsForm.assigned_agent_ids as string[] || []).length === 0 ? "Select agent(s)..." : agents.filter(a => (settingsForm.assigned_agent_ids as string[] || []).includes(a.id)).map(a => `${a.first_name} ${a.last_name}`).join(", ")}
+                  {(settingsForm.assigned_agent_ids as string[] || []).length === 0 ? "Select agent(s)..." : agents.filter(a => (settingsForm.assigned_agent_ids as string[] || []).includes(a.id)).map(a => getAgentDisplayName(a)).join(", ")}
                 </span>
                 <Users className="w-4 h-4 text-muted-foreground" />
               </button>
               {agentDropdownOpen && (
                 <div className="absolute z-10 mt-1 w-full bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {agents.map(a => (
-                    <button key={a.id} type="button" onClick={() => toggleSettingsAgent(a.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left">
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${(settingsForm.assigned_agent_ids as string[] || []).includes(a.id) ? "bg-primary border-primary" : "border-border"}`}>
-                        {(settingsForm.assigned_agent_ids as string[] || []).includes(a.id) && <span className="text-primary-foreground text-[10px]">✓</span>}
-                      </div>
-                      <span className="text-foreground">{a.first_name} {a.last_name}</span>
-                    </button>
-                  ))}
+                  {agentsLoading ? (
+                    <div className="flex items-center justify-center gap-2 px-3 py-4">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Loading agents...</span>
+                    </div>
+                  ) : agents.length === 0 ? (
+                    <p className="px-3 py-3 text-sm text-muted-foreground">No agents available — add agents in User Management first</p>
+                  ) : (
+                    agents.map(a => (
+                      <button key={a.id} type="button" onClick={() => toggleSettingsAgent(a.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left">
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${(settingsForm.assigned_agent_ids as string[] || []).includes(a.id) ? "bg-primary border-primary" : "border-border"}`}>
+                          {(settingsForm.assigned_agent_ids as string[] || []).includes(a.id) && <span className="text-primary-foreground text-[10px]">✓</span>}
+                        </div>
+                        <span className="text-foreground">{getAgentDisplayName(a)}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours Start</label>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours Start (lead's local time)</label>
               <input type="time" value={settingsForm.calling_hours_start || "09:00"} onChange={e => handleSettingsChange("calling_hours_start", e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours End</label>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Calling Hours End (lead's local time)</label>
               <input type="time" value={settingsForm.calling_hours_end || "17:00"} onChange={e => handleSettingsChange("calling_hours_end", e.target.value)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
           </div>
+          <p className="text-xs text-muted-foreground -mt-2">Leads will only be available for calling when their local time falls within this window</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Max Retries</label>
