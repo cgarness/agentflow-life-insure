@@ -4,7 +4,9 @@ import {
   Clock, SkipForward, Search, ChevronLeft, Loader2,
   ArrowRight, AlertTriangle, X, Hash, Delete,
   Zap, User, Mail, MapPin, ExternalLink, FileText,
-  MessageSquare, CalendarPlus, CheckCircle,
+  MessageSquare, CalendarPlus, CheckCircle, Pin,
+  PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
+  MessageCircle, MailIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -69,8 +71,11 @@ interface CallRecord {
   contact_name: string | null;
   duration: number | null;
   disposition_name: string | null;
+  disposition_id: string | null;
   started_at: string | null;
+  ended_at: string | null;
   agent_id: string | null;
+  notes: string | null;
 }
 
 interface ActivityRecord {
@@ -78,6 +83,33 @@ interface ActivityRecord {
   activity_type: string;
   description: string;
   created_at: string;
+  metadata: any;
+}
+
+interface AppointmentRecord {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  start_time: string;
+  contact_name: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+interface AgentProfile {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+/* ── Conversation feed item (unified timeline) ── */
+type FeedItemType = "call" | "note" | "appointment" | "activity" | "sms" | "email";
+interface FeedItem {
+  id: string;
+  type: FeedItemType;
+  timestamp: string;
+  data: any;
 }
 
 interface ContactNote {
@@ -181,6 +213,14 @@ const DialerPage: React.FC = () => {
   /* ── Right panel data ── */
   const [callHistory, setCallHistory] = useState<CallRecord[]>([]);
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<Record<string, AgentProfile>>({});
+
+  /* ── Conversation History feed ── */
+  const [feedFilter, setFeedFilter] = useState<"all" | "calls" | "notes" | "appointments" | "activity">("all");
+  const [expandedFeedItems, setExpandedFeedItems] = useState<Set<string>>(new Set());
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const feedEndRef = useRef<HTMLDivElement>(null);
 
   /* ── Call script ── */
   const [scriptContent, setScriptContent] = useState<string | null>(null);
@@ -337,22 +377,119 @@ const DialerPage: React.FC = () => {
       setContactNotes([]);
       setCallHistory([]);
       setActivities([]);
+      setAppointments([]);
       return;
     }
     const lid = currentLead.lead_id;
-    // notes
-    supabase.from("contact_notes").select("id, content, pinned, created_at")
-      .eq("contact_id", lid).order("pinned", { ascending: false }).order("created_at", { ascending: false }).limit(3)
-      .then(({ data }) => setContactNotes(data || []));
-    // call history
-    supabase.from("calls").select("id, contact_name, duration, disposition_name, started_at, agent_id")
-      .eq("contact_id", lid).order("started_at", { ascending: false }).limit(10)
-      .then(({ data }) => setCallHistory((data as CallRecord[]) || []));
-    // activities
-    supabase.from("contact_activities").select("id, activity_type, description, created_at")
-      .eq("contact_id", lid).order("created_at", { ascending: false }).limit(10)
-      .then(({ data }) => setActivities((data as ActivityRecord[]) || []));
+    setHistoryLoading(true);
+
+    const fetchAll = async () => {
+      // notes (all, not just 3)
+      const notesP = supabase.from("contact_notes").select("id, content, pinned, created_at, author_id")
+        .eq("contact_id", lid).order("created_at", { ascending: false });
+      // call history
+      const callsP = supabase.from("calls").select("id, contact_name, duration, disposition_name, disposition_id, started_at, ended_at, agent_id, notes")
+        .eq("contact_id", lid).order("started_at", { ascending: false });
+      // activities
+      const activitiesP = supabase.from("contact_activities").select("id, activity_type, description, created_at, metadata")
+        .eq("contact_id", lid).order("created_at", { ascending: false });
+      // appointments
+      const apptP = supabase.from("appointments").select("id, title, type, status, start_time, contact_name, created_by, created_at")
+        .eq("contact_id", lid).order("created_at", { ascending: false });
+
+      const [notesRes, callsRes, activitiesRes, apptRes] = await Promise.all([notesP, callsP, activitiesP, apptP]);
+      
+      const notes = notesRes.data || [];
+      const calls = (callsRes.data as CallRecord[]) || [];
+      const acts = (activitiesRes.data as ActivityRecord[]) || [];
+      const appts = (apptRes.data as AppointmentRecord[]) || [];
+
+      setContactNotes(notes);
+      setCallHistory(calls);
+      setActivities(acts);
+      setAppointments(appts);
+
+      // Collect unique agent IDs from calls and fetch profiles
+      const agentIds = new Set<string>();
+      calls.forEach((c) => { if (c.agent_id) agentIds.add(c.agent_id); });
+      notes.forEach((n: any) => { if (n.author_id) agentIds.add(n.author_id); });
+      appts.forEach((a) => { if (a.created_by) agentIds.add(a.created_by); });
+      
+      if (agentIds.size > 0) {
+        const { data: profiles } = await supabase.from("profiles")
+          .select("id, first_name, last_name")
+          .in("id", Array.from(agentIds));
+        if (profiles) {
+          const map: Record<string, AgentProfile> = {};
+          profiles.forEach((p: any) => { map[p.id] = p; });
+          setAgentProfiles(map);
+        }
+      }
+      setHistoryLoading(false);
+    };
+    fetchAll();
   }, [currentLead?.lead_id]);
+
+  /* ── Build unified conversation feed ── */
+  const conversationFeed = useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [];
+
+    callHistory.forEach((c) => {
+      items.push({ id: `call-${c.id}`, type: "call", timestamp: c.started_at || c.ended_at || "", data: c });
+    });
+    contactNotes.forEach((n) => {
+      items.push({ id: `note-${n.id}`, type: "note", timestamp: n.created_at, data: n });
+    });
+    appointments.forEach((a) => {
+      items.push({ id: `appt-${a.id}`, type: "appointment", timestamp: a.created_at, data: a });
+    });
+    activities.forEach((a) => {
+      if (a.activity_type === "sms") {
+        items.push({ id: `sms-${a.id}`, type: "sms", timestamp: a.created_at, data: a });
+      } else if (a.activity_type === "email") {
+        items.push({ id: `email-${a.id}`, type: "email", timestamp: a.created_at, data: a });
+      } else {
+        items.push({ id: `activity-${a.id}`, type: "activity", timestamp: a.created_at, data: a });
+      }
+    });
+
+    items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return items;
+  }, [callHistory, contactNotes, appointments, activities]);
+
+  const filteredFeed = useMemo(() => {
+    if (feedFilter === "all") return conversationFeed;
+    if (feedFilter === "calls") return conversationFeed.filter((i) => i.type === "call");
+    if (feedFilter === "notes") return conversationFeed.filter((i) => i.type === "note");
+    if (feedFilter === "appointments") return conversationFeed.filter((i) => i.type === "appointment");
+    if (feedFilter === "activity") return conversationFeed.filter((i) => i.type === "activity" || i.type === "sms" || i.type === "email");
+    return conversationFeed;
+  }, [conversationFeed, feedFilter]);
+
+  /* ── Auto-scroll feed to bottom ── */
+  useEffect(() => {
+    if (feedEndRef.current) feedEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [filteredFeed.length]);
+
+  const getAgentFirstName = (agentId: string | null) => {
+    if (!agentId) return "";
+    const p = agentProfiles[agentId];
+    return p ? p.first_name : "";
+  };
+
+  const toggleFeedExpand = (id: string) => {
+    setExpandedFeedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const getDispColor = (dispName: string | null) => {
+    if (!dispName) return null;
+    const d = dispositions.find((d) => d.name === dispName);
+    return d?.color ?? null;
+  };
 
   /* ── Open Pool polling ── */
   useEffect(() => {
@@ -537,17 +674,17 @@ const DialerPage: React.FC = () => {
 
   const handleSaveNote = async () => {
     if (!newNote.trim() || !currentLead?.lead_id) return;
-    await supabase.from("contact_notes").insert({
+    const { data: inserted } = await supabase.from("contact_notes").insert({
       contact_id: currentLead.lead_id,
       contact_type: "lead",
       content: newNote,
       author_id: agentId,
-    });
+    }).select("id, content, pinned, created_at, author_id").single();
     setNewNote("");
-    // Refresh notes
-    const { data } = await supabase.from("contact_notes").select("id, content, pinned, created_at")
-      .eq("contact_id", currentLead.lead_id).order("pinned", { ascending: false }).order("created_at", { ascending: false }).limit(3);
-    setContactNotes(data || []);
+    if (inserted) {
+      // Optimistically add to contactNotes (prepend) so feed updates
+      setContactNotes((prev) => [inserted as any, ...prev]);
+    }
     toast.success("Note saved");
   };
 
@@ -1220,7 +1357,207 @@ const DialerPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Call Script */}
+                {/* ── Conversation History Feed ── */}
+                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && currentLead && (
+                  <div className="border border-border rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-accent/50 border-b border-border">
+                      <h3 className="text-sm font-medium text-foreground mb-2">Conversation History</h3>
+                      <div className="flex gap-1 flex-wrap">
+                        {(["all", "calls", "notes", "appointments", "activity"] as const).map((f) => (
+                          <button
+                            key={f}
+                            onClick={() => setFeedFilter(f)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors capitalize",
+                              feedFilter === f
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-muted-foreground hover:bg-muted/80"
+                            )}
+                          >
+                            {f}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="max-h-[400px] overflow-y-auto p-3 space-y-2 bg-muted/10">
+                      {historyLoading ? (
+                        <div className="space-y-2">
+                          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                        </div>
+                      ) : filteredFeed.length === 0 ? (
+                        <div className="text-center py-8">
+                          <MessageSquare className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">No conversation history yet.</p>
+                          <p className="text-xs text-muted-foreground">This will be the first touchpoint.</p>
+                        </div>
+                      ) : (
+                        <>
+                          {filteredFeed.map((item) => {
+                            const expanded = expandedFeedItems.has(item.id);
+                            const borderColors: Record<FeedItemType, string> = {
+                              call: "border-l-green-500",
+                              note: "border-l-blue-500",
+                              appointment: "border-l-purple-500",
+                              activity: "border-l-muted-foreground/50",
+                              sms: "border-l-green-500",
+                              email: "border-l-blue-500",
+                            };
+                            return (
+                              <div
+                                key={item.id}
+                                className={cn(
+                                  "bg-card rounded-lg p-3 border-l-[3px] text-xs",
+                                  borderColors[item.type] || "border-l-muted"
+                                )}
+                              >
+                                {item.type === "call" && (() => {
+                                  const c = item.data as CallRecord;
+                                  const connected = (c.duration ?? 0) > 0;
+                                  const dispColor = getDispColor(c.disposition_name);
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        {connected
+                                          ? <Phone className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                                          : <PhoneMissed className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                        }
+                                        <span className="font-medium text-foreground">
+                                          Call — {connected ? fmtTime(c.duration!) : "No Answer"}
+                                        </span>
+                                        {c.disposition_name && (
+                                          <span
+                                            className="px-1.5 py-0.5 rounded-full text-[10px] font-medium ml-auto"
+                                            style={{
+                                              backgroundColor: dispColor ? `${dispColor}20` : undefined,
+                                              color: dispColor || undefined,
+                                            }}
+                                          >
+                                            {c.disposition_name}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {getAgentFirstName(c.agent_id) && (
+                                        <p className="text-muted-foreground ml-5">{getAgentFirstName(c.agent_id)}</p>
+                                      )}
+                                      {c.notes && (
+                                        <p
+                                          className={cn("text-muted-foreground ml-5 cursor-pointer", !expanded && "line-clamp-2")}
+                                          onClick={() => toggleFeedExpand(item.id)}
+                                        >
+                                          {c.notes}
+                                        </p>
+                                      )}
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "note" && (() => {
+                                  const n = item.data as ContactNote;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Pencil className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                        {n.pinned && (
+                                          <span className="flex items-center gap-0.5 text-primary text-[10px] font-medium">
+                                            <Pin className="w-3 h-3" /> Pinned
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p
+                                        className={cn("text-foreground ml-5 cursor-pointer", !expanded && "line-clamp-3")}
+                                        onClick={() => toggleFeedExpand(item.id)}
+                                      >
+                                        {n.content}
+                                      </p>
+                                      {getAgentFirstName((n as any).author_id) && (
+                                        <p className="text-muted-foreground ml-5">{getAgentFirstName((n as any).author_id)}</p>
+                                      )}
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "appointment" && (() => {
+                                  const a = item.data as AppointmentRecord;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <CalendarDays className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                        <span className="font-medium text-foreground">
+                                          {a.type} — {a.status}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground ml-5">
+                                        {format(new Date(a.start_time), "MMM d, yyyy h:mm a")}
+                                      </p>
+                                      {getAgentFirstName(a.created_by) && (
+                                        <p className="text-muted-foreground ml-5">{getAgentFirstName(a.created_by)}</p>
+                                      )}
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "activity" && (() => {
+                                  const a = item.data as ActivityRecord;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                        <span className="text-foreground">{a.description}</span>
+                                        <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
+                                          {a.activity_type}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "sms" && (() => {
+                                  const a = item.data as ActivityRecord;
+                                  const direction = a.metadata?.direction || "sent";
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <MessageCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                                        <span className="text-foreground flex-1">{a.description}</span>
+                                        <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full capitalize">
+                                          {direction}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+
+                                {item.type === "email" && (() => {
+                                  const a = item.data as ActivityRecord;
+                                  const direction = a.metadata?.direction || "sent";
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <MailIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                        <span className="text-foreground flex-1">{a.description}</span>
+                                        <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full capitalize">
+                                          {direction}
+                                        </span>
+                                      </div>
+                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            );
+                          })}
+                          <div ref={feedEndRef} />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && (
                   <div className="border border-border rounded-xl overflow-hidden">
                     <button onClick={() => setScriptCollapsed(!scriptCollapsed)}
@@ -1289,6 +1626,71 @@ const DialerPage: React.FC = () => {
               </div>
             ) : (
               <>
+                {/* ── Previous Attempts ── */}
+                {(() => {
+                  const attempts = [...callHistory].reverse(); // oldest first for numbering
+                  const count = attempts.length;
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Previous Attempts</h4>
+                        {count > 0 && (
+                          <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">
+                            {count} attempt{count !== 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      {count === 0 ? (
+                        <p className="text-xs text-green-500 italic">First attempt</p>
+                      ) : (
+                        <div className="max-h-[200px] overflow-y-auto space-y-1.5">
+                          {[...callHistory].map((c, idx) => {
+                            const attemptNum = count - idx; // most recent first, numbered from oldest
+                            const dispColor = getDispColor(c.disposition_name);
+                            const agentFirst = getAgentFirstName(c.agent_id);
+                            const isOlderThan7d = c.started_at && (Date.now() - new Date(c.started_at).getTime()) > 7 * 86400000;
+                            return (
+                              <div key={c.id} className="flex items-center gap-2 text-xs bg-accent/30 rounded-lg p-2">
+                                <span className="text-muted-foreground font-mono shrink-0">#{attemptNum}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-foreground">
+                                    {c.started_at
+                                      ? isOlderThan7d
+                                        ? format(new Date(c.started_at), "MMM d, h:mm a")
+                                        : timeAgo(c.started_at)
+                                      : "—"}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-muted-foreground">
+                                      {(c.duration ?? 0) > 0 ? fmtTime(c.duration!) : "No Answer"}
+                                    </span>
+                                    {agentFirst && <span className="text-muted-foreground">· {agentFirst}</span>}
+                                  </div>
+                                </div>
+                                {c.disposition_name ? (
+                                  <span
+                                    className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                                    style={{
+                                      backgroundColor: dispColor ? `${dispColor}20` : undefined,
+                                      color: dispColor || undefined,
+                                    }}
+                                  >
+                                    {c.disposition_name}
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground">
+                                    No Disposition
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Contact Card */}
                 <div className="text-center space-y-2">
                   <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-bold mx-auto">
