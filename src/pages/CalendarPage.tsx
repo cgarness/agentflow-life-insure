@@ -56,6 +56,10 @@ const CalendarPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
   const [loading, setLoading] = useState(true);
 
+  // Google Calendar sync state
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [modalEditing, setModalEditing] = useState<CalendarAppointment | null>(null);
   const [modalDefaultDate, setModalDefaultDate] = useState<Date | undefined>(undefined);
