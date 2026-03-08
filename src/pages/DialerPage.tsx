@@ -1183,7 +1183,7 @@ const DialerPage: React.FC = () => {
                 )}
 
                 {/* Quick Notes */}
-                {callStatus !== "ended" && currentLead && (
+                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && currentLead && (
                   <div className="space-y-3">
                     {contactNotes.length > 0 && (
                       <div className="space-y-1">
