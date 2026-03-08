@@ -466,8 +466,7 @@ const Campaigns: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
-  const [agents, setAgents] = useState<AgentProfile[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [duplicateTarget, setDuplicateTarget] = useState<Campaign | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
