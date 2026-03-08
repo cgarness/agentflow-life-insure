@@ -71,8 +71,11 @@ interface CallRecord {
   contact_name: string | null;
   duration: number | null;
   disposition_name: string | null;
+  disposition_id: string | null;
   started_at: string | null;
+  ended_at: string | null;
   agent_id: string | null;
+  notes: string | null;
 }
 
 interface ActivityRecord {
@@ -80,6 +83,33 @@ interface ActivityRecord {
   activity_type: string;
   description: string;
   created_at: string;
+  metadata: any;
+}
+
+interface AppointmentRecord {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  start_time: string;
+  contact_name: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+interface AgentProfile {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+/* ── Conversation feed item (unified timeline) ── */
+type FeedItemType = "call" | "note" | "appointment" | "activity" | "sms" | "email";
+interface FeedItem {
+  id: string;
+  type: FeedItemType;
+  timestamp: string;
+  data: any;
 }
 
 interface ContactNote {
