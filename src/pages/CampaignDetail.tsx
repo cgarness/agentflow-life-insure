@@ -905,12 +905,15 @@ const CampaignDetail: React.FC = () => {
                     <p className="text-xs text-muted-foreground">Claim leads before other agents — first to confirm wins!</p>
                   </div>
                 </div>
-                <div className="flex gap-4 ml-auto text-xs">
+               <div className="flex gap-4 ml-auto text-xs">
                   <span className="text-success font-medium">{poolStats.available} available</span>
                   <span className="text-warning font-medium">{poolStats.locked} locked</span>
                   <span className="text-primary font-medium">{poolStats.claimed} claimed</span>
                 </div>
               </div>
+
+              {/* Live Leaderboard Widget */}
+              <SharkTankLeaderboard leads={leads} agents={agents} />
 
               {leadsLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
