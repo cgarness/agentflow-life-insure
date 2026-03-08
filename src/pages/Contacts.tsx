@@ -1329,42 +1329,59 @@ const Contacts: React.FC = () => {
           {importHistoryOpen && (
             <div className="px-4 pb-4">
               {importHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Upload your first CSV to get started.</p>
+                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Use the Import CSV button above to get started.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-muted-foreground">
-                        <th className="text-left py-2 font-medium">Date</th>
                         <th className="text-left py-2 font-medium">File Name</th>
                         <th className="text-right py-2 font-medium">Total</th>
                         <th className="text-right py-2 font-medium">Imported</th>
                         <th className="text-right py-2 font-medium">Duplicates</th>
                         <th className="text-right py-2 font-medium">Errors</th>
+                        <th className="text-left py-2 font-medium pl-4">When</th>
                         <th className="text-right py-2 font-medium">Undo</th>
                       </tr>
                     </thead>
                     <tbody>
                       {importHistory.map(h => {
-                        const hoursSince = (Date.now() - new Date(h.date).getTime()) / (1000 * 60 * 60);
+                        const msSince = Date.now() - new Date(h.date).getTime();
+                        const hoursSince = msSince / (1000 * 60 * 60);
                         const canUndo = hoursSince < 24;
+                        // Relative time
+                        const minsSince = Math.floor(msSince / 60000);
+                        let relativeTime: string;
+                        if (minsSince < 1) relativeTime = "just now";
+                        else if (minsSince < 60) relativeTime = `${minsSince} minute${minsSince > 1 ? "s" : ""} ago`;
+                        else if (hoursSince < 24) relativeTime = `${Math.floor(hoursSince)} hour${Math.floor(hoursSince) > 1 ? "s" : ""} ago`;
+                        else { const days = Math.floor(hoursSince / 24); relativeTime = `${days} day${days > 1 ? "s" : ""} ago`; }
+
                         return (
                           <tr key={h.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors duration-150">
-                            <td className="py-2 text-foreground">{new Date(h.date).toLocaleDateString()} {new Date(h.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
                             <td className="py-2 text-foreground">{h.fileName}</td>
                             <td className="py-2 text-right text-foreground">{h.totalRecords}</td>
-                            <td className="py-2 text-right text-green-500">{h.imported}</td>
-                            <td className="py-2 text-right text-yellow-500">{h.duplicates}</td>
+                            <td className="py-2 text-right text-success">{h.imported}</td>
+                            <td className="py-2 text-right text-warning">{h.duplicates}</td>
                             <td className="py-2 text-right text-destructive">{h.errors}</td>
+                            <td className="py-2 text-left pl-4 text-muted-foreground">{relativeTime}</td>
                             <td className="py-2 text-right">
-                              <button
-                                disabled={!canUndo}
-                                onClick={() => setUndoConfirm(h)}
-                                className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
-                                title={canUndo ? "Undo this import" : "Can only undo within 24 hours"}
-                              >
-                                <Undo2 className="w-4 h-4" />
-                              </button>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      disabled={!canUndo}
+                                      onClick={() => setUndoConfirm(h)}
+                                      className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
+                                    >
+                                      <Undo2 className="w-4 h-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             </td>
                           </tr>
                         );
