@@ -118,11 +118,27 @@ Supabase is already connected to Lovable. It is the real database. Do not use mo
 - Name the specific table being read from or written to
 - Do not say "save to mock state" or "reference mock data storage" — Supabase is live
 
-**Current tables in Supabase (as of March 3, 2026):**
+**Current tables in Supabase (as of March 7, 2026):**
+- `profiles`
 - `leads`
-- `import_history`
-
-All other tables exist in the schema plan but have not been created yet. Do not assume a table exists before confirming. If a table is needed and not yet created, use Claude/Assistant to create it via a Supabase migration.
+- `clients`
+- `recruits`
+- `contact_notes`
+- `contact_activities`
+- `dispositions`
+- `user_preferences`
+- `calendar_integrations`
+- `notifications`
+- `company_settings`
+- `phone_settings`
+- `phone_numbers`
+- `dnc_list`
+- `call_scripts`
+- `message_templates`
+- `carriers`
+- `goals`
+- `custom_menu_links`
+- `activity_logs`
 
 ---
 
@@ -193,9 +209,9 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 8. ✅ Goal Setting — COMPLETE
 9. ✅ Custom Menu Links — COMPLETE
 10. ✅ Activity Log — COMPLETE
-11. ⬜ Telnyx & Phone Numbers (Settings Rework)
-12. ⬜ Main pages tab by tab
-13. ⬜ Connect Supabase (ongoing as each section needs it)
+11. ✅ Telnyx & Phone Numbers (Settings Rework) — COMPLETE
+12. 🔄 Main pages tab by tab (Contacts page functional with live data today)
+13. 🔄 Connect Supabase (All settings and contact tables are now fully live)
 14. ⬜ Go live
 
 ---
