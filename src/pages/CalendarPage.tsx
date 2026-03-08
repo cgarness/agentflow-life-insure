@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Phone, MessageSquare, Mail, User, ChevronDown, Pencil, Calendar as CalIcon } from "lucide-react";
+import { Plus, Phone, MessageSquare, Mail, User, ChevronDown, Pencil, Calendar as CalIcon, RefreshCw } from "lucide-react";
 import { CalendarAppointment, CalAppointmentStatus, CalAppointmentType, APPOINTMENT_TYPE_COLORS, APPOINTMENT_STATUS_COLORS } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
