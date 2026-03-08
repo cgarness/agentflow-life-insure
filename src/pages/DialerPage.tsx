@@ -232,7 +232,8 @@ const DialerPage: React.FC = () => {
   const callRef = useRef<any>(null);
   const [dialerReady, setDialerReady] = useState(false);
   const [dialerError, setDialerError] = useState<string | null>(null);
-  const [callerNumber, setCallerNumber] = useState("+10000000000");
+  const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
+  const [activeCallerId, setActiveCallerId] = useState<CallerIdResult | null>(null);
 
   /* ── Open Pool / SharkTank ── */
   const [lockCountdown, setLockCountdown] = useState<number | null>(null);
