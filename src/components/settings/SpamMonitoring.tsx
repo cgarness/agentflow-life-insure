@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, ShieldAlert, ShieldCheck, Search, Activity, Cpu, Target, Radar, AlertTriangle, CheckCircle2, Server, Zap } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, Search, Activity, Cpu, Target, Radar, AlertTriangle, CheckCircle2, Server, Zap, ArrowLeft } from "lucide-react";
 
 interface ReportData {
     phoneNumber: string;
@@ -15,11 +15,18 @@ interface ReportData {
     lastChecked: string;
 }
 
+const mockOwnedNumbers = [
+    { phone: "(555) 123-4567", label: "Main Support", lastStatus: "Safe", lastChecked: "2 hours ago" },
+    { phone: "(555) 987-6543", label: "Outbound Sales 1", lastStatus: "Warning", lastChecked: "1 day ago" },
+    { phone: "(555) 555-0099", label: "Outbound Sales 2", lastStatus: "Critical", lastChecked: "5 mins ago" },
+    { phone: "(555) 222-3333", label: "Florida Local", lastStatus: "Safe", lastChecked: "1 week ago" },
+];
+
 const mockCheckNumber = async (phone: string): Promise<ReportData> => {
     return new Promise((resolve) => {
         setTimeout(() => {
             // Mock random generation based on some logic
-            const isBad = phone.endsWith("99") || phone.includes("555");
+            const isBad = phone.endsWith("99") || phone.includes("555-00");
             const score = isBad ? Math.floor(Math.random() * 30) + 70 : Math.floor(Math.random() * 25);
             const attestation = isBad ? "C" : (score > 10 ? "B" : "A");
 
@@ -40,21 +47,25 @@ const mockCheckNumber = async (phone: string): Promise<ReportData> => {
 };
 
 const SpamMonitoring: React.FC = () => {
-    const [phoneNumber, setPhoneNumber] = useState("");
+    const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const [report, setReport] = useState<ReportData | null>(null);
 
-    const handleScan = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!phoneNumber || phoneNumber.length < 10) return;
-
+    const handleSelectNumber = async (phone: string) => {
+        setSelectedPhone(phone);
         setIsScanning(true);
         setReport(null);
 
-        const data = await mockCheckNumber(phoneNumber);
+        const data = await mockCheckNumber(phone);
 
         setIsScanning(false);
         setReport(data);
+    };
+
+    const handleBack = () => {
+        setSelectedPhone(null);
+        setReport(null);
+        setIsScanning(false);
     };
 
     const getAttestationColor = (level: string) => {
@@ -81,230 +92,268 @@ const SpamMonitoring: React.FC = () => {
                 </h2>
             </div>
 
-            <div className="bg-card border rounded-xl p-6 relative overflow-hidden">
+            <div className="bg-card border rounded-xl p-6 relative overflow-hidden min-h-[500px]">
                 {/* Futuristic Background accents */}
                 <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
                 <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/5 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none" />
 
-                <div className="relative z-10 max-w-2xl mx-auto space-y-8">
-                    <div className="text-center space-y-2">
-                        <h3 className="text-2xl font-bold tracking-tight text-foreground">Number Reputation Check</h3>
-                        <p className="text-muted-foreground text-sm">
-                            Run a deep neural scan against global carrier databases and STIR/SHAKEN registries.
-                        </p>
-                    </div>
-
-                    <form onSubmit={handleScan} className="relative group">
-                        <div className="absolute -inset-0.5 bg-gradient-to-r from-primary to-blue-500 rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
-                        <div className="relative flex items-center bg-background rounded-lg border focus-within:ring-2 focus-within:ring-primary/50 overflow-hidden shadow-sm">
-                            <div className="pl-4 pr-2 text-muted-foreground">
-                                <Search className="w-5 h-5" />
-                            </div>
-                            <input
-                                type="tel"
-                                value={phoneNumber}
-                                onChange={(e) => setPhoneNumber(e.target.value)}
-                                placeholder="Enter phone number (e.g., 555-123-4567)"
-                                className="w-full py-4 px-2 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none font-mono text-lg"
-                                disabled={isScanning}
-                            />
-                            <button
-                                type="submit"
-                                disabled={isScanning || !phoneNumber}
-                                className="mx-2 px-6 py-2.5 bg-primary text-primary-foreground font-semibold rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                            >
-                                {isScanning ? (
-                                    <>
-                                        <Activity className="w-4 h-4 animate-pulse" />
-                                        <span>Analyzing</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Target className="w-4 h-4" />
-                                        <span>Run Scan</span>
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </form>
-
-                    {/* Scanning Animation */}
+                <div className="relative z-10 max-w-4xl mx-auto">
                     <AnimatePresence mode="wait">
-                        {isScanning && (
+                        {!selectedPhone ? (
                             <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="overflow-hidden"
+                                key="table"
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.3 }}
+                                className="space-y-6"
                             >
-                                <div className="pt-8 pb-4 flex flex-col items-center justify-center space-y-6">
-                                    <div className="relative w-32 h-32">
-                                        <motion.div
-                                            className="absolute inset-0 border-2 border-primary/20 rounded-full"
-                                        />
-                                        <motion.div
-                                            className="absolute inset-0 border-t-2 border-primary rounded-full"
-                                            animate={{ rotate: 360 }}
-                                            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                                        />
-                                        <motion.div
-                                            className="absolute inset-4 border-b-2 border-blue-500 rounded-full"
-                                            animate={{ rotate: -360 }}
-                                            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                                        />
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <Cpu className="w-8 h-8 text-primary animate-pulse" />
-                                        </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-2xl font-bold tracking-tight text-foreground">Owned Numbers</h3>
+                                    <p className="text-muted-foreground text-sm">
+                                        Select a number to run a deep neural scan against global carrier databases.
+                                    </p>
+                                </div>
 
-                                        {/* Radar Sweep Effect */}
-                                        <motion.div
-                                            className="absolute top-1/2 left-1/2 w-16 h-16 origin-top-left bg-gradient-to-br from-primary/30 to-transparent"
-                                            style={{ borderRadius: "100% 0 0 0" }}
-                                            animate={{ rotate: 360 }}
-                                            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                                        />
-                                    </div>
-
-                                    <div className="space-y-2 text-center w-full max-w-xs">
-                                        <div className="flex justify-between text-xs text-muted-foreground font-mono">
-                                            <span>Querying STIR/SHAKEN matrix</span>
-                                            <span className="text-primary animate-pulse">Running...</span>
-                                        </div>
-                                        <div className="h-1 bg-accent rounded-full overflow-hidden">
-                                            <motion.div
-                                                className="h-full bg-primary"
-                                                initial={{ width: "0%" }}
-                                                animate={{ width: "100%" }}
-                                                transition={{ duration: 2.5, ease: "easeInOut" }}
-                                            />
-                                        </div>
-                                    </div>
+                                <div className="border rounded-xl overflow-hidden bg-background shadow-sm">
+                                    <table className="w-full text-left text-sm whitespace-nowrap">
+                                        <thead className="bg-accent/50 text-muted-foreground font-medium">
+                                            <tr>
+                                                <th className="px-6 py-4">Phone Number</th>
+                                                <th className="px-6 py-4">Label</th>
+                                                <th className="px-6 py-4">Last Status</th>
+                                                <th className="px-6 py-4">Last Checked</th>
+                                                <th className="px-6 py-4 text-right">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-border">
+                                            {mockOwnedNumbers.map((num) => (
+                                                <tr
+                                                    key={num.phone}
+                                                    onClick={() => handleSelectNumber(num.phone)}
+                                                    className="group hover:bg-accent/50 cursor-pointer transition-colors"
+                                                >
+                                                    <td className="px-6 py-4 font-mono text-foreground font-medium">{num.phone}</td>
+                                                    <td className="px-6 py-4 text-muted-foreground">{num.label}</td>
+                                                    <td className="px-6 py-4">
+                                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${num.lastStatus === "Safe" ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" :
+                                                                num.lastStatus === "Warning" ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" :
+                                                                    "bg-rose-500/10 text-rose-500 border border-rose-500/20"
+                                                            }`}>
+                                                            {num.lastStatus === "Safe" ? <ShieldCheck className="w-3.5 h-3.5" /> :
+                                                                num.lastStatus === "Warning" ? <ShieldAlert className="w-3.5 h-3.5" /> :
+                                                                    <Shield className="w-3.5 h-3.5" />}
+                                                            {num.lastStatus}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-muted-foreground text-xs">{num.lastChecked}</td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <button
+                                                            className="text-primary font-medium text-xs opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-end gap-1"
+                                                        >
+                                                            <Target className="w-3.5 h-3.5" /> Scan
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </motion.div>
-                        )}
-
-                        {/* Results Display */}
-                        {report && (
+                        ) : (
                             <motion.div
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
-                                className="pt-6 border-t"
+                                key="report"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.3 }}
+                                className="space-y-6 max-w-2xl mx-auto"
                             >
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <button
+                                    onClick={handleBack}
+                                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors group px-2 py-1 rounded-md hover:bg-accent -ml-2 w-max"
+                                >
+                                    <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                                    Back to Numbers
+                                </button>
 
-                                    {/* Status Card */}
-                                    <div className="col-span-1 md:col-span-3 bg-background border rounded-xl p-5 flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${report.status === "Safe" ? "bg-emerald-500/10 text-emerald-500" :
-                                                report.status === "Warning" ? "bg-amber-500/10 text-amber-500" :
-                                                    "bg-rose-500/10 text-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]"
-                                                }`}>
-                                                {report.status === "Safe" ? <ShieldCheck className="w-6 h-6" /> :
-                                                    report.status === "Warning" ? <ShieldAlert className="w-6 h-6" /> :
-                                                        <Shield className="w-6 h-6" />}
-                                            </div>
-                                            <div>
-                                                <p className="text-sm text-muted-foreground font-medium">Network Consensus</p>
-                                                <h4 className={`text-2xl font-bold tracking-tight ${report.status === "Safe" ? "text-emerald-500" :
-                                                    report.status === "Warning" ? "text-amber-500" : "text-rose-500"
-                                                    }`}>
-                                                    {report.status.toUpperCase()}
-                                                </h4>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm font-mono text-muted-foreground">{report.phoneNumber}</p>
-                                            <p className="text-xs text-muted-foreground mt-1 text-opacity-70">
-                                                Scanned at {new Date(report.lastChecked).toLocaleTimeString()}
-                                            </p>
-                                        </div>
-                                    </div>
+                                <div className="text-center space-y-2">
+                                    <h3 className="text-2xl font-bold tracking-tight text-foreground">Reputation Scan</h3>
+                                    <p className="text-muted-foreground text-sm">
+                                        Target: <span className="font-mono text-primary bg-primary/10 px-2 py-0.5 rounded px-2">{selectedPhone}</span>
+                                    </p>
+                                </div>
 
-                                    {/* Attestation Score */}
-                                    <div className="bg-background border rounded-xl p-5 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <h5 className="text-sm font-medium text-foreground">STIR/SHAKEN</h5>
-                                            <Server className="w-4 h-4 text-muted-foreground" />
-                                        </div>
-                                        <div className="flex flex-col items-center justify-center py-4">
-                                            <div className={`w-20 h-20 rounded-full border-4 flex items-center justify-center text-3xl font-bold font-mono ${getAttestationColor(report.attestation)}`}>
-                                                {report.attestation}
+                                {/* Scanning Animation */}
+                                {isScanning && (
+                                    <div className="pt-8 pb-4 flex flex-col items-center justify-center space-y-6">
+                                        <div className="relative w-32 h-32">
+                                            <motion.div
+                                                className="absolute inset-0 border-2 border-primary/20 rounded-full"
+                                            />
+                                            <motion.div
+                                                className="absolute inset-0 border-t-2 border-primary rounded-full"
+                                                animate={{ rotate: 360 }}
+                                                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                                            />
+                                            <motion.div
+                                                className="absolute inset-4 border-b-2 border-blue-500 rounded-full"
+                                                animate={{ rotate: -360 }}
+                                                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                                            />
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                <Cpu className="w-8 h-8 text-primary animate-pulse" />
                                             </div>
-                                            <p className="text-xs text-center text-muted-foreground mt-4 leading-relaxed">
-                                                {report.attestation === "A" ? "Full Attestation (Caller is verified)" :
-                                                    report.attestation === "B" ? "Partial Attestation (Call originates from known network)" :
-                                                        "Gateway Attestation (Caller identity unverified)"}
-                                            </p>
-                                        </div>
-                                    </div>
 
-                                    {/* Spam Probability */}
-                                    <div className="bg-background border rounded-xl p-5 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <h5 className="text-sm font-medium text-foreground">Spam Confidence</h5>
-                                            <Zap className="w-4 h-4 text-muted-foreground" />
+                                            {/* Radar Sweep Effect */}
+                                            <motion.div
+                                                className="absolute top-1/2 left-1/2 w-16 h-16 origin-top-left bg-gradient-to-br from-primary/30 to-transparent"
+                                                style={{ borderRadius: "100% 0 0 0" }}
+                                                animate={{ rotate: 360 }}
+                                                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                                            />
                                         </div>
-                                        <div className="flex flex-col items-center justify-center py-4 space-y-4">
-                                            <div className="relative w-32 h-16 overflow-hidden flex items-end justify-center">
-                                                {/* Half circle gauge */}
-                                                <div className="absolute top-0 w-32 h-32 rounded-full border-8 border-accent"></div>
+
+                                        <div className="space-y-2 text-center w-full max-w-xs">
+                                            <div className="flex justify-between text-xs text-muted-foreground font-mono">
+                                                <span>Querying STIR/SHAKEN matrix</span>
+                                                <span className="text-primary animate-pulse">Running...</span>
+                                            </div>
+                                            <div className="h-1 bg-accent rounded-full overflow-hidden">
                                                 <motion.div
-                                                    className={`absolute top-0 w-32 h-32 rounded-full border-8 border-b-transparent border-r-transparent rotate-45 transform origin-center ${report.spamScore < 30 ? "border-emerald-500" :
-                                                        report.spamScore < 60 ? "border-amber-500" : "border-rose-500"
-                                                        }`}
-                                                    initial={{ rotate: -135 }}
-                                                    animate={{ rotate: -135 + (report.spamScore / 100) * 180 }}
-                                                    transition={{ duration: 1, ease: "easeOut" }}
-                                                ></motion.div>
-                                                <div className="absolute bottom-0 text-3xl font-bold tracking-tight bg-background px-2 -mb-2">
-                                                    <span className={getScoreColor(report.spamScore)}>{report.spamScore}</span>
+                                                    className="h-full bg-primary"
+                                                    initial={{ width: "0%" }}
+                                                    animate={{ width: "100%" }}
+                                                    transition={{ duration: 2.5, ease: "easeInOut" }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Results Display */}
+                                {!isScanning && report && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.5, ease: "easeOut" }}
+                                        className="pt-6 border-t"
+                                    >
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                                            {/* Status Card */}
+                                            <div className="col-span-1 md:col-span-3 bg-background border rounded-xl p-5 flex items-center justify-between shadow-sm">
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${report.status === "Safe" ? "bg-emerald-500/10 text-emerald-500" :
+                                                        report.status === "Warning" ? "bg-amber-500/10 text-amber-500" :
+                                                            "bg-rose-500/10 text-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+                                                        }`}>
+                                                        {report.status === "Safe" ? <ShieldCheck className="w-6 h-6" /> :
+                                                            report.status === "Warning" ? <ShieldAlert className="w-6 h-6" /> :
+                                                                <Shield className="w-6 h-6" />}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground font-medium">Network Consensus</p>
+                                                        <h4 className={`text-2xl font-bold tracking-tight ${report.status === "Safe" ? "text-emerald-500" :
+                                                            report.status === "Warning" ? "text-amber-500" : "text-rose-500"
+                                                            }`}>
+                                                            {report.status.toUpperCase()}
+                                                        </h4>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-mono text-muted-foreground">{report.phoneNumber}</p>
+                                                    <p className="text-xs text-muted-foreground mt-1 text-opacity-70">
+                                                        Scanned at {new Date(report.lastChecked).toLocaleTimeString()}
+                                                    </p>
                                                 </div>
                                             </div>
-                                            <p className="text-xs text-center text-muted-foreground">
-                                                Machine learning probability based on call patterns.
-                                            </p>
-                                        </div>
-                                    </div>
 
-                                    {/* Carrier Flags */}
-                                    <div className="bg-background border rounded-xl p-5 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <h5 className="text-sm font-medium text-foreground">Carrier Filters</h5>
-                                            <Activity className="w-4 h-4 text-muted-foreground" />
-                                        </div>
-                                        <div className="space-y-3 pt-2">
-                                            {report.carriers.map((carrier, idx) => (
-                                                <div key={idx} className="flex items-start justify-between text-sm">
-                                                    <div className="flex items-center gap-2">
-                                                        {carrier.flagged ? (
-                                                            <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                                                        ) : (
-                                                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                                                        )}
-                                                        <div>
-                                                            <p className={`font-medium ${carrier.flagged ? "text-foreground" : "text-muted-foreground"}`}>
-                                                                {carrier.name}
-                                                            </p>
-                                                            {carrier.reason && (
-                                                                <p className="text-xs text-rose-500/80 mt-0.5 leading-snug">{carrier.reason}</p>
-                                                            )}
+                                            {/* Attestation Score */}
+                                            <div className="bg-background border rounded-xl p-5 space-y-4 shadow-sm">
+                                                <div className="flex items-center justify-between">
+                                                    <h5 className="text-sm font-medium text-foreground">STIR/SHAKEN</h5>
+                                                    <Server className="w-4 h-4 text-muted-foreground" />
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center py-4">
+                                                    <div className={`w-20 h-20 rounded-full border-4 flex items-center justify-center text-3xl font-bold font-mono shadow-sm ${getAttestationColor(report.attestation)}`}>
+                                                        {report.attestation}
+                                                    </div>
+                                                    <p className="text-xs text-center text-muted-foreground mt-4 leading-relaxed">
+                                                        {report.attestation === "A" ? "Full Attestation (Caller is verified)" :
+                                                            report.attestation === "B" ? "Partial Attestation (Call originates from known network)" :
+                                                                "Gateway Attestation (Caller identity unverified)"}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Spam Probability */}
+                                            <div className="bg-background border rounded-xl p-5 space-y-4 shadow-sm">
+                                                <div className="flex items-center justify-between">
+                                                    <h5 className="text-sm font-medium text-foreground">Spam Confidence</h5>
+                                                    <Zap className="w-4 h-4 text-muted-foreground" />
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center py-4 space-y-4">
+                                                    <div className="relative w-32 h-16 overflow-hidden flex items-end justify-center">
+                                                        {/* Half circle gauge */}
+                                                        <div className="absolute top-0 w-32 h-32 rounded-full border-8 border-accent"></div>
+                                                        <motion.div
+                                                            className={`absolute top-0 w-32 h-32 rounded-full border-8 border-b-transparent border-r-transparent rotate-45 transform origin-center shadow-sm ${report.spamScore < 30 ? "border-emerald-500" :
+                                                                report.spamScore < 60 ? "border-amber-500" : "border-rose-500"
+                                                                }`}
+                                                            initial={{ rotate: -135 }}
+                                                            animate={{ rotate: -135 + (report.spamScore / 100) * 180 }}
+                                                            transition={{ duration: 1, ease: "easeOut" }}
+                                                        ></motion.div>
+                                                        <div className="absolute bottom-0 text-3xl font-bold tracking-tight bg-background px-2 -mb-2">
+                                                            <span className={getScoreColor(report.spamScore)}>{report.spamScore}</span>
                                                         </div>
                                                     </div>
-                                                    <span className={`text-xs font-mono font-medium px-2 py-0.5 rounded-full ${carrier.flagged ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
-                                                        }`}>
-                                                        {carrier.flagged ? "Blocked" : "Clear"}
-                                                    </span>
+                                                    <p className="text-xs text-center text-muted-foreground">
+                                                        Machine learning probability based on call patterns.
+                                                    </p>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
+                                            </div>
 
-                                </div>
+                                            {/* Carrier Flags */}
+                                            <div className="col-span-1 md:col-span-3 lg:col-span-1 bg-background border rounded-xl p-5 space-y-4 shadow-sm">
+                                                <div className="flex items-center justify-between">
+                                                    <h5 className="text-sm font-medium text-foreground">Carrier Filters</h5>
+                                                    <Activity className="w-4 h-4 text-muted-foreground" />
+                                                </div>
+                                                <div className="space-y-3 pt-2">
+                                                    {report.carriers.map((carrier, idx) => (
+                                                        <div key={idx} className="flex items-start justify-between text-sm">
+                                                            <div className="flex items-center gap-2">
+                                                                {carrier.flagged ? (
+                                                                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                                                                ) : (
+                                                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                                                )}
+                                                                <div>
+                                                                    <p className={`font-medium ${carrier.flagged ? "text-foreground" : "text-muted-foreground"}`}>
+                                                                        {carrier.name}
+                                                                    </p>
+                                                                    {carrier.reason && (
+                                                                        <p className="text-xs text-rose-500/80 mt-0.5 leading-snug">{carrier.reason}</p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <span className={`text-xs font-mono font-medium px-2 py-0.5 rounded-full ${carrier.flagged ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
+                                                                }`}>
+                                                                {carrier.flagged ? "Blocked" : "Clear"}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </motion.div>
+                                )}
                             </motion.div>
                         )}
                     </AnimatePresence>
-
                 </div>
             </div>
         </div>
