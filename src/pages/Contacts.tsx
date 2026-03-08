@@ -21,7 +21,6 @@ import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { faker } from "@faker-js/faker";
 
 const statusColors: Record<string, string> = {
   "New": "bg-muted text-muted-foreground",
@@ -168,41 +167,13 @@ const AddContactModal: React.FC<{
     }
   };
 
-  const handleFillDummyData = () => {
-    if (contactType === "Lead") {
-      setForm({
-        ...form,
-        firstName: faker.person.firstName(),
-        lastName: faker.person.lastName(),
-        phone: faker.phone.number({ style: 'national' }),
-        email: faker.internet.email(),
-        state: faker.location.state({ abbreviated: true }),
-        leadSource: faker.helpers.arrayElement(["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"]),
-        status: faker.helpers.arrayElement(["New", "New", "Contacted", "Interested"]),
-        age: faker.number.int({ min: 25, max: 80 }),
-        dateOfBirth: faker.date.birthdate({ min: 25, max: 80, mode: 'age' }).toISOString().split('T')[0],
-        healthStatus: faker.helpers.arrayElement(["Excellent", "Good", "Fair", "Poor"]),
-        bestTimeToCall: faker.helpers.arrayElement(["Morning", "Afternoon", "Evening", "Anytime"]),
-        notes: faker.lorem.sentence(),
-      });
-      toast.success("Filled with simulated realistic data");
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         <style dangerouslySetInnerHTML={{ __html: `::-webkit-scrollbar { display: none; }` }} />
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-foreground">{initial ? "Edit" : "Add New"} {contactType}</h2>
-            {contactType === "Lead" && !initial && (
-              <button type="button" onClick={handleFillDummyData} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition-colors">
-                Fill Dummy Data
-              </button>
-            )}
-          </div>
+          <h2 className="text-lg font-semibold text-foreground">{initial ? "Edit" : "Add New"} {contactType}</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -653,15 +624,9 @@ const Contacts: React.FC = () => {
     }
   }, [location.search, leads]);
 
-  // Helper to ensure we only send a valid UUID or null to Supabase
-  const getValidAgentId = () => {
-    const id = user?.id || "";
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
-  };
-
   // ===== Lead CRUD =====
   const handleAddLead = async (data: any) => {
-    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: getValidAgentId() });
+    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" });
     toast.success("Lead added successfully");
     fetchData();
   };
@@ -707,7 +672,7 @@ const Contacts: React.FC = () => {
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: any) => {
-    await clientsSupabaseApi.create({ ...data, assignedAgentId: getValidAgentId() });
+    await clientsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
     toast.success("Client added successfully");
     fetchData();
   };
@@ -728,7 +693,7 @@ const Contacts: React.FC = () => {
 
   // ===== Recruit CRUD =====
   const handleAddRecruit = async (data: any) => {
-    await recruitsSupabaseApi.create({ ...data, assignedAgentId: getValidAgentId() });
+    await recruitsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" });
     toast.success("Recruit added successfully");
     fetchData();
   };
