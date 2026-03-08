@@ -67,6 +67,7 @@ const SignupPage: React.FC = () => {
         @keyframes shimmer { from { background-position:0% 50%; } to { background-position:100% 50%; } }
         @keyframes underlineGrow { from { width:0; } to { width:72%; } }
         @keyframes badgePulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.45; transform:scale(0.75); } }
+        @keyframes accessGrantedFade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
         .signup-input:focus { border-color: #3B82F6 !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important; }
       `}</style>
       <AnimatedBackground />
