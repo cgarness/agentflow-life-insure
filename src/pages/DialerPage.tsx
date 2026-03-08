@@ -1626,6 +1626,71 @@ const DialerPage: React.FC = () => {
               </div>
             ) : (
               <>
+                {/* ── Previous Attempts ── */}
+                {(() => {
+                  const attempts = [...callHistory].reverse(); // oldest first for numbering
+                  const count = attempts.length;
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Previous Attempts</h4>
+                        {count > 0 && (
+                          <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">
+                            {count} attempt{count !== 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      {count === 0 ? (
+                        <p className="text-xs text-green-500 italic">First attempt</p>
+                      ) : (
+                        <div className="max-h-[200px] overflow-y-auto space-y-1.5">
+                          {[...callHistory].map((c, idx) => {
+                            const attemptNum = count - idx; // most recent first, numbered from oldest
+                            const dispColor = getDispColor(c.disposition_name);
+                            const agentFirst = getAgentFirstName(c.agent_id);
+                            const isOlderThan7d = c.started_at && (Date.now() - new Date(c.started_at).getTime()) > 7 * 86400000;
+                            return (
+                              <div key={c.id} className="flex items-center gap-2 text-xs bg-accent/30 rounded-lg p-2">
+                                <span className="text-muted-foreground font-mono shrink-0">#{attemptNum}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-foreground">
+                                    {c.started_at
+                                      ? isOlderThan7d
+                                        ? format(new Date(c.started_at), "MMM d, h:mm a")
+                                        : timeAgo(c.started_at)
+                                      : "—"}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-muted-foreground">
+                                      {(c.duration ?? 0) > 0 ? fmtTime(c.duration!) : "No Answer"}
+                                    </span>
+                                    {agentFirst && <span className="text-muted-foreground">· {agentFirst}</span>}
+                                  </div>
+                                </div>
+                                {c.disposition_name ? (
+                                  <span
+                                    className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                                    style={{
+                                      backgroundColor: dispColor ? `${dispColor}20` : undefined,
+                                      color: dispColor || undefined,
+                                    }}
+                                  >
+                                    {c.disposition_name}
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground">
+                                    No Disposition
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Contact Card */}
                 <div className="text-center space-y-2">
                   <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-bold mx-auto">
