@@ -590,8 +590,30 @@ const CampaignDetail: React.FC = () => {
       setSelectedLeadIds(new Set(filteredLeads.map(l => l.id)));
     }
   };
+  // Drag and drop reorder (admin only)
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !isAdmin || leadFilter !== "All") return;
+    const oldIndex = leads.findIndex(l => l.id === active.id);
+    const newIndex = leads.findIndex(l => l.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(leads, oldIndex, newIndex);
+    setLeads(reordered);
+    // Persist sort_order
+    const updates = reordered.map((l, i) => ({ id: l.id, sort_order: i }));
+    // Batch update in chunks
+    for (let i = 0; i < updates.length; i += 50) {
+      const chunk = updates.slice(i, i + 50);
+      await Promise.all(
+        chunk.map(u =>
+          supabase.from("campaign_leads").update({ sort_order: u.sort_order } as any).eq("id", u.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+        )
+      );
+    }
+    toast.success("Queue order updated", { duration: 3000, position: "bottom-right" });
+  };
 
-  // Settings
+
   const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const toggleSettingsAgent = (agentId: string) => {
     const current = (settingsForm.assigned_agent_ids || []) as string[];
