@@ -476,7 +476,7 @@ const SortableLeadRow: React.FC<{
       </td>
       <td className="py-3 px-1">
         <TooltipProvider>
-          <Tooltip>
+          <UITooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => onQuickCall(l)}
@@ -493,7 +493,7 @@ const SortableLeadRow: React.FC<{
             <TooltipContent>
               <p className="text-xs">{!l.phone ? "No phone number on file" : hidePhone ? "Phone hidden in Open Pool" : "Quick call"}</p>
             </TooltipContent>
-          </Tooltip>
+          </UITooltip>
         </TooltipProvider>
       </td>
       <td className="py-3 px-3 font-medium text-foreground">{l.first_name} {l.last_name}</td>
