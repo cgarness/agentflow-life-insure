@@ -15,11 +15,12 @@ import Carriers from "@/components/settings/Carriers";
 import GoalSetting from "@/components/settings/GoalSetting";
 import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
+import SpamMonitoring from "@/components/settings/SpamMonitoring";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
   Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
-  Lock, CalendarDays, UserCircle,
+  Lock, CalendarDays, UserCircle, Radar,
 } from "lucide-react";
 
 const sections = [
@@ -46,6 +47,7 @@ const sections = [
   { icon: Webhook, label: "Zapier & Webhooks" },
   { icon: Link, label: "Custom Menu Links" },
   { icon: Clock, label: "Activity Log" },
+  { icon: Radar, label: "Spam Monitoring" },
 ];
 
 
@@ -153,6 +155,9 @@ const SettingsPage: React.FC = () => {
 
       case 22: // Activity Log
         return <ActivityLog />;
+
+      case 23: // Spam Monitoring
+        return <SpamMonitoring />;
 
       default: {
         const Icon = sections[active].icon;

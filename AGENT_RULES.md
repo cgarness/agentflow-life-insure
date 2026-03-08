@@ -186,14 +186,17 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 1. ✅ User Management — COMPLETE
 2. ✅ Dispositions Manager — COMPLETE
 3. ✅ Company Branding — COMPLETE
-4. ✅ Telnyx & Phone Numbers — COMPLETE
-5. ✅ DNC List Manager — COMPLETE
-6. ✅ Call Scripts — COMPLETE
-7. ⬜ Remaining settings sections
-7. ⬜ Main pages tab by tab
-8. ⬜ Connect Supabase (ongoing as each section needs it)
-9. ⬜ Connect real Telnyx
-10. ⬜ Go live
+4. ✅ DNC List Manager — COMPLETE
+5. ✅ Call Scripts — COMPLETE
+6. ✅ Email & SMS Templates — COMPLETE
+7. ✅ Carriers — COMPLETE
+8. ✅ Goal Setting — COMPLETE
+9. ✅ Custom Menu Links — COMPLETE
+10. ✅ Activity Log — COMPLETE
+11. ⬜ Telnyx & Phone Numbers (Settings Rework)
+12. ⬜ Main pages tab by tab
+13. ⬜ Connect Supabase (ongoing as each section needs it)
+14. ⬜ Go live
 
 ---
 
