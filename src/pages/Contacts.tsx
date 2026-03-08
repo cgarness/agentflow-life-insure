@@ -592,6 +592,28 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Fetch import history from Supabase
+  const fetchImportHistory = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("import_history")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (!error && data) {
+      setImportHistory(data.map((row: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+        id: row.id,
+        fileName: row.file_name,
+        date: row.created_at,
+        totalRecords: row.total_records,
+        imported: row.imported,
+        duplicates: row.duplicates,
+        errors: row.errors,
+        importedLeadIds: (row.imported_lead_ids as string[]) || [],
+      })));
+    }
+  }, []);
+
+  useEffect(() => { fetchImportHistory(); }, [fetchImportHistory]);
+
   // Reset selection and sort on tab change
   useEffect(() => {
     setSortCol(null);
