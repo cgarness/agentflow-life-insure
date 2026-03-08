@@ -140,6 +140,63 @@ export type Database = {
         }
         Relationships: []
       }
+      clients: {
+        Row: {
+          assigned_agent_id: string
+          beneficiary_name: string | null
+          beneficiary_phone: string | null
+          beneficiary_relationship: string | null
+          carrier: string | null
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          last_name: string
+          notes: string | null
+          phone: string
+          policy_number: string | null
+          policy_type: string
+          premium: number | null
+          updated_at: string
+        }
+        Insert: {
+          assigned_agent_id?: string
+          beneficiary_name?: string | null
+          beneficiary_phone?: string | null
+          beneficiary_relationship?: string | null
+          carrier?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          notes?: string | null
+          phone?: string
+          policy_number?: string | null
+          policy_type?: string
+          premium?: number | null
+          updated_at?: string
+        }
+        Update: {
+          assigned_agent_id?: string
+          beneficiary_name?: string | null
+          beneficiary_phone?: string | null
+          beneficiary_relationship?: string | null
+          carrier?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          notes?: string | null
+          phone?: string
+          policy_number?: string | null
+          policy_type?: string
+          premium?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       company_settings: {
         Row: {
           company_name: string
@@ -185,6 +242,69 @@ export type Database = {
           time_format?: string | null
           timezone?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      contact_activities: {
+        Row: {
+          activity_type: string
+          agent_id: string | null
+          contact_id: string
+          contact_type: string
+          created_at: string
+          description: string
+          id: string
+          metadata: Json | null
+        }
+        Insert: {
+          activity_type?: string
+          agent_id?: string | null
+          contact_id: string
+          contact_type?: string
+          created_at?: string
+          description?: string
+          id?: string
+          metadata?: Json | null
+        }
+        Update: {
+          activity_type?: string
+          agent_id?: string | null
+          contact_id?: string
+          contact_type?: string
+          created_at?: string
+          description?: string
+          id?: string
+          metadata?: Json | null
+        }
+        Relationships: []
+      }
+      contact_notes: {
+        Row: {
+          author_id: string | null
+          contact_id: string
+          contact_type: string
+          content: string
+          created_at: string
+          id: string
+          pinned: boolean
+        }
+        Insert: {
+          author_id?: string | null
+          contact_id: string
+          contact_type?: string
+          content?: string
+          created_at?: string
+          id?: string
+          pinned?: boolean
+        }
+        Update: {
+          author_id?: string | null
+          contact_id?: string
+          contact_type?: string
+          content?: string
+          created_at?: string
+          id?: string
+          pinned?: boolean
         }
         Relationships: []
       }
@@ -565,6 +685,45 @@ export type Database = {
           role?: string
           status?: string
           theme_preference?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      recruits: {
+        Row: {
+          assigned_agent_id: string
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          last_name: string
+          notes: string | null
+          phone: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_agent_id?: string
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          notes?: string | null
+          phone?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_agent_id?: string
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          notes?: string | null
+          phone?: string
+          status?: string
           updated_at?: string
         }
         Relationships: []
