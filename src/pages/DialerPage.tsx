@@ -384,9 +384,28 @@ const DialerPage: React.FC = () => {
       .in("status", ["Queued", "Skipped"])
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
-    setLeads((data as CampaignLead[]) || []);
+    const loadedLeads = (data as CampaignLead[]) || [];
+    setLeads(loadedLeads);
     setCurrentLeadIdx(0);
     setLeadsLoading(false);
+
+    // Batch-fetch last call record per lead for hover preview (single query)
+    const leadIds = loadedLeads.map((l) => l.lead_id).filter(Boolean) as string[];
+    if (leadIds.length > 0) {
+      const { data: callData } = await (supabase as any)
+        .from("calls")
+        .select("contact_id, disposition_name, started_at")
+        .in("contact_id", leadIds)
+        .order("started_at", { ascending: false });
+      if (callData) {
+        // Keep only the most recent call per contact_id
+        const map: Record<string, { disposition_name: string | null; started_at: string | null }> = {};
+        for (const row of callData) {
+          if (!map[row.contact_id]) map[row.contact_id] = { disposition_name: row.disposition_name, started_at: row.started_at };
+        }
+        setLeadLastCalls(map);
+      }
+    }
   }, []);
 
   /* ── Load contact data when current lead changes ── */
