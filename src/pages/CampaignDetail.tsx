@@ -48,6 +48,7 @@ interface CampaignLead {
   locked_at: string | null;
   claimed_by: string | null;
   claimed_at: string | null;
+  source: string | null;
 }
 
 interface AgentProfile {
