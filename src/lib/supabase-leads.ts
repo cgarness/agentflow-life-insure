@@ -3,10 +3,11 @@ import { Lead } from "@/lib/types";
 
 export async function importLeadsToSupabase(
   rows: Partial<Lead>[]
-): Promise<{ imported: number; duplicates: number; errors: number }> {
+): Promise<{ imported: number; duplicates: number; errors: number; importedLeadIds: string[] }> {
   let imported = 0;
   let duplicates = 0;
   let errors = 0;
+  const importedLeadIds: string[] = [];
 
   // Pull existing phones and emails for duplicate check
   const { data: existing } = await supabase
@@ -40,18 +41,21 @@ export async function importLeadsToSupabase(
     assigned_agent_id: row.assignedAgentId || null,
   }));
 
-  // Insert in batches of 50
+  // Insert in batches of 50, collect returned IDs
   const BATCH_SIZE = 50;
   for (let i = 0; i < mapped.length; i += BATCH_SIZE) {
     const batch = mapped.slice(i, i + BATCH_SIZE);
-    const { error } = await supabase.from("leads").insert(batch);
+    const { data, error } = await supabase.from("leads").insert(batch).select("id");
     if (error) {
       console.error("Supabase import batch error:", error.message);
       errors += batch.length;
     } else {
       imported += batch.length;
+      if (data) {
+        importedLeadIds.push(...data.map((r: any) => r.id)); // eslint-disable-line @typescript-eslint/no-explicit-any
+      }
     }
   }
 
-  return { imported, duplicates, errors };
+  return { imported, duplicates, errors, importedLeadIds };
 }
