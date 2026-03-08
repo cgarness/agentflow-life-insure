@@ -968,7 +968,7 @@ const DialerPage: React.FC = () => {
                         <ArrowRightLeft className="w-4 h-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Coming soon — available after Twilio setup</TooltipContent>
+                    <TooltipContent>Coming soon — available after Telnyx setup</TooltipContent>
                   </Tooltip>
                 </motion.div>
               )}

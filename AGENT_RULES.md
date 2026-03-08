@@ -84,7 +84,7 @@ Chris Garcia is the owner and Admin user of AgentFlow. He is not a developer. He
 | **GitHub (agentflow repo)** | Connected to Lovable/Assistant and syncs automatically. Always use exact file names so syncing is correct. |
 | **Notion** | Project knowledge base. Read at the start of every session. Updated at the end of every session. |
 | **GitHub Codespaces** | Browser-based backup code editor for Chromebook. Use when both Lovable and Claude Code credits are exhausted. |
-| **Twilio** | Voice SDK for calling, SMS API for messaging. Credentials stored in Settings. |
+| **Telnyx** | Voice SDK for calling, SMS API for messaging. Credentials stored in Settings. |
 
 **There is no Google Drive. Do not reference it.**
 
@@ -179,19 +179,19 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 
 **Phase 1 (current):** Perfect all UI and mock/Supabase functionality in Lovable, settings section by section
 **Phase 2:** Build main pages tab by tab
-**Phase 3:** Connect real Twilio credentials
+**Phase 3:** Connect real Telnyx credentials
 **Phase 4:** Go live with real agents
 
 **Settings priority order:**
 1. ✅ User Management — COMPLETE
 2. ✅ Dispositions Manager — COMPLETE
 3. ✅ Company Branding — COMPLETE
-4. 🔄 Twilio & Phone Numbers — IN PROGRESS
+4. 🔄 Telnyx & Phone Numbers — IN PROGRESS
 5. ⬜ DNC List Manager
 6. ⬜ Remaining settings sections
 7. ⬜ Main pages tab by tab
 8. ⬜ Connect Supabase (ongoing as each section needs it)
-9. ⬜ Connect real Twilio
+9. ⬜ Connect real Telnyx
 10. ⬜ Go live
 
 ---

@@ -90,7 +90,7 @@ function generateMockHistory(lead: Lead): HistoryItem[] {
     { id: `h2-${lead.id}`, type: "appointment", description: `Appointment: Sales Call on ${new Date(Date.now() + 2 * 86400000).toLocaleDateString()} at 10:00 AM — Scheduled`, timestamp: new Date(Date.now() - 4 * 3600000).toISOString(), agentName },
     { id: `h3-${lead.id}`, type: "email", description: `Email sent to ${contactName}`, detail: "Email available after SMTP is configured", timestamp: new Date(Date.now() - 86400000).toISOString(), agentName },
     { id: `h4-${lead.id}`, type: "call", description: `Call by ${agentName} — 7:15 — Interested`, timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), agentName },
-    { id: `h5-${lead.id}`, type: "sms", description: `SMS sent to ${lead.phone}`, detail: "SMS available after Twilio is configured", timestamp: new Date(Date.now() - 3 * 86400000).toISOString(), agentName },
+    { id: `h5-${lead.id}`, type: "sms", description: `SMS sent to ${lead.phone}`, detail: "SMS available after Telnyx is configured", timestamp: new Date(Date.now() - 3 * 86400000).toISOString(), agentName },
     { id: `h6-${lead.id}`, type: "appointment", description: `Appointment: Follow Up on ${new Date(Date.now() - 5 * 86400000).toLocaleDateString()} at 2:00 PM — Completed`, timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), agentName },
     { id: `h7-${lead.id}`, type: "call", description: `Call by ${agentName} — 1:20 — No Answer`, timestamp: new Date(Date.now() - 6 * 86400000).toISOString(), agentName },
   ];
@@ -440,7 +440,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
             {/* Action buttons */}
             <div className="flex items-center gap-2 shrink-0">
               <Button className="px-4 py-2.5 text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" />Call</Button>
-              <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Twilio in Settings</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Telnyx in Settings</TooltipContent></Tooltip>
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
               <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => setShowAppointmentModal(true)}><Calendar className="size-4 mr-1" />Schedule</Button>
               <Button className="px-4 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="size-4 mr-1" />Convert</Button>
@@ -645,7 +645,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                                 <td className="py-2.5"><span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{c.disposition || "—"}</span></td>
                                 <td className="py-2.5 text-muted-foreground">{c.notes || "—"}</td>
                                 <td className="py-2.5">
-                                  <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled className="text-xs">Play</Button></span></TooltipTrigger><TooltipContent>Recording available after Twilio is connected</TooltipContent></Tooltip>
+                                  <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled className="text-xs">Play</Button></span></TooltipTrigger><TooltipContent>Recording available after Telnyx is connected</TooltipContent></Tooltip>
                                 </td>
                               </tr>
                             ))}

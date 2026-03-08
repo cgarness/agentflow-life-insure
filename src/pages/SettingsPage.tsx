@@ -20,7 +20,7 @@ const sections = [
   { icon: UserCircle, label: "My Profile" },
   { icon: Building2, label: "Company Branding" },
   { icon: Users, label: "User Management" },
-  { icon: Phone, label: "Twilio & Phone Numbers" },
+  { icon: Phone, label: "Telnyx & Phone Numbers" },
   { icon: FileText, label: "Call Scripts" },
   { icon: List, label: "Dispositions Manager" },
   { icon: SlidersHorizontal, label: "Contact Management" },
@@ -100,7 +100,7 @@ const SettingsPage: React.FC = () => {
         return <UserManagement />;
       case 4: // Call Scripts
         return <CallScripts />;
-      case 3: // Twilio
+      case 3: // Telnyx
         return <PhoneSettings />;
 
       case 5: // Dispositions

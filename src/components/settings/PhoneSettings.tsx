@@ -42,7 +42,7 @@ const PhoneSettings: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [config, setConfig] = useState<PhoneConfig>({
-        provider: "twilio",
+        provider: "telnyx",
         account_sid: "",
         auth_token: "",
         api_key: "",
@@ -70,7 +70,7 @@ const PhoneSettings: React.FC = () => {
             if (configError) throw configError;
             if (configData) {
                 setConfig({
-                    provider: configData.provider || "twilio",
+                    provider: configData.provider || "telnyx",
                     account_sid: configData.account_sid || "",
                     auth_token: configData.auth_token || "",
                     api_key: configData.api_key || "",
@@ -153,8 +153,8 @@ const PhoneSettings: React.FC = () => {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h3 className="text-lg font-semibold text-foreground">Twilio & Phone Numbers</h3>
-                    <p className="text-sm text-muted-foreground">Manage your voice and SMS carrier integration.</p>
+                    <h3 className="text-lg font-semibold text-foreground">Telnyx & Phone Numbers</h3>
+                    <p className="text-sm text-muted-foreground">Manage your voice and SMS carrier integration via Telnyx.</p>
                 </div>
                 <Button
                     variant="outline"
@@ -176,35 +176,34 @@ const PhoneSettings: React.FC = () => {
                             API Credentials
                         </CardTitle>
                         <CardDescription>
-                            Your master credentials for the global dialer.
+                            Your master credentials for the global Telnyx dialer.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-xs font-medium uppercase text-muted-foreground">Account SID</label>
+                            <label className="text-xs font-medium uppercase text-muted-foreground">API Key</label>
                             <Input
-                                value={config.account_sid}
-                                onChange={e => setConfig({ ...config, account_sid: e.target.value })}
-                                placeholder="ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                                value={config.api_key}
+                                onChange={e => setConfig({ ...config, api_key: e.target.value })}
+                                placeholder="KEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                                 className="font-mono text-sm"
                             />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-xs font-medium uppercase text-muted-foreground">Auth Token</label>
-                            <Input
-                                type="password"
-                                value={config.auth_token}
-                                onChange={e => setConfig({ ...config, auth_token: e.target.value })}
-                                placeholder="••••••••••••••••••••••••••••••••"
-                                className="font-mono text-sm"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-medium uppercase text-muted-foreground">API Application SID (TwiML App)</label>
+                            <label className="text-xs font-medium uppercase text-muted-foreground">Connection ID</label>
                             <Input
                                 value={config.application_sid}
                                 onChange={e => setConfig({ ...config, application_sid: e.target.value })}
-                                placeholder="APXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                                placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+                                className="font-mono text-sm"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-medium uppercase text-muted-foreground">Public Key</label>
+                            <Input
+                                value={config.api_secret}
+                                onChange={e => setConfig({ ...config, api_secret: e.target.value })}
+                                placeholder="PKXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                                 className="font-mono text-sm"
                             />
                         </div>
@@ -223,13 +222,13 @@ const PhoneSettings: React.FC = () => {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="text-sm space-y-3 text-foreground/80">
-                        <p>1. Log in to your <strong>Twilio Console</strong>.</p>
-                        <p>2. Create a new <strong>TwiML App</strong> under Voice &gt; Settings.</p>
-                        <p>3. Set the Voice URL to your Supabase Edge Function URL (will be provided later).</p>
-                        <p>4. Copy the API keys here to enable calling.</p>
+                        <p>1. Log in to your <strong>Telnyx Portal</strong>.</p>
+                        <p>2. Create a new <strong>TeXML Application</strong> under Voice.</p>
+                        <p>3. Set the Connection URL to your Supabase Edge Function URL.</p>
+                        <p>4. Generate an API Key and copy the Connection ID here.</p>
                         <div className="pt-2">
-                            <a href="https://www.twilio.com/console" target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center gap-1 font-medium">
-                                Open Twilio Console <ExternalLink className="w-3 h-3" />
+                            <a href="https://portal.telnyx.com" target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center gap-1 font-medium">
+                                Open Telnyx Portal <ExternalLink className="w-3 h-3" />
                             </a>
                         </div>
                     </CardContent>
