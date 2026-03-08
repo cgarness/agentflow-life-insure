@@ -1,13 +1,10 @@
-// Telnyx token edge function — serves SIP credentials for WebRTC dialer
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Telnyx token edge function
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -22,26 +19,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
-
-    // Read SIP credentials from the phone_settings table
-    // account_sid = SIP username, auth_token = SIP password (set by telnyx-buy-number)
-    const { data: config, error: fetchError } = await supabaseClient
-      .from("phone_settings")
-      .select("account_sid, auth_token")
-      .eq("id", SINGLETON_ID)
-      .maybeSingle();
-
-    if (fetchError) throw fetchError;
-
-    const sipUsername = config?.account_sid;
-    const sipPassword = config?.auth_token;
+    const sipUsername = Deno.env.get("TELNYX_SIP_USERNAME");
+    const sipPassword = Deno.env.get("TELNYX_SIP_PASSWORD");
 
     if (!sipUsername || !sipPassword) {
-      throw new Error("SIP credentials not found. Please buy a phone number first — it will auto-configure SIP.");
+      throw new Error("TELNYX_SIP_USERNAME or TELNYX_SIP_PASSWORD is not configured");
     }
 
     return new Response(
@@ -58,7 +40,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Internal server error" }),
       {
-        status: 200,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
