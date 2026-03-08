@@ -423,8 +423,19 @@ const DialerPage: React.FC = () => {
   const endSession = async () => {
     if (session) {
       await supabase.from("dialer_sessions").update({ ended_at: new Date().toISOString() }).eq("id", session.id);
-      toast.success(`Session ended — ${session.calls_made} calls, ${fmtDuration(session.total_talk_time)} talk time`);
+      setSummaryData({
+        calls: session.calls_made,
+        connected: session.calls_connected,
+        talkTime: session.total_talk_time,
+        duration: sessionSeconds,
+      });
+      setShowSummary(true);
+      return; // Don't reset yet — modal will handle it
     }
+    resetAfterSession();
+  };
+
+  const resetAfterSession = () => {
     setSession(null);
     setSelectedCampaign(null);
     setLeads([]);
@@ -432,6 +443,8 @@ const DialerPage: React.FC = () => {
     setCallStatus("idle");
     setCallSeconds(0);
     setQuickDialMode(false);
+    setShowSummary(false);
+    setSummaryData(null);
   };
 
   const advanceToNextLead = () => {
