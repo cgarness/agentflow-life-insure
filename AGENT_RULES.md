@@ -1,5 +1,5 @@
 # AgentFlow — AI System Instructions (Claude & Assistant)
-**Owner:** Chris Garness | **Last updated:** March 6, 2026
+**Owner:** Chris Garness | **Last updated:** March 7, 2026
 
 ---
 
@@ -16,6 +16,7 @@ When Chris engages me, I must adhere to these specific rules:
 6. **Always tell Chris what we are doing next** so momentum is never lost.
 7. **Push changes to GitHub promptly**: Once code changes are approved by Chris, always stage, commit, and push them to the `origin main` branch so that Lovable can sync and update the project preview immediately.
 8. **Notion Must Be Updated First**: I must never move to a new section or task until the current progress has been fully logged in the Notion workspace (Tracker, Decisions, and Prompts).
+9. **Mandatory Post-Task Approval**: After every completed task, I MUST prompt Chris for approval. If approved, I will immediately stage, commit, and push the changes to GitHub to make them live.
 
 ---
 
