@@ -201,6 +201,10 @@ const DialerPage: React.FC = () => {
   /* ── Mobile tab ── */
   const [mobileTab, setMobileTab] = useState<"center" | "left" | "right">("center");
 
+  /* ── Session summary modal ── */
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryData, setSummaryData] = useState<{ calls: number; connected: number; talkTime: number; duration: number } | null>(null);
+
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
