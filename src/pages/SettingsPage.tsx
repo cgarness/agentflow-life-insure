@@ -243,7 +243,7 @@ const SettingsPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Sub-nav */}
         <div className="lg:col-span-1">
-          <nav className="bg-card rounded-xl border p-2 space-y-0.5 sticky top-20">
+          <nav className="bg-card rounded-xl border p-2 space-y-0.5 sticky top-20 max-h-[calc(100vh-100px)] overflow-y-auto no-scrollbar">
             {/* ACCOUNT section */}
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium px-3 py-2">Account</p>
             <button
