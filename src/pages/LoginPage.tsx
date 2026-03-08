@@ -90,81 +90,102 @@ const LoginPage: React.FC = () => {
             </div>
           )}
 
-          {/* Email field */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', fontWeight: 500, marginBottom: '6px' }}>Email</label>
-            <div style={{ position: 'relative' }}>
-              <Mail size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#3B82F6' }} />
-              <input
-                type="email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                style={{
-                  width: '100%', height: '44px', background: 'rgba(8,18,36,0.65)',
-                  border: '1px solid rgba(40,70,120,0.7)', borderRadius: '10px',
-                  padding: '0 14px 0 42px', color: '#F1F5F9', fontSize: '14px',
-                  outline: 'none', boxSizing: 'border-box',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Password field */}
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', fontWeight: 500, marginBottom: '6px' }}>Password</label>
-            <div style={{ position: 'relative' }}>
-              <Lock size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#3B82F6' }} />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                style={{
-                  width: '100%', height: '44px', background: 'rgba(8,18,36,0.65)',
-                  border: '1px solid rgba(40,70,120,0.7)', borderRadius: '10px',
-                  padding: '0 42px 0 42px', color: '#F1F5F9', fontSize: '14px',
-                  outline: 'none', boxSizing: 'border-box',
-                }}
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)}
-                style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 0 }}>
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-
-          {/* Forgot password */}
-          <div style={{ textAlign: 'right', marginBottom: '24px' }}>
-            <Link to="/forgot-password" style={{ fontSize: '12px', color: '#3B82F6', textDecoration: 'none' }}>
-              Forgot password?
-            </Link>
-          </div>
-
-          {/* Submit button */}
+          {/* Form wrapping all inputs + submit */}
           <form onSubmit={handleSubmit}>
+            {/* Email field */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', fontWeight: 500, marginBottom: '6px' }}>Email</label>
+              <div style={{ position: 'relative' }}>
+                <Mail size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#3B82F6' }} />
+                <input
+                  type="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  style={{
+                    width: '100%', height: '44px', background: 'rgba(8,18,36,0.65)',
+                    border: '1px solid rgba(40,70,120,0.7)', borderRadius: '10px',
+                    padding: '0 14px 0 42px', color: '#F1F5F9', fontSize: '14px',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Password field */}
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', fontWeight: 500, marginBottom: '6px' }}>Password</label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#3B82F6' }} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  style={{
+                    width: '100%', height: '44px', background: 'rgba(8,18,36,0.65)',
+                    border: '1px solid rgba(40,70,120,0.7)', borderRadius: '10px',
+                    padding: '0 42px 0 42px', color: '#F1F5F9', fontSize: '14px',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 0 }}>
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Forgot password */}
+            <div style={{ textAlign: 'right', marginBottom: '24px' }}>
+              <Link to="/forgot-password" style={{ fontSize: '12px', color: '#3B82F6', textDecoration: 'none' }}>
+                Forgot password?
+              </Link>
+            </div>
+
+            {/* Submit button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || accessGranted}
               style={{
                 width: '100%', height: '48px', borderRadius: '10px', border: 'none',
-                background: 'linear-gradient(135deg, #1D4ED8, #3B82F6, #6D28D9)',
+                background: accessGranted
+                  ? 'linear-gradient(135deg, #059669, #22C55E)'
+                  : 'linear-gradient(135deg, #1D4ED8, #3B82F6, #6D28D9)',
                 backgroundSize: '200%',
-                animation: 'shimmer 3s ease-in-out infinite alternate',
+                animation: accessGranted ? 'none' : 'shimmer 3s ease-in-out infinite alternate',
                 color: 'white', fontWeight: 700, fontSize: '14px', letterSpacing: '0.06em',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                boxShadow: '0 0 22px rgba(59,130,246,0.35)',
+                boxShadow: accessGranted
+                  ? '0 0 22px rgba(34,197,94,0.5)'
+                  : '0 0 22px rgba(59,130,246,0.35)',
                 position: 'relative', overflow: 'hidden',
-                cursor: loading ? 'not-allowed' : 'pointer',
+                cursor: loading || accessGranted ? 'not-allowed' : 'pointer',
                 opacity: loading ? 0.75 : 1,
+                transition: 'all 0.4s ease',
               }}
             >
-              {loading ? (
+              {accessGranted ? (
+                <>✓ ACCESS GRANTED</>
+              ) : loading ? (
                 <><Loader2 size={16} className="animate-spin" /> AUTHENTICATING...</>
               ) : (
                 <>SIGN IN <ArrowRight size={16} /></>
               )}
             </button>
+
+            {/* Access Granted banner */}
+            {accessGranted && (
+              <div style={{
+                marginTop: '12px', padding: '10px 14px', borderRadius: '8px',
+                border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)',
+                color: '#22C55E', fontSize: '13px', fontWeight: 600, textAlign: 'center',
+                boxShadow: '0 0 15px rgba(34,197,94,0.15)',
+                animation: 'accessGrantedFade 0.4s ease-out forwards',
+              }}>
+                🔓 Access Granted — Redirecting...
+              </div>
+            )}
           </form>
 
           {/* Badges */}
