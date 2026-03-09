@@ -751,10 +751,10 @@ const Dashboard: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {goals.map((goal) => {
+                    {goals.map((goal, idx) => {
                       const pct = goal.target > 0 ? Math.round((goal.current / goal.target) * 100) : 0;
                       return (
-                        <div key={goal.metric}>
+                        <div key={`${goal.metric}-${idx}`}>
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-sm text-foreground">{goal.label}</span>
                             <span className="text-xs text-muted-foreground">
