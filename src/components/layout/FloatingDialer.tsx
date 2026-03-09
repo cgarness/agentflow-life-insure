@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, X, Mic, Pause, Voicemail,
   PhoneOff, Search, Delete, Loader2, RefreshCw,
@@ -78,6 +77,15 @@ const FloatingDialer: React.FC = () => {
   // --- Dialer error state ---
   const [dialerError, setDialerError] = useState<string | null>(null);
 
+  // --- Open animation ---
+  const [isVisible, setIsVisible] = useState(false);
+
+  // --- Keypad press state ---
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
+
+  // --- Calling from default number ---
+  const [defaultNumber, setDefaultNumber] = useState<string | null>(null);
+
   // --- Keypad state ---
   const [dialedNumber, setDialedNumber] = useState("");
 
@@ -151,6 +159,36 @@ const FloatingDialer: React.FC = () => {
     }
     return () => clearInterval(timer);
   }, [onCall]);
+
+  // Open animation toggle
+  useEffect(() => {
+    if (open) {
+      const t = setTimeout(() => setIsVisible(true), 0);
+      return () => clearTimeout(t);
+    } else {
+      setIsVisible(false);
+    }
+  }, [open]);
+
+  // Fetch default phone number for "Calling from" badge
+  useEffect(() => {
+    const fetchDefaultNumber = async () => {
+      const { data } = await supabase
+        .from('phone_numbers')
+        .select('phone_number')
+        .eq('is_default', true)
+        .maybeSingle();
+      if (data?.phone_number) {
+        const digits = data.phone_number.replace(/\D/g, '');
+        const ten = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits;
+        const formatted = ten.length === 10
+          ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`
+          : data.phone_number;
+        setDefaultNumber(formatted);
+      }
+    };
+    fetchDefaultNumber();
+  }, []);
 
   // Telnyx connection managed by shared TelnyxContext
 
@@ -328,25 +366,76 @@ const FloatingDialer: React.FC = () => {
     "*", "0", "#",
   ];
 
+  const statusDotColor =
+    telnyxStatus === 'ready' || telnyxStatus === 'registered' ? '#22c55e' : '#94a3b8';
+  const shouldPulse =
+    (telnyxStatus === 'registered' || telnyxStatus === 'ready') && telnyxCallState !== 'active';
+
   return (
-    <AnimatePresence>
+    <>
       {open && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.15 }}
+        <div
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
+            transition: 'opacity 150ms ease-out, transform 150ms ease-out',
+          }}
           className="fixed top-16 right-4 w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
         >
+          <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
+
           {/* Panel Header */}
           <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
-            <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: statusDotColor,
+                  display: 'inline-block',
+                  flexShrink: 0,
+                  animation: shouldPulse ? 'pulse 2s infinite' : 'none',
+                }}
+              />
+              <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
+            </div>
             <button
               onClick={() => setOpen(false)}
               className="text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+
+          {/* Calling From Badge Row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px 8px' }}>
+            <span style={{ fontSize: '11px', color: '#94a3b8' }}>Calling from</span>
+            <span
+              style={{
+                background: defaultNumber ? '#2563eb' : '#d97706',
+                color: 'white',
+                borderRadius: '9999px',
+                padding: '2px 10px',
+                fontSize: '11px',
+                fontWeight: 500,
+              }}
+            >
+              {defaultNumber || 'No default number set'}
+            </span>
+            {/* TODO: wire to spam monitoring service */}
+            <span
+              style={{
+                background: '#4b5563',
+                color: 'white',
+                borderRadius: '9999px',
+                padding: '2px 10px',
+                fontSize: '11px',
+                fontWeight: 500,
+              }}
+            >
+              Spam Check Pending
+            </span>
           </div>
 
           {/* Tab Bar */}
@@ -667,6 +756,13 @@ const FloatingDialer: React.FC = () => {
                         <button
                           key={key}
                           onClick={() => handleKeyPress(key)}
+                          onMouseDown={() => setPressedKey(key)}
+                          onMouseUp={() => setPressedKey(null)}
+                          onMouseLeave={() => setPressedKey(null)}
+                          style={{
+                            transition: 'transform 100ms',
+                            transform: pressedKey === key ? 'scale(0.95)' : 'scale(1)',
+                          }}
                           className="h-12 rounded-lg bg-muted text-foreground text-lg font-semibold hover:bg-accent flex items-center justify-center"
                         >
                           {key}
@@ -688,9 +784,9 @@ const FloatingDialer: React.FC = () => {
               )}
             </>}
           </div>
-        </motion.div>
+        </div>
       )}
-    </AnimatePresence>
+    </>
   );
 };
 
