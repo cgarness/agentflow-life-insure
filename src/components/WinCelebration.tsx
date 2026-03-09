@@ -185,7 +185,7 @@ const WinCelebration: React.FC = () => {
           transition={{ type: "spring", damping: 20, stiffness: 300 }}
           className="fixed top-16 left-0 right-0 z-50 flex justify-center pointer-events-none"
         >
-          <div className="mx-4 max-w-2xl w-full bg-gradient-to-r from-success to-emerald-600 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
+          <div className="mx-4 max-w-2xl w-full bg-gradient-to-r from-success to-success/80 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
             {/* Shimmer overlay */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-background/20 to-transparent animate-shimmer" />
             
