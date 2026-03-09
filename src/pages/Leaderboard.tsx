@@ -175,6 +175,19 @@ const Leaderboard: React.FC = () => {
       a.prevRank = prevRankMap.get(a.id) ?? null;
     });
 
+    // Detect which agents changed
+    const changed = new Set<string>();
+    currentStats.forEach(a => {
+      const key = `${a.callsMade}-${a.policiesSold}-${a.appointmentsSet}-${a.talkTime}-${a.rank}`;
+      const prev = prevAgentsRef.current.get(a.id);
+      if (prev !== undefined && prev !== key) changed.add(a.id);
+      prevAgentsRef.current.set(a.id, key);
+    });
+    if (changed.size > 0) {
+      setChangedAgents(changed);
+      setTimeout(() => setChangedAgents(new Set()), 1500);
+    }
+
     setAgents(currentStats);
     setLoading(false);
   }, [period, metric, computeStats]);
