@@ -44,6 +44,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const callRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Fetch default caller number
   useEffect(() => {
@@ -137,6 +138,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               clearInterval(timerRef.current);
               timerRef.current = null;
             }
+            // Stop microphone stream so red recording dot goes away
+            if (mediaStreamRef.current) {
+              mediaStreamRef.current.getTracks().forEach(track => track.stop());
+              mediaStreamRef.current = null;
+            }
             // Reset after 2 seconds
             endResetRef.current = setTimeout(() => {
               if (mounted) {
@@ -172,6 +178,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       if (timerRef.current) clearInterval(timerRef.current);
       if (endResetRef.current) clearTimeout(endResetRef.current);
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+      }
     };
   }, []);
 
@@ -197,10 +207,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Request microphone permission before placing the call
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       console.error("Microphone permission denied:", err);
-      setErrorMessage("Microphone access is required to make calls.");
+      setStatus("error");
+      setErrorMessage("Microphone access is required to make calls. Please allow microphone access in your browser and try again.");
       return;
     }
 
