@@ -48,6 +48,7 @@ function timeAgo(dateStr: string): string {
 
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
 
