@@ -182,7 +182,19 @@ const Leaderboard: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { fetchWins(); const iv = setInterval(fetchWins, 15000); return () => clearInterval(iv); }, [fetchWins]);
+  useEffect(() => { fetchWins(); }, [fetchWins]);
+
+  // Real-time subscriptions for calls, wins, and appointments
+  useEffect(() => {
+    const channel = supabase
+      .channel("leaderboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "calls" }, () => { fetchData(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "wins" }, () => { fetchWins(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => { fetchData(); })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchData, fetchWins]);
 
   const topAgents = agents.filter(a => a.rank <= 3 && (a[metricKey(metric)] as number) > 0);
   const restAgents = agents.filter(a => a.rank > 3);
