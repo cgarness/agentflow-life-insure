@@ -1,73 +1,69 @@
 import React, { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { Download, Trophy, TrendingUp, User, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { TrendingUp, Trophy, User, Calendar, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, Grouping, groupByDate, downloadCSV } from "@/lib/reports-queries";
+import { AgentProfile, Grouping, groupByDate, downloadCSV, getAgentName, isSoldDisposition } from "@/lib/reports-queries";
+import { parseISO } from "date-fns";
+import ReportSection from "./ReportSection";
 
-const LINE_COLORS = [
-  "hsl(var(--success))", "hsl(var(--primary))", "hsl(var(--warning))",
-  "hsl(var(--destructive))", "#8b5cf6", "#06b6d4", "#ec4899",
-];
+const LINE_COLORS = ["hsl(var(--success))", "hsl(var(--primary))", "hsl(var(--warning))", "hsl(var(--destructive))", "#8b5cf6", "#06b6d4", "#ec4899"];
 
 interface Props {
   calls: any[];
+  compCalls?: any[];
   agents: AgentProfile[];
   grouping: Grouping;
   selectedAgent?: string;
   loading: boolean;
+  comparing: boolean;
 }
 
-const PoliciesSoldChart: React.FC<Props> = ({ calls, agents, grouping, selectedAgent, loading }) => {
+const PoliciesSoldChart: React.FC<Props> = ({ calls, compCalls, agents, grouping, selectedAgent, loading, comparing }) => {
   const { chartData, agentNames, summary } = useMemo(() => {
-    const agentMap = new Map(agents.map(a => [a.id, `${a.first_name} ${a.last_name?.charAt(0) || ""}.`]));
-    const soldCalls = calls.filter(c => {
-      const dn = (c.disposition_name || "").toLowerCase();
-      return dn.includes("sold") || dn.includes("policy");
-    });
-
+    const soldCalls = calls.filter(c => isSoldDisposition(c.disposition_name));
     const grouped = new Map<string, Map<string, number>>();
     const agentSales = new Map<string, number>();
     const daySales = new Map<string, number>();
+    const hourSales = new Map<number, number>();
 
     soldCalls.forEach(c => {
       const dateKey = groupByDate(c.started_at, grouping);
-      const agentName = agentMap.get(c.agent_id) || "Unknown";
+      const agentName = getAgentName(agents, c.agent_id);
       if (!grouped.has(dateKey)) grouped.set(dateKey, new Map());
-      const dateMap = grouped.get(dateKey)!;
-      dateMap.set(agentName, (dateMap.get(agentName) || 0) + 1);
+      grouped.get(dateKey)!.set(agentName, (grouped.get(dateKey)!.get(agentName) || 0) + 1);
       agentSales.set(agentName, (agentSales.get(agentName) || 0) + 1);
       const dayKey = groupByDate(c.started_at, "daily");
       daySales.set(dayKey, (daySales.get(dayKey) || 0) + 1);
+      const hour = parseISO(c.started_at).getHours();
+      hourSales.set(hour, (hourSales.get(hour) || 0) + 1);
     });
 
     const allAgentNames = selectedAgent
-      ? [agentMap.get(selectedAgent) || "Unknown"]
-      : Array.from(new Set(soldCalls.map(c => agentMap.get(c.agent_id) || "Unknown")));
+      ? [getAgentName(agents, selectedAgent)]
+      : Array.from(new Set(soldCalls.map(c => getAgentName(agents, c.agent_id))));
 
-    const chartData = Array.from(grouped.entries())
-      .map(([date, agents]) => {
-        const row: any = { date };
-        allAgentNames.forEach(n => { row[n] = agents.get(n) || 0; });
-        return row;
-      })
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const chartData = Array.from(grouped.entries()).map(([date, am]) => {
+      const row: any = { date };
+      allAgentNames.forEach(n => { row[n] = am.get(n) || 0; });
+      return row;
+    }).sort((a, b) => a.date.localeCompare(b.date));
 
     let topPerformer = { name: "N/A", count: 0 };
     agentSales.forEach((count, name) => { if (count > topPerformer.count) topPerformer = { name, count }; });
-
     let bestDay = { date: "N/A", count: 0 };
     daySales.forEach((count, date) => { if (count > bestDay.count) bestDay = { date, count }; });
+    let bestHour = { hour: 0, count: 0 };
+    hourSales.forEach((count, hour) => { if (count > bestHour.count) bestHour = { hour, count }; });
 
     const agentsWithSales = agentSales.size;
-    const summary = {
-      total: soldCalls.length,
-      topPerformer,
-      avgPerAgent: agentsWithSales > 0 ? +(soldCalls.length / agentsWithSales).toFixed(1) : 0,
-      bestDay,
+    return {
+      chartData, agentNames: allAgentNames,
+      summary: {
+        total: soldCalls.length,
+        topPerformer, bestDay, bestHour,
+        avgPerAgent: agentsWithSales > 0 ? +(soldCalls.length / agentsWithSales).toFixed(1) : 0,
+      },
     };
-
-    return { chartData, agentNames: allAgentNames, summary };
   }, [calls, agents, grouping, selectedAgent]);
 
   const handleExport = () => {
@@ -76,12 +72,10 @@ const PoliciesSoldChart: React.FC<Props> = ({ calls, agents, grouping, selectedA
 
   if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-[350px]" /></div>;
 
+  const fmtHour = (h: number) => `${h > 12 ? h - 12 : h || 12}${h >= 12 ? "PM" : "AM"}`;
+
   return (
-    <div className="bg-card rounded-xl border p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-foreground">Policies Sold</h3>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleExport}><Download className="w-3.5 h-3.5" /></Button>
-      </div>
+    <ReportSection title="Policies Sold" onExport={handleExport}>
       {chartData.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">No policies sold in this period</p>
       ) : (
@@ -98,21 +92,23 @@ const PoliciesSoldChart: React.FC<Props> = ({ calls, agents, grouping, selectedA
           </LineChart>
         </ResponsiveContainer>
       )}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
         {[
           { icon: TrendingUp, label: "Total Sold", value: String(summary.total) },
           { icon: Trophy, label: "Top Performer", value: `${summary.topPerformer.name} (${summary.topPerformer.count})` },
-          { icon: User, label: "Avg Per Agent", value: String(summary.avgPerAgent) },
+          { icon: User, label: "Avg/Agent", value: String(summary.avgPerAgent) },
           { icon: Calendar, label: "Best Day", value: `${summary.bestDay.date} (${summary.bestDay.count})` },
+          { icon: Clock, label: "Best Hour", value: `${fmtHour(summary.bestHour.hour)} (${summary.bestHour.count})` },
+          { icon: Clock, label: "Avg Deal Cycle", value: "N/A" },
         ].map(s => (
           <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center">
             <s.icon className="w-4 h-4 mx-auto text-muted-foreground mb-1" />
-            <p className="text-xs text-muted-foreground">{s.label}</p>
-            <p className="text-sm font-bold text-foreground mt-0.5 truncate">{s.value}</p>
+            <p className="text-[10px] text-muted-foreground">{s.label}</p>
+            <p className="text-xs font-bold text-foreground mt-0.5 truncate">{s.value}</p>
           </div>
         ))}
       </div>
-    </div>
+    </ReportSection>
   );
 };
 
