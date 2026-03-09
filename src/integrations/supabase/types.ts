@@ -38,6 +38,57 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_scorecards: {
+        Row: {
+          agent_id: string | null
+          appointments_set: number | null
+          calls_made: number | null
+          coaching_notes: string | null
+          conversion_rate: number | null
+          created_at: string | null
+          goal_appointments_hit: boolean | null
+          goal_calls_hit: boolean | null
+          goal_policies_hit: boolean | null
+          id: string
+          policies_sold: number | null
+          talk_time: number | null
+          week_end: string
+          week_start: string
+        }
+        Insert: {
+          agent_id?: string | null
+          appointments_set?: number | null
+          calls_made?: number | null
+          coaching_notes?: string | null
+          conversion_rate?: number | null
+          created_at?: string | null
+          goal_appointments_hit?: boolean | null
+          goal_calls_hit?: boolean | null
+          goal_policies_hit?: boolean | null
+          id?: string
+          policies_sold?: number | null
+          talk_time?: number | null
+          week_end: string
+          week_start: string
+        }
+        Update: {
+          agent_id?: string | null
+          appointments_set?: number | null
+          calls_made?: number | null
+          coaching_notes?: string | null
+          conversion_rate?: number | null
+          created_at?: string | null
+          goal_appointments_hit?: boolean | null
+          goal_calls_hit?: boolean | null
+          goal_policies_hit?: boolean | null
+          id?: string
+          policies_sold?: number | null
+          talk_time?: number | null
+          week_end?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
       appointments: {
         Row: {
           contact_id: string | null
