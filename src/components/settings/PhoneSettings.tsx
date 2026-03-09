@@ -103,7 +103,7 @@ const PhoneSettings: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [telnyxRes, settingsRes, numbersRes, agentsRes] = await Promise.all([
-      supabase.from("telnyx_settings").select("*").eq("id", TELNYX_SETTINGS_ID).maybeSingle(),
+      (supabase as any).from("telnyx_settings").select("*").eq("id", TELNYX_SETTINGS_ID).maybeSingle(),
       supabase.from("phone_settings").select("*").eq("id", SINGLETON_ID).maybeSingle(),
       supabase.from("phone_numbers").select("*").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, first_name, last_name"),
