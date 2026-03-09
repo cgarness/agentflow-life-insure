@@ -14,7 +14,7 @@ const AccessDenied: React.FC = () => {
           You don't have permission to view this page. Contact your admin if you think this is a mistake.
         </p>
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/dashboard")}
           className="px-6 py-2.5 rounded-lg text-sm font-medium text-white"
           style={{ backgroundColor: "#3B82F6" }}
         >

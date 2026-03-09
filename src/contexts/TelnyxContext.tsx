@@ -186,12 +186,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Call duration timer — start when active, stop otherwise
   useEffect(() => {
-    if (callState === "active") {
+    if (callState === "dialing") {
       setCallDuration(0);
       timerRef.current = setInterval(() => {
         setCallDuration((d) => d + 1);
       }, 1000);
-    } else if (callState !== "active" && timerRef.current) {
+    } else if (callState === "ended" && timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
