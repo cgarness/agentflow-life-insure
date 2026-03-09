@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Trophy, Download, ArrowUp, ArrowDown, Minus, Loader2 } from "lucide-react";
+import { Trophy, Download, ArrowUp, ArrowDown, Minus, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths, formatDistanceToNow } from "date-fns";
 import AgentScorecardModal from "@/components/leaderboard/AgentScorecardModal";
+import TVMode from "@/components/leaderboard/TVMode";
+import { Badge as BadgeType, AgentFireStatus, computeBadges, computeFireStatus } from "@/components/leaderboard/useLeaderboardBadges";
 import { useNavigate } from "react-router-dom";
 
 type Period = "Today" | "This Week" | "This Month";
@@ -73,20 +76,56 @@ const getPeriodRange = (period: Period): { start: Date; end: Date } => {
 const getPrevPeriodRange = (period: Period): { start: Date; end: Date } => {
   const now = new Date();
   switch (period) {
-    case "Today": {
-      const prev = subDays(now, 1);
-      return { start: startOfDay(prev), end: prev };
-    }
-    case "This Week": {
-      const prev = subWeeks(now, 1);
-      return { start: startOfWeek(prev, { weekStartsOn: 1 }), end: prev };
-    }
-    case "This Month": {
-      const prev = subMonths(now, 1);
-      return { start: startOfMonth(prev), end: prev };
-    }
+    case "Today": { const prev = subDays(now, 1); return { start: startOfDay(prev), end: prev }; }
+    case "This Week": { const prev = subWeeks(now, 1); return { start: startOfWeek(prev, { weekStartsOn: 1 }), end: prev }; }
+    case "This Month": { const prev = subMonths(now, 1); return { start: startOfMonth(prev), end: prev }; }
   }
 };
+
+// ─── Badge display helpers ───
+
+const BadgeIcons: React.FC<{ badges: BadgeType[]; max?: number }> = ({ badges, max = 3 }) => {
+  if (badges.length === 0) return null;
+  const shown = badges.slice(0, max);
+  const extra = badges.length - max;
+  return (
+    <TooltipProvider delayDuration={200}>
+      <span className="inline-flex items-center gap-0.5 ml-1">
+        {shown.map(b => (
+          <Tooltip key={b.id}>
+            <TooltipTrigger asChild><span className="text-sm cursor-default">{b.icon}</span></TooltipTrigger>
+            <TooltipContent><p className="text-xs font-medium">{b.label}</p><p className="text-xs text-muted-foreground">{b.description}</p></TooltipContent>
+          </Tooltip>
+        ))}
+        {extra > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild><span className="text-[10px] text-muted-foreground cursor-default">+{extra}</span></TooltipTrigger>
+            <TooltipContent>
+              {badges.slice(max).map(b => <p key={b.id} className="text-xs">{b.icon} {b.label}</p>)}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </span>
+    </TooltipProvider>
+  );
+};
+
+const FireIcon: React.FC<{ fire: AgentFireStatus | undefined; agentName?: string }> = ({ fire, agentName }) => {
+  if (!fire || fire.level === "none") return null;
+  const text = fire.level === "blazing" ? "🔥🔥" : "🔥";
+  const cls = fire.level === "blazing" ? "animate-fire-flicker" : "animate-fire-pulse";
+  const tip = `${agentName || "Agent"} is ${fire.level === "blazing" ? "blazing" : "on fire"} today! ${fire.todayCalls} calls vs their ${fire.avgCalls}/day average`;
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild><span className={`inline-block ml-1 ${cls}`}>{text}</span></TooltipTrigger>
+        <TooltipContent><p className="text-xs">{tip}</p></TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+// ─── Main Component ───
 
 const Leaderboard: React.FC = () => {
   const { user, profile } = useAuth();
@@ -100,9 +139,22 @@ const Leaderboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [goals, setGoals] = useState<Record<string, number>>({});
   const [scorecardAgent, setScorecardAgent] = useState<{ id: string; first_name: string; last_name: string } | null>(null);
-  const [changedAgents, setChangedAgents] = useState<Set<string>>(new Set());
+
+  // Badges & Fire
+  const [badgesMap, setBadgesMap] = useState<Map<string, BadgeType[]>>(new Map());
+  const [fireMap, setFireMap] = useState<Map<string, AgentFireStatus>>(new Map());
+
+  // Rank change animations
+  const [rankAnimations, setRankAnimations] = useState<Map<string, "up" | "down">>(new Map());
+  const prevRanksRef = useRef<Map<string, number>>(new Map());
+  const prevAgentsRef = useRef<Map<string, string>>(new Map());
+
+  // TV Mode
+  const [tvMode, setTvMode] = useState(false);
+
+  // Win feed
+  const prevWinCountRef = useRef<number>(0);
   const [changedWins, setChangedWins] = useState(false);
-  const prevAgentsRef = useRef<Map<string, string>>(new Map()); // id -> serialized metric values
 
   const computeStats = useCallback(async (profiles: { id: string; first_name: string; last_name: string }[], range: { start: Date; end: Date }) => {
     const startISO = range.start.toISOString();
@@ -123,7 +175,6 @@ const Leaderboard: React.FC = () => {
       const talkTime = agentCalls.reduce((s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0), 0);
       const appointmentsSet = appts.filter(a => a.created_by === p.id).length;
       const conversionRate = callsMade > 0 ? (policiesSold / callsMade) * 100 : 0;
-
       return { ...p, callsMade, policiesSold, appointmentsSet, talkTime, conversionRate, goalProgress: 0, rank: 0, prevRank: null as number | null };
     });
   }, []);
@@ -151,7 +202,7 @@ const Leaderboard: React.FC = () => {
 
     const key = metricKey(metric);
 
-    // Calculate goal progress
+    // Goal progress
     currentStats.forEach(a => {
       const goalsCount = Object.keys(goalsMap).length;
       if (goalsCount === 0) { a.goalProgress = 0; return; }
@@ -162,37 +213,42 @@ const Leaderboard: React.FC = () => {
       a.goalProgress = Math.round((hit / goalsCount) * 100);
     });
 
-    // Sort and rank current
+    // Sort and rank
     currentStats.sort((a, b) => (b[key] as number) - (a[key] as number));
     currentStats.forEach((a, i) => { a.rank = i + 1; });
 
-    // Sort and rank previous
     prevStats.sort((a, b) => (b[key] as number) - (a[key] as number));
     const prevRankMap = new Map<string, number>();
     prevStats.forEach((a, i) => { prevRankMap.set(a.id, i + 1); });
+    currentStats.forEach(a => { a.prevRank = prevRankMap.get(a.id) ?? null; });
 
+    // Animated rank changes (compare to last render, not prev period)
+    const anims = new Map<string, "up" | "down">();
     currentStats.forEach(a => {
-      a.prevRank = prevRankMap.get(a.id) ?? null;
+      const prevRank = prevRanksRef.current.get(a.id);
+      if (prevRank !== undefined && prevRank !== a.rank) {
+        anims.set(a.id, a.rank < prevRank ? "up" : "down");
+      }
     });
-
-    // Detect which agents changed
-    const changed = new Set<string>();
-    currentStats.forEach(a => {
-      const key = `${a.callsMade}-${a.policiesSold}-${a.appointmentsSet}-${a.talkTime}-${a.rank}`;
-      const prev = prevAgentsRef.current.get(a.id);
-      if (prev !== undefined && prev !== key) changed.add(a.id);
-      prevAgentsRef.current.set(a.id, key);
-    });
-    if (changed.size > 0) {
-      setChangedAgents(changed);
-      setTimeout(() => setChangedAgents(new Set()), 1500);
+    if (anims.size > 0) {
+      setRankAnimations(anims);
+      setTimeout(() => setRankAnimations(new Map()), 1500);
     }
+    currentStats.forEach(a => prevRanksRef.current.set(a.id, a.rank));
 
     setAgents(currentStats);
     setLoading(false);
+
+    // Compute badges & fire status (non-blocking)
+    const agentIds = currentStats.map(a => a.id);
+    const [bdg, fire] = await Promise.all([
+      computeBadges(agentIds, goalsMap, currentStats),
+      computeFireStatus(agentIds),
+    ]);
+    setBadgesMap(bdg);
+    setFireMap(fire);
   }, [period, metric, computeStats]);
 
-  const prevWinCountRef = useRef<number>(0);
   const fetchWins = useCallback(async () => {
     const { data } = await supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
     const newWins = (data || []) as Win[];
@@ -207,7 +263,7 @@ const Leaderboard: React.FC = () => {
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchWins(); }, [fetchWins]);
 
-  // Real-time subscriptions for calls, wins, and appointments
+  // Real-time subscriptions
   useEffect(() => {
     const channel = supabase
       .channel("leaderboard-realtime")
@@ -215,9 +271,25 @@ const Leaderboard: React.FC = () => {
       .on("postgres_changes", { event: "*", schema: "public", table: "wins" }, () => { fetchWins(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => { fetchData(); })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [fetchData, fetchWins]);
+
+  // TV Mode fullscreen
+  const enterTvMode = useCallback(() => {
+    setTvMode(true);
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  }, []);
+
+  const exitTvMode = useCallback(() => {
+    setTvMode(false);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const handler = () => { if (!document.fullscreenElement && tvMode) setTvMode(false); };
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, [tvMode]);
 
   const topAgents = agents.filter(a => a.rank <= 3 && (a[metricKey(metric)] as number) > 0);
   const restAgents = agents.filter(a => a.rank > 3);
@@ -251,12 +323,33 @@ const Leaderboard: React.FC = () => {
     return { metal: "Bronze", color: "from-orange-300 to-orange-500", trophyColor: "text-orange-400", animate: "" };
   };
 
-  const rankChangeIcon = (a: AgentStats) => {
+  const rankChangeDisplay = (a: AgentStats) => {
     if (a.prevRank === null) return <Minus className="w-3 h-3 text-muted-foreground" />;
-    if (a.prevRank > a.rank) return <ArrowUp className="w-3 h-3 text-success" />;
-    if (a.prevRank < a.rank) return <ArrowDown className="w-3 h-3 text-destructive" />;
+    const diff = a.prevRank - a.rank;
+    if (diff > 0) return <span className="inline-flex items-center gap-0.5 text-success text-xs font-medium"><ArrowUp className="w-3 h-3" />{diff}</span>;
+    if (diff < 0) return <span className="inline-flex items-center gap-0.5 text-destructive text-xs font-medium"><ArrowDown className="w-3 h-3" />{Math.abs(diff)}</span>;
     return <Minus className="w-3 h-3 text-muted-foreground" />;
   };
+
+  const getRowAnimation = (agentId: string) => {
+    const anim = rankAnimations.get(agentId);
+    if (anim === "up") return "animate-rank-up-glow";
+    if (anim === "down") return "animate-rank-down-glow";
+    return "";
+  };
+
+  // TV Mode render
+  if (tvMode) {
+    return (
+      <TVMode
+        agents={agents}
+        wins={wins}
+        badges={badgesMap}
+        fireStatus={fireMap}
+        onExit={exitTvMode}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -291,11 +384,20 @@ const Leaderboard: React.FC = () => {
             <option>Talk Time</option>
             <option>Conversion Rate</option>
           </select>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" onClick={enterTvMode} className="h-9 w-9">
+                  <Monitor className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Full Screen Display Mode</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 
       {!hasData ? (
-        /* Empty State */
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Trophy className="w-16 h-16 text-muted-foreground mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">No activity for {period.toLowerCase()}</h2>
@@ -312,17 +414,25 @@ const Leaderboard: React.FC = () => {
                 const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
                 const displayName = `${a.first_name} ${a.last_name?.[0] || ""}.`;
                 const val = formatMetricValue(metric, a[metricKey(metric)] as number);
+                const agentBadges = badgesMap.get(a.id) || [];
+                const fire = fireMap.get(a.id);
                 return (
                   <div
                     key={a.id}
                     onClick={() => openScorecard(a)}
-                    className={`bg-card rounded-xl border p-6 text-center hover:shadow-lg transition-all cursor-pointer ${podiumOrder(a.rank)} ${a.id === user?.id ? "ring-2 ring-primary/30" : ""} ${changedAgents.has(a.id) ? "animate-leaderboard-flash" : ""}`}
+                    className={`bg-card rounded-xl border p-6 text-center hover:shadow-lg transition-all duration-600 cursor-pointer ${podiumOrder(a.rank)} ${a.id === user?.id ? "ring-2 ring-primary/30" : ""} ${getRowAnimation(a.id)}`}
                   >
-                    <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${mc.animate}`}>
+                    <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${mc.animate} ${rankAnimations.get(a.id) === "up" && a.rank === 1 ? "animate-tv-trophy-shimmer" : ""}`}>
                       <Trophy className={`w-8 h-8 ${mc.trophyColor}`} />
                     </div>
                     <div className="w-16 h-16 rounded-full bg-primary/10 text-primary text-xl font-bold flex items-center justify-center mx-auto mb-3">{initials}</div>
-                    <h3 className="font-bold text-foreground text-lg">{displayName}</h3>
+                    <h3 className="font-bold text-foreground text-lg">
+                      {displayName}
+                      <FireIcon fire={fire} agentName={displayName} />
+                    </h3>
+                    {agentBadges.length > 0 && (
+                      <div className="flex justify-center mt-1"><BadgeIcons badges={agentBadges} max={3} /></div>
+                    )}
                     <span className={`inline-block text-xs px-3 py-0.5 rounded-full font-medium mt-1 bg-gradient-to-r ${mc.color} text-foreground`}>#{a.rank} {mc.metal}</span>
                     <p className="text-3xl font-bold text-foreground mt-3">{val}</p>
                     <p className="text-xs text-muted-foreground">{metricLabel(metric)}</p>
@@ -371,18 +481,24 @@ const Leaderboard: React.FC = () => {
                       const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
                       const displayName = `${a.first_name} ${a.last_name?.[0] || ""}.`;
                       const isMe = a.id === user?.id;
+                      const agentBadges = badgesMap.get(a.id) || [];
+                      const fire = fireMap.get(a.id);
                       return (
-                        <tr key={a.id} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isMe ? "bg-primary/5 border-l-2 border-primary" : ""} ${changedAgents.has(a.id) ? "animate-leaderboard-flash" : ""}`}>
+                        <tr key={a.id} className={`border-b last:border-0 hover:bg-accent/30 transition-all duration-600 ${isMe ? "bg-primary/5 border-l-2 border-primary" : ""} ${getRowAnimation(a.id)}`}>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-1">
                               <span className="font-bold text-foreground">{a.rank}</span>
-                              {rankChangeIcon(a)}
+                              {rankChangeDisplay(a)}
                             </div>
                           </td>
                           <td className="py-3">
                             <div className="flex items-center gap-2">
                               <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{initials}</div>
-                              <span className="font-medium text-foreground">{displayName}</span>
+                              <span className="font-medium text-foreground">
+                                {displayName}
+                                <FireIcon fire={fire} agentName={displayName} />
+                              </span>
+                              <BadgeIcons badges={agentBadges} max={3} />
                             </div>
                           </td>
                           <td className="py-3 text-right text-foreground">{a.callsMade}</td>
@@ -422,12 +538,18 @@ const Leaderboard: React.FC = () => {
               ) : (
                 <div className="space-y-3">
                   {wins.map(w => {
-                    const initials = (w.agent_name || "??").split(" ").map(c => c[0]).join("").slice(0, 2);
+                    const winInitials = (w.agent_name || "??").split(" ").map(c => c[0]).join("").slice(0, 2);
+                    const agentId = agents.find(a => `${a.first_name} ${a.last_name?.[0]}.` === w.agent_name || `${a.first_name} ${a.last_name}` === w.agent_name)?.id;
+                    const fire = agentId ? fireMap.get(agentId) : undefined;
                     return (
                       <div key={w.id} className="flex items-start gap-3 pb-3 border-b last:border-0">
-                        <div className="w-8 h-8 rounded-full bg-success/10 text-success text-xs font-bold flex items-center justify-center shrink-0">{initials}</div>
+                        <div className="w-8 h-8 rounded-full bg-success/10 text-success text-xs font-bold flex items-center justify-center shrink-0">{winInitials}</div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground"><span className="font-medium">{w.agent_name || "Agent"}</span> closed {w.contact_name || "a deal"}</p>
+                          <p className="text-sm text-foreground">
+                            <span className="font-medium">{w.agent_name || "Agent"}</span>
+                            {fire && fire.level !== "none" && <span className={`inline-block ml-1 ${fire.level === "blazing" ? "animate-fire-flicker" : "animate-fire-pulse"}`}>{fire.level === "blazing" ? "🔥🔥" : "🔥"}</span>}
+                            {" "}closed {w.contact_name || "a deal"}
+                          </p>
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
                             {w.campaign_name && <span className="text-xs bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{w.campaign_name}</span>}
                             {w.policy_type && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{w.policy_type}</span>}
@@ -449,6 +571,7 @@ const Leaderboard: React.FC = () => {
         open={!!scorecardAgent}
         onOpenChange={open => { if (!open) setScorecardAgent(null); }}
         agent={scorecardAgent}
+        badges={scorecardAgent ? badgesMap.get(scorecardAgent.id) || [] : []}
       />
     </div>
   );

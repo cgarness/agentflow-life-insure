@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Mail, FileDown, X } from "lucide-react";
+import { Badge as BadgeType } from "./useLeaderboardBadges";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agent: AgentData | null;
+  badges?: BadgeType[];
 }
 
 interface WeekStats {
@@ -31,7 +33,7 @@ interface WeekStats {
   conversionRate: number;
 }
 
-const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent }) => {
+const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badges = [] }) => {
   const { profile } = useAuth();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
   const [weekOffset, setWeekOffset] = useState(0);
@@ -220,6 +222,27 @@ const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent }) => 
             );
           })}
         </div>
+
+        {/* Achievements / Badges */}
+        {badges.length > 0 && (
+          <div className="mt-4">
+            <h4 className="text-sm font-medium text-foreground mb-2">Achievements</h4>
+            <div className="flex flex-wrap gap-2">
+              {badges.map(b => (
+                <TooltipProvider key={b.id} delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${b.color}`}>
+                        {b.icon} {b.label}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent><p className="text-xs">{b.description}</p></TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 4-week trend */}
         <div className="mt-4">
