@@ -368,6 +368,21 @@ const FloatingDialer: React.FC = () => {
     const disp = dispositions.find((d) => d.id === selectedDispId);
     if (disp) {
       console.log("Disposition saved:", { id: disp.id, name: disp.name });
+      
+      // Trigger win celebration if this is a sale disposition
+      if (isSaleDisposition(disp.name) && user && profile) {
+        const agentName = `${profile.first_name} ${profile.last_name}`;
+        const contactName = selectedContact 
+          ? `${selectedContact.first_name} ${selectedContact.last_name}` 
+          : dialedNumber;
+        triggerWin({
+          agentId: user.id,
+          agentName,
+          contactName,
+          contactId: selectedContact?.id,
+          policyType: disp.name,
+        });
+      }
     }
     resetAll();
   };
