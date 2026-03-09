@@ -94,7 +94,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
-      // 3. Fetch WebRTC token
+      // 3. Fetch SIP credentials
       try {
         const { data: tokenData, error: tokenError } = await supabase.functions.invoke("telnyx-token", {
           body: { connection_id: creds.connection_id },
@@ -102,14 +102,18 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         if (!mounted) return;
 
-        if (tokenError || !tokenData?.token) {
+        if (tokenError || !tokenData?.sip_username) {
           setStatus("error");
-          setErrorMessage(tokenData?.error || tokenError?.message || "Failed to get WebRTC token");
+          setErrorMessage(tokenData?.error || tokenError?.message || "Failed to get SIP credentials");
           return;
         }
 
-        // 4. Initialize TelnyxRTC with login_token
-        client = new TelnyxRTC({ login_token: tokenData.token });
+        // 4. Initialize TelnyxRTC with SIP credentials
+        client = new TelnyxRTC({
+          login: tokenData.sip_username,
+          password: tokenData.sip_password,
+          host: 'rtc.telnyx.com',
+        });
 
         client.on("telnyx.ready", () => {
           if (mounted) {
