@@ -82,19 +82,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       setStatus("connecting");
 
-      // 2. Request microphone permission BEFORE initializing TelnyxRTC
-      try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err) {
-        console.error("Microphone permission denied:", err);
-        if (mounted) {
-          setStatus("error");
-          setErrorMessage("Microphone access is required to make calls.");
-        }
-        return;
-      }
-
-      // 3. Fetch SIP credentials
+      // 2. Fetch SIP credentials
       try {
         const { data: tokenData, error: tokenError } = await supabase.functions.invoke("telnyx-token", {
           body: { connection_id: creds.connection_id },
@@ -200,12 +188,21 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [callState]);
 
-  const makeCall = useCallback((destinationNumber: string, callerNumber?: string) => {
+  const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string) => {
     if (status !== "ready") {
       console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
       return;
     }
     if (!clientRef.current) return;
+
+    // Request microphone permission before placing the call
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error("Microphone permission denied:", err);
+      setErrorMessage("Microphone access is required to make calls.");
+      return;
+    }
 
     try {
       const call = clientRef.current.newCall({
