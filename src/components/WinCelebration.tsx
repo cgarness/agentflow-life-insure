@@ -185,19 +185,19 @@ const WinCelebration: React.FC = () => {
           transition={{ type: "spring", damping: 20, stiffness: 300 }}
           className="fixed top-16 left-0 right-0 z-50 flex justify-center pointer-events-none"
         >
-          <div className="mx-4 max-w-2xl w-full bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
+          <div className="mx-4 max-w-2xl w-full bg-gradient-to-r from-success to-emerald-600 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
             {/* Shimmer overlay */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-background/20 to-transparent animate-shimmer" />
             
             <div className="relative px-6 py-4 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                <Trophy className="w-6 h-6 text-yellow-300" />
+              <div className="w-12 h-12 rounded-full bg-background/20 flex items-center justify-center shrink-0">
+                <Trophy className="w-6 h-6 text-warning" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-white font-bold text-lg truncate">
+                <p className="text-primary-foreground font-bold text-lg truncate">
                   {currentWin.agent_name || "An agent"} just sold a policy!
                 </p>
-                <p className="text-white/90 text-sm truncate">
+                <p className="text-primary-foreground/90 text-sm truncate">
                   Sold to {currentWin.contact_name || "a contact"}
                   {currentWin.campaign_name && ` • ${currentWin.campaign_name}`}
                 </p>
