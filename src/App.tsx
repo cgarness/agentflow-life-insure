@@ -79,11 +79,12 @@ const App = () => (
                         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
+                        <Route path="/" element={<LandingPage />} />
                         <Route path="/landing" element={<LandingPage />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/dashboard" element={<Dashboard />} />
                           <Route path="/dialer" element={<DialerPage />} />
                           <Route path="/contacts" element={<Contacts />} />
                           <Route path="/conversations" element={<Conversations />} />
