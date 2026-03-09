@@ -19,6 +19,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 
 const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
+const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
 const formatPhone = (num: string) => {
   const cleaned = num.replace(/\D/g, "");
@@ -101,22 +102,26 @@ const PhoneSettings: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [settingsRes, numbersRes, agentsRes] = await Promise.all([
+    const [telnyxRes, settingsRes, numbersRes, agentsRes] = await Promise.all([
+      supabase.from("telnyx_settings").select("*").eq("id", TELNYX_SETTINGS_ID).maybeSingle(),
       supabase.from("phone_settings").select("*").eq("id", SINGLETON_ID).maybeSingle(),
       supabase.from("phone_numbers").select("*").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, first_name, last_name"),
     ]);
 
-    if (settingsRes.data) {
-      const d = settingsRes.data;
+    if (telnyxRes.data) {
+      const d = telnyxRes.data as any;
       setApiKey(d.api_key || "");
-      setConnectionId(d.application_sid || "");
-      setSipUsername(d.account_sid || "");
-      setSipPassword(d.auth_token || "");
-      setOriginals({ apiKey: d.api_key || "", connectionId: d.application_sid || "", sipUsername: d.account_sid || "", sipPassword: d.auth_token || "" });
+      setConnectionId(d.connection_id || "");
+      setSipUsername(d.sip_username || "");
+      setSipPassword(d.sip_password || "");
+      setOriginals({ apiKey: d.api_key || "", connectionId: d.connection_id || "", sipUsername: d.sip_username || "", sipPassword: d.sip_password || "" });
+    }
+
+    if (settingsRes.data) {
       // Local presence from api_secret JSON
       try {
-        const flags = d.api_secret ? JSON.parse(d.api_secret) : {};
+        const flags = settingsRes.data.api_secret ? JSON.parse(settingsRes.data.api_secret) : {};
         setLocalPresenceEnabled(!!flags.local_presence_enabled);
       } catch { setLocalPresenceEnabled(false); }
     }
@@ -133,19 +138,18 @@ const PhoneSettings: React.FC = () => {
   // Save credentials
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await supabase.from("phone_settings").upsert({
-      id: SINGLETON_ID,
+    const { error } = await supabase.from("telnyx_settings").upsert({
+      id: TELNYX_SETTINGS_ID,
       api_key: apiKey,
-      application_sid: connectionId,
-      account_sid: sipUsername,
-      auth_token: sipPassword,
-      provider: "telnyx",
+      connection_id: connectionId,
+      sip_username: sipUsername,
+      sip_password: sipPassword,
       updated_at: new Date().toISOString(),
-    });
+    } as any);
     setSaving(false);
     if (error) { toast.error("Failed to save credentials"); return; }
     setOriginals({ apiKey, connectionId, sipUsername, sipPassword });
-    toast.success("Telnyx credentials saved");
+    toast.success("Credentials saved");
   };
 
   // Test connection
@@ -153,10 +157,10 @@ const PhoneSettings: React.FC = () => {
     setTesting(true);
     setTestResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("telnyx-check-connection", { body: { api_key: apiKey } });
+      const { data, error } = await supabase.functions.invoke("telnyx-token", { body: { connection_id: connectionId } });
       if (error) throw error;
-      if (data?.success) {
-        setTestResult({ success: true, message: "Connected successfully" });
+      if (data?.token) {
+        setTestResult({ success: true, message: "Connection successful" });
       } else {
         setTestResult({ success: false, message: data?.error || "Connection failed" });
       }

@@ -1,4 +1,4 @@
-// Telnyx token edge function — serves SIP credentials for WebRTC dialer
+// Telnyx token edge function — generates a WebRTC credential token via the Telnyx API
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
+const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -22,33 +22,60 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    const body = await req.json().catch(() => ({}));
+    const connectionId = body.connection_id;
 
-    // Read SIP credentials from the phone_settings table
-    // account_sid = SIP username, auth_token = SIP password (set by telnyx-buy-number)
-    const { data: config, error: fetchError } = await supabaseClient
-      .from("phone_settings")
-      .select("account_sid, auth_token")
-      .eq("id", SINGLETON_ID)
-      .maybeSingle();
+    // Resolve API key: env var first, then DB fallback
+    let apiKey = Deno.env.get("TELNYX_API_KEY") || "";
 
-    if (fetchError) throw fetchError;
+    if (!apiKey) {
+      const supabaseClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      );
 
-    const sipUsername = config?.account_sid;
-    const sipPassword = config?.auth_token;
+      const { data: settings, error: fetchError } = await supabaseClient
+        .from("telnyx_settings")
+        .select("api_key")
+        .eq("id", TELNYX_SETTINGS_ID)
+        .maybeSingle();
 
-    if (!sipUsername || !sipPassword) {
-      throw new Error("SIP credentials not found. Please buy a phone number first — it will auto-configure SIP.");
+      if (fetchError) throw fetchError;
+      apiKey = settings?.api_key || "";
+    }
+
+    if (!apiKey) {
+      throw new Error("Telnyx API key not configured. Set it in Settings → Telnyx & Phone Numbers.");
+    }
+
+    if (!connectionId) {
+      throw new Error("connection_id is required in the request body.");
+    }
+
+    // Call Telnyx API to create a telephony credential (WebRTC token)
+    const telnyxRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ connection_id: connectionId }),
+    });
+
+    if (!telnyxRes.ok) {
+      const errorBody = await telnyxRes.text();
+      throw new Error(`Telnyx API error (${telnyxRes.status}): ${errorBody}`);
+    }
+
+    const telnyxData = await telnyxRes.json();
+    const token = telnyxData?.data?.token;
+
+    if (!token) {
+      throw new Error("No token returned from Telnyx API. Check your Connection ID and API Key.");
     }
 
     return new Response(
-      JSON.stringify({
-        username: sipUsername,
-        password: sipPassword
-      }),
+      JSON.stringify({ token }),
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

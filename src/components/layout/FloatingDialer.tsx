@@ -5,7 +5,7 @@ import {
   PhoneOff, Search, Delete, Loader2, RefreshCw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { TelnyxRTC } from "@telnyx/webrtc";
+import { useTelnyx } from "@/contexts/TelnyxContext";
 import { useNavigate } from "react-router-dom";
 import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
@@ -49,6 +49,16 @@ function timeAgo(dateStr: string): string {
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const {
+    status: telnyxStatus,
+    callState: telnyxCallState,
+    callDuration: telnyxCallDuration,
+    isMuted: telnyxIsMuted,
+    makeCall: telnyxMakeCall,
+    hangUp: telnyxHangUp,
+    toggleMute: telnyxToggleMute,
+    defaultCallerNumber: telnyxDefaultCaller,
+  } = useTelnyx();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
 
@@ -80,10 +90,10 @@ const FloatingDialer: React.FC = () => {
   const [dispositions, setDispositions] = useState<DispositionRow[]>([]);
   const [selectedDispId, setSelectedDispId] = useState<string | null>(null);
 
-  // --- Telnyx ---
+  // --- Telnyx (from shared context) ---
   const clientRef = useRef<Record<string, unknown>>(null);
   const callRef = useRef<Record<string, unknown>>(null);
-  const [dialerReady, setDialerReady] = useState(false);
+  const dialerReady = telnyxStatus === "ready";
 
   // --- Local Presence phone cache ---
   const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
@@ -142,79 +152,7 @@ const FloatingDialer: React.FC = () => {
     return () => clearInterval(timer);
   }, [onCall]);
 
-  // Telnyx WebRTC init
-  useEffect(() => {
-    let client: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
-    const init = async () => {
-      try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err) {
-        console.error("Microphone permission denied:", err);
-        setDialerError("Microphone access is required to make calls. Please allow microphone access and refresh the page.");
-        return;
-      }
-      try {
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telnyx-token`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to get credentials: ${response.status}`);
-        }
-
-        const { username, password } = await response.json();
-
-        client = new TelnyxRTC({
-          login: username,
-          password: password,
-        });
-
-        client.on("telnyx.ready", () => {
-          setDialerReady(true);
-          setDialerError(null);
-          console.log("Telnyx WebRTC ready");
-        });
-
-        client.on("telnyx.error", (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-          setDialerError(`Dialer error: ${error.message}`);
-          setDialerReady(false);
-          console.error("Telnyx error:", error);
-        });
-
-        client.on("telnyx.notification", (notification: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-          if (notification.call) {
-            callRef.current = notification.call;
-            const state = notification.call.state;
-            if (state === "hangup" || state === "destroy") {
-              setOnCall(false);
-              setShowDisposition(true);
-              setSelectedDispId(null);
-            }
-          }
-        });
-
-        clientRef.current = client;
-        client.connect();
-      } catch {
-        // silently fail — dialer will show as not ready
-      }
-    };
-
-    init();
-    return () => {
-      if (client) {
-        try { client.disconnect(); } catch { } // eslint-disable-line no-empty
-      }
-    };
-  }, []);
+  // Telnyx connection managed by shared TelnyxContext
 
   // Fetch dispositions for post-call
   useEffect(() => {
@@ -317,17 +255,7 @@ const FloatingDialer: React.FC = () => {
 
   const startCall = (destinationNumber: string) => {
     setActiveCallerId(currentCallerId);
-    if (clientRef.current && dialerReady) {
-      try {
-        const call = (clientRef.current as any).newCall({
-          destinationNumber,
-          callerNumber: callerNumber,
-        });
-        callRef.current = call;
-      } catch {
-        // fall through to simulated call
-      }
-    }
+    telnyxMakeCall(destinationNumber, callerNumber);
     setOnCall(true);
     setCallSeconds(0);
   };
@@ -343,14 +271,11 @@ const FloatingDialer: React.FC = () => {
   };
 
   const handleHangUp = useCallback(() => {
-    if (callRef.current) {
-      try { (callRef.current as any).hangup(); } catch { } // eslint-disable-line no-empty
-      callRef.current = null;
-    }
+    telnyxHangUp();
     setOnCall(false);
     setShowDisposition(true);
     setSelectedDispId(null);
-  }, []);
+  }, [telnyxHangUp]);
 
   const resetAll = () => {
     setShowDisposition(false);
@@ -531,14 +456,17 @@ const FloatingDialer: React.FC = () => {
                     </p>
                   )}
                   <p className="text-3xl font-mono text-foreground">
-                    {formatTime(callSeconds)}
+                    {formatTime(telnyxCallDuration || callSeconds)}
                   </p>
                   <div className="flex items-center gap-6">
                     <div className="flex flex-col items-center gap-1">
-                      <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center">
-                        <Mic className="w-5 h-5" />
+                      <button
+                        onClick={telnyxToggleMute}
+                        className={`w-12 h-12 rounded-full flex items-center justify-center ${telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-accent text-foreground"}`}
+                      >
+                        {telnyxIsMuted ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                       </button>
-                      <span className="text-xs text-muted-foreground">Mute</span>
+                      <span className="text-xs text-muted-foreground">{telnyxIsMuted ? "Unmute" : "Mute"}</span>
                     </div>
                     <div className="flex flex-col items-center gap-1">
                       <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center">
