@@ -101,11 +101,43 @@ export default {
           "50%": { boxShadow: "0 0 12px 4px hsl(var(--primary) / 0.15)", backgroundColor: "hsl(var(--primary) / 0.06)" },
           "100%": { boxShadow: "0 0 0 0 transparent", backgroundColor: "transparent" },
         },
+        "rank-up-glow": {
+          "0%": { backgroundColor: "hsl(142 76% 36% / 0.12)" },
+          "100%": { backgroundColor: "transparent" },
+        },
+        "rank-down-glow": {
+          "0%": { backgroundColor: "hsl(0 84% 60% / 0.12)" },
+          "100%": { backgroundColor: "transparent" },
+        },
+        "fire-pulse": {
+          "0%, 100%": { opacity: "1", transform: "scale(1)" },
+          "50%": { opacity: "0.7", transform: "scale(1.15)" },
+        },
+        "fire-flicker": {
+          "0%, 100%": { opacity: "1", transform: "scale(1) rotate(0deg)" },
+          "25%": { opacity: "0.8", transform: "scale(1.1) rotate(-3deg)" },
+          "50%": { opacity: "1", transform: "scale(1.2) rotate(2deg)" },
+          "75%": { opacity: "0.9", transform: "scale(1.1) rotate(-1deg)" },
+        },
+        "tv-trophy-shimmer": {
+          "0%, 100%": { filter: "drop-shadow(0 0 4px hsl(45 93% 47% / 0.3))" },
+          "50%": { filter: "drop-shadow(0 0 12px hsl(45 93% 47% / 0.6))" },
+        },
+        "ticker": {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "leaderboard-flash": "leaderboard-flash 1.5s ease-out",
+        "rank-up-glow": "rank-up-glow 1.5s ease-out",
+        "rank-down-glow": "rank-down-glow 1.5s ease-out",
+        "fire-pulse": "fire-pulse 1.5s ease-in-out infinite",
+        "fire-flicker": "fire-flicker 0.8s ease-in-out infinite",
+        "tv-trophy-shimmer": "tv-trophy-shimmer 2s ease-in-out infinite",
+        "ticker": "ticker 30s linear infinite",
       },
     },
   },
