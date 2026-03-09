@@ -30,6 +30,7 @@ import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
+import ContactPage from "./pages/ContactPage";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
