@@ -223,6 +223,27 @@ const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badge
           })}
         </div>
 
+        {/* Achievements / Badges */}
+        {badges.length > 0 && (
+          <div className="mt-4">
+            <h4 className="text-sm font-medium text-foreground mb-2">Achievements</h4>
+            <div className="flex flex-wrap gap-2">
+              {badges.map(b => (
+                <TooltipProvider key={b.id} delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${b.color}`}>
+                        {b.icon} {b.label}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent><p className="text-xs">{b.description}</p></TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* 4-week trend */}
         <div className="mt-4">
           <h4 className="text-sm font-medium text-foreground mb-2">4-Week Trend</h4>
