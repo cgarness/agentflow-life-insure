@@ -1139,6 +1139,66 @@ export type Database = {
         }
         Relationships: []
       }
+      wins: {
+        Row: {
+          agent_id: string | null
+          agent_name: string | null
+          call_id: string | null
+          campaign_id: string | null
+          campaign_name: string | null
+          celebrated: boolean | null
+          contact_id: string | null
+          contact_name: string | null
+          created_at: string | null
+          id: string
+          notes: string | null
+          policy_type: string | null
+        }
+        Insert: {
+          agent_id?: string | null
+          agent_name?: string | null
+          call_id?: string | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          celebrated?: boolean | null
+          contact_id?: string | null
+          contact_name?: string | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          policy_type?: string | null
+        }
+        Update: {
+          agent_id?: string | null
+          agent_name?: string | null
+          call_id?: string | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          celebrated?: boolean | null
+          contact_id?: string | null
+          contact_name?: string | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          policy_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wins_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wins_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
