@@ -1,198 +1,242 @@
-import React, { useState } from "react";
-import { Download, Filter } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Download, BarChart3, CalendarIcon, FileText } from "lucide-react";
+import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, Legend,
-} from "recharts";
+  DateRange, Grouping, autoGrouping,
+  fetchProfiles, fetchCallsRaw, fetchDispositions,
+  fetchCampaignsWithStats, fetchLeads, downloadCSV,
+  AgentProfile,
+} from "@/lib/reports-queries";
 
-const COLORS = ["hsl(217,91%,60%)", "hsl(142,76%,36%)", "hsl(38,92%,50%)", "hsl(0,84%,60%)", "hsl(270,60%,50%)"];
+import CallVolumeChart from "@/components/reports/CallVolumeChart";
+import DispositionsPieChart from "@/components/reports/DispositionsPieChart";
+import PoliciesSoldChart from "@/components/reports/PoliciesSoldChart";
+import CampaignPerformance from "@/components/reports/CampaignPerformance";
+import LeadSourceTable from "@/components/reports/LeadSourceTable";
+import CommunicationsStats from "@/components/reports/CommunicationsStats";
+import CallingHeatmap from "@/components/reports/CallingHeatmap";
 
-const callVolume = [
-  { name: "Chris G.", calls: 47, duration: 3.2 },
-  { name: "Sarah J.", calls: 42, duration: 3.8 },
-  { name: "Mike T.", calls: 38, duration: 2.9 },
-  { name: "Lisa R.", calls: 35, duration: 3.5 },
-  { name: "James W.", calls: 29, duration: 4.1 },
-];
+type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
 
-const outcomes = [
-  { name: "Answered", value: 198, pct: "58%" },
-  { name: "No Answer", value: 97, pct: "28%" },
-  { name: "Voicemail", value: 47, pct: "14%" },
-];
+function presetToRange(preset: Preset): DateRange {
+  const now = new Date();
+  switch (preset) {
+    case "today": return { start: startOfDay(now), end: endOfDay(now) };
+    case "yesterday": return { start: startOfDay(subDays(now, 1)), end: endOfDay(subDays(now, 1)) };
+    case "7d": return { start: startOfDay(subDays(now, 6)), end: endOfDay(now) };
+    case "30d": return { start: startOfDay(subDays(now, 29)), end: endOfDay(now) };
+    case "month": return { start: startOfMonth(now), end: endOfDay(now) };
+    case "lastMonth": { const lm = subMonths(now, 1); return { start: startOfMonth(lm), end: endOfMonth(lm) }; }
+    default: return { start: startOfDay(subDays(now, 29)), end: endOfDay(now) };
+  }
+}
 
-const dispositions = [
-  { name: "Interested", value: 89, color: "bg-success" },
-  { name: "Not Interested", value: 45, color: "bg-destructive" },
-  { name: "Call Back", value: 32, color: "bg-warning" },
-  { name: "Left Voicemail", value: 47, color: "bg-primary" },
-  { name: "Appointment Set", value: 34, color: "bg-info" },
-  { name: "Policy Sold", value: 23, color: "bg-success" },
-];
-
-const funnel = [
-  { stage: "Total Calls", value: 342, pct: "100%" },
-  { stage: "Answered", value: 198, pct: "58%" },
-  { stage: "Interested", value: 89, pct: "45%" },
-  { stage: "Appointment Set", value: 34, pct: "38%" },
-  { stage: "Policy Sold", value: 23, pct: "68%" },
-];
-
-const policiesTrend = Array.from({ length: 30 }, (_, i) => ({
-  day: i + 1,
-  Chris: Math.floor(Math.random() * 3),
-  Sarah: Math.floor(Math.random() * 2),
-  Mike: Math.floor(Math.random() * 2),
-}));
+const PRESET_LABELS: Record<Preset, string> = {
+  today: "Today", yesterday: "Yesterday", "7d": "Last 7 Days", "30d": "Last 30 Days",
+  month: "This Month", lastMonth: "Last Month", custom: "Custom",
+};
 
 const Reports: React.FC = () => {
-  const [dateRange] = useState("Last 30 Days");
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
+
+  const [preset, setPreset] = useState<Preset>("30d");
+  const [range, setRange] = useState<DateRange>(presetToRange("30d"));
+  const [customStart, setCustomStart] = useState<Date | undefined>();
+  const [customEnd, setCustomEnd] = useState<Date | undefined>();
+  const [selectedAgent, setSelectedAgent] = useState<string>("");
+  const [grouping, setGrouping] = useState<Grouping>("daily");
+
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [calls, setCalls] = useState<any[]>([]);
+  const [dispositions, setDispositions] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [leads, setLeads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const effectiveAgent = useMemo(() => {
+    if (!isAdmin && profile?.id) return profile.id;
+    return selectedAgent || undefined;
+  }, [isAdmin, profile, selectedAgent]);
+
+  const nonAdminAgents = useMemo(() => agents.filter(a => a.role?.toLowerCase() !== "admin"), [agents]);
+
+  useEffect(() => {
+    if (preset !== "custom") {
+      const r = presetToRange(preset);
+      setRange(r);
+      setGrouping(autoGrouping(r));
+    }
+  }, [preset]);
+
+  useEffect(() => {
+    if (preset === "custom" && customStart && customEnd) {
+      const r = { start: startOfDay(customStart), end: endOfDay(customEnd) };
+      setRange(r);
+      setGrouping(autoGrouping(r));
+    }
+  }, [preset, customStart, customEnd]);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [a, c, d, camp, l] = await Promise.all([
+        fetchProfiles(),
+        fetchCallsRaw(range, effectiveAgent),
+        fetchDispositions(),
+        fetchCampaignsWithStats(),
+        fetchLeads(range, effectiveAgent),
+      ]);
+      setAgents(a);
+      setCalls(c);
+      setDispositions(d);
+      setCampaigns(camp);
+      setLeads(l);
+    } catch (e) {
+      console.error("Reports fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [range, effectiveAgent]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleExportAll = () => {
+    // Export summary CSV
+    const rows = [
+      ["Total Calls", String(calls.length)],
+      ["Outbound", String(calls.filter(c => c.direction === "outbound").length)],
+      ["Inbound", String(calls.filter(c => c.direction === "inbound").length)],
+      ["Policies Sold", String(calls.filter(c => { const dn = (c.disposition_name || "").toLowerCase(); return dn.includes("sold") || dn.includes("policy"); }).length)],
+      ["Total Leads", String(leads.length)],
+      ["Period", `${format(range.start, "MMM dd yyyy")} - ${format(range.end, "MMM dd yyyy")}`],
+    ];
+    downloadCSV("reports-summary", ["Metric", "Value"], rows);
+  };
+
+  const hasData = calls.length > 0 || leads.length > 0;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-foreground">Reports</h1>
-        <div className="flex items-center gap-3">
-          <button className="h-9 px-3 rounded-lg bg-accent text-foreground text-sm flex items-center gap-2 hover:bg-accent/80 sidebar-transition">{dateRange}</button>
-          <button className="h-9 px-3 rounded-lg bg-accent text-foreground text-sm flex items-center gap-2 hover:bg-accent/80 sidebar-transition"><Filter className="w-4 h-4" /> Filters</button>
-          <button className="h-9 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Download className="w-4 h-4" /> Export All</button>
-        </div>
-      </div>
-
-      {/* Row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-xl border p-5">
-          <h3 className="font-semibold text-foreground mb-4">Call Volume by Agent</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={callVolume}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="name" className="text-xs" tick={{ fill: 'hsl(215,16%,47%)' }} />
-              <YAxis className="text-xs" tick={{ fill: 'hsl(215,16%,47%)' }} />
-              <ReTooltip />
-              <Bar dataKey="calls" fill="hsl(217,91%,60%)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-card rounded-xl border p-5">
-          <h3 className="font-semibold text-foreground mb-4">Call Outcomes</h3>
-          <div className="flex gap-3 mb-4">
-            <div className="px-3 py-1.5 rounded-lg bg-accent text-foreground text-sm font-medium">Total: <span className="font-bold">342</span></div>
-            {outcomes.map((o) => (
-              <div key={o.name} className="px-3 py-1.5 rounded-lg bg-accent text-muted-foreground text-sm">{o.name}: <span className="font-medium text-foreground">{o.value}</span> ({o.pct})</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Date preset pills */}
+          <div className="flex items-center gap-1 bg-accent rounded-lg p-0.5">
+            {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
+              <button key={p} onClick={() => setPreset(p)}
+                className={cn("px-2.5 py-1.5 text-xs rounded-md transition-colors", p === preset ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+                {PRESET_LABELS[p]}
+              </button>
             ))}
           </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={outcomes} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, pct }) => `${name} ${pct}`}>
-                {outcomes.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
-              </Pie>
-              <ReTooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
 
-      {/* Row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-xl border p-5">
-          <h3 className="font-semibold text-foreground mb-4">Disposition Breakdown</h3>
-          <div className="space-y-3">
-            {dispositions.map((d) => (
-              <div key={d.name} className="flex items-center gap-3">
-                <span className="text-sm text-foreground w-32 shrink-0">{d.name}</span>
-                <div className="flex-1 h-4 rounded-full bg-accent overflow-hidden">
-                  <div className={`h-full rounded-full ${d.color}`} style={{ width: `${(d.value / 342) * 100}%` }} />
-                </div>
-                <span className="text-sm font-medium text-foreground w-10 text-right">{d.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-card rounded-xl border p-5">
-          <h3 className="font-semibold text-foreground mb-4">Conversion Funnel</h3>
-          <div className="space-y-2">
-            {funnel.map((f, i) => (
-              <div key={f.stage} className="relative">
-                <div
-                  className="rounded-lg bg-primary/10 py-3 px-4 flex items-center justify-between sidebar-transition"
-                  style={{ width: `${Math.max(20, 100 - i * 18)}%`, marginLeft: `${i * 9}%` }}
-                >
-                  <span className="text-sm font-medium text-foreground">{f.stage}</span>
-                  <div className="text-right">
-                    <span className="text-sm font-bold text-foreground">{f.value}</span>
-                    {i > 0 && <span className="text-xs text-primary ml-1">({f.pct})</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 3 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-xl border p-5">
-          <h3 className="font-semibold text-foreground mb-2">Policies Sold (30 Days)</h3>
-          <p className="text-sm text-muted-foreground mb-4">23 policies · $8,450 total premium</p>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={policiesTrend}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="day" tick={{ fill: 'hsl(215,16%,47%)' }} />
-              <YAxis tick={{ fill: 'hsl(215,16%,47%)' }} />
-              <ReTooltip />
-              <Legend />
-              <Line type="monotone" dataKey="Chris" stroke="hsl(217,91%,60%)" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="Sarah" stroke="hsl(142,76%,36%)" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="Mike" stroke="hsl(38,92%,50%)" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-card rounded-xl border p-5">
-          <h3 className="font-semibold text-foreground mb-4">Lead Source Performance</h3>
-          <div className="space-y-3">
-            {[
-              { source: "Facebook Ads", leads: 85, conversion: "12%", roi: "$4.20" },
-              { source: "Referral", leads: 28, conversion: "25%", roi: "$8.50" },
-              { source: "Direct Mail", leads: 45, conversion: "15%", roi: "$3.10" },
-              { source: "Google Ads", leads: 62, conversion: "9%", roi: "$2.80" },
-              { source: "Webinar", leads: 20, conversion: "18%", roi: "$5.60" },
-            ].map((s) => (
-              <div key={s.source} className="flex items-center gap-3">
-                <span className="text-sm text-foreground w-28 shrink-0">{s.source}</span>
-                <div className="flex-1 h-4 rounded-full bg-accent overflow-hidden">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${(s.leads / 85) * 100}%` }} />
-                </div>
-                <span className="text-xs text-muted-foreground w-16 text-right">{s.leads} leads</span>
-                <span className="text-xs font-medium text-success w-12 text-right">{s.conversion}</span>
-              </div>
-            ))}
-            <div className="pt-2 border-t">
-              <span className="text-xs text-primary font-medium">🏆 Best Source: Referral (25% conversion)</span>
+          {/* Custom date pickers */}
+          {preset === "custom" && (
+            <div className="flex items-center gap-1.5">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-xs h-8">
+                    <CalendarIcon className="w-3.5 h-3.5 mr-1" />
+                    {customStart ? format(customStart, "MMM dd") : "Start"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={customStart} onSelect={setCustomStart} className="p-3 pointer-events-auto" />
+                </PopoverContent>
+              </Popover>
+              <span className="text-xs text-muted-foreground">to</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-xs h-8">
+                    <CalendarIcon className="w-3.5 h-3.5 mr-1" />
+                    {customEnd ? format(customEnd, "MMM dd") : "End"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={customEnd} onSelect={setCustomEnd} className="p-3 pointer-events-auto" />
+                </PopoverContent>
+              </Popover>
             </div>
-          </div>
+          )}
+
+          {/* Agent filter */}
+          {isAdmin && (
+            <Select value={selectedAgent} onValueChange={setSelectedAgent}>
+              <SelectTrigger className="w-[160px] h-8 text-xs">
+                <SelectValue placeholder="All Agents" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Agents</SelectItem>
+                {nonAdminAgents.map(a => (
+                  <SelectItem key={a.id} value={a.id}>{a.first_name} {a.last_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Export */}
+          <TooltipProvider>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExportAll}>
+                <Download className="w-3.5 h-3.5 mr-1" /> Export All
+              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+                    <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>PDF export coming soon</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
       </div>
 
-      {/* Row 4 - Communications */}
-      <div className="bg-card rounded-xl border p-5">
-        <h3 className="font-semibold text-foreground mb-4">Communications Stats</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { label: "Total Calls", value: "342" },
-            { label: "Total Talk Time", value: "48.2 hrs" },
-            { label: "Avg Duration", value: "3:24" },
-            { label: "Best Day", value: "Tuesday" },
-          ].map((s) => (
-            <div key={s.label} className="bg-accent/50 rounded-lg p-4 text-center">
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-              <p className="text-xl font-bold text-foreground mt-1">{s.value}</p>
-            </div>
-          ))}
+      {!hasData && !loading ? (
+        /* Empty state */
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <BarChart3 className="w-16 h-16 text-muted-foreground/40 mb-4" />
+          <h2 className="text-lg font-semibold text-foreground mb-1">No data available for this period</h2>
+          <p className="text-sm text-muted-foreground max-w-md mb-6">Try selecting a different date range or start making calls to see your analytics</p>
+          <Button onClick={() => navigate("/dialer")}>Go to Dialer</Button>
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Report 1 — Call Volume (full width) */}
+          <CallVolumeChart calls={calls} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} />
+
+          {/* Row: Dispositions + Policies Sold */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <DispositionsPieChart calls={calls} dispositions={dispositions} loading={loading} />
+            <PoliciesSoldChart calls={calls} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} />
+          </div>
+
+          {/* Report 4 — Campaign Performance (full width) */}
+          <CampaignPerformance campaigns={campaigns} loading={loading} />
+
+          {/* Report 5 — Lead Source Performance (full width) */}
+          <LeadSourceTable leads={leads} loading={loading} />
+
+          {/* Row: Communications + Heatmap */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <CommunicationsStats calls={calls} loading={loading} />
+            <CallingHeatmap calls={calls} loading={loading} />
+          </div>
+        </>
+      )}
     </div>
   );
 };
