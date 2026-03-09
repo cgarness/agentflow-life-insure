@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Phone, ShieldCheck, Calendar, Megaphone, TrendingUp, TrendingDown,
   Clock, ArrowRight, Trophy, Users, Target, CheckCircle2, Minus,
-  ExternalLink, RefreshCw,
+  ExternalLink, RefreshCw, UserPlus, BarChart3, PhoneMissed, Rocket,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
@@ -15,6 +15,8 @@ import {
   CampaignPerformance,
   GoalProgress,
   OnboardingStatus,
+  WinFeedEntry,
+  MissedCall,
 } from "@/lib/supabase-dashboard";
 import { LeaderboardEntry } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,6 +46,11 @@ const Dashboard: React.FC = () => {
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null);
+  const [winFeed, setWinFeed] = useState<WinFeedEntry[]>([]);
+  const [missedCalls, setMissedCalls] = useState<MissedCall[]>([]);
+
+  // Win Feed auto-refresh timer
+  const winFeedTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isAdmin = profile?.role === "admin" || profile?.role === "Admin" || profile?.role === "Team Leader";
   const userId = user?.id || "";
@@ -61,6 +68,8 @@ const Dashboard: React.FC = () => {
         goalsData,
         leaderboardData,
         onboardingData,
+        winFeedData,
+        missedCallsData,
       ] = await Promise.all([
         dashboardSupabaseApi.getStats(userId, isAdmin),
         dashboardSupabaseApi.getFollowUps(userId, isAdmin),
@@ -70,6 +79,8 @@ const Dashboard: React.FC = () => {
         dashboardSupabaseApi.getGoalProgress(userId),
         dashboardSupabaseApi.getLeaderboard(),
         dashboardSupabaseApi.getOnboardingStatus(userId),
+        dashboardSupabaseApi.getWinFeed(),
+        dashboardSupabaseApi.getMissedCalls(userId, isAdmin),
       ]);
       
       setStats(statsData);
@@ -80,6 +91,8 @@ const Dashboard: React.FC = () => {
       setGoals(goalsData);
       setLeaderboard(leaderboardData);
       setOnboarding(onboardingData);
+      setWinFeed(winFeedData);
+      setMissedCalls(missedCallsData);
       setLastUpdated(new Date());
     } catch (error) {
       console.error("Dashboard load error:", error);
@@ -87,6 +100,12 @@ const Dashboard: React.FC = () => {
       setLoading(false);
     }
   }, [userId, isAdmin]);
+
+  // Win Feed refresh (every 30 seconds)
+  const refreshWinFeed = useCallback(async () => {
+    const data = await dashboardSupabaseApi.getWinFeed();
+    setWinFeed(data);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -99,6 +118,14 @@ const Dashboard: React.FC = () => {
     }, 60000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Win Feed refresh every 30 seconds
+  useEffect(() => {
+    winFeedTimerRef.current = setInterval(refreshWinFeed, 30000);
+    return () => {
+      if (winFeedTimerRef.current) clearInterval(winFeedTimerRef.current);
+    };
+  }, [refreshWinFeed]);
 
   // Greeting based on time
   const hour = new Date().getHours();
@@ -129,13 +156,13 @@ const Dashboard: React.FC = () => {
   // Trigger FloatingDialer call
   const triggerQuickCall = (contactName: string, phone: string, contactId?: string) => {
     window.dispatchEvent(new CustomEvent("quick-call", {
-      detail: { contactName, phone, contactId },
+      detail: { name: contactName, phone, contactId },
     }));
   };
 
   if (loading) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <Skeleton className="h-8 w-48 mb-2" />
@@ -233,16 +260,16 @@ const Dashboard: React.FC = () => {
   // Rank styling
   const getRankStyle = (rank: number) => {
     switch (rank) {
-      case 1: return "text-yellow-500";
-      case 2: return "text-gray-400";
-      case 3: return "text-amber-600";
+      case 1: return "text-warning";
+      case 2: return "text-muted-foreground";
+      case 3: return "text-orange-600";
       default: return "text-muted-foreground";
     }
   };
 
   return (
     <TooltipProvider>
-      <div className="space-y-6 p-6">
+      <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -369,6 +396,40 @@ const Dashboard: React.FC = () => {
           ))}
         </div>
 
+        {/* Quick Actions Row */}
+        {!showOnboarding && (
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => navigate("/dialer")}
+              className="bg-success hover:bg-success/90 text-success-foreground"
+            >
+              <Phone className="w-4 h-4 mr-2" />
+              Start Dialing
+            </Button>
+            <Button
+              onClick={() => navigate("/contacts")}
+              variant="default"
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              New Contact
+            </Button>
+            <Button
+              onClick={() => navigate("/calendar")}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              <Calendar className="w-4 h-4 mr-2" />
+              Schedule Appointment
+            </Button>
+            <Button
+              onClick={() => navigate("/reports")}
+              variant="outline"
+            >
+              <BarChart3 className="w-4 h-4 mr-2" />
+              View Reports
+            </Button>
+          </div>
+        )}
+
         {/* Widgets Grid */}
         {!showOnboarding && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -391,7 +452,6 @@ const Dashboard: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                    {/* Callbacks Today */}
                     {followUps && followUps.callbacksToday.length > 0 && (
                       <div>
                         <h4 className="text-xs font-medium text-muted-foreground uppercase mb-2">
@@ -420,7 +480,6 @@ const Dashboard: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Stale Leads */}
                     {followUps && followUps.staleLeads > 0 && (
                       <div className="flex items-center justify-between py-2">
                         <div>
@@ -434,7 +493,6 @@ const Dashboard: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Hot Leads Stale */}
                     {followUps && followUps.hotLeadsStale > 0 && (
                       <div className="flex items-center justify-between py-2">
                         <div>
@@ -510,7 +568,55 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Widget 3: Recent Calls */}
+            {/* Widget 3: Missed Calls */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <PhoneMissed className="w-4 h-4 text-destructive" />
+                    Missed Calls
+                  </CardTitle>
+                  <Badge variant="secondary">{missedCalls.length}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {missedCalls.length === 0 ? (
+                  <div className="text-center py-6">
+                    <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No missed calls today</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {missedCalls.map((call) => (
+                      <div
+                        key={call.id}
+                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground truncate">{call.contactName}</p>
+                          <p className="text-xs text-muted-foreground">{formatPhone(call.contactPhone)}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-muted-foreground">
+                            {call.startedAt && formatDistanceToNow(new Date(call.startedAt), { addSuffix: true })}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2"
+                            onClick={() => triggerQuickCall(call.contactName, call.contactPhone, call.contactId || undefined)}
+                          >
+                            Call Back
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 4: Recent Calls */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -574,7 +680,7 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Widget 4: Campaign Performance */}
+            {/* Widget 5: Campaign Performance */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -627,7 +733,7 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Widget 5: Goal Progress */}
+            {/* Widget 6: Goal Progress */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -676,7 +782,7 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Widget 6: Leaderboard */}
+            {/* Widget 7: Leaderboard */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -731,6 +837,52 @@ const Dashboard: React.FC = () => {
                       View Full Leaderboard
                       <ArrowRight className="w-3 h-3 ml-1" />
                     </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 8: Win Feed */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-warning" />
+                  Recent Wins
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {winFeed.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Rocket className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      No wins yet this month. Let's change that!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[350px] overflow-y-auto">
+                    {winFeed.map((win) => (
+                      <div
+                        key={win.id}
+                        className="flex items-start gap-3 py-2 px-3 rounded-lg bg-muted/50 border-l-2 border-warning"
+                      >
+                        <Trophy className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground">
+                            <span className="font-semibold">{win.agentName}</span>
+                            {" "}sold a policy to{" "}
+                            <span className="font-medium">{win.contactName}</span>
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {win.campaignName && (
+                              <Badge variant="outline" className="text-xs">{win.campaignName}</Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(new Date(win.createdAt), { addSuffix: true })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
