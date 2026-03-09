@@ -316,7 +316,7 @@ const Leaderboard: React.FC = () => {
                   <div
                     key={a.id}
                     onClick={() => openScorecard(a)}
-                    className={`bg-card rounded-xl border p-6 text-center hover:shadow-lg transition-all cursor-pointer ${podiumOrder(a.rank)} ${a.id === user?.id ? "ring-2 ring-primary/30" : ""}`}
+                    className={`bg-card rounded-xl border p-6 text-center hover:shadow-lg transition-all cursor-pointer ${podiumOrder(a.rank)} ${a.id === user?.id ? "ring-2 ring-primary/30" : ""} ${changedAgents.has(a.id) ? "animate-leaderboard-flash" : ""}`}
                   >
                     <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${mc.animate}`}>
                       <Trophy className={`w-8 h-8 ${mc.trophyColor}`} />
