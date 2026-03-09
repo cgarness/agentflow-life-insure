@@ -30,7 +30,7 @@ export const mockProfiles: UserProfile[] = [
   { userId: "u5", licensedStates: ["OH", "PA"], residentState: "OH", commissionLevel: "60%", onboardingComplete: false, monthlyCallGoal: 100, monthlySalesGoal: 10, weeklyAppointmentGoal: 10, monthlyTalkTimeGoalHours: 20, onboardingItems: [
     { key: "license", label: "License Verified", completed: true, completedAt: "2024-05-01T10:00:00Z" },
     { key: "carriers", label: "Carrier Appointments Set Up", completed: true, completedAt: "2024-05-05T10:00:00Z" },
-    { key: "twilio", label: "Telnyx Number Assigned", completed: false, completedAt: null },
+    { key: "telnyx", label: "Telnyx Number Assigned", completed: false, completedAt: null },
     { key: "training", label: "Training Completed", completed: false, completedAt: null },
     { key: "first_call", label: "First Call Made", completed: false, completedAt: null },
   ]},
