@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Download, BarChart3, CalendarIcon, FileText, Bookmark, Clock, ToggleLeft, ToggleRight } from "lucide-react";
+import { Download, BarChart3, CalendarIcon, FileText, Bookmark, Clock, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, differenceInDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ import DispositionDeepDive from "@/components/reports/DispositionDeepDive";
 import GoalTracking from "@/components/reports/GoalTracking";
 import CustomReportBuilder from "@/components/reports/CustomReportBuilder";
 import ScheduledReportsModal from "@/components/reports/ScheduledReportsModal";
+import GeographicHeatmap from "@/components/reports/GeographicHeatmap";
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
 
@@ -59,6 +61,21 @@ const PRESET_LABELS: Record<Preset, string> = {
   month: "This Month", lastMonth: "Last Month", custom: "Custom",
 };
 
+// State abbreviation to full name for the filter badge
+const STATE_NAMES: Record<string, string> = {
+  AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
+  CO:"Colorado",CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",
+  HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",
+  KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",
+  MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",
+  MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",
+  NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",
+  OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",
+  SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",
+  VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",
+  DC:"District of Columbia",
+};
+
 const Reports: React.FC = () => {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
@@ -72,6 +89,7 @@ const Reports: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [grouping, setGrouping] = useState<Grouping>("daily");
   const [comparing, setComparing] = useState(false);
+  const [stateFilter, setStateFilter] = useState<string | null>(null);
 
   // Panels
   const [showMyReports, setShowMyReports] = useState(false);
@@ -130,14 +148,12 @@ const Reports: React.FC = () => {
         fetchLeadSourceCosts(),
       ]);
 
-      // Fetch scorecards
       const { data: sc } = await supabase.from("agent_scorecards").select("*").order("week_start", { ascending: false }).limit(200);
 
       setAgents(a); setCalls(c); setDispositions(d); setCampaigns(camp);
       setLeads(l); setSessions(sess); setGoals(g); setCampaignLeads(cl);
       setLeadCosts(lc); setScorecards(sc || []);
 
-      // Fetch comparison data if comparing
       if (comparing) {
         const cc = await fetchCallsRaw(compRange, effectiveAgent);
         setCompCalls(cc);
@@ -153,24 +169,68 @@ const Reports: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // State-filtered data: when a state is selected on the map, filter calls and leads
+  const filteredCalls = useMemo(() => {
+    if (!stateFilter) return calls;
+    // Build contact_id → state and campaign_lead_id → state maps
+    const contactState = new Map<string, string>();
+    for (const l of leads) {
+      const st = l.state?.trim().toUpperCase();
+      if (st && l.id) contactState.set(l.id, st.length === 2 ? st : "");
+    }
+    const clState = new Map<string, string>();
+    for (const cl of campaignLeads) {
+      const st = cl.state?.trim().toUpperCase();
+      if (st && cl.id) clState.set(cl.id, st.length === 2 ? st : "");
+    }
+    return calls.filter(c => {
+      const s1 = contactState.get(c.contact_id);
+      const s2 = c.campaign_lead_id ? clState.get(c.campaign_lead_id) : undefined;
+      return s1 === stateFilter || s2 === stateFilter;
+    });
+  }, [calls, leads, campaignLeads, stateFilter]);
+
+  const filteredLeads = useMemo(() => {
+    if (!stateFilter) return leads;
+    return leads.filter(l => {
+      const st = l.state?.trim().toUpperCase();
+      return st === stateFilter;
+    });
+  }, [leads, stateFilter]);
+
   const handleExportAll = () => {
+    const c = stateFilter ? filteredCalls : calls;
+    const l = stateFilter ? filteredLeads : leads;
     const rows = [
-      ["Total Calls", String(calls.length)],
-      ["Outbound", String(calls.filter(c => c.direction === "outbound").length)],
-      ["Inbound", String(calls.filter(c => c.direction === "inbound").length)],
-      ["Total Leads", String(leads.length)],
+      ["Total Calls", String(c.length)],
+      ["Outbound", String(c.filter(x => x.direction === "outbound").length)],
+      ["Inbound", String(c.filter(x => x.direction === "inbound").length)],
+      ["Total Leads", String(l.length)],
       ["Period", `${format(range.start, "MMM dd yyyy")} - ${format(range.end, "MMM dd yyyy")}`],
+      ...(stateFilter ? [["State Filter", STATE_NAMES[stateFilter] || stateFilter]] : []),
     ];
     downloadCSV("reports-summary", ["Metric", "Value"], rows);
   };
 
-  const hasData = calls.length > 0 || leads.length > 0;
+  const activeCalls = stateFilter ? filteredCalls : calls;
+  const activeLeads = stateFilter ? filteredLeads : leads;
+  const hasData = activeCalls.length > 0 || activeLeads.length > 0;
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold text-foreground">Reports</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-foreground">Reports</h1>
+          {stateFilter && (
+            <Badge variant="secondary" className="flex items-center gap-1 text-xs">
+              Filtering by: {STATE_NAMES[stateFilter] || stateFilter}
+              <button onClick={() => setStateFilter(null)} className="ml-0.5 hover:text-destructive">
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          )}
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Date preset pills */}
           <div className="flex items-center gap-0.5 bg-accent rounded-lg p-0.5">
@@ -182,7 +242,6 @@ const Reports: React.FC = () => {
             ))}
           </div>
 
-          {/* Custom date pickers */}
           {preset === "custom" && (
             <div className="flex items-center gap-1.5">
               <Popover>
@@ -211,13 +270,11 @@ const Reports: React.FC = () => {
             </div>
           )}
 
-          {/* Compare toggle */}
           <Button variant={comparing ? "default" : "outline"} size="sm" className="h-8 text-xs" onClick={() => setComparing(c => !c)}>
             {comparing ? <ToggleRight className="w-3.5 h-3.5 mr-1" /> : <ToggleLeft className="w-3.5 h-3.5 mr-1" />}
             Compare
           </Button>
 
-          {/* Agent filter */}
           {isAdmin && (
             <Select value={selectedAgent || "all"} onValueChange={v => setSelectedAgent(v === "all" ? "" : v)}>
               <SelectTrigger className="w-[150px] h-8 text-xs"><SelectValue placeholder="All Agents" /></SelectTrigger>
@@ -230,17 +287,14 @@ const Reports: React.FC = () => {
             </Select>
           )}
 
-          {/* My Reports */}
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowMyReports(true)}>
             <Bookmark className="w-3.5 h-3.5 mr-1" /> My Reports
           </Button>
 
-          {/* Schedule */}
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowSchedule(true)}>
             <Clock className="w-3.5 h-3.5 mr-1" /> Schedule
           </Button>
 
-          {/* Export */}
           <TooltipProvider>
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExportAll}>
@@ -259,7 +313,6 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      {/* Comparison legend */}
       {comparing && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground bg-accent/50 rounded-lg px-3 py-2">
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary" /> {format(range.start, "MMM dd")} – {format(range.end, "MMM dd")}</span>
@@ -277,52 +330,51 @@ const Reports: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* Agent Performance Cards */}
           {isAdmin && (
-            <AgentPerformanceCards calls={calls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
+            <AgentPerformanceCards calls={activeCalls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
           )}
 
-          {/* Report 1 — Call Volume */}
-          <CallVolumeChart calls={calls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
+          <CallVolumeChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
 
-          {/* Report 2 + 3 — Dispositions + Policies Sold */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <DispositionsPieChart calls={calls} dispositions={dispositions} grouping={grouping} loading={loading} />
-            <PoliciesSoldChart calls={calls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
+            <DispositionsPieChart calls={activeCalls} dispositions={dispositions} grouping={grouping} loading={loading} />
+            <PoliciesSoldChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
           </div>
 
-          {/* Report 4 — Campaign Performance */}
           <CampaignPerformance campaigns={campaigns} loading={loading} />
 
-          {/* Report 5 — Lead Source + ROI */}
-          <LeadSourceTable leads={leads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts().then(setLeadCosts)} />
+          <LeadSourceTable leads={activeLeads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts().then(setLeadCosts)} />
 
-          {/* Report 6 + 7 — Communications + Heatmap */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <CommunicationsStats calls={calls} compCalls={comparing ? compCalls : undefined} range={range} loading={loading} comparing={comparing} />
-            <CallingHeatmap calls={calls} loading={loading} />
+            <CommunicationsStats calls={activeCalls} compCalls={comparing ? compCalls : undefined} range={range} loading={loading} comparing={comparing} />
+            <CallingHeatmap calls={activeCalls} loading={loading} />
           </div>
 
-          {/* Report 8 — Call Duration Analysis */}
-          <CallDurationAnalysis calls={calls} dispositions={dispositions} loading={loading} />
+          <CallDurationAnalysis calls={activeCalls} dispositions={dispositions} loading={loading} />
 
-          {/* Report 9 — Agent Efficiency */}
           {isAdmin && (
-            <AgentEfficiency calls={calls} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />
+            <AgentEfficiency calls={activeCalls} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />
           )}
 
-          {/* Report 10 — Call Flow Analysis */}
-          <CallFlowAnalysis calls={calls} campaignLeads={campaignLeads} loading={loading} />
+          <CallFlowAnalysis calls={activeCalls} campaignLeads={campaignLeads} loading={loading} />
 
-          {/* Report 11 — Disposition Deep Dive */}
-          <DispositionDeepDive calls={calls} dispositions={dispositions} agents={agents} campaigns={campaigns} loading={loading} />
+          <DispositionDeepDive calls={activeCalls} dispositions={dispositions} agents={agents} campaigns={campaigns} loading={loading} />
 
-          {/* Report 12 — Goal Tracking */}
           <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
+
+          {/* Report 13 — Geographic Heatmap */}
+          <GeographicHeatmap
+            calls={calls}
+            leads={leads}
+            campaignLeads={campaignLeads}
+            dispositions={dispositions}
+            loading={loading}
+            onStateFilter={setStateFilter}
+            activeStateFilter={stateFilter}
+          />
         </>
       )}
 
-      {/* Panels & Modals */}
       <CustomReportBuilder open={showMyReports} onClose={() => setShowMyReports(false)} agents={agents} userId={user?.id || ""} onLoadReport={() => {}} />
       <ScheduledReportsModal open={showSchedule} onClose={() => setShowSchedule(false)} agents={agents} userId={user?.id || ""} />
     </div>
