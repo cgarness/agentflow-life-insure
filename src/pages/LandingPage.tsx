@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Phone, TrendingUp, Calendar, Users, Megaphone, Bot, Trophy, Settings,
+  Phone, TrendingUp, Calendar, Users, Megaphone, Bot, Trophy,
   MessageSquare, GraduationCap, Shield, Upload, Palette, Clock, Zap,
-  CheckCircle, ChevronDown, Play, Menu, X, Linkedin, Globe, Facebook,
+  CheckCircle, ChevronDown, Play,
 } from "lucide-react";
+import MarketingNav from "@/components/marketing/MarketingNav";
+import MarketingFooter from "@/components/marketing/MarketingFooter";
 
 /* ──────────────────────────────────────────────
    ANIMATION HELPERS
@@ -17,19 +19,7 @@ const fadeUp = {
 const stagger = {
   visible: { transition: { staggerChildren: 0.1 } },
 };
-const VP = { once: true, margin: "-100px" as any };
-
-/* ──────────────────────────────────────────────
-   AF LOGO COMPONENT
-   ────────────────────────────────────────────── */
-const AFLogo = ({ size = 36 }: { size?: number }) => (
-  <div
-    className="rounded-lg bg-primary flex items-center justify-center font-bold text-primary-foreground select-none"
-    style={{ width: size, height: size, fontSize: size * 0.4 }}
-  >
-    AF
-  </div>
-);
+const VP = { once: true, margin: "-100px" as const };
 
 /* ──────────────────────────────────────────────
    FLOATING ORBS
@@ -69,26 +59,10 @@ const Section = ({
   </section>
 );
 
-/* ──────────────────────────────────────────────
-   NAV LINKS DATA
-   ────────────────────────────────────────────── */
-const NAV_LINKS = [
-  { label: "Features", href: "#features" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "Testimonials", href: "#testimonials" },
-  { label: "FAQ", href: "#faq" },
-];
-
-const scrollTo = (href: string) => {
-  const el = document.querySelector(href);
-  el?.scrollIntoView({ behavior: "smooth" });
-};
-
 /* ══════════════════════════════════════════════
    LANDING PAGE
    ══════════════════════════════════════════════ */
 const LandingPage: React.FC = () => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   return (
@@ -99,84 +73,7 @@ const LandingPage: React.FC = () => {
       {/* ════════════════════════════════════════
           SECTION 1 — STICKY NAVBAR
          ════════════════════════════════════════ */}
-      <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-background/70 border-b border-border/40">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          {/* Left – Logo */}
-          <Link to="/landing" className="flex items-center gap-2.5">
-            <AFLogo />
-            <span className="font-bold text-lg text-foreground">AgentFlow</span>
-          </Link>
-
-          {/* Center – Desktop nav */}
-          <nav className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.map((l) => (
-              <button
-                key={l.href}
-                onClick={() => scrollTo(l.href)}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-200"
-              >
-                {l.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* Right – CTA */}
-          <div className="hidden md:flex items-center gap-4">
-            <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Log In
-            </Link>
-            <Link
-              to="/login"
-              className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold flex items-center shadow-[0_0_20px_hsl(var(--primary)/0.3)] hover:shadow-[0_0_30px_hsl(var(--primary)/0.45)] hover:scale-105 transition-all duration-200"
-            >
-              Start Free Trial
-            </Link>
-          </div>
-
-          {/* Mobile hamburger */}
-          <button className="md:hidden text-foreground" onClick={() => setMobileMenuOpen(true)}>
-            <Menu size={24} />
-          </button>
-        </div>
-
-        {/* Mobile overlay */}
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 bg-background flex flex-col items-center justify-center gap-8"
-            >
-              <button
-                className="absolute top-5 right-6 text-foreground"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <X size={28} />
-              </button>
-              {NAV_LINKS.map((l) => (
-                <button
-                  key={l.href}
-                  className="text-xl font-medium text-foreground"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    setTimeout(() => scrollTo(l.href), 200);
-                  }}
-                >
-                  {l.label}
-                </button>
-              ))}
-              <Link
-                to="/login"
-                className="h-12 px-8 rounded-xl bg-primary text-primary-foreground text-base font-semibold flex items-center"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Start Free Trial
-              </Link>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </header>
+      <MarketingNav />
 
       {/* ════════════════════════════════════════
           SECTION 2 — HERO
@@ -402,13 +299,13 @@ const LandingPage: React.FC = () => {
             },
             {
               Icon: Users,
-              bg: "bg-success/10",
+              bg: "bg-primary/10",
               title: "360° Contact Management",
               desc: "Leads, clients, recruits, and agents — all in one place. Full activity timeline, call logs, notes, appointment history, and local time display for every contact.",
             },
             {
               Icon: Calendar,
-              bg: "bg-warning/10",
+              bg: "bg-accent/10",
               title: "Calendar & Scheduling",
               desc: "Day, week, and agenda views with drag-and-drop. One-click confirm via text or email, contact mini-cards, and two-way sync with your contacts.",
             },
@@ -422,13 +319,13 @@ const LandingPage: React.FC = () => {
             <motion.div
               key={title}
               variants={fadeUp}
-              transition={{ delay: i * 0.08 }}
-              className="group rounded-2xl bg-card/50 border border-border/50 p-6 hover:border-primary/30 hover:-translate-y-1 transition-all duration-300"
+              transition={{ delay: i * 0.05 }}
+              className="rounded-2xl bg-card/50 border border-border/50 p-6 hover:border-primary/30 hover:-translate-y-1 transition-all duration-300"
             >
               <div className={`inline-flex p-3 rounded-xl ${bg} mb-4`}>
                 <Icon size={22} className="text-foreground" />
               </div>
-              <h3 className="text-lg font-semibold mb-2">{title}</h3>
+              <h3 className="font-semibold text-lg mb-2">{title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
             </motion.div>
           ))}
@@ -436,64 +333,61 @@ const LandingPage: React.FC = () => {
       </Section>
 
       {/* ════════════════════════════════════════
-          SECTION 5 — PRODUCT SHOWCASE (ALTERNATING)
+          SECTION 5 — PRODUCT SHOWCASE (3 ROWS)
          ════════════════════════════════════════ */}
-      {/* Row 1 – Dialer */}
+      {/* Row 1 — Dialer */}
       <Section>
-        <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
+        <div className="flex flex-col lg:flex-row items-center gap-12">
+          {/* Text */}
           <motion.div
-            className="max-w-lg"
+            className="lg:w-1/2 space-y-5"
             initial="hidden"
             whileInView="visible"
             viewport={VP}
             variants={stagger}
           >
             <motion.span variants={fadeUp} className="text-xs font-semibold tracking-widest text-primary uppercase">
-              DIALER
+              Dialer
             </motion.span>
-            <motion.h3 variants={fadeUp} className="mt-3 text-2xl font-bold">
+            <motion.h3 variants={fadeUp} className="text-2xl font-bold">
               Call Smarter, Not Harder
             </motion.h3>
-            <motion.p variants={fadeUp} className="mt-4 text-muted-foreground leading-relaxed">
-              Preview each lead before dialing. Drop pre-recorded voicemails with one click. Log
-              dispositions instantly. AgentFlow's power dialer eliminates busywork so your agents can
-              focus on conversations that close.
+            <motion.p variants={fadeUp} className="text-muted-foreground leading-relaxed">
+              Preview each lead before dialing. Drop pre-recorded voicemails with one click. Log dispositions
+              instantly. AgentFlow's power dialer eliminates busywork so your agents can focus on conversations
+              that close.
             </motion.p>
-            <motion.ul variants={fadeUp} className="mt-6 space-y-3">
+            <motion.ul variants={stagger} className="space-y-2">
               {[
                 "Preview, progressive & predictive modes",
                 "One-click voicemail drop",
                 "Auto-disposition after every call",
                 "Live call transfer to team leaders",
               ].map((t) => (
-                <li key={t} className="flex items-start gap-2 text-sm">
-                  <CheckCircle size={16} className="text-primary mt-0.5 shrink-0" /> {t}
-                </li>
+                <motion.li key={t} variants={fadeUp} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle size={16} className="text-primary shrink-0" /> {t}
+                </motion.li>
               ))}
             </motion.ul>
           </motion.div>
 
+          {/* Visual */}
           <motion.div
-            className="flex-1 w-full max-w-md"
-            initial={{ opacity: 0, x: 60 }}
+            className="lg:w-1/2"
+            initial={{ opacity: 0, x: 40 }}
             whileInView={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7 }}
+            transition={{ duration: 0.6 }}
             viewport={VP}
           >
-            <div className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur p-6 shadow-xl">
-              <p className="text-xs text-muted-foreground mb-1">Calling</p>
-              <p className="text-lg font-semibold mb-6">James Morrison</p>
-              <div className="flex justify-center mb-4">
-                <span className="text-sm text-muted-foreground font-mono">02:34</span>
+            <div className="rounded-2xl border border-border/50 bg-card/50 p-6 text-center">
+              <p className="text-sm text-muted-foreground mb-4">James Morrison</p>
+              <div className="w-20 h-20 mx-auto rounded-full bg-primary flex items-center justify-center mb-4">
+                <Phone size={32} className="text-primary-foreground" />
               </div>
-              <div className="flex justify-center mb-8">
-                <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-[0_0_30px_hsl(var(--primary)/0.4)]">
-                  <Phone size={28} className="text-primary-foreground" />
-                </div>
-              </div>
+              <p className="text-xl font-mono mb-4">02:34</p>
               <div className="flex flex-wrap justify-center gap-2">
                 {["Interested", "Not Home", "DNC", "Callback"].map((d) => (
-                  <span key={d} className="px-3 py-1.5 rounded-full bg-muted/30 text-xs font-medium text-muted-foreground">
+                  <span key={d} className="text-xs rounded-full border border-border px-3 py-1 text-muted-foreground">
                     {d}
                   </span>
                 ))}
@@ -503,76 +397,65 @@ const LandingPage: React.FC = () => {
         </div>
       </Section>
 
-      {/* Row 2 – AI Agents */}
+      {/* Row 2 — AI Agents */}
       <Section>
-        <div className="flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
+        <div className="flex flex-col lg:flex-row-reverse items-center gap-12">
+          {/* Text */}
           <motion.div
-            className="max-w-lg"
+            className="lg:w-1/2 space-y-5"
             initial="hidden"
             whileInView="visible"
             viewport={VP}
             variants={stagger}
           >
             <motion.span variants={fadeUp} className="text-xs font-semibold tracking-widest text-primary uppercase">
-              AI AGENTS
+              AI Agents
             </motion.span>
-            <motion.h3 variants={fadeUp} className="mt-3 text-2xl font-bold">
+            <motion.h3 variants={fadeUp} className="text-2xl font-bold">
               Your Virtual Sales Team, Always On
             </motion.h3>
-            <motion.p variants={fadeUp} className="mt-4 text-muted-foreground leading-relaxed">
-              Build AI agents with custom identities, instructions, and multi-step workflows. Sarah
-              books appointments via voice. Mike qualifies leads over SMS. They work your campaigns
-              around the clock while your human agents focus on high-value conversations.
+            <motion.p variants={fadeUp} className="text-muted-foreground leading-relaxed">
+              Build AI agents with custom identities, instructions, and multi-step workflows. Sarah books
+              appointments via voice. Mike qualifies leads over SMS. They work your campaigns around the clock
+              while your human agents focus on high-value conversations.
             </motion.p>
-            <motion.ul variants={fadeUp} className="mt-6 space-y-3">
+            <motion.ul variants={stagger} className="space-y-2">
               {[
                 "Custom voice, SMS & email agents",
                 "Visual workflow builder",
                 "Campaign auto-assignment",
                 "Full conversation logging",
               ].map((t) => (
-                <li key={t} className="flex items-start gap-2 text-sm">
-                  <CheckCircle size={16} className="text-primary mt-0.5 shrink-0" /> {t}
-                </li>
+                <motion.li key={t} variants={fadeUp} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle size={16} className="text-primary shrink-0" /> {t}
+                </motion.li>
               ))}
             </motion.ul>
           </motion.div>
 
+          {/* Visual */}
           <motion.div
-            className="flex-1 w-full max-w-md"
-            initial={{ opacity: 0, x: -60 }}
+            className="lg:w-1/2"
+            initial={{ opacity: 0, x: -40 }}
             whileInView={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7 }}
+            transition={{ duration: 0.6 }}
             viewport={VP}
           >
-            <div className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur p-6 shadow-xl">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
+            <div className="rounded-2xl border border-border/50 bg-card/50 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center font-semibold text-primary">
                   S
                 </div>
                 <div>
-                  <p className="font-semibold text-sm">Sarah — AI Agent</p>
-                  <span className="inline-flex items-center gap-1 text-[10px] text-success font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-success" /> Active
-                  </span>
+                  <p className="font-medium text-sm">Sarah</p>
+                  <span className="text-xs text-primary">● Active</span>
                 </div>
               </div>
               <div className="space-y-3">
-                {[
-                  { icon: Users, label: "New Lead Assigned" },
-                  { icon: MessageSquare, label: "Send Intro SMS" },
-                  { icon: Calendar, label: "Book Appointment" },
-                ].map(({ icon: I, label }, i) => (
-                  <React.Fragment key={label}>
-                    <div className="flex items-center gap-3 rounded-lg bg-muted/20 px-4 py-3">
-                      <I size={16} className="text-primary shrink-0" />
-                      <span className="text-sm">{label}</span>
-                    </div>
-                    {i < 2 && (
-                      <div className="flex justify-center">
-                        <div className="w-px h-4 bg-border" />
-                      </div>
-                    )}
+                {["New Lead", "Send SMS", "Book Appointment"].map((s, i) => (
+                  <React.Fragment key={s}>
+                    <div className="rounded-lg bg-muted/20 px-4 py-2 text-sm text-muted-foreground">{s}</div>
+                    {i < 2 && <div className="w-0.5 h-4 bg-border mx-auto" />}
                   </React.Fragment>
                 ))}
               </div>
@@ -581,65 +464,65 @@ const LandingPage: React.FC = () => {
         </div>
       </Section>
 
-      {/* Row 3 – Analytics */}
+      {/* Row 3 — Analytics */}
       <Section>
-        <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
+        <div className="flex flex-col lg:flex-row items-center gap-12">
+          {/* Text */}
           <motion.div
-            className="max-w-lg"
+            className="lg:w-1/2 space-y-5"
             initial="hidden"
             whileInView="visible"
             viewport={VP}
             variants={stagger}
           >
             <motion.span variants={fadeUp} className="text-xs font-semibold tracking-widest text-primary uppercase">
-              ANALYTICS
+              Analytics
             </motion.span>
-            <motion.h3 variants={fadeUp} className="mt-3 text-2xl font-bold">
+            <motion.h3 variants={fadeUp} className="text-2xl font-bold">
               See Everything. Miss Nothing.
             </motion.h3>
-            <motion.p variants={fadeUp} className="mt-4 text-muted-foreground leading-relaxed">
-              Track every call, policy, and appointment across your entire team. Real-time
-              leaderboards drive healthy competition. Exportable reports give leadership the data they
-              need to make smart decisions.
+            <motion.p variants={fadeUp} className="text-muted-foreground leading-relaxed">
+              Track every call, policy, and appointment across your entire team. Real-time leaderboards drive
+              healthy competition. Exportable reports give leadership the data they need to make smart decisions.
             </motion.p>
-            <motion.ul variants={fadeUp} className="mt-6 space-y-3">
+            <motion.ul variants={stagger} className="space-y-2">
               {[
                 "Real-time agent leaderboards",
                 "Conversion & talk-time tracking",
                 "CSV & PDF report exports",
                 "Role-based data access",
               ].map((t) => (
-                <li key={t} className="flex items-start gap-2 text-sm">
-                  <CheckCircle size={16} className="text-primary mt-0.5 shrink-0" /> {t}
-                </li>
+                <motion.li key={t} variants={fadeUp} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle size={16} className="text-primary shrink-0" /> {t}
+                </motion.li>
               ))}
             </motion.ul>
           </motion.div>
 
+          {/* Visual */}
           <motion.div
-            className="flex-1 w-full max-w-md"
-            initial={{ opacity: 0, x: 60 }}
+            className="lg:w-1/2"
+            initial={{ opacity: 0, x: 40 }}
             whileInView={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7 }}
+            transition={{ duration: 0.6 }}
             viewport={VP}
           >
-            <div className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur p-6 shadow-xl">
-              <p className="text-xs text-muted-foreground mb-4 font-medium">Leaderboard — This Month</p>
+            <div className="rounded-2xl border border-border/50 bg-card/50 p-6 space-y-3">
               {[
-                { rank: 1, name: "Sarah M.", pct: 90 },
-                { rank: 2, name: "Mike R.", pct: 75 },
-                { rank: 3, name: "Jessica C.", pct: 60 },
+                { rank: 1, name: "Maria S.", pct: 90 },
+                { rank: 2, name: "David P.", pct: 75 },
+                { rank: 3, name: "Rachel K.", pct: 60 },
               ].map(({ rank, name, pct }) => (
-                <div key={rank} className="flex items-center gap-3 mb-3 last:mb-0">
-                  <span className="text-sm font-bold text-muted-foreground w-5 text-right">{rank}</span>
-                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
-                    {name[0]}
+                <div key={rank} className="flex items-center gap-3">
+                  <span className="w-6 text-center font-bold text-sm">{rank}</span>
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
+                    {name.charAt(0)}
                   </div>
-                  <span className="text-sm font-medium w-20 truncate">{name}</span>
-                  <div className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+                  <span className="text-sm font-medium w-20">{name}</span>
+                  <div className="flex-1 h-2 rounded-full bg-muted/20 overflow-hidden">
+                    <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
                   </div>
-                  {rank === 1 && <Trophy size={14} className="text-warning shrink-0" />}
+                  {rank === 1 && <Trophy size={16} className="text-primary" />}
                 </div>
               ))}
             </div>
@@ -651,15 +534,21 @@ const LandingPage: React.FC = () => {
           SECTION 6 — ADDITIONAL CAPABILITIES
          ════════════════════════════════════════ */}
       <Section>
-        <motion.div className="text-center mb-12" initial="hidden" whileInView="visible" viewport={VP} variants={stagger}>
-          <motion.h2 variants={fadeUp} className="text-2xl font-bold">And That's Just the Start</motion.h2>
-          <motion.p variants={fadeUp} className="mt-3 text-muted-foreground">
+        <motion.div
+          className="text-center mb-10"
+          initial="hidden"
+          whileInView="visible"
+          viewport={VP}
+          variants={fadeUp}
+        >
+          <h2 className="text-2xl font-bold">And That's Just the Start</h2>
+          <p className="mt-2 text-muted-foreground">
             AgentFlow is packed with tools designed specifically for life insurance sales teams.
-          </motion.p>
+          </p>
         </motion.div>
 
         <motion.div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto"
           initial="hidden"
           whileInView="visible"
           viewport={VP}
@@ -668,7 +557,7 @@ const LandingPage: React.FC = () => {
           {[
             { Icon: MessageSquare, label: "Conversations Hub" },
             { Icon: GraduationCap, label: "Training Center" },
-            { Icon: Settings, label: "Role-Based Permissions" },
+            { Icon: Shield, label: "Role-Based Permissions" },
             { Icon: Shield, label: "DNC List Manager" },
             { Icon: Upload, label: "CSV Bulk Import" },
             { Icon: Palette, label: "Company Branding" },
@@ -692,11 +581,17 @@ const LandingPage: React.FC = () => {
           SECTION 7 — PRICING
          ════════════════════════════════════════ */}
       <Section id="pricing">
-        <motion.div className="text-center mb-14" initial="hidden" whileInView="visible" viewport={VP} variants={stagger}>
-          <motion.h2 variants={fadeUp} className="text-3xl font-bold">Simple, Transparent Pricing</motion.h2>
-          <motion.p variants={fadeUp} className="mt-3 text-muted-foreground max-w-lg mx-auto">
+        <motion.div
+          className="text-center mb-14"
+          initial="hidden"
+          whileInView="visible"
+          viewport={VP}
+          variants={fadeUp}
+        >
+          <h2 className="text-3xl font-bold">Simple, Transparent Pricing</h2>
+          <p className="mt-2 text-muted-foreground">
             No per-minute charges. No hidden fees. Just one plan that scales with your team.
-          </motion.p>
+          </p>
         </motion.div>
 
         <motion.div
@@ -711,17 +606,16 @@ const LandingPage: React.FC = () => {
               name: "Starter",
               price: "$49",
               sub: "/mo per agent",
-              tagline: "For solo agents getting started",
+              desc: "For solo agents getting started",
               features: ["Up to 2 agents", "Power dialer", "Contact management", "Calendar", "Basic reports"],
               cta: "Get Started",
-              primary: false,
-              popular: false,
+              highlight: false,
             },
             {
               name: "Professional",
               price: "$99",
               sub: "/mo per agent",
-              tagline: "For growing teams that need more",
+              desc: "For growing teams that need more",
               features: [
                 "Everything in Starter, plus:",
                 "AI Agents (up to 3)",
@@ -731,14 +625,13 @@ const LandingPage: React.FC = () => {
                 "CSV import/export",
               ],
               cta: "Start Free Trial",
-              primary: true,
-              popular: true,
+              highlight: true,
             },
             {
               name: "Enterprise",
               price: "Custom",
               sub: "",
-              tagline: "For large agencies and IMOs",
+              desc: "For large agencies and IMOs",
               features: [
                 "Everything in Professional, plus:",
                 "Unlimited AI agents",
@@ -748,42 +641,40 @@ const LandingPage: React.FC = () => {
                 "SSO & advanced security",
               ],
               cta: "Contact Sales",
-              primary: false,
-              popular: false,
+              highlight: false,
             },
-          ].map((plan) => (
+          ].map((plan, i) => (
             <motion.div
               key={plan.name}
               variants={fadeUp}
-              className={`relative rounded-2xl bg-card border p-8 flex flex-col hover:-translate-y-1 transition-all duration-300 ${
-                plan.popular
-                  ? "border-primary scale-[1.03] shadow-[0_0_40px_hsl(var(--primary)/0.15)]"
-                  : "border-border"
+              transition={{ delay: i * 0.1 }}
+              className={`relative rounded-2xl p-8 bg-card border transition-all duration-300 hover:-translate-y-1 ${
+                plan.highlight ? "border-primary scale-105 shadow-lg shadow-primary/10" : "border-border"
               }`}
             >
-              {plan.popular && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-semibold px-4 py-1 rounded-full">
+              {plan.highlight && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-semibold rounded-full px-4 py-1">
                   Most Popular
                 </span>
               )}
-              <h3 className="text-lg font-semibold">{plan.name}</h3>
-              <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-3xl font-bold">{plan.price}</span>
-                {plan.sub && <span className="text-sm text-muted-foreground">{plan.sub}</span>}
+              <h3 className="font-semibold text-lg">{plan.name}</h3>
+              <p className="text-sm text-muted-foreground mb-4">{plan.desc}</p>
+              <div className="flex items-baseline gap-1 mb-6">
+                <span className="text-4xl font-extrabold">{plan.price}</span>
+                <span className="text-muted-foreground text-sm">{plan.sub}</span>
               </div>
-              <p className="text-sm text-muted-foreground mt-2">{plan.tagline}</p>
-              <ul className="mt-6 space-y-3 flex-1">
+              <ul className="space-y-2 mb-8">
                 {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm">
-                    <CheckCircle size={14} className="text-primary mt-0.5 shrink-0" /> {f}
+                  <li key={f} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <CheckCircle size={14} className="text-primary shrink-0" /> {f}
                   </li>
                 ))}
               </ul>
               <Link
                 to="/login"
-                className={`mt-8 h-11 rounded-xl flex items-center justify-center font-semibold text-sm transition-all duration-200 ${
-                  plan.primary
-                    ? "bg-primary text-primary-foreground shadow-[0_0_20px_hsl(var(--primary)/0.3)] hover:shadow-[0_0_30px_hsl(var(--primary)/0.45)] hover:scale-105"
+                className={`block w-full text-center py-3 rounded-xl font-semibold transition-all duration-200 ${
+                  plan.highlight
+                    ? "bg-primary text-primary-foreground hover:scale-105 shadow-[0_0_16px_hsl(var(--primary)/0.3)]"
                     : "border border-border text-foreground hover:bg-muted/50"
                 }`}
               >
@@ -799,7 +690,7 @@ const LandingPage: React.FC = () => {
          ════════════════════════════════════════ */}
       <Section id="testimonials">
         <motion.h2
-          className="text-3xl font-bold text-center mb-14"
+          className="text-3xl font-bold text-center mb-12"
           initial="hidden"
           whileInView="visible"
           viewport={VP}
@@ -809,7 +700,7 @@ const LandingPage: React.FC = () => {
         </motion.h2>
 
         <motion.div
-          className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-5xl mx-auto"
           initial="hidden"
           whileInView="visible"
           viewport={VP}
@@ -820,38 +711,36 @@ const LandingPage: React.FC = () => {
               quote:
                 "AgentFlow cut our lead response time in half. The power dialer alone pays for itself every month.",
               name: "Maria Santos",
-              title: "Agency Director, Summit Financial Group",
-              initials: "MS",
+              role: "Agency Director, Summit Financial Group",
             },
             {
               quote:
                 "The AI agents are a game-changer. We book 30% more appointments without adding headcount.",
               name: "David Park",
-              title: "IMO Owner, Pacific Life Partners",
-              initials: "DP",
+              role: "IMO Owner, Pacific Life Partners",
             },
             {
               quote:
                 "Finally, a CRM that actually understands life insurance sales. The leaderboard keeps my team fired up every single day.",
               name: "Rachel Kim",
-              title: "Team Leader, Heritage Benefits",
-              initials: "RK",
+              role: "Team Leader, Heritage Benefits",
             },
-          ].map(({ quote, name, title, initials }) => (
+          ].map(({ quote, name, role }, i) => (
             <motion.div
               key={name}
               variants={fadeUp}
+              transition={{ delay: i * 0.1 }}
               className="rounded-2xl bg-card/50 border border-border/50 p-6"
             >
               <span className="text-4xl text-primary/20 font-serif leading-none">"</span>
-              <p className="text-sm text-muted-foreground italic mt-2 leading-relaxed">{quote}</p>
-              <div className="flex items-center gap-3 mt-6">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                  {initials}
+              <p className="text-sm text-muted-foreground italic mb-6">{quote}</p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-semibold text-primary">
+                  {name.charAt(0)}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold">{name}</p>
-                  <p className="text-xs text-muted-foreground">{title}</p>
+                  <p className="font-semibold text-sm">{name}</p>
+                  <p className="text-xs text-muted-foreground">{role}</p>
                 </div>
               </div>
             </motion.div>
@@ -860,11 +749,11 @@ const LandingPage: React.FC = () => {
       </Section>
 
       {/* ════════════════════════════════════════
-          SECTION 9 — FAQ ACCORDION
+          SECTION 9 — FAQ
          ════════════════════════════════════════ */}
       <Section id="faq">
         <motion.h2
-          className="text-3xl font-bold text-center mb-14"
+          className="text-3xl font-bold text-center mb-10"
           initial="hidden"
           whileInView="visible"
           viewport={VP}
@@ -980,62 +869,7 @@ const LandingPage: React.FC = () => {
       {/* ════════════════════════════════════════
           SECTION 11 — FOOTER
          ════════════════════════════════════════ */}
-      <footer className="bg-card/50 border-t border-border/50 py-12 px-6">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
-          {/* Brand */}
-          <div>
-            <div className="flex items-center gap-2.5 mb-4">
-              <AFLogo size={32} />
-              <span className="font-bold text-lg">AgentFlow</span>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              The all-in-one CRM for life insurance professionals.
-            </p>
-            <div className="flex gap-3">
-              {[Globe, Linkedin, Facebook].map((I, idx) => (
-                <button key={idx} className="w-8 h-8 rounded-lg bg-muted/20 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-                  <I size={16} />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Product */}
-          <div>
-            <h4 className="font-semibold text-sm mb-4">Product</h4>
-            <ul className="space-y-2.5 text-sm text-muted-foreground">
-              {["Features", "Pricing", "AI Agents", "Integrations", "Changelog"].map((l) => (
-                <li key={l}><button onClick={() => scrollTo("#features")} className="hover:text-foreground transition-colors">{l}</button></li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Company */}
-          <div>
-            <h4 className="font-semibold text-sm mb-4">Company</h4>
-            <ul className="space-y-2.5 text-sm text-muted-foreground">
-              {["About", "Blog", "Careers", "Contact", "Partners"].map((l) => (
-                <li key={l}><span className="hover:text-foreground transition-colors cursor-pointer">{l}</span></li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h4 className="font-semibold text-sm mb-4">Legal</h4>
-            <ul className="space-y-2.5 text-sm text-muted-foreground">
-              {["Privacy Policy", "Terms of Service", "Security", "TCPA Compliance", "DNC Policy"].map((l) => (
-                <li key={l}><span className="hover:text-foreground transition-colors cursor-pointer">{l}</span></li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto mt-10 pt-6 border-t border-border/30 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground">© 2026 AgentFlow. All rights reserved.</p>
-          <p className="text-xs text-muted-foreground">Made with ❤️ for life insurance agents</p>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 };

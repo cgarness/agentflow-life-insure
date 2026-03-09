@@ -77,6 +77,7 @@ const App = () => (
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/landing" element={<LandingPage />} />
+                        <Route path="/pricing" element={<PricingPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/dialer" element={<DialerPage />} />
