@@ -415,7 +415,7 @@ const Leaderboard: React.FC = () => {
             </div>
 
             {/* Win Feed */}
-            <div className="bg-card rounded-xl border p-5">
+            <div className={`bg-card rounded-xl border p-5 ${changedWins ? "animate-leaderboard-flash" : ""}`}>
               <h3 className="font-semibold text-foreground mb-4">🏆 Recent Wins</h3>
               {wins.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No wins yet. Get dialing and close some deals! 🦈</p>
