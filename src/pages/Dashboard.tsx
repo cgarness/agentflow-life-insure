@@ -1,668 +1,744 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Phone, ShieldCheck, Calendar, Megaphone, TrendingUp, TrendingDown,
-  Clock, ArrowRight, PhoneCall, Users, Star, Trophy, Loader2, Settings2,
-  GripHorizontal, Target, DollarSign, BarChart3, Timer,
+  Clock, ArrowRight, Trophy, Users, Target, CheckCircle2, Minus,
+  ExternalLink, RefreshCw,
 } from "lucide-react";
-import { Responsive, WidthProvider, Layout, Layouts } from "react-grid-layout";
-import "react-grid-layout/css/styles.css";
-import "react-resizable/css/styles.css";
-import { dashboardSupabaseApi } from "@/lib/supabase-dashboard";
+import { format, formatDistanceToNow } from "date-fns";
+import {
+  dashboardSupabaseApi,
+  ExtendedDashboardStats,
+  FollowUpItem,
+  TodayAppointment,
+  RecentCall,
+  CampaignPerformance,
+  GoalProgress,
+  OnboardingStatus,
+} from "@/lib/supabase-dashboard";
+import { LeaderboardEntry } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { DashboardStats, LeaderboardEntry, WinFeedItem } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { toast } from "@/hooks/use-toast";
-import CustomizeDrawer, { WidgetConfig } from "@/components/dashboard/CustomizeDrawer";
-import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
-
-export interface WidgetLayoutItem {
-  i: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  minW?: number;
-  minH?: number;
-}
-
-const DEFAULT_WIDGETS: WidgetConfig[] = [
-  { id: "stat-cards", label: "KPI Stat Cards", visible: true },
-  { id: "daily-briefing", label: "Daily Briefing", visible: true },
-  { id: "activity-chart", label: "Win Feed", visible: true },
-  { id: "recent-activity", label: "Recent Activity", visible: true },
-  { id: "quick-actions", label: "Follow Up Queue", visible: true },
-  { id: "missed-calls", label: "Missed Calls", visible: true },
-  { id: "anniversaries", label: "Policy Anniversaries", visible: true },
-  { id: "leaderboard", label: "Team Leaderboard", visible: true },
-  { id: "conversion-rate", label: "Conversion Rate", visible: false },
-  { id: "avg-talk-time", label: "Avg Talk Time", visible: false },
-  { id: "pipeline-value", label: "Pipeline Value", visible: false },
-  { id: "goals-progress", label: "Goals Progress", visible: false },
-];
-
-const DEFAULT_LAYOUT: WidgetLayoutItem[] = [
-  { i: "stat-cards", x: 0, y: 0, w: 12, h: 3, minW: 6, minH: 3 },
-  { i: "daily-briefing", x: 0, y: 3, w: 7, h: 6, minW: 4, minH: 4 },
-  { i: "quick-actions", x: 7, y: 3, w: 5, h: 6, minW: 3, minH: 4 },
-  { i: "activity-chart", x: 0, y: 9, w: 7, h: 5, minW: 4, minH: 3 },
-  { i: "missed-calls", x: 7, y: 9, w: 5, h: 5, minW: 3, minH: 3 },
-  { i: "recent-activity", x: 0, y: 14, w: 7, h: 5, minW: 4, minH: 3 },
-  { i: "anniversaries", x: 7, y: 14, w: 5, h: 5, minW: 3, minH: 3 },
-  { i: "leaderboard", x: 0, y: 19, w: 12, h: 6, minW: 6, minH: 4 },
-  { i: "conversion-rate", x: 0, y: 25, w: 3, h: 3, minW: 2, minH: 3 },
-  { i: "avg-talk-time", x: 3, y: 25, w: 3, h: 3, minW: 2, minH: 3 },
-  { i: "pipeline-value", x: 6, y: 25, w: 3, h: 3, minW: 2, minH: 3 },
-  { i: "goals-progress", x: 9, y: 25, w: 3, h: 5, minW: 3, minH: 4 },
-];
-
-const STORAGE_KEY_PREFIX = "agentflow-dashboard-v2-";
-
-const ROW_HEIGHT = 40;
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user, profile } = useAuth();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [followUps, setFollowUps] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [missedCalls, setMissedCalls] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [anniversaries, setAnniversaries] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [wins, setWins] = useState<WinFeedItem[]>([]);
-  const [activities, setActivities] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [lbPeriod, setLbPeriod] = useState("Today");
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  
+  // Data states
+  const [stats, setStats] = useState<ExtendedDashboardStats | null>(null);
+  const [followUps, setFollowUps] = useState<{
+    callbacksToday: FollowUpItem[];
+    staleLeads: number;
+    hotLeadsStale: number;
+  } | null>(null);
+  const [todayAppointments, setTodayAppointments] = useState<TodayAppointment[]>([]);
+  const [recentCalls, setRecentCalls] = useState<RecentCall[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignPerformance[]>([]);
+  const [goals, setGoals] = useState<GoalProgress[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null);
 
-  const [widgets, setWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS);
-  const [gridLayouts, setGridLayouts] = useState<Layouts>({ lg: DEFAULT_LAYOUT });
-  const [layoutReady, setLayoutReady] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [briefingOpen, setBriefingOpen] = useState(false);
-  const briefingCheckedRef = useRef(false);
-  const widgetsOnOpenRef = useRef<string>("");
+  const isAdmin = profile?.role === "admin" || profile?.role === "Admin" || profile?.role === "Team Leader";
+  const userId = user?.id || "";
 
-  // Load from localStorage
-  useEffect(() => {
-    const userId = user?.id || "default";
-    const key = STORAGE_KEY_PREFIX + userId;
+  const loadData = useCallback(async () => {
+    if (!userId) return;
+    
     try {
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.widgets) {
-          const ids = new Set(parsed.widgets.map((w: WidgetConfig) => w.id));
-          const merged = [
-            ...parsed.widgets,
-            ...DEFAULT_WIDGETS.filter((d) => !ids.has(d.id)),
-          ];
-          setWidgets(merged);
-        }
-        if (parsed.layouts) {
-          setGridLayouts(parsed.layouts);
-        }
-      }
-    } catch {} // eslint-disable-line no-empty
-    setLayoutReady(true);
-  }, [user?.id]);
-
-  // Save to localStorage
-  useEffect(() => {
-    if (!layoutReady) return;
-    const userId = user?.id || "default";
-    const key = STORAGE_KEY_PREFIX + userId;
-    localStorage.setItem(key, JSON.stringify({ widgets, layouts: gridLayouts }));
-  }, [widgets, gridLayouts, layoutReady, user?.id]);
-
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const [s, lb, fu, mc, ann, w, act] = await Promise.all([
-        dashboardSupabaseApi.getStats(),
-        dashboardSupabaseApi.getLeaderboard(lbPeriod),
-        dashboardSupabaseApi.getFollowUps(),
-        dashboardSupabaseApi.getMissedCalls(),
-        dashboardSupabaseApi.getAnniversaries(),
-        dashboardSupabaseApi.getWins(),
-        dashboardSupabaseApi.getRecentActivity(),
+      const [
+        statsData,
+        followUpsData,
+        appointmentsData,
+        callsData,
+        campaignsData,
+        goalsData,
+        leaderboardData,
+        onboardingData,
+      ] = await Promise.all([
+        dashboardSupabaseApi.getStats(userId, isAdmin),
+        dashboardSupabaseApi.getFollowUps(userId, isAdmin),
+        dashboardSupabaseApi.getTodayAppointments(userId, isAdmin),
+        dashboardSupabaseApi.getRecentCalls(userId, isAdmin),
+        dashboardSupabaseApi.getCampaignPerformance(),
+        dashboardSupabaseApi.getGoalProgress(userId),
+        dashboardSupabaseApi.getLeaderboard(),
+        dashboardSupabaseApi.getOnboardingStatus(userId),
       ]);
-      setStats(s);
-      setLeaderboard(lb);
-      setFollowUps(fu);
-      setMissedCalls(mc);
-      setAnniversaries(ann);
-      setWins(w);
-      setActivities(act);
+      
+      setStats(statsData);
+      setFollowUps(followUpsData);
+      setTodayAppointments(appointmentsData);
+      setRecentCalls(callsData);
+      setCampaigns(campaignsData);
+      setGoals(goalsData);
+      setLeaderboard(leaderboardData);
+      setOnboarding(onboardingData);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error("Dashboard load error:", error);
+    } finally {
       setLoading(false);
-
-      // First-login-of-day briefing check
-      if (!briefingCheckedRef.current && user?.id) {
-        briefingCheckedRef.current = true;
-        const today = new Date().toISOString().split("T")[0];
-        const key = `briefing-last-shown-${user.id}`;
-        if (localStorage.getItem(key) !== today) {
-          setBriefingOpen(true);
-          localStorage.setItem(key, today);
-        }
-      }
-    };
-    load();
-  }, [lbPeriod, user?.id]);
+    }
+  }, [userId, isAdmin]);
 
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const s = await dashboardSupabaseApi.getStats();
-      setStats(s);
+    loadData();
+  }, [loadData]);
+
+  // Auto-refresh every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
     }, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadData]);
 
+  // Greeting based on time
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = profile?.first_name || "Agent";
+  const todayFormatted = format(new Date(), "EEEE, MMMM d, yyyy");
 
-  const handleOpenDrawer = () => {
-    widgetsOnOpenRef.current = JSON.stringify(widgets);
-    setDrawerOpen(true);
+  // Format phone number
+  const formatPhone = (phone: string) => {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length === 10) {
+      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    if (digits.length === 11 && digits[0] === "1") {
+      return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+    }
+    return phone;
   };
 
-  const handleCloseDrawer = () => {
-    setDrawerOpen(false);
-    if (JSON.stringify(widgets) !== widgetsOnOpenRef.current) {
-      toast({ title: "Dashboard layout saved", duration: 3000 });
+  // Format duration
+  const formatDuration = (seconds: number) => {
+    if (seconds === 0) return "No Answer";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Trigger FloatingDialer call
+  const triggerQuickCall = (contactName: string, phone: string, contactId?: string) => {
+    window.dispatchEvent(new CustomEvent("quick-call", {
+      detail: { contactName, phone, contactId },
+    }));
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-8 w-48 mb-2" />
+            <Skeleton className="h-5 w-64" />
+          </div>
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-64 rounded-xl" />)}
+        </div>
+      </div>
+    );
+  }
+
+  // Check if new user - show onboarding
+  const showOnboarding = onboarding?.isNewUser;
+  const onboardingComplete = onboarding && onboarding.hasLeads && onboarding.hasCalls && onboarding.hasCampaigns && onboarding.hasAppointments;
+
+  // Stat cards configuration
+  const statCards = [
+    {
+      label: "Calls Today",
+      value: stats?.totalCallsToday ?? 0,
+      trend: stats?.callsTrend || "",
+      trendPositive: stats?.callsTrendPositive,
+      icon: Phone,
+      color: "text-primary",
+      bg: "bg-primary/10",
+    },
+    {
+      label: "Policies Sold This Month",
+      value: stats?.policiesSoldThisMonth ?? 0,
+      trend: stats?.policiesTrend || "",
+      trendPositive: stats?.policiesTrendPositive,
+      icon: ShieldCheck,
+      color: "text-success",
+      bg: "bg-success/10",
+    },
+    {
+      label: "Appointments Scheduled",
+      value: stats?.appointmentsThisWeek ?? 0,
+      trend: stats?.appointmentsTrend || "",
+      trendPositive: stats?.appointmentsTrendPositive,
+      icon: Calendar,
+      color: "text-warning",
+      bg: "bg-warning/10",
+    },
+    {
+      label: "Active Campaigns",
+      value: stats?.activeCampaigns ?? 0,
+      trend: "",
+      trendPositive: null,
+      icon: Megaphone,
+      color: "text-accent-foreground",
+      bg: "bg-accent",
+    },
+  ];
+
+  // Follow up count
+  const followUpCount = (followUps?.callbacksToday.length ?? 0) + (followUps?.staleLeads ?? 0) + (followUps?.hotLeadsStale ?? 0);
+  const allCaughtUp = followUpCount === 0;
+
+  // Appointment type colors
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case "Sales Call": return "bg-primary/10 text-primary";
+      case "Follow Up": return "bg-warning/10 text-warning";
+      case "Policy Review": return "bg-success/10 text-success";
+      default: return "bg-muted text-muted-foreground";
     }
   };
 
-  const handleReset = () => {
-    setWidgets(DEFAULT_WIDGETS);
-    setGridLayouts({ lg: DEFAULT_LAYOUT });
+  // Status badge colors
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "Scheduled": return "bg-primary/10 text-primary";
+      case "Completed": return "bg-success/10 text-success";
+      case "Cancelled": return "bg-destructive/10 text-destructive";
+      case "No Show": return "bg-warning/10 text-warning";
+      default: return "bg-muted text-muted-foreground";
+    }
   };
 
-  const handleLayoutChange = (_layout: Layout[], allLayouts: Layouts) => {
-    setGridLayouts(allLayouts);
+  // Goal progress color
+  const getGoalColor = (current: number, target: number) => {
+    const pct = (current / target) * 100;
+    if (pct >= 80) return "bg-success";
+    if (pct >= 50) return "bg-warning";
+    return "bg-destructive";
   };
 
-  const visibleWidgetIds = useMemo(
-    () => new Set(widgets.filter((w) => w.visible).map((w) => w.id)),
-    [widgets]
-  );
-
-  // Build layout for visible widgets only, ensuring items that don't have a saved position get defaults
-  const currentLayout = useMemo(() => {
-    const savedLg = (gridLayouts.lg || []) as WidgetLayoutItem[];
-    const savedMap = new Map(savedLg.map((l) => [l.i, l]));
-    const defaultMap = new Map(DEFAULT_LAYOUT.map((l) => [l.i, l]));
-
-    return Array.from(visibleWidgetIds).map((id) => {
-      const saved = savedMap.get(id);
-      const def = defaultMap.get(id);
-      return saved || def || { i: id, x: 0, y: 100, w: 4, h: 4, minW: 2, minH: 3 };
-    });
-  }, [visibleWidgetIds, gridLayouts]);
-
-  if (loading || !layoutReady) return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <Skeleton className="h-7 w-40 mb-2" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-9 w-28" />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 space-y-6">
-          <Skeleton className="h-64 rounded-xl" />
-          <Skeleton className="h-48 rounded-xl" />
-        </div>
-        <div className="lg:col-span-2 space-y-6">
-          <Skeleton className="h-48 rounded-xl" />
-          <Skeleton className="h-36 rounded-xl" />
-        </div>
-      </div>
-      <Skeleton className="h-56 rounded-xl" />
-    </div>
-  );
-
-  const statCards = [
-    { label: "Total Calls Today", value: stats!.totalCallsToday, trend: stats!.callsTrend, icon: Phone, positive: true },
-    { label: "Policies Sold This Month", value: stats!.policiesSoldThisMonth, trend: stats!.policiesTrend, icon: ShieldCheck, positive: true },
-    { label: "Appointments Scheduled", value: stats!.appointmentsThisWeek, trend: stats!.appointmentsTrend, icon: Calendar, positive: null },
-    { label: "Active Campaigns", value: stats!.activeCampaigns, trend: "", icon: Megaphone, positive: null },
-  ];
-
-  const appointments = followUps.slice(0, 3).map(f => ({
-    time: "Today",
-    name: `${f.firstName} ${f.lastName}`,
-    type: f.status === "Hot" ? "Sales Call" : "Follow Up",
-  }));
-
-  // Mock data for new stat widgets
-  const conversionRate = stats ? Math.round((stats.policiesSoldThisMonth / Math.max(stats.totalCallsToday * 30, 1)) * 100) : 12;
-  const avgTalkTime = "4m 32s";
-  const pipelineValue = "$127,450";
-  const goals = { calls: 68, sales: 45, appointments: 72 };
-
-  const DragHandle = () => (
-    <div className="dashboard-drag-handle flex items-center justify-center py-1 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors">
-      <GripHorizontal className="w-4 h-4" />
-    </div>
-  );
-
-  const renderWidget = (id: string) => {
-    switch (id) {
-      case "stat-cards":
-        return (
-          <div className="h-full flex flex-col">
-            <DragHandle />
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 overflow-auto">
-              {statCards.map((s) => (
-                <div key={s.label} className="bg-card rounded-xl border p-4 hover:shadow-md sidebar-transition cursor-pointer">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-xs text-muted-foreground">{s.label}</p>
-                      <p className="text-2xl font-bold text-foreground mt-1">{s.value}</p>
-                      {s.trend && (
-                        <div className="flex items-center gap-1 mt-1">
-                          {s.positive === true && <TrendingUp className="w-3 h-3 text-success" />}
-                          {s.positive === false && <TrendingDown className="w-3 h-3 text-destructive" />}
-                          <span className={`text-xs ${s.positive === true ? "text-success" : s.positive === false ? "text-destructive" : "text-muted-foreground"}`}>{s.trend}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                      <s.icon className="w-4 h-4" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case "daily-briefing":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <h2 className="font-semibold text-foreground mb-3">📋 Daily Briefing</h2>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">{appointments.length} Appointments Today</h3>
-                  {appointments.map((a, i) => (
-                    <div key={i} className="flex items-center justify-between py-2 border-b last:border-0">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-mono text-primary font-medium">{a.time}</span>
-                        <span className="text-sm text-foreground">{a.name}</span>
-                      </div>
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{a.type}</span>
-                    </div>
-                  ))}
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">{followUps.length} Follow-ups Due</h3>
-                  {followUps.slice(0, 3).map((f) => (
-                    <div key={f.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                      <span className="text-sm text-foreground">{f.firstName} {f.lastName}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${f.aging >= 5 ? "bg-destructive/10 text-destructive" : f.aging >= 3 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>{f.aging}d ago</span>
-                    </div>
-                  ))}
-                </div>
-                {anniversaries.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-medium text-muted-foreground mb-2">{anniversaries.length} Policy Anniversaries</h3>
-                    {anniversaries.slice(0, 2).map((a) => (
-                      <div key={a.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                        <span className="text-sm text-foreground">{a.firstName} {a.lastName} — {a.policyType}</span>
-                        <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">In {a.daysUntilAnniversary}d</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-
-      case "activity-chart":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <h2 className="font-semibold text-foreground mb-3">🎉 Win Feed</h2>
-              <div className="space-y-3">
-                {wins.map((w) => (
-                  <div key={w.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                    <div className="w-8 h-8 rounded-full bg-success/10 flex items-center justify-center text-success text-xs font-bold">{w.agentAvatar}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground"><span className="font-medium">{w.agentName}</span> sold <span className="text-primary font-medium">{w.policyType}</span> to {w.contactName} ({w.contactState})</p>
-                      <p className="text-xs text-muted-foreground">{w.time}</p>
-                    </div>
-                    <span className="text-lg">🎉</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-
-      case "recent-activity":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <h2 className="font-semibold text-foreground mb-3">Recent Activity</h2>
-              <div className="space-y-3">
-                {activities.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      a.type === "call" ? "bg-primary/10 text-primary" : a.type === "policy" ? "bg-success/10 text-success" : a.type === "lead" ? "bg-warning/10 text-warning" : "bg-accent text-accent-foreground"
-                    }`}>
-                      {a.type === "call" ? <Phone className="w-4 h-4" /> : a.type === "policy" ? <ShieldCheck className="w-4 h-4" /> : a.type === "lead" ? <Users className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground">{a.desc}</p>
-                      <p className="text-xs text-muted-foreground">{a.agent} · {a.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-
-      case "quick-actions":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-semibold text-foreground">Follow Up Queue</h2>
-                <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-medium">{followUps.length}</span>
-              </div>
-              {followUps.slice(0, 5).map((f) => (
-                <div key={f.id} className="flex items-center justify-between py-2.5 border-b last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{f.firstName} {f.lastName}</p>
-                    <p className="text-xs text-muted-foreground">{f.leadSource}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${f.aging >= 5 ? "bg-destructive/10 text-destructive" : f.aging >= 3 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>{f.aging}d</span>
-                    <button className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 sidebar-transition">
-                      <Phone className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case "missed-calls":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <h2 className="font-semibold text-foreground mb-3">📞 Missed Calls</h2>
-              {missedCalls.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No missed calls today!</p>
-              ) : missedCalls.map((m) => (
-                <div key={m.id} className="flex items-center justify-between py-2.5 border-b last:border-0">
-                  <div>
-                    <p className="text-sm text-foreground">{m.name}</p>
-                    <p className="text-xs text-muted-foreground">{m.time}</p>
-                  </div>
-                  <button className="text-xs bg-primary/10 text-primary px-3 py-1.5 rounded-lg font-medium hover:bg-primary/20 sidebar-transition">Call Back</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case "anniversaries":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <h2 className="font-semibold text-foreground mb-3">🎂 Policy Anniversaries</h2>
-              {anniversaries.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No upcoming anniversaries</p>
-              ) : anniversaries.slice(0, 3).map((a) => (
-                <div key={a.id} className="flex items-center justify-between py-2.5 border-b last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{a.firstName} {a.lastName}</p>
-                    <p className="text-xs text-muted-foreground">{a.policyType} · {a.carrier}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">In {a.daysUntilAnniversary}d</span>
-                    <button className="w-7 h-7 rounded-lg bg-accent text-foreground flex items-center justify-center hover:bg-accent/80 sidebar-transition">
-                      <Phone className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case "leaderboard":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 overflow-auto px-5 pb-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-semibold text-foreground flex items-center gap-2"><Trophy className="w-5 h-5 text-warning" /> Team Leaderboard</h2>
-                <div className="flex bg-muted rounded-lg p-0.5 border border-border">
-                  {["Today", "Week", "Month"].map((t) => (
-                    <button key={t} onClick={() => setLbPeriod(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium sidebar-transition ${lbPeriod === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>{t}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-muted-foreground border-b">
-                      <th className="text-left py-2 font-medium">#</th>
-                      <th className="text-left py-2 font-medium">Agent</th>
-                      <th className="text-right py-2 font-medium">Calls</th>
-                      <th className="text-right py-2 font-medium">Policies</th>
-                      <th className="text-right py-2 font-medium">Appts</th>
-                      <th className="text-right py-2 font-medium hidden sm:table-cell">Talk Time</th>
-                      <th className="text-right py-2 font-medium">Goal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leaderboard.map((a) => (
-                      <tr key={a.userId} className={`border-b last:border-0 ${a.userId === user?.id ? "bg-primary/5" : ""}`}>
-                        <td className="py-2.5 font-bold text-foreground">{a.rank}</td>
-                        <td className="py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{a.avatar}</div>
-                            <span className="font-medium text-foreground">{a.name}</span>
-                            {a.userId === user?.id && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">You</span>}
-                          </div>
-                        </td>
-                        <td className="py-2.5 text-right text-foreground">{a.calls}</td>
-                        <td className="py-2.5 text-right text-foreground">{a.policies}</td>
-                        <td className="py-2.5 text-right text-foreground">{a.appointments}</td>
-                        <td className="py-2.5 text-right text-foreground hidden sm:table-cell">{a.talkTime}</td>
-                        <td className="py-2.5 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className={`h-full rounded-full ${a.goalProgress >= 80 ? "bg-success" : a.goalProgress >= 60 ? "bg-warning" : "bg-destructive"}`} style={{ width: `${Math.min(a.goalProgress, 100)}%` }} />
-                            </div>
-                            <span className="text-xs text-muted-foreground">{a.goalProgress}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "conversion-rate":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 px-5 pb-4 flex flex-col justify-center">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Conversion Rate</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">{conversionRate}%</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    <TrendingUp className="w-3 h-3 text-success" />
-                    <span className="text-xs text-success">+2.3% vs last month</span>
-                  </div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center text-success">
-                  <Target className="w-5 h-5" />
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "avg-talk-time":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 px-5 pb-4 flex flex-col justify-center">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Avg Talk Time</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">{avgTalkTime}</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    <TrendingUp className="w-3 h-3 text-success" />
-                    <span className="text-xs text-success">+18s vs yesterday</span>
-                  </div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  <Timer className="w-5 h-5" />
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "pipeline-value":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 px-5 pb-4 flex flex-col justify-center">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Pipeline Value</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">{pipelineValue}</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    <TrendingUp className="w-3 h-3 text-success" />
-                    <span className="text-xs text-success">+$12,300 this week</span>
-                  </div>
-                </div>
-                <div className="w-10 h-10 rounded-lg bg-warning/10 flex items-center justify-center text-warning">
-                  <DollarSign className="w-5 h-5" />
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "goals-progress":
-        return (
-          <div className="h-full flex flex-col bg-card rounded-xl border">
-            <DragHandle />
-            <div className="flex-1 px-5 pb-4 overflow-auto">
-              <h2 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-primary" /> Goals Progress
-              </h2>
-              <div className="space-y-4">
-                {[
-                  { label: "Monthly Calls", value: goals.calls, target: 500, color: "bg-primary" },
-                  { label: "Policies Sold", value: goals.sales, target: 20, color: "bg-success" },
-                  { label: "Appointments", value: goals.appointments, target: 40, color: "bg-warning" },
-                ].map((g) => {
-                  const pct = Math.round((g.value / g.target) * 100);
-                  return (
-                    <div key={g.label}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm text-foreground">{g.label}</span>
-                        <span className="text-xs text-muted-foreground">{g.value}/{g.target} ({pct}%)</span>
-                      </div>
-                      <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
-                        <div className={`h-full rounded-full ${g.color} transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
+  // Rank styling
+  const getRankStyle = (rank: number) => {
+    switch (rank) {
+      case 1: return "text-yellow-500";
+      case 2: return "text-gray-400";
+      case 3: return "text-amber-600";
+      default: return "text-muted-foreground";
     }
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground">{greeting}, {firstName}! Here's your overview.</p>
-        </div>
-        <button
-          onClick={handleOpenDrawer}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm"
-        >
-          <Settings2 className="w-4 h-4" />
-          Customize
-        </button>
-      </div>
-
-      {/* Grid Layout */}
-      <ResponsiveGridLayout
-        className="layout"
-        layouts={{ lg: currentLayout }}
-        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
-        cols={{ lg: 12, md: 10, sm: 6, xs: 4 }}
-        rowHeight={ROW_HEIGHT}
-        draggableHandle=".dashboard-drag-handle"
-        onLayoutChange={handleLayoutChange}
-        compactType="vertical"
-        margin={[16, 16]}
-        isResizable
-        isDraggable
-      >
-        {Array.from(visibleWidgetIds).map((id) => (
-          <div key={id} className="dashboard-grid-item">
-            {renderWidget(id)}
+    <TooltipProvider>
+      <div className="space-y-6 p-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+            <p className="text-muted-foreground">
+              {greeting}, {firstName}!
+            </p>
+            <p className="text-sm text-muted-foreground">{todayFormatted}</p>
           </div>
-        ))}
-      </ResponsiveGridLayout>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <RefreshCw className="w-3 h-3" />
+            Last updated {formatDistanceToNow(lastUpdated, { addSuffix: true })}
+          </div>
+        </div>
 
-      <CustomizeDrawer
-        open={drawerOpen}
-        onClose={handleCloseDrawer}
-        widgets={widgets}
-        onWidgetsChange={setWidgets}
-        onReset={handleReset}
-      />
-      <DailyBriefingModal
-        open={briefingOpen}
-        onClose={() => setBriefingOpen(false)}
-        firstName={firstName}
-        appointments={appointments}
-        followUps={followUps}
-        anniversaries={anniversaries}
-        stats={stats}
-      />
-    </div>
+        {/* New User Onboarding */}
+        {showOnboarding && !onboardingComplete && (
+          <Card className="border-primary/20 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="w-5 h-5 text-primary" />
+                Welcome to AgentFlow, {firstName}!
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Complete these steps to get started:
+              </p>
+              <div className="space-y-3">
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => navigate("/contacts")}
+                >
+                  {onboarding?.hasLeads ? (
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
+                  )}
+                  <span className={onboarding?.hasLeads ? "line-through text-muted-foreground" : ""}>
+                    Import your first leads
+                  </span>
+                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
+                </div>
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => navigate("/dialer")}
+                >
+                  {onboarding?.hasCalls ? (
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
+                  )}
+                  <span className={onboarding?.hasCalls ? "line-through text-muted-foreground" : ""}>
+                    Set up your dialer
+                  </span>
+                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
+                </div>
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => navigate("/campaigns")}
+                >
+                  {onboarding?.hasCampaigns ? (
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
+                  )}
+                  <span className={onboarding?.hasCampaigns ? "line-through text-muted-foreground" : ""}>
+                    Create a campaign
+                  </span>
+                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
+                </div>
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => navigate("/calendar")}
+                >
+                  {onboarding?.hasAppointments ? (
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
+                  )}
+                  <span className={onboarding?.hasAppointments ? "line-through text-muted-foreground" : ""}>
+                    Schedule an appointment
+                  </span>
+                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Stat Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {statCards.map((stat) => (
+            <Card key={stat.label} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{stat.value}</p>
+                    {stat.trend ? (
+                      <div className="flex items-center gap-1 mt-1">
+                        {stat.trendPositive === true && <TrendingUp className="w-3 h-3 text-success" />}
+                        {stat.trendPositive === false && <TrendingDown className="w-3 h-3 text-destructive" />}
+                        <span className={`text-xs ${
+                          stat.trendPositive === true ? "text-success" :
+                          stat.trendPositive === false ? "text-destructive" :
+                          "text-muted-foreground"
+                        }`}>
+                          {stat.trend}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 mt-1">
+                        <Minus className="w-3 h-3 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className={`w-9 h-9 rounded-lg ${stat.bg} flex items-center justify-center ${stat.color}`}>
+                    <stat.icon className="w-4 h-4" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Widgets Grid */}
+        {!showOnboarding && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Widget 1: Follow Up Queue */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-primary" />
+                    Follow Ups Due
+                  </CardTitle>
+                  <Badge variant="secondary">{followUpCount}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {allCaughtUp ? (
+                  <div className="text-center py-6">
+                    <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">You're all caught up! No follow ups due.</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Callbacks Today */}
+                    {followUps && followUps.callbacksToday.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-medium text-muted-foreground uppercase mb-2">
+                          Callbacks Today ({followUps.callbacksToday.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {followUps.callbacksToday.map((cb) => (
+                            <div key={cb.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50">
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm font-mono text-primary">{cb.time}</span>
+                                <span className="text-sm text-foreground">
+                                  {cb.firstName} {cb.lastName}
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2"
+                                onClick={() => triggerQuickCall(`${cb.firstName} ${cb.lastName}`, cb.phone, cb.id)}
+                              >
+                                <Phone className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Stale Leads */}
+                    {followUps && followUps.staleLeads > 0 && (
+                      <div className="flex items-center justify-between py-2">
+                        <div>
+                          <p className="text-sm text-foreground">Leads Not Contacted 7+ Days</p>
+                          <p className="text-xs text-muted-foreground">{followUps.staleLeads} leads need attention</p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => navigate("/contacts")}>
+                          View All
+                          <ExternalLink className="w-3 h-3 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Hot Leads Stale */}
+                    {followUps && followUps.hotLeadsStale > 0 && (
+                      <div className="flex items-center justify-between py-2">
+                        <div>
+                          <p className="text-sm text-foreground">Hot Leads Not Called 3+ Days</p>
+                          <p className="text-xs text-destructive">{followUps.hotLeadsStale} high-priority leads</p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => navigate("/contacts")}>
+                          View All
+                          <ExternalLink className="w-3 h-3 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 2: Today's Appointments */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-warning" />
+                    Today's Schedule
+                  </CardTitle>
+                  <Badge variant="secondary">{todayAppointments.length}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {todayAppointments.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Calendar className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground mb-3">
+                      No appointments today. Schedule one from the Calendar.
+                    </p>
+                    <Button size="sm" variant="outline" onClick={() => navigate("/calendar")}>
+                      View Calendar
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {todayAppointments.map((appt) => (
+                      <div
+                        key={appt.id}
+                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
+                        onClick={() => navigate("/calendar")}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-mono text-primary w-16">{appt.time}</span>
+                          <span className="text-sm text-foreground">{appt.contactName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${getTypeColor(appt.type)}`}>
+                            {appt.type}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(appt.status)}`}>
+                            {appt.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full mt-2"
+                      onClick={() => navigate("/calendar")}
+                    >
+                      View Calendar
+                      <ArrowRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 3: Recent Calls */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-primary" />
+                  Recent Calls
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recentCalls.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Phone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground mb-3">
+                      No calls yet. Head to the Dialer to get started.
+                    </p>
+                    <Button size="sm" onClick={() => navigate("/dialer")}>
+                      Go to Dialer
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentCalls.slice(0, 5).map((call) => (
+                      <div
+                        key={call.id}
+                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
+                        onClick={() => call.contactId && navigate(`/contacts?contact=${call.contactId}`)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground truncate">{call.contactName}</p>
+                          <p className="text-xs text-muted-foreground">{formatPhone(call.contactPhone)}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-muted-foreground">
+                            {formatDuration(call.duration)}
+                          </span>
+                          {call.dispositionName && (
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full"
+                              style={{
+                                backgroundColor: `${call.dispositionColor}20`,
+                                color: call.dispositionColor,
+                              }}
+                            >
+                              {call.dispositionName}
+                            </span>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="text-xs text-muted-foreground">
+                                {call.startedAt && formatDistanceToNow(new Date(call.startedAt), { addSuffix: true })}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {call.startedAt && format(new Date(call.startedAt), "PPp")}
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 4: Campaign Performance */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Megaphone className="w-4 h-4 text-accent-foreground" />
+                  Active Campaigns
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {campaigns.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Megaphone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground mb-3">
+                      No active campaigns. Create one to start reaching leads.
+                    </p>
+                    <Button size="sm" onClick={() => navigate("/campaigns")}>
+                      Go to Campaigns
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {campaigns.map((campaign) => {
+                      const progress = campaign.totalLeads > 0
+                        ? Math.round((campaign.leadsContacted / campaign.totalLeads) * 100)
+                        : 0;
+                      return (
+                        <div
+                          key={campaign.id}
+                          className="p-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
+                          onClick={() => navigate(`/campaigns/${campaign.id}`)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-foreground">{campaign.name}</span>
+                            <Badge variant="outline" className="text-xs">{campaign.type}</Badge>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <Progress value={progress} className="h-2" />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-12 text-right">{progress}%</span>
+                          </div>
+                          <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                            <span>{campaign.leadsContacted}/{campaign.totalLeads} contacted</span>
+                            <span className="text-success">{campaign.leadsConverted} converted</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 5: Goal Progress */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Target className="w-4 h-4 text-primary" />
+                  My Goals
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {goals.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Target className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      No goals configured yet. Ask your admin to set goals in Settings → Goal Setting.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {goals.map((goal) => {
+                      const pct = goal.target > 0 ? Math.round((goal.current / goal.target) * 100) : 0;
+                      return (
+                        <div key={goal.metric}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm text-foreground">{goal.label}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {goal.current}/{goal.target}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${getGoalColor(goal.current, goal.target)}`}
+                                style={{ width: `${Math.min(pct, 100)}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-medium w-10 text-right ${
+                              pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"
+                            }`}>
+                              {pct}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Widget 6: Leaderboard */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-warning" />
+                  Top Performers This Month
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {leaderboard.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Trophy className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      No sales this month yet. Get dialing!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {leaderboard.map((entry) => {
+                      const isCurrentUser = entry.userId === userId;
+                      return (
+                        <div
+                          key={entry.userId}
+                          className={`flex items-center gap-3 py-2 px-3 rounded-lg ${
+                            isCurrentUser ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
+                          }`}
+                        >
+                          <span className={`text-lg font-bold w-6 ${getRankStyle(entry.rank)}`}>
+                            {entry.rank}
+                          </span>
+                          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
+                            {entry.avatar}
+                          </div>
+                          <div className="flex-1">
+                            <span className="text-sm font-medium text-foreground">{entry.name}</span>
+                            {isCurrentUser && (
+                              <Badge variant="secondary" className="ml-2 text-xs">You</Badge>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-semibold text-foreground">{entry.policies}</span>
+                            <span className="text-xs text-muted-foreground ml-1">sold</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full mt-2"
+                      onClick={() => navigate("/leaderboard")}
+                    >
+                      View Full Leaderboard
+                      <ArrowRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
   );
 };
 
