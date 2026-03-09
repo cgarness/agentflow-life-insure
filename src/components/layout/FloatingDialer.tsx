@@ -8,6 +8,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { useNavigate } from "react-router-dom";
 import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
+import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
+import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ContactResult {
