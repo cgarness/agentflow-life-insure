@@ -33,7 +33,7 @@ interface WeekStats {
   conversionRate: number;
 }
 
-const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent }) => {
+const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badges = [] }) => {
   const { profile } = useAuth();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
   const [weekOffset, setWeekOffset] = useState(0);
