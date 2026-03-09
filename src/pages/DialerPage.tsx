@@ -17,7 +17,7 @@ import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { supabase } from "@/integrations/supabase/client";
 import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
-import { TelnyxRTC } from "@telnyx/webrtc";
+import { useTelnyx } from "@/contexts/TelnyxContext";
 import { STATE_TIMEZONES, getContactLocalTime } from "@/utils/contactLocalTime";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -169,6 +169,18 @@ const DialerPage: React.FC = () => {
   const { user, profile } = useAuth();
   const { setDialerOverride } = useAgentStatus();
   const navigate = useNavigate();
+  const {
+    status: telnyxStatus,
+    callState: telnyxCallState,
+    callDuration: telnyxCallDuration,
+    isMuted: telnyxIsMuted,
+    isOnHold: telnyxIsOnHold,
+    makeCall: telnyxMakeCall,
+    hangUp: telnyxHangUp,
+    toggleMute: telnyxToggleMute,
+    toggleHold: telnyxToggleHold,
+    defaultCallerNumber: telnyxDefaultCaller,
+  } = useTelnyx();
   const agentId = user?.id ?? "";
   const agentName = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
 
@@ -228,11 +240,11 @@ const DialerPage: React.FC = () => {
   const [scriptContent, setScriptContent] = useState<string | null>(null);
   const [scriptCollapsed, setScriptCollapsed] = useState(false);
 
-  /* ── Telnyx WebRTC ── */
+  /* ── Telnyx (from shared context) ── */
   const clientRef = useRef<any>(null);
   const callRef = useRef<any>(null);
-  const [dialerReady, setDialerReady] = useState(false);
-  const [dialerError, setDialerError] = useState<string | null>(null);
+  const dialerReady = telnyxStatus === "ready";
+  const dialerError = telnyxStatus === "error" ? "Check Telnyx credentials in Settings" : null;
   const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
   const [activeCallerId, setActiveCallerId] = useState<CallerIdResult | null>(null);
 
@@ -281,46 +293,7 @@ const DialerPage: React.FC = () => {
   const callableCount = filteredLeads.filter((l) => l.callable).length;
   const outsideCount = filteredLeads.filter((l) => !l.callable).length;
 
-  /* ═══ TELNYX INIT ═══ */
-  useEffect(() => {
-    let client: any;
-    const init = async () => {
-      try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
-        setDialerError("Microphone access required. Please allow and refresh.");
-        return;
-      }
-      try {
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telnyx-token`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-        });
-        if (!res.ok) throw new Error(`Token fetch failed: ${res.status}`);
-        const { username, password } = await res.json();
-        client = new TelnyxRTC({ login: username, password });
-        client.on("telnyx.ready", () => { setDialerReady(true); setDialerError(null); });
-        client.on("telnyx.error", (e: any) => { setDialerError(`Dialer error: ${e.message}`); setDialerReady(false); });
-        client.on("telnyx.notification", (n: any) => {
-          if (n.call) {
-            callRef.current = n.call;
-            const st = n.call.state;
-            if (st === "active") setCallStatus("connected");
-            if (st === "hangup" || st === "destroy") setCallStatus("ended");
-          }
-        });
-        clientRef.current = client;
-        client.connect();
-      } catch {
-        setDialerError("Could not initialize dialer. Check your Telnyx settings.");
-      }
-    };
-    init();
-    return () => { if (client) try { client.disconnect(); } catch {} };
-  }, []);
+  /* ═══ TELNYX — connection managed by TelnyxContext ═══ */
 
   /* ── Load phone numbers cache ── */
   const refreshPhoneCache = useCallback(async () => {
@@ -661,7 +634,7 @@ const DialerPage: React.FC = () => {
     }
     setDncWarning(false);
 
-    if (!clientRef.current || !dialerReady) {
+    if (!dialerReady) {
       toast.error("Dialer not ready. Please wait and try again.");
       return;
     }
@@ -681,16 +654,7 @@ const DialerPage: React.FC = () => {
     setCallStartedAt(new Date());
     setMuted(false);
 
-    try {
-      const call = clientRef.current.newCall({
-        destinationNumber: number.replace(/\D/g, ""),
-        callerNumber,
-      });
-      callRef.current = call;
-    } catch {
-      toast.error("Call failed to connect.");
-      setCallStatus("idle");
-    }
+    telnyxMakeCall(number.replace(/\D/g, ""), callerNumber);
 
     // Simulate connection after brief delay if Telnyx doesn't fire
     setTimeout(() => {
@@ -699,7 +663,7 @@ const DialerPage: React.FC = () => {
   };
 
   const handleHangUp = () => {
-    if (callRef.current) { try { callRef.current.hangup(); } catch {} callRef.current = null; }
+    telnyxHangUp();
     setCallStatus("ended");
     setMuted(false);
   };
@@ -1047,9 +1011,9 @@ const DialerPage: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
                 </div>
                 <div className="flex justify-center gap-3">
-                  <button onClick={() => { setMuted(!muted); if (callRef.current) callRef.current[muted ? "unmuteAudio" : "muteAudio"]?.(); }}
-                    className={cn("p-3 rounded-full transition-colors", muted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                    {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }}
+                    className={cn("p-3 rounded-full transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
+                    {telnyxIsMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   </button>
                 </div>
               </>
@@ -1101,6 +1065,30 @@ const DialerPage: React.FC = () => {
         <div className="ml-auto shrink-0">
           <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign?.name}</span>
         </div>
+      </div>
+
+      {/* ── Telnyx Status Indicator ── */}
+      <div className="shrink-0 mb-3">
+        {telnyxStatus === "connecting" && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /> Dialer connecting...
+          </span>
+        )}
+        {telnyxStatus === "ready" && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+            <span className="w-2 h-2 rounded-full bg-green-500" /> Dialer ready
+          </span>
+        )}
+        {telnyxStatus === "error" && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+            <span className="w-2 h-2 rounded-full bg-red-500" /> Dialer error — check Telnyx credentials in Settings
+          </span>
+        )}
+        {telnyxStatus === "idle" && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+            <span className="w-2 h-2 rounded-full bg-gray-400" /> Configure Telnyx in Settings to enable calling
+          </span>
+        )}
       </div>
 
       {/* ── Mobile tab switcher ── */}
@@ -1512,21 +1500,18 @@ const DialerPage: React.FC = () => {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
-                            onClick={() => {
-                              setMuted(!muted);
-                              if (callRef.current) callRef.current[muted ? "unmuteAudio" : "muteAudio"]?.();
-                            }}
-                            className={cn("p-3 rounded-full transition-colors", muted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}
+                            onClick={() => { telnyxToggleMute(); setMuted(!muted); }}
+                            className={cn("p-3 rounded-full transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}
                           >
-                            {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                            {telnyxIsMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent>{muted ? "Unmute" : "Mute"}</TooltipContent>
+                        <TooltipContent>{telnyxIsMuted ? "Unmute" : "Mute"}</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button onClick={() => toast.info("Hold not available yet")}
-                            className="p-3 rounded-full bg-muted text-muted-foreground hover:bg-muted/80">
+                          <button onClick={() => { telnyxToggleHold(); }}
+                            className={cn("p-3 rounded-full transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
                             <Pause className="w-5 h-5" />
                           </button>
                         </TooltipTrigger>
