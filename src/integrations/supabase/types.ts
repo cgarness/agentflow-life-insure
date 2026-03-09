@@ -863,6 +863,39 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_source_costs: {
+        Row: {
+          cost: number | null
+          created_at: string | null
+          id: string
+          lead_source: string
+          notes: string | null
+          period: string | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          cost?: number | null
+          created_at?: string | null
+          id?: string
+          lead_source: string
+          notes?: string | null
+          period?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          cost?: number | null
+          created_at?: string | null
+          id?: string
+          lead_source?: string
+          notes?: string | null
+          period?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           age: number | null
@@ -1163,6 +1196,84 @@ export type Database = {
           phone?: string
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      saved_reports: {
+        Row: {
+          config: Json
+          created_at: string | null
+          created_by: string | null
+          id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          config?: Json
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          config?: Json
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      scheduled_reports: {
+        Row: {
+          agent_filter: string | null
+          created_at: string | null
+          created_by: string | null
+          day_of_month: number | null
+          day_of_week: number | null
+          enabled: boolean | null
+          frequency: string
+          id: string
+          last_sent_at: string | null
+          name: string
+          recipients: Json | null
+          report_sections: Json | null
+          time_of_day: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          agent_filter?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          day_of_month?: number | null
+          day_of_week?: number | null
+          enabled?: boolean | null
+          frequency: string
+          id?: string
+          last_sent_at?: string | null
+          name: string
+          recipients?: Json | null
+          report_sections?: Json | null
+          time_of_day?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          agent_filter?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          day_of_month?: number | null
+          day_of_week?: number | null
+          enabled?: boolean | null
+          frequency?: string
+          id?: string
+          last_sent_at?: string | null
+          name?: string
+          recipients?: Json | null
+          report_sections?: Json | null
+          time_of_day?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
