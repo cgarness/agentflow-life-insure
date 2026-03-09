@@ -98,7 +98,7 @@ export async function fetchGoals() {
 export async function fetchCampaignLeads(range: DateRange) {
   const { data } = await supabase
     .from("campaign_leads")
-    .select("id, campaign_id, call_attempts, first_name, last_name, status, disposition, created_at")
+    .select("id, campaign_id, call_attempts, first_name, last_name, status, disposition, created_at, state")
     .gte("created_at", startOfDay(range.start).toISOString())
     .lte("created_at", endOfDay(range.end).toISOString());
   return data || [];
