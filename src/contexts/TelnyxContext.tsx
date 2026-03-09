@@ -125,9 +125,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         client.on("telnyx.error", (error: any) => {
           if (mounted) {
-            setStatus("error");
-            setErrorMessage(error?.message || "Telnyx connection error");
-            console.error("TelnyxRTC error:", error);
+            console.error('TelnyxRTC full error:', JSON.stringify(error, null, 2));
+            console.error('TelnyxRTC error message:', error?.message);
+            console.error('TelnyxRTC error code:', error?.code);
+            setStatus('error');
+            setErrorMessage(error?.message || error?.code || 'Connection failed - check browser console');
           }
         });
 
