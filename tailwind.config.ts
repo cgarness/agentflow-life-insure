@@ -96,10 +96,16 @@ export default {
             height: "0",
           },
         },
+        "leaderboard-flash": {
+          "0%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0.4)", backgroundColor: "hsl(var(--primary) / 0.08)" },
+          "50%": { boxShadow: "0 0 12px 4px hsl(var(--primary) / 0.15)", backgroundColor: "hsl(var(--primary) / 0.06)" },
+          "100%": { boxShadow: "0 0 0 0 transparent", backgroundColor: "transparent" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "leaderboard-flash": "leaderboard-flash 1.5s ease-out",
       },
     },
   },
