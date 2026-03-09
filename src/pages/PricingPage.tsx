@@ -412,7 +412,7 @@ const PricingPage: React.FC = () => {
               </ul>
 
               <Link
-                to="/login"
+                to={plan.cta === "Contact Sales" ? "/contact" : "/login"}
                 className={`block w-full h-12 rounded-xl text-center font-semibold flex items-center justify-center transition-all duration-200 ${
                   plan.ctaStyle === "primary"
                     ? "bg-primary text-primary-foreground hover:scale-105 shadow-[0_0_20px_hsl(var(--primary)/0.3)]"
