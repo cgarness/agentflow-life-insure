@@ -834,6 +834,20 @@ const DialerPage: React.FC = () => {
       }
     }
 
+    // 7. Trigger win celebration if this is a sale disposition
+    if (isSaleDisposition(disp.name)) {
+      triggerWin({
+        agentId,
+        agentName,
+        contactName,
+        contactId: currentLead?.lead_id,
+        campaignId: selectedCampaign?.id,
+        campaignName: selectedCampaign?.name,
+        callId: undefined, // Call ID would be returned from insert if needed
+        policyType: disp.name,
+      });
+    }
+
     toast.success("Disposition saved");
 
     // Remove the current lead from local queue and advance
