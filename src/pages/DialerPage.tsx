@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { supabase } from "@/integrations/supabase/client";
 import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
+import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { STATE_TIMEZONES, getContactLocalTime } from "@/utils/contactLocalTime";
 import { Skeleton } from "@/components/ui/skeleton";
