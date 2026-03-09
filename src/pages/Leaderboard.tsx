@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Trophy, Download, ArrowUp, ArrowDown, Minus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -100,6 +100,9 @@ const Leaderboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [goals, setGoals] = useState<Record<string, number>>({});
   const [scorecardAgent, setScorecardAgent] = useState<{ id: string; first_name: string; last_name: string } | null>(null);
+  const [changedAgents, setChangedAgents] = useState<Set<string>>(new Set());
+  const [changedWins, setChangedWins] = useState(false);
+  const prevAgentsRef = useRef<Map<string, string>>(new Map()); // id -> serialized metric values
 
   const computeStats = useCallback(async (profiles: { id: string; first_name: string; last_name: string }[], range: { start: Date; end: Date }) => {
     const startISO = range.start.toISOString();
@@ -172,13 +175,33 @@ const Leaderboard: React.FC = () => {
       a.prevRank = prevRankMap.get(a.id) ?? null;
     });
 
+    // Detect which agents changed
+    const changed = new Set<string>();
+    currentStats.forEach(a => {
+      const key = `${a.callsMade}-${a.policiesSold}-${a.appointmentsSet}-${a.talkTime}-${a.rank}`;
+      const prev = prevAgentsRef.current.get(a.id);
+      if (prev !== undefined && prev !== key) changed.add(a.id);
+      prevAgentsRef.current.set(a.id, key);
+    });
+    if (changed.size > 0) {
+      setChangedAgents(changed);
+      setTimeout(() => setChangedAgents(new Set()), 1500);
+    }
+
     setAgents(currentStats);
     setLoading(false);
   }, [period, metric, computeStats]);
 
+  const prevWinCountRef = useRef<number>(0);
   const fetchWins = useCallback(async () => {
     const { data } = await supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
-    setWins((data || []) as Win[]);
+    const newWins = (data || []) as Win[];
+    if (prevWinCountRef.current > 0 && newWins.length > prevWinCountRef.current) {
+      setChangedWins(true);
+      setTimeout(() => setChangedWins(false), 1500);
+    }
+    prevWinCountRef.current = newWins.length;
+    setWins(newWins);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -293,7 +316,7 @@ const Leaderboard: React.FC = () => {
                   <div
                     key={a.id}
                     onClick={() => openScorecard(a)}
-                    className={`bg-card rounded-xl border p-6 text-center hover:shadow-lg transition-all cursor-pointer ${podiumOrder(a.rank)} ${a.id === user?.id ? "ring-2 ring-primary/30" : ""}`}
+                    className={`bg-card rounded-xl border p-6 text-center hover:shadow-lg transition-all cursor-pointer ${podiumOrder(a.rank)} ${a.id === user?.id ? "ring-2 ring-primary/30" : ""} ${changedAgents.has(a.id) ? "animate-leaderboard-flash" : ""}`}
                   >
                     <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${mc.animate}`}>
                       <Trophy className={`w-8 h-8 ${mc.trophyColor}`} />
@@ -349,7 +372,7 @@ const Leaderboard: React.FC = () => {
                       const displayName = `${a.first_name} ${a.last_name?.[0] || ""}.`;
                       const isMe = a.id === user?.id;
                       return (
-                        <tr key={a.id} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isMe ? "bg-primary/5 border-l-2 border-primary" : ""}`}>
+                        <tr key={a.id} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isMe ? "bg-primary/5 border-l-2 border-primary" : ""} ${changedAgents.has(a.id) ? "animate-leaderboard-flash" : ""}`}>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-1">
                               <span className="font-bold text-foreground">{a.rank}</span>
@@ -392,7 +415,7 @@ const Leaderboard: React.FC = () => {
             </div>
 
             {/* Win Feed */}
-            <div className="bg-card rounded-xl border p-5">
+            <div className={`bg-card rounded-xl border p-5 ${changedWins ? "animate-leaderboard-flash" : ""}`}>
               <h3 className="font-semibold text-foreground mb-4">🏆 Recent Wins</h3>
               {wins.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No wins yet. Get dialing and close some deals! 🦈</p>
