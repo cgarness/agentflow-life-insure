@@ -617,7 +617,7 @@ const PricingPage: React.FC = () => {
           </motion.div>
           <motion.p variants={fadeUp} className="mt-5 text-sm text-muted-foreground">
             Questions?{" "}
-            <Link to="/login" className="text-primary hover:underline">
+            <Link to="/contact" className="text-primary hover:underline">
               Talk to our team →
             </Link>
           </motion.p>
