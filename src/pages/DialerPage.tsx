@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { supabase } from "@/integrations/supabase/client";
 import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
+import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { STATE_TIMEZONES, getContactLocalTime } from "@/utils/contactLocalTime";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -831,6 +832,20 @@ const DialerPage: React.FC = () => {
           agent_id: agentId,
         });
       }
+    }
+
+    // 7. Trigger win celebration if this is a sale disposition
+    if (isSaleDisposition(disp.name)) {
+      triggerWin({
+        agentId,
+        agentName,
+        contactName,
+        contactId: currentLead?.lead_id,
+        campaignId: selectedCampaign?.id,
+        campaignName: selectedCampaign?.name,
+        callId: undefined, // Call ID would be returned from insert if needed
+        policyType: disp.name,
+      });
     }
 
     toast.success("Disposition saved");

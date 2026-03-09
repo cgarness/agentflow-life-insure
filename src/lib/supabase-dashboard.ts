@@ -127,6 +127,22 @@ export interface OnboardingStatus {
   isNewUser: boolean;
 }
 
+export interface WinFeedEntry {
+  id: string;
+  agentName: string;
+  contactName: string;
+  campaignName: string | null;
+  createdAt: string;
+}
+
+export interface MissedCall {
+  id: string;
+  contactId: string | null;
+  contactName: string;
+  contactPhone: string;
+  startedAt: string;
+}
+
 export const dashboardSupabaseApi = {
   async getStats(userId: string, isAdmin: boolean): Promise<ExtendedDashboardStats> {
     const ranges = getDateRanges();
@@ -539,16 +555,53 @@ export const dashboardSupabaseApi = {
     return [];
   },
 
-  async getMissedCalls() {
-    return [];
+  async getMissedCalls(userId: string, isAdmin: boolean): Promise<MissedCall[]> {
+    const ranges = getDateRanges();
+    const tomorrowStart = new Date(ranges.todayStart.getTime() + 86400000);
+
+    let query = supabase
+      .from("calls")
+      .select("id, contact_id, contact_name, contact_phone, started_at")
+      .eq("duration", 0)
+      .eq("direction", "inbound")
+      .gte("started_at", ranges.todayStart.toISOString())
+      .lt("started_at", tomorrowStart.toISOString())
+      .order("started_at", { ascending: false })
+      .limit(10);
+
+    if (!isAdmin) {
+      query = query.eq("agent_id", userId);
+    }
+
+    const { data } = await query;
+
+    return (data ?? []).map((call) => ({
+      id: call.id,
+      contactId: call.contact_id,
+      contactName: call.contact_name || "Unknown",
+      contactPhone: call.contact_phone || "",
+      startedAt: call.started_at || "",
+    }));
   },
 
   async getAnniversaries() {
     return [];
   },
 
-  async getWins(): Promise<WinFeedItem[]> {
-    return [];
+  async getWinFeed(): Promise<WinFeedEntry[]> {
+    const { data } = await supabase
+      .from("wins")
+      .select("id, agent_name, contact_name, campaign_name, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    return (data ?? []).map((win) => ({
+      id: win.id,
+      agentName: win.agent_name || "Agent",
+      contactName: win.contact_name || "Contact",
+      campaignName: win.campaign_name,
+      createdAt: win.created_at,
+    }));
   },
 
   async getRecentActivity() {
