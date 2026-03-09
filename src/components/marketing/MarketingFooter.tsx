@@ -60,7 +60,11 @@ const MarketingFooter: React.FC = () => {
           <ul className="space-y-2.5 text-sm text-muted-foreground">
             {["About", "Blog", "Careers", "Contact", "Partners"].map((l) => (
               <li key={l}>
-                <span className="hover:text-foreground transition-colors cursor-pointer">{l}</span>
+                {l === "Contact" ? (
+                  <Link to="/contact" className="hover:text-foreground transition-colors">{l}</Link>
+                ) : (
+                  <span className="hover:text-foreground transition-colors cursor-pointer">{l}</span>
+                )}
               </li>
             ))}
           </ul>
