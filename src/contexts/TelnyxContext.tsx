@@ -66,7 +66,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const init = async () => {
       // 1. Fetch credentials
-      const { data: settings } = await supabase
+      const { data: settings } = await (supabase as any)
         .from("telnyx_settings")
         .select("api_key, connection_id, sip_username, sip_password")
         .eq("id", TELNYX_SETTINGS_ID)
