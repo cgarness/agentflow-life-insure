@@ -29,6 +29,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
+import PricingPage from "./pages/PricingPage";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -76,6 +77,7 @@ const App = () => (
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/landing" element={<LandingPage />} />
+                        <Route path="/pricing" element={<PricingPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/dialer" element={<DialerPage />} />
