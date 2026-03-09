@@ -66,7 +66,7 @@ const Reports: React.FC = () => {
 
   const effectiveAgent = useMemo(() => {
     if (!isAdmin && profile?.id) return profile.id;
-    return selectedAgent || undefined;
+    return selectedAgent && selectedAgent !== "all" ? selectedAgent : undefined;
   }, [isAdmin, profile, selectedAgent]);
 
   const nonAdminAgents = useMemo(() => agents.filter(a => a.role?.toLowerCase() !== "admin"), [agents]);
