@@ -138,7 +138,7 @@ const PhoneSettings: React.FC = () => {
   // Save credentials
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await supabase.from("telnyx_settings").upsert({
+    const { error } = await (supabase as any).from("telnyx_settings").upsert({
       id: TELNYX_SETTINGS_ID,
       api_key: apiKey,
       connection_id: connectionId,
