@@ -101,8 +101,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         client = new TelnyxRTC({
           login: tokenData.sip_username,
           password: tokenData.sip_password,
-          host: 'rtc.telnyx.com',
-        });
+        } as any);
 
         client.on("telnyx.ready", () => {
           if (mounted) {
