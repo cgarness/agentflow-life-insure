@@ -1,48 +1,27 @@
 
 
-# Plan: Populate Leaderboard Test Data
+## Plan: Add Dev-Only Auth Bypass via Query Parameter
 
-## Current State
-- 4 profiles exist: 1 admin (Chris Garness), 3 agents (Justify Kotelnycky, unnamed agent, test testi)
-- No call/win/appointment data to drive leaderboard animations
+**What**: Allow bypassing authentication in development by adding `?bypass_auth=true` to the URL. This lets the browser automation tool access protected routes without logging in.
 
-## What Needs to Happen
+**How**: Modify the `ProtectedRoute` component in `src/App.tsx` (lines 36-45) to check for the `bypass_auth=true` query parameter. The bypass will only work in development mode (`import.meta.env.DEV`).
 
-### 1. Create more agent profiles
-Insert 4 additional agent profiles so the leaderboard has 6-7 agents competing (more interesting visually).
+```typescript
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  const searchParams = new URLSearchParams(window.location.search);
+  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
+  
+  if (bypassAuth) return <>{children}</>;
+  if (isLoading) return (/* spinner */);
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+```
 
-### 2. Insert goals
-Add goals for calls, policies, and appointments so goal progress bars work.
+**Safety**: `import.meta.env.DEV` is `false` in production builds, so the bypass is completely stripped out. No security risk in deployed builds.
 
-### 3. Insert calls data (bulk)
-~200+ calls spread across agents over the last 30 days with varying dispositions (Sold, Not Interested, No Answer, Call Back, Appointment Set). This drives:
-- Call volume charts
-- Policies sold counts
-- Conversion rates
-- Talk time stats
-- Fire status (some agents get extra calls today)
+**Usage**: When asking me to test, I'll navigate to e.g. `/settings?bypass_auth=true`.
 
-### 4. Insert wins data
-~15-20 wins tied to agents so the Win Feed sidebar populates.
-
-### 5. Insert appointments
-~10-15 appointments so "Appointments Set" metric works.
-
-### 6. Insert dialer sessions
-A few sessions per agent for efficiency calculations.
-
-### 7. Insert dispositions
-Ensure the dispositions table has entries (Sold, Not Interested, No Answer, Call Back, Appointment Set) so disposition lookups work.
-
-## Data Distribution Strategy
-- Give one agent significantly more calls today (triggers "On Fire" / "Blazing")
-- Give one agent calls on 5+ consecutive days (triggers streak badge)
-- Make rankings close so auto-refresh cycles are likely to show rank changes
-- Spread wins across agents unevenly for competitive podium
-
-## Technical Details
-- All inserts use the Supabase insert tool (not migrations)
-- Agent IDs from existing profiles + 4 new ones
-- Calls spread across the current month with `started_at` timestamps
-- Some calls today to make "Today" period interesting
+**Note**: Profile-dependent features (user name, avatar, etc.) will show empty/null since there's no actual session. But it's sufficient for testing UI and OAuth flows.
 
