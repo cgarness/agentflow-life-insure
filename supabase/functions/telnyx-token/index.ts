@@ -1,4 +1,3 @@
-// Telnyx token edge function — generates a WebRTC credential token via the Telnyx API
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -13,7 +12,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
-
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -22,72 +20,42 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const connectionId = body.connection_id;
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
 
-    // Resolve API key: env var first, then DB fallback
-    let apiKey = Deno.env.get("TELNYX_API_KEY") || "";
+    const { data: settings, error: fetchError } = await supabaseClient
+      .from("telnyx_settings")
+      .select("api_key, connection_id, sip_username, sip_password")
+      .eq("id", TELNYX_SETTINGS_ID)
+      .maybeSingle();
 
-    if (!apiKey) {
-      const supabaseClient = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-      );
+    if (fetchError) throw new Error(`DB error: ${fetchError.message}`);
+    if (!settings) throw new Error("No Telnyx credentials found. Save them in Settings first.");
 
-      const { data: settings, error: fetchError } = await supabaseClient
-        .from("telnyx_settings")
-        .select("api_key")
-        .eq("id", TELNYX_SETTINGS_ID)
-        .maybeSingle();
+    const apiKey = Deno.env.get("TELNYX_API_KEY") || settings.api_key;
+    const sipUsername = settings.sip_username;
+    const sipPassword = settings.sip_password;
+    const connectionId = settings.connection_id;
 
-      if (fetchError) throw fetchError;
-      apiKey = settings?.api_key || "";
-    }
-
-    if (!apiKey) {
-      throw new Error("Telnyx API key not configured. Set it in Settings → Telnyx & Phone Numbers.");
-    }
-
-    if (!connectionId) {
-      throw new Error("connection_id is required in the request body.");
-    }
-
-    // Call Telnyx API to create a telephony credential (WebRTC token)
-    const telnyxRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ connection_id: connectionId }),
-    });
-
-    if (!telnyxRes.ok) {
-      const errorBody = await telnyxRes.text();
-      throw new Error(`Telnyx API error (${telnyxRes.status}): ${errorBody}`);
-    }
-
-    const telnyxData = await telnyxRes.json();
-    const token = telnyxData?.data?.token;
-
-    if (!token) {
-      throw new Error("No token returned from Telnyx API. Check your Connection ID and API Key.");
-    }
+    if (!apiKey) throw new Error("No API key configured.");
+    if (!sipUsername || !sipPassword) throw new Error("No SIP credentials configured. Enter SIP Username and Password in Settings.");
+    if (!connectionId) throw new Error("No Connection ID configured.");
 
     return new Response(
-      JSON.stringify({ token }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({
+        sip_username: sipUsername,
+        sip_password: sipPassword,
+        connection_id: connectionId,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error: unknown) {
+
+  } catch (error) {
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Internal server error" }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
