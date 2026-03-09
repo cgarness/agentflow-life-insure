@@ -415,7 +415,7 @@ const Dashboard: React.FC = () => {
             </Button>
             <Button
               onClick={() => navigate("/calendar")}
-              className="bg-purple-600 hover:bg-purple-700 text-white"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground"
             >
               <Calendar className="w-4 h-4 mr-2" />
               Schedule Appointment
