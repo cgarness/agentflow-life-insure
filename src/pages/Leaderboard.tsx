@@ -192,9 +192,16 @@ const Leaderboard: React.FC = () => {
     setLoading(false);
   }, [period, metric, computeStats]);
 
+  const prevWinCountRef = useRef<number>(0);
   const fetchWins = useCallback(async () => {
     const { data } = await supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
-    setWins((data || []) as Win[]);
+    const newWins = (data || []) as Win[];
+    if (prevWinCountRef.current > 0 && newWins.length > prevWinCountRef.current) {
+      setChangedWins(true);
+      setTimeout(() => setChangedWins(false), 1500);
+    }
+    prevWinCountRef.current = newWins.length;
+    setWins(newWins);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
