@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import FloatingDialer from "./FloatingDialer";
+import WinCelebration from "@/components/WinCelebration";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { AgentStatusProvider } from "@/contexts/AgentStatusContext";
 
@@ -20,6 +21,7 @@ const AppLayout: React.FC = () => {
           </div>
         </main>
         <FloatingDialer />
+        <WinCelebration />
       </div>
     </AgentStatusProvider>
   );
