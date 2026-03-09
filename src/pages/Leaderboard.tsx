@@ -372,7 +372,7 @@ const Leaderboard: React.FC = () => {
                       const displayName = `${a.first_name} ${a.last_name?.[0] || ""}.`;
                       const isMe = a.id === user?.id;
                       return (
-                        <tr key={a.id} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isMe ? "bg-primary/5 border-l-2 border-primary" : ""}`}>
+                        <tr key={a.id} className={`border-b last:border-0 hover:bg-accent/30 transition-colors ${isMe ? "bg-primary/5 border-l-2 border-primary" : ""} ${changedAgents.has(a.id) ? "animate-leaderboard-flash" : ""}`}>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-1">
                               <span className="font-bold text-foreground">{a.rank}</span>
