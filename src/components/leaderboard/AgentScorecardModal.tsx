@@ -22,6 +22,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agent: AgentData | null;
+  badges?: BadgeType[];
 }
 
 interface WeekStats {
