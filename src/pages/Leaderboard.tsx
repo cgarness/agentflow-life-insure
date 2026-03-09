@@ -100,6 +100,9 @@ const Leaderboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [goals, setGoals] = useState<Record<string, number>>({});
   const [scorecardAgent, setScorecardAgent] = useState<{ id: string; first_name: string; last_name: string } | null>(null);
+  const [changedAgents, setChangedAgents] = useState<Set<string>>(new Set());
+  const [changedWins, setChangedWins] = useState(false);
+  const prevAgentsRef = useRef<Map<string, string>>(new Map()); // id -> serialized metric values
 
   const computeStats = useCallback(async (profiles: { id: string; first_name: string; last_name: string }[], range: { start: Date; end: Date }) => {
     const startISO = range.start.toISOString();
