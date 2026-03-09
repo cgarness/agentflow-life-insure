@@ -1,57 +1,60 @@
 import React, { useMemo, useState } from "react";
-import { Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { parseISO } from "date-fns";
 import { downloadCSV } from "@/lib/reports-queries";
+import { Lightbulb } from "lucide-react";
+import ReportSection from "./ReportSection";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const HOURS = Array.from({ length: 13 }, (_, i) => i + 8); // 8AM to 8PM
+const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
 
-interface Props {
-  calls: any[];
-  loading: boolean;
-}
-
+interface Props { calls: any[]; loading: boolean; }
 type Tab = "volume" | "answer";
 
 const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
   const [tab, setTab] = useState<Tab>("volume");
 
-  const { volumeGrid, answerGrid, maxVolume } = useMemo(() => {
+  const { volumeGrid, answerGrid, maxVolume, bestSlots } = useMemo(() => {
     const volume: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
     const answered: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
-    const total: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
 
     calls.forEach(c => {
       const d = parseISO(c.started_at);
       const day = d.getDay();
       const hour = d.getHours();
       if (hour >= 8 && hour <= 20) {
-        const hi = hour - 8;
-        volume[day][hi]++;
-        total[day][hi]++;
-        if ((c.duration || 0) > 0) answered[day][hi]++;
+        volume[day][hour - 8]++;
+        if ((c.duration || 0) > 0) answered[day][hour - 8]++;
       }
     });
 
     let maxV = 0;
     volume.forEach(row => row.forEach(v => { if (v > maxV) maxV = v; }));
 
-    const answerGrid = total.map((row, di) =>
+    const answerGrid = volume.map((row, di) =>
       row.map((t, hi) => t > 0 ? Math.round(answered[di][hi] / t * 100) : -1)
     );
 
-    return { volumeGrid: volume, answerGrid, maxVolume: maxV };
+    // Best slots
+    const slots: { day: number; hour: number; rate: number; count: number }[] = [];
+    volume.forEach((row, di) => row.forEach((t, hi) => {
+      if (t >= 5) {
+        const rate = answerGrid[di][hi];
+        if (rate > 0) slots.push({ day: di, hour: hi + 8, rate, count: t });
+      }
+    }));
+    slots.sort((a, b) => b.rate - a.rate);
+
+    return { volumeGrid: volume, answerGrid, maxVolume: maxV, bestSlots: slots.slice(0, 3) };
   }, [calls]);
 
   const getVolumeColor = (v: number) => {
     if (v === 0) return "bg-accent";
-    const intensity = maxVolume > 0 ? v / maxVolume : 0;
-    if (intensity < 0.25) return "bg-primary/20";
-    if (intensity < 0.5) return "bg-primary/40";
-    if (intensity < 0.75) return "bg-primary/60";
+    const i = maxVolume > 0 ? v / maxVolume : 0;
+    if (i < 0.25) return "bg-primary/20";
+    if (i < 0.5) return "bg-primary/40";
+    if (i < 0.75) return "bg-primary/60";
     return "bg-primary/90";
   };
 
@@ -63,42 +66,34 @@ const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
     return "bg-success/60";
   };
 
+  const fmtHour = (h: number) => `${h > 12 ? h - 12 : h}${h >= 12 ? "PM" : "AM"}`;
+
   const handleExport = () => {
-    const headers = ["Day/Hour", ...HOURS.map(h => `${h > 12 ? h - 12 : h}${h >= 12 ? "PM" : "AM"}`)];
+    const headers = ["Day/Hour", ...HOURS.map(h => fmtHour(h))];
     const grid = tab === "volume" ? volumeGrid : answerGrid;
-    const rows = DAYS.map((d, di) => [d, ...grid[di].map(v => tab === "answer" && v < 0 ? "N/A" : String(v))]);
-    downloadCSV(`calling-heatmap-${tab}`, headers, rows);
+    downloadCSV(`calling-heatmap-${tab}`, headers, DAYS.map((d, di) => [d, ...grid[di].map(v => tab === "answer" && v < 0 ? "N/A" : String(v))]));
   };
 
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-[250px]" /></div>;
+  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[280px]" /></div>;
 
   const grid = tab === "volume" ? volumeGrid : answerGrid;
 
   return (
-    <div className="bg-card rounded-xl border p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-foreground">Calling Times</h3>
-        <div className="flex items-center gap-2">
-          {(["volume", "answer"] as Tab[]).map(t => (
-            <button key={t} onClick={() => setTab(t)} className={`px-2.5 py-1 text-xs rounded-md capitalize ${t === tab ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
-              {t === "volume" ? "Call Volume" : "Answer Rate"}
-            </button>
-          ))}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleExport}><Download className="w-3.5 h-3.5" /></Button>
-        </div>
+    <ReportSection title="Calling Times Heatmap" onExport={handleExport}>
+      <div className="flex items-center gap-1 mb-3">
+        {(["volume", "answer"] as Tab[]).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-2.5 py-1 text-xs rounded-md ${t === tab ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
+            {t === "volume" ? "Call Volume" : "Answer Rate"}
+          </button>
+        ))}
       </div>
       <TooltipProvider>
         <div className="overflow-x-auto">
           <div className="min-w-[500px]">
-            {/* Hour headers */}
             <div className="flex mb-1 ml-10">
-              {HOURS.map(h => (
-                <div key={h} className="flex-1 text-center text-[10px] text-muted-foreground">
-                  {h > 12 ? h - 12 : h}{h >= 12 ? "p" : "a"}
-                </div>
-              ))}
+              {HOURS.map(h => <div key={h} className="flex-1 text-center text-[10px] text-muted-foreground">{h > 12 ? h - 12 : h}{h >= 12 ? "p" : "a"}</div>)}
             </div>
-            {/* Grid rows */}
             {DAYS.map((day, di) => (
               <div key={day} className="flex items-center mb-0.5">
                 <span className="w-10 text-xs text-muted-foreground shrink-0">{day}</span>
@@ -106,19 +101,17 @@ const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
                   {HOURS.map((h, hi) => {
                     const val = grid[di][hi];
                     const colorClass = tab === "volume" ? getVolumeColor(val) : getAnswerColor(val);
-                    const totalCalls = volumeGrid[di][hi];
-                    const answerRate = answerGrid[di][hi];
                     return (
                       <Tooltip key={hi}>
                         <TooltipTrigger asChild>
                           <div className={`flex-1 aspect-square rounded-sm ${colorClass} flex items-center justify-center cursor-default`}>
-                            {totalCalls > 0 && <span className="text-[9px] font-medium text-foreground/70">{tab === "volume" ? val : `${val}%`}</span>}
+                            {volumeGrid[di][hi] > 0 && <span className="text-[9px] font-medium text-foreground/70">{tab === "volume" ? val : `${val}%`}</span>}
                           </div>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="text-xs">
-                          <p>{day} {h > 12 ? h - 12 : h}:00 {h >= 12 ? "PM" : "AM"}</p>
-                          <p>Calls: {totalCalls}</p>
-                          <p>Answer rate: {answerRate >= 0 ? `${answerRate}%` : "N/A"}</p>
+                          <p>{day} {fmtHour(h)}</p>
+                          <p>Calls: {volumeGrid[di][hi]}</p>
+                          <p>Answer rate: {answerGrid[di][hi] >= 0 ? `${answerGrid[di][hi]}%` : "N/A"}</p>
                         </TooltipContent>
                       </Tooltip>
                     );
@@ -129,7 +122,19 @@ const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
           </div>
         </div>
       </TooltipProvider>
-    </div>
+
+      {bestSlots.length > 0 && (
+        <div className="mt-3 bg-primary/5 rounded-lg p-3 flex items-start gap-2">
+          <Lightbulb className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+          <p className="text-xs text-foreground">
+            <span className="font-medium">Best calling windows: </span>
+            {bestSlots.map((s, i) => (
+              <span key={i}>{DAYS[s.day]} {fmtHour(s.hour)} ({s.rate}% answer rate){i < bestSlots.length - 1 ? ", " : ""}</span>
+            ))}
+          </p>
+        </div>
+      )}
+    </ReportSection>
   );
 };
 

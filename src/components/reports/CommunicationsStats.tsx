@@ -1,76 +1,83 @@
 import React, { useMemo } from "react";
-import { Download, Phone, MessageSquare, Mail, Lock } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Phone, MessageSquare, Mail, Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDuration, downloadCSV } from "@/lib/reports-queries";
+import { formatDuration, formatHours, downloadCSV, DateRange } from "@/lib/reports-queries";
+import { differenceInDays } from "date-fns";
+import ReportSection from "./ReportSection";
 
-interface Props {
-  calls: any[];
-  loading: boolean;
-}
+interface Props { calls: any[]; compCalls?: any[]; range: DateRange; loading: boolean; comparing: boolean; }
 
-const CommunicationsStats: React.FC<Props> = ({ calls, loading }) => {
-  const stats = useMemo(() => {
-    const outbound = calls.filter(c => c.direction === "outbound").length;
-    const inbound = calls.filter(c => c.direction === "inbound").length;
-    const withDuration = calls.filter(c => (c.duration || 0) > 0);
-    const avgDuration = withDuration.length > 0
-      ? withDuration.reduce((sum, c) => sum + (c.duration || 0), 0) / withDuration.length
-      : 0;
-    const answerRate = calls.length > 0 ? Math.round(withDuration.length / calls.length * 100) : 0;
-    return { outbound, inbound, avgDuration, answerRate };
-  }, [calls]);
+const StatCard = ({ label, value, compValue, comparing }: { label: string; value: string; compValue?: string; comparing: boolean }) => {
+  return (
+    <div className="bg-accent/50 rounded-lg p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-lg font-bold text-foreground">{value}</p>
+      {comparing && compValue && <p className="text-xs text-muted-foreground mt-0.5">prev: {compValue}</p>}
+    </div>
+  );
+};
+
+const CommunicationsStats: React.FC<Props> = ({ calls, compCalls, range, loading, comparing }) => {
+  const compute = (c: any[], r: DateRange) => {
+    const outbound = c.filter(x => x.direction === "outbound").length;
+    const inbound = c.filter(x => x.direction === "inbound").length;
+    const withDur = c.filter(x => (x.duration || 0) > 0);
+    const avgDur = withDur.length > 0 ? withDur.reduce((s, x) => s + (x.duration || 0), 0) / withDur.length : 0;
+    const answerRate = c.length > 0 ? Math.round(withDur.length / c.length * 100) : 0;
+    const days = Math.max(1, differenceInDays(r.end, r.start) + 1);
+    const callsPerDay = +(c.length / days).toFixed(1);
+    const totalTalkTime = c.reduce((s, x) => s + (x.duration || 0), 0);
+    const longest = c.reduce((best, x) => (x.duration || 0) > (best?.duration || 0) ? x : best, c[0]);
+    const shortestConn = withDur.reduce((best, x) => !best || x.duration < best.duration ? x : best, null as any);
+    return { outbound, inbound, avgDur, answerRate, callsPerDay, totalTalkTime, longest, shortestConn };
+  };
+
+  const stats = useMemo(() => compute(calls, range), [calls, range]);
+  const compStats = useMemo(() => compCalls ? compute(compCalls, range) : null, [compCalls, range]);
 
   const handleExport = () => {
     downloadCSV("communications-stats", ["Metric", "Value"], [
-      ["Outbound Calls", String(stats.outbound)],
-      ["Inbound Calls", String(stats.inbound)],
-      ["Average Duration", formatDuration(stats.avgDuration)],
-      ["Answer Rate", `${stats.answerRate}%`],
+      ["Outbound", String(stats.outbound)], ["Inbound", String(stats.inbound)],
+      ["Avg Duration", formatDuration(stats.avgDur)], ["Answer Rate", `${stats.answerRate}%`],
+      ["Calls/Day", String(stats.callsPerDay)], ["Total Talk Time", formatHours(stats.totalTalkTime)],
     ]);
   };
 
-  if (loading) return <div className="bg-card rounded-xl border p-5 space-y-3"><Skeleton className="h-6 w-40" /><Skeleton className="h-24" /><Skeleton className="h-24" /><Skeleton className="h-24" /></div>;
+  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[300px]" /></div>;
 
   return (
-    <div className="space-y-4">
-      {/* Calls */}
-      <div className="bg-card rounded-xl border p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-primary" />
-            <h3 className="font-semibold text-foreground text-sm">Calls</h3>
-          </div>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleExport}><Download className="w-3.5 h-3.5" /></Button>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-accent/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Outbound</p><p className="text-lg font-bold text-foreground">{stats.outbound}</p></div>
-          <div className="bg-accent/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Inbound</p><p className="text-lg font-bold text-foreground">{stats.inbound}</p></div>
-          <div className="bg-accent/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Avg Duration</p><p className="text-lg font-bold text-foreground">{formatDuration(stats.avgDuration)}</p></div>
-          <div className="bg-accent/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Answer Rate</p><p className="text-lg font-bold text-foreground">{stats.answerRate}%</p></div>
-        </div>
-      </div>
-
-      {/* SMS Placeholder */}
-      <div className="bg-card rounded-xl border p-5 opacity-60">
+    <ReportSection title="Communications Stats" onExport={handleExport}>
+      <div className="space-y-4">
         <div className="flex items-center gap-2 mb-2">
+          <Phone className="w-4 h-4 text-primary" /><span className="text-sm font-semibold text-foreground">Calls</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard label="Outbound" value={String(stats.outbound)} compValue={compStats ? String(compStats.outbound) : undefined} comparing={comparing} />
+          <StatCard label="Inbound" value={String(stats.inbound)} compValue={compStats ? String(compStats.inbound) : undefined} comparing={comparing} />
+          <StatCard label="Avg Duration" value={formatDuration(stats.avgDur)} compValue={compStats ? formatDuration(compStats.avgDur) : undefined} comparing={comparing} />
+          <StatCard label="Answer Rate" value={`${stats.answerRate}%`} compValue={compStats ? `${compStats.answerRate}%` : undefined} comparing={comparing} />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard label="Calls/Day" value={String(stats.callsPerDay)} comparing={false} />
+          <StatCard label="Total Talk Time" value={formatHours(stats.totalTalkTime)} comparing={false} />
+          <StatCard label="Longest Call" value={stats.longest ? `${formatDuration(stats.longest.duration)} — ${stats.longest.contact_name || "Unknown"}` : "—"} comparing={false} />
+          <StatCard label="Shortest Connected" value={stats.shortestConn ? `${formatDuration(stats.shortestConn.duration)} — ${stats.shortestConn.contact_name || "Unknown"}` : "—"} comparing={false} />
+        </div>
+
+        {/* SMS placeholder */}
+        <div className="bg-accent/30 rounded-lg p-4 opacity-60 flex items-center gap-3">
           <MessageSquare className="w-4 h-4 text-muted-foreground" />
-          <h3 className="font-semibold text-muted-foreground text-sm">SMS</h3>
-          <Lock className="w-3.5 h-3.5 text-muted-foreground ml-auto" />
+          <span className="text-xs text-muted-foreground flex-1">SMS analytics available when Telnyx SMS is configured</span>
+          <Lock className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
-        <p className="text-xs text-muted-foreground">SMS analytics will be available when Telnyx SMS is configured in Settings</p>
-      </div>
-
-      {/* Email Placeholder */}
-      <div className="bg-card rounded-xl border p-5 opacity-60">
-        <div className="flex items-center gap-2 mb-2">
+        {/* Email placeholder */}
+        <div className="bg-accent/30 rounded-lg p-4 opacity-60 flex items-center gap-3">
           <Mail className="w-4 h-4 text-muted-foreground" />
-          <h3 className="font-semibold text-muted-foreground text-sm">Email</h3>
-          <Lock className="w-3.5 h-3.5 text-muted-foreground ml-auto" />
+          <span className="text-xs text-muted-foreground flex-1">Email analytics available when SMTP is configured</span>
+          <Lock className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
-        <p className="text-xs text-muted-foreground">Email analytics will be available when SMTP is configured in Settings</p>
       </div>
-    </div>
+    </ReportSection>
   );
 };
 

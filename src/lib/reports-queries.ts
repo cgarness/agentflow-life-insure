@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { startOfDay, endOfDay, format, differenceInDays, parseISO } from "date-fns";
+import { startOfDay, endOfDay, format, differenceInDays, parseISO, startOfMonth, subDays } from "date-fns";
 
 export interface DateRange {
   start: Date;
@@ -11,6 +11,7 @@ export interface AgentProfile {
   first_name: string;
   last_name: string;
   role: string;
+  email: string;
 }
 
 export type Grouping = "daily" | "weekly" | "monthly";
@@ -28,10 +29,16 @@ export function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+export function formatHours(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
 export async function fetchProfiles(): Promise<AgentProfile[]> {
   const { data } = await supabase
     .from("profiles")
-    .select("id, first_name, last_name, role")
+    .select("id, first_name, last_name, role, email")
     .order("first_name");
   return (data || []) as AgentProfile[];
 }
@@ -39,7 +46,7 @@ export async function fetchProfiles(): Promise<AgentProfile[]> {
 export async function fetchCallsRaw(range: DateRange, agentId?: string) {
   let q = supabase
     .from("calls")
-    .select("id, agent_id, started_at, duration, direction, disposition_name, disposition_id, outcome, contact_name")
+    .select("id, agent_id, started_at, duration, direction, disposition_name, disposition_id, outcome, contact_name, contact_id, contact_phone, campaign_id, campaign_lead_id")
     .gte("started_at", startOfDay(range.start).toISOString())
     .lte("started_at", endOfDay(range.end).toISOString());
   if (agentId) q = q.eq("agent_id", agentId);
@@ -64,7 +71,7 @@ export async function fetchCampaignsWithStats() {
 export async function fetchLeads(range: DateRange, agentId?: string) {
   let q = supabase
     .from("leads")
-    .select("id, lead_source, status, last_contacted_at, created_at, assigned_agent_id")
+    .select("id, lead_source, status, last_contacted_at, created_at, assigned_agent_id, phone, state")
     .gte("created_at", startOfDay(range.start).toISOString())
     .lte("created_at", endOfDay(range.end).toISOString());
   if (agentId) q = q.eq("assigned_agent_id", agentId);
@@ -72,18 +79,85 @@ export async function fetchLeads(range: DateRange, agentId?: string) {
   return data || [];
 }
 
-export async function fetchWins(range: DateRange, agentId?: string) {
+export async function fetchDialerSessions(range: DateRange, agentId?: string) {
   let q = supabase
-    .from("wins")
-    .select("*")
-    .gte("created_at", startOfDay(range.start).toISOString())
-    .lte("created_at", endOfDay(range.end).toISOString());
+    .from("dialer_sessions")
+    .select("id, agent_id, started_at, ended_at, calls_made, calls_connected, policies_sold, total_talk_time")
+    .gte("started_at", startOfDay(range.start).toISOString())
+    .lte("started_at", endOfDay(range.end).toISOString());
   if (agentId) q = q.eq("agent_id", agentId);
   const { data } = await q;
   return data || [];
 }
 
-// Grouping helpers
+export async function fetchGoals() {
+  const { data } = await supabase.from("goals").select("*");
+  return data || [];
+}
+
+export async function fetchCampaignLeads(range: DateRange) {
+  const { data } = await supabase
+    .from("campaign_leads")
+    .select("id, campaign_id, call_attempts, first_name, last_name, status, disposition, created_at")
+    .gte("created_at", startOfDay(range.start).toISOString())
+    .lte("created_at", endOfDay(range.end).toISOString());
+  return data || [];
+}
+
+export async function fetchLeadSourceCosts() {
+  const { data } = await supabase.from("lead_source_costs").select("*");
+  return data || [];
+}
+
+export async function upsertLeadSourceCost(leadSource: string, cost: number) {
+  const { error } = await supabase.from("lead_source_costs").upsert(
+    { lead_source: leadSource, cost, updated_at: new Date().toISOString() },
+    { onConflict: "lead_source" }
+  );
+  if (error) throw error;
+}
+
+export async function fetchSavedReports() {
+  const { data } = await supabase
+    .from("saved_reports")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return data || [];
+}
+
+export async function createSavedReport(name: string, config: any, userId: string) {
+  const { error } = await supabase.from("saved_reports").insert({ name, config, created_by: userId });
+  if (error) throw error;
+}
+
+export async function deleteSavedReport(id: string) {
+  const { error } = await supabase.from("saved_reports").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchScheduledReports() {
+  const { data } = await supabase
+    .from("scheduled_reports")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return data || [];
+}
+
+export async function createScheduledReport(report: any) {
+  const { error } = await supabase.from("scheduled_reports").insert(report);
+  if (error) throw error;
+}
+
+export async function updateScheduledReport(id: string, updates: any) {
+  const { error } = await supabase.from("scheduled_reports").update(updates).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteScheduledReport(id: string) {
+  const { error } = await supabase.from("scheduled_reports").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export function groupByDate(dateStr: string, grouping: Grouping): string {
   const d = parseISO(dateStr);
   if (grouping === "daily") return format(d, "MMM dd");
@@ -104,4 +178,14 @@ export function downloadCSV(filename: string, headers: string[], rows: string[][
   a.download = `${filename}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function getAgentName(agents: AgentProfile[], id: string): string {
+  const a = agents.find(a => a.id === id);
+  return a ? `${a.first_name} ${a.last_name?.charAt(0) || ""}.` : "Unknown";
+}
+
+export function isSoldDisposition(name: string | null): boolean {
+  const dn = (name || "").toLowerCase();
+  return dn.includes("sold") || dn.includes("policy");
 }
