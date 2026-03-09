@@ -66,7 +66,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const init = async () => {
       // 1. Fetch credentials
-      const { data: settings } = await supabase
+      const { data: settings } = await (supabase as any)
         .from("telnyx_settings")
         .select("api_key, connection_id, sip_username, sip_password")
         .eq("id", TELNYX_SETTINGS_ID)
@@ -101,8 +101,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         client = new TelnyxRTC({
           login: tokenData.sip_username,
           password: tokenData.sip_password,
-          host: 'rtc.telnyx.com',
-        });
+        } as any);
 
         client.on("telnyx.ready", () => {
           if (mounted) {
@@ -187,12 +186,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Call duration timer — start when active, stop otherwise
   useEffect(() => {
-    if (callState === "active") {
+    if (callState === "dialing") {
       setCallDuration(0);
       timerRef.current = setInterval(() => {
         setCallDuration((d) => d + 1);
       }, 1000);
-    } else if (callState !== "active" && timerRef.current) {
+    } else if (callState === "ended" && timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }

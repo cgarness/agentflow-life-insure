@@ -22,7 +22,7 @@ const LoginPage: React.FC = () => {
     try {
       await login(email, password);
       setAccessGranted(true);
-      setTimeout(() => navigate("/"), 1200);
+      setTimeout(() => navigate("/dashboard"), 1200);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message || "Invalid credentials");
     } finally {

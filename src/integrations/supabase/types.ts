@@ -1277,6 +1277,33 @@ export type Database = {
         }
         Relationships: []
       }
+      telnyx_settings: {
+        Row: {
+          api_key: string | null
+          connection_id: string | null
+          id: string
+          sip_password: string | null
+          sip_username: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          api_key?: string | null
+          connection_id?: string | null
+          id?: string
+          sip_password?: string | null
+          sip_username?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          api_key?: string | null
+          connection_id?: string | null
+          id?: string
+          sip_password?: string | null
+          sip_username?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       user_preferences: {
         Row: {
           id: string
