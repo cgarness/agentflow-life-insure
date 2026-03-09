@@ -127,6 +127,22 @@ export interface OnboardingStatus {
   isNewUser: boolean;
 }
 
+export interface WinFeedEntry {
+  id: string;
+  agentName: string;
+  contactName: string;
+  campaignName: string | null;
+  createdAt: string;
+}
+
+export interface MissedCall {
+  id: string;
+  contactId: string | null;
+  contactName: string;
+  contactPhone: string;
+  startedAt: string;
+}
+
 export const dashboardSupabaseApi = {
   async getStats(userId: string, isAdmin: boolean): Promise<ExtendedDashboardStats> {
     const ranges = getDateRanges();
