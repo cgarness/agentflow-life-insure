@@ -80,7 +80,6 @@ const App = () => (
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/" element={<LandingPage />} />
-                        <Route path="/landing" element={<LandingPage />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

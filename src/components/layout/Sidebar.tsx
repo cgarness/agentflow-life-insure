@@ -103,7 +103,7 @@ const Sidebar: React.FC = () => {
           const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
           const linkContent = (
             <NavLink
-              to={item.path}
+              to={{ pathname: item.path, search: location.search }}
               onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium sidebar-transition group relative
                 ${isActive
