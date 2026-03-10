@@ -5,7 +5,7 @@ import {
   AlertTriangle, Delete, Lock,
   Zap, ExternalLink, FileText,
   CalendarPlus, CheckCircle,
-  Pencil, Send,
+  Pencil, Send, Eye,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -267,6 +267,11 @@ const DialerPage: React.FC = () => {
   const [messageSubject, setMessageSubject] = useState("");
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
 
+  /* ── Telnyx Numbers (from DB) ── */
+  const [telnyxNumbers, setTelnyxNumbers] = useState<{ id: string; phone_number: string; label: string | null; is_default: boolean }[]>([]);
+  const [telnyxNumbersLoading, setTelnyxNumbersLoading] = useState(true);
+  const [selectedFromNumberId, setSelectedFromNumberId] = useState<string | null>(null);
+
   /* ── Session summary modal ── */
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{ calls: number; connected: number; talkTime: number; duration: number } | null>(null);
@@ -313,6 +318,39 @@ const DialerPage: React.FC = () => {
   }, []);
 
   useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
+
+  /* ── Fetch telnyx_numbers ── */
+  useEffect(() => {
+    const fetchTelnyxNumbers = async () => {
+      setTelnyxNumbersLoading(true);
+      const { data, error } = await supabase
+        .from("telnyx_numbers")
+        .select("id, phone_number, label, is_default");
+      if (data && data.length > 0) {
+        setTelnyxNumbers(data);
+        const defaultNum = data.find((n: any) => n.is_default);
+        setSelectedFromNumberId(defaultNum ? defaultNum.id : data[0].id);
+      } else {
+        // Fallback
+        setTelnyxNumbers([{ id: "fallback", phone_number: "+19097381193", label: "Main Line", is_default: true }]);
+        setSelectedFromNumberId("fallback");
+      }
+      setTelnyxNumbersLoading(false);
+    };
+    fetchTelnyxNumbers();
+  }, []);
+
+  const selectedFromNumber = telnyxNumbers.find((n) => n.id === selectedFromNumberId);
+
+  /* ── Mock conversation data for unified panel ── */
+  const mockConversation = useMemo(() => [
+    { id: "mock-sms-1", direction: "outbound", channel: "sms", text: `Hi ${currentLead?.first_name || "there"}, this is ${agentName}. I'm reaching out regarding your life insurance inquiry. Do you have a few minutes to chat?`, timestamp: "2026-03-10T09:15:00Z" },
+    { id: "mock-sms-2", direction: "outbound", channel: "sms", text: "I have some great options that could fit your budget. Let me know when works best for a quick call!", timestamp: "2026-03-10T09:16:00Z" },
+    { id: "mock-sms-3", direction: "inbound", channel: "sms", text: "Hi! Yes I'm interested. Can you call me this afternoon?", timestamp: "2026-03-10T10:30:00Z" },
+    { id: "mock-call-1", type: "call", disposition: "Callback Requested", duration: "3:42", timestamp: "2026-03-10T14:00:00Z" },
+    { id: "mock-email-1", direction: "outbound", channel: "email", text: `Hi ${currentLead?.first_name || "there"}, following up on our call today. Attached are the policy details we discussed. Please review and let me know if you have questions.`, timestamp: "2026-03-10T14:30:00Z" },
+    { id: "mock-note-1", type: "note", text: "Client interested in whole life policy, wants to discuss with spouse first. Follow up Thursday.", timestamp: "2026-03-10T14:35:00Z" },
+  ], [currentLead?.first_name, agentName]);
 
   /* ── Fetch campaigns ── */
   useEffect(() => {
@@ -1165,6 +1203,74 @@ const DialerPage: React.FC = () => {
         ))}
       </div>
 
+      {/* ── Action Bar + Status Row ── */}
+      {currentLead && (
+        <div className="shrink-0 bg-card border border-border rounded-xl px-4 py-3 mb-3 flex items-center justify-between gap-4">
+          {/* LEFT: 2x2 action grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Call / End Call */}
+            {callStatus === "idle" ? (
+              <button onClick={() => handleCall()} disabled={dncChecking}
+                className="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+              </button>
+            ) : callStatus !== "ended" ? (
+              <button onClick={handleHangUp}
+                className="bg-destructive text-destructive-foreground rounded-lg px-4 py-2 text-sm font-bold flex items-center justify-center gap-2 hover:bg-destructive/90 transition-colors">
+                <PhoneOff className="w-4 h-4" /> End Call
+              </button>
+            ) : (
+              <button disabled className="bg-green-600/50 text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center justify-center gap-2 opacity-50 cursor-not-allowed">
+                <Phone className="w-4 h-4" /> Call
+              </button>
+            )}
+            {/* Skip */}
+            <button onClick={handleSkipLead} disabled={callStatus !== "idle"}
+              className="bg-muted text-foreground rounded-lg px-4 py-2 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
+              <SkipForward className="w-4 h-4" /> Skip
+            </button>
+            {/* Schedule */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="border border-purple-500/50 text-purple-600 rounded-lg px-4 py-2 text-sm font-bold hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2">
+                  <CalendarPlus className="w-4 h-4" /> Schedule
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-3" align="start">
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm">Schedule Appointment</h4>
+                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                  <div className="flex gap-2">
+                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                    <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            {/* Full View */}
+            {currentLead?.lead_id ? (
+              <button
+                onClick={() => navigate(`/leads/${currentLead.lead_id}`)}
+                className="border border-border bg-muted text-foreground rounded-lg px-4 py-2 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2"
+              >
+                <Eye className="w-4 h-4" /> Full View
+              </button>
+            ) : (
+              <button disabled className="border border-border bg-muted text-foreground/50 rounded-lg px-4 py-2 text-sm font-bold flex items-center justify-center gap-2 opacity-40 cursor-not-allowed">
+                <Eye className="w-4 h-4" /> Full View
+              </button>
+            )}
+          </div>
+          {/* RIGHT: Status pill */}
+          <div className={cn("flex items-center gap-2 rounded-full px-3 py-1.5", dialerReady ? "bg-green-500/10" : "bg-yellow-500/10")}>
+            <span className={cn("w-2 h-2 rounded-full animate-pulse", dialerReady ? "bg-green-500" : "bg-yellow-500")} />
+            <span className={cn("text-xs font-medium whitespace-nowrap", dialerReady ? "text-green-600" : "text-yellow-600")}>
+              {dialerReady ? "Dialer Ready" : "Initializing..."}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ── Main Workspace ── */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-3 min-h-0 overflow-hidden">
 
@@ -1240,33 +1346,27 @@ const DialerPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Schedule & Full View buttons */}
-                    <div className="flex gap-2 pt-2">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <button className="flex-1 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 transition-colors px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5">
-                            <CalendarPlus className="w-3.5 h-3.5" /> Schedule
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-3" align="end">
-                          <div className="space-y-3">
-                            <h4 className="font-semibold text-sm">Schedule Appointment</h4>
-                            <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
-                            <div className="flex gap-2">
-                              <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
-                              <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
+                    {/* Pinned Notes (moved from Scripts tab) */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Pinned Notes</h4>
+                      {contactNotes.length > 0 && (
+                        <div className="space-y-1">
+                          {contactNotes.filter((n) => n.pinned).map((n) => (
+                            <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
+                              <span className="text-primary mr-1">📌</span>{n.content}
                             </div>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                      {currentLead?.lead_id && (
-                        <button
-                          onClick={() => navigate(`/leads/${currentLead.lead_id}`)}
-                          className="flex-1 border border-border bg-accent/30 text-foreground hover:bg-accent transition-colors px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> Full View
-                        </button>
+                          ))}
+                          {contactNotes.filter((n) => !n.pinned).slice(0, 2).map((n) => (
+                            <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
+                              {n.content}
+                            </div>
+                          ))}
+                        </div>
                       )}
+                      <div className="flex gap-2">
+                        <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Quick note..." className="flex-1 bg-background border border-input rounded-lg p-2 text-xs text-foreground resize-none h-16 focus:outline-none focus:ring-1 focus:ring-ring" />
+                        <button onClick={handleSaveNote} disabled={!newNote.trim()} className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40"><Pencil className="w-3.5 h-3.5" /></button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -1296,28 +1396,6 @@ const DialerPage: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Pinned Notes */}
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Pinned Notes</h4>
-                      {contactNotes.length > 0 && (
-                        <div className="space-y-1">
-                          {contactNotes.filter((n) => n.pinned).map((n) => (
-                            <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
-                              <span className="text-primary mr-1">📌</span>{n.content}
-                            </div>
-                          ))}
-                          {contactNotes.filter((n) => !n.pinned).slice(0, 2).map((n) => (
-                            <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
-                              {n.content}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Quick note..." className="flex-1 bg-background border border-input rounded-lg p-2 text-xs text-foreground resize-none h-16 focus:outline-none focus:ring-1 focus:ring-ring" />
-                        <button onClick={handleSaveNote} disabled={!newNote.trim()} className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40"><Pencil className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </div>
                   </>
                 )}
               </>
@@ -1424,44 +1502,6 @@ const DialerPage: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* ── Three Action Buttons ── */}
-                {currentLead && (
-                  <div className="flex gap-3">
-                    {callStatus === "idle" ? (
-                      <button onClick={() => handleCall()} disabled={dncChecking}
-                        className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                        {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
-                      </button>
-                    ) : (
-                      <button onClick={handleHangUp}
-                        className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
-                        <PhoneOff className="w-4 h-4" /> End Call
-                      </button>
-                    )}
-                    <button onClick={handleSkipLead} disabled={callStatus !== "idle"}
-                      className="flex-1 border border-border bg-muted text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
-                      <SkipForward className="w-4 h-4" /> Skip
-                    </button>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className="flex-1 border border-purple-500/50 text-purple-600 rounded-lg py-3 text-sm font-bold hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2">
-                          <CalendarPlus className="w-4 h-4" /> Schedule
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-3" align="end">
-                        <div className="space-y-3">
-                          <h4 className="font-semibold text-sm">Schedule Appointment</h4>
-                          <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
-                          <div className="flex gap-2">
-                            <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
-                            <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                )}
-
                 {/* ── Contact Header ── */}
                 {currentLead && (
                   <div className="text-center space-y-3 pb-4 border-b border-border">
@@ -1476,11 +1516,25 @@ const DialerPage: React.FC = () => {
                       <span className="text-sm bg-accent px-2 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
                       {currentLead.age && <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.age} yrs</span>}
                     </div>
-                    {/* From number badge */}
+                    {/* From number dropdown */}
                     <div className="max-w-xs mx-auto w-full">
-                      <div className="bg-primary/15 text-primary border border-primary/30 rounded-lg px-4 py-2 text-sm font-mono font-semibold text-center">
-                        From: {formatPhoneDisplay(activeCallerId?.callerNumber || currentCallerId.callerNumber)}
-                      </div>
+                      {telnyxNumbersLoading ? (
+                        <div className="bg-accent text-muted-foreground rounded-lg px-4 py-2 text-sm text-center flex items-center justify-center gap-2">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading numbers...
+                        </div>
+                      ) : (
+                        <select
+                          value={selectedFromNumberId || ""}
+                          onChange={(e) => setSelectedFromNumberId(e.target.value)}
+                          className="w-full bg-accent text-foreground rounded-lg px-4 py-2 text-sm font-mono font-semibold text-center appearance-none cursor-pointer border border-border focus:outline-none focus:ring-1 focus:ring-ring"
+                        >
+                          {telnyxNumbers.map((n) => (
+                            <option key={n.id} value={n.id}>
+                              From: {formatPhoneDisplay(n.phone_number)}{n.label ? ` — ${n.label}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1654,11 +1708,11 @@ const DialerPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── Message Composer ── */}
+                {/* ── Unified Conversation Panel (GHL-style) ── */}
                 {currentLead && callStatus !== "ended" && (
-                  <div className="bg-card border border-border rounded-xl overflow-hidden">
-                    {/* SMS / Email tab bar */}
-                    <div className="flex border-b border-border">
+                  <div className="bg-card border border-border rounded-xl overflow-hidden flex flex-col h-[420px]">
+                    {/* Tab bar: SMS / Email */}
+                    <div className="shrink-0 flex border-b border-border">
                       {(["sms", "email"] as const).map((tab) => (
                         <button
                           key={tab}
@@ -1674,8 +1728,57 @@ const DialerPage: React.FC = () => {
                         </button>
                       ))}
                     </div>
-                    <div className="p-4 space-y-3">
-                      {/* Subject line (email only) */}
+
+                    {/* Scrollable conversation history feed */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {mockConversation.map((item) => {
+                        // Call entry
+                        if (item.type === "call") {
+                          return (
+                            <div key={item.id} className="flex justify-center">
+                              <div className="bg-muted text-muted-foreground rounded-full px-3 py-1.5 text-[11px] font-medium flex items-center gap-1.5">
+                                <Phone className="w-3 h-3" />
+                                Call — {item.disposition} · {item.duration} · {format(new Date(item.timestamp), "h:mm a")}
+                              </div>
+                            </div>
+                          );
+                        }
+                        // Note entry
+                        if (item.type === "note") {
+                          return (
+                            <div key={item.id} className="flex justify-center">
+                              <div className="bg-yellow-500/10 text-yellow-700 rounded-full px-3 py-1.5 text-[11px] font-medium flex items-center gap-1.5 max-w-[80%]">
+                                <FileText className="w-3 h-3 shrink-0" />
+                                <span className="truncate">Note: {item.text}</span>
+                              </div>
+                            </div>
+                          );
+                        }
+                        // SMS / Email message bubble
+                        const isOutbound = item.direction === "outbound";
+                        return (
+                          <div key={item.id} className={cn("flex", isOutbound ? "justify-end" : "justify-start")}>
+                            <div className="max-w-[75%] space-y-0.5">
+                              <div className={cn(
+                                "px-3 py-2 text-sm",
+                                isOutbound
+                                  ? "bg-primary text-primary-foreground rounded-2xl rounded-br-sm"
+                                  : "bg-accent text-foreground rounded-2xl rounded-bl-sm"
+                              )}>
+                                {item.text}
+                              </div>
+                              <p className={cn("text-[10px] text-muted-foreground px-1", isOutbound ? "text-right" : "text-left")}>
+                                {(item.channel || "sms").toUpperCase()} · {format(new Date(item.timestamp), "h:mm a")}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div ref={feedEndRef} />
+                    </div>
+
+                    {/* Message composer pinned to bottom */}
+                    <div className="shrink-0 border-t border-border p-3 space-y-2">
                       {messageTab === "email" && (
                         <input
                           type="text"
@@ -1689,7 +1792,7 @@ const DialerPage: React.FC = () => {
                         value={messageText}
                         onChange={(e) => setMessageText(e.target.value)}
                         rows={3}
-                        placeholder="Type your message..."
+                        placeholder="Type a message..."
                         className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-ring"
                       />
                       <div className="flex items-center gap-2">
@@ -1720,10 +1823,10 @@ const DialerPage: React.FC = () => {
                           )}
                         </div>
                         <button
-                          onClick={() => { toast.success("Message sent!"); setMessageText(""); setMessageSubject(""); }}
+                          onClick={() => { toast.success(`${messageTab === "sms" ? "SMS" : "Email"} sent!`); setMessageText(""); setMessageSubject(""); }}
                           className="ml-auto bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2"
                         >
-                          <Send className="w-4 h-4" /> Send
+                          <Send className="w-4 h-4" /> {messageTab === "sms" ? "Send SMS" : "Send Email"}
                         </button>
                       </div>
                     </div>
