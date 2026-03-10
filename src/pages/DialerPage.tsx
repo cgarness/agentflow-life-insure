@@ -277,7 +277,21 @@ const DialerPage: React.FC = () => {
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   /* ── Mobile tab ── */
-  const [mobileTab, setMobileTab] = useState<"center" | "left" | "right">("center");
+  const [mobileTab, setMobileTab] = useState<"center" | "right">("center");
+
+  /* ── Right panel tab ── */
+  const [rightPanelTab, setRightPanelTab] = useState<"activity" | "scripts" | "queue">("activity");
+
+  /* ── Message Composer ── */
+  const [messageTab, setMessageTab] = useState<"sms" | "email">("sms");
+  const [messageText, setMessageText] = useState("");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
+
+  /* ── Telnyx Numbers (from DB) ── */
+  const [telnyxNumbers, setTelnyxNumbers] = useState<{ id: string; phone_number: string; label: string | null; is_default: boolean }[]>([]);
+  const [telnyxNumbersLoading, setTelnyxNumbersLoading] = useState(true);
+  const [selectedFromNumberId, setSelectedFromNumberId] = useState<string | null>(null);
 
   /* ── Session summary modal ── */
   const [showSummary, setShowSummary] = useState(false);
