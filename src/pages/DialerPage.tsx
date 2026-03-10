@@ -1232,119 +1232,109 @@ const DialerPage: React.FC = () => {
      ════════════════════════════════════════════════════ */
   return (
     <div className="flex flex-col h-[calc(100vh-var(--topbar-height)-2rem)] overflow-hidden">
-      {/* ── Unified Top Bar ── */}
-      <div className="shrink-0 bg-card border border-border rounded-xl px-4 py-3 mb-3 space-y-2">
-        {/* Row 1: Action buttons + Dialer status */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {callStatus === "idle" ? (
-              <button onClick={() => handleCall()} disabled={dncChecking} className="bg-success text-success-foreground px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150 disabled:opacity-50">
-                {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
-              </button>
-            ) : (
-              <button onClick={handleHangUp} className="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
-                <PhoneOff className="w-4 h-4" /> End Call
-              </button>
-            )}
-            <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="bg-muted text-muted-foreground hover:bg-muted/80 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150 disabled:opacity-40">
-              <SkipForward className="w-4 h-4" /> Skip
-            </button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
-                  <CalendarPlus className="w-4 h-4" /> Schedule
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-3" align="start">
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-sm">Schedule Appointment</h4>
-                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
-                  <div className="flex gap-2">
-                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
-                    <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <button onClick={() => setShowFullView(true)} className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
-              <Eye className="w-4 h-4" /> Full View
-            </button>
-          </div>
-          {/* Dialer status pill */}
-          <div className="shrink-0">
-            {dialerReady ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-success/10 text-success">
-                <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Dialer Ready
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /> Initializing...
-              </span>
-            )}
-          </div>
-        </div>
-        {/* Row 2: Session stats */}
-        <div className="flex items-center gap-6 overflow-x-auto">
-          <button onClick={endSession} className="shrink-0 text-sm text-destructive hover:text-destructive/80 font-medium flex items-center gap-1">
-            <ChevronLeft className="w-4 h-4" /> End Session
-          </button>
-          {[
-            { label: "Duration", value: fmtDuration(sessionSeconds) },
-            { label: "Calls", value: session?.calls_made ?? 0 },
-            { label: "Connected", value: session?.calls_connected ?? 0 },
-            { label: "Avg Duration", value: session && session.calls_connected > 0 ? fmtTime(Math.round(session.total_talk_time / session.calls_connected)) : "0:00" },
-            { label: "Talk Time", value: fmtDuration(session?.total_talk_time ?? 0) },
-          ].map((s) => (
-            <div key={s.label} className="shrink-0 text-center">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
-              <p className="text-sm font-bold font-mono text-foreground">{s.value}</p>
-            </div>
-          ))}
-          <div className="ml-auto shrink-0">
-            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign?.name}</span>
-          </div>
-        </div>
-        {/* Call status indicator */}
-        {callStatus === "connecting" && (
-          <div className="flex items-center gap-2 text-primary font-medium text-xs bg-primary/10 rounded-lg p-2">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
-          </div>
-        )}
-        {callStatus === "connected" && (
-          <div className="flex items-center justify-between text-xs bg-card border border-border rounded-lg p-2">
-            <div className="flex items-center gap-1.5 text-success font-medium">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Connected
-            </div>
-            <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
-            <div className="flex gap-1">
-              <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
-                {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-              </button>
-              <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
-                <Pause className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Mobile tab switcher ── */}
-      <div className="lg:hidden shrink-0 flex bg-accent rounded-lg p-0.5 mb-3">
-        {(["center", "left"] as const).map((t) => (
-          <button key={t} onClick={() => setMobileTab(t)}
-            className={cn("flex-1 py-1.5 text-xs rounded-md text-center transition-colors capitalize",
-              mobileTab === t ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground")}>
-            {t === "center" ? "Call" : "Queue"}
-          </button>
-        ))}
-      </div>
-
       {/* ── Main Workspace — Two Column Layout ── */}
       <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
 
-        {/* ═══ LEFT PANEL ═══ */}
-        <div className={cn("w-full lg:w-[320px] shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
+        {/* ═══ LEFT PANEL (Wrapper for Top Bar + Queue) ═══ */}
+        <div className={cn("w-full lg:w-[320px] shrink-0 flex flex-col gap-3 overflow-hidden",
           mobileTab !== "left" && "hidden lg:flex")}>
+          
+          {/* ── Unified Top Bar (Moved Inside Left Wrapper) ── */}
+          <div className="shrink-0 bg-card border border-border rounded-xl px-4 py-3 space-y-3">
+            {/* Row 1: Action buttons + Dialer status */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {callStatus === "idle" ? (
+                    <button onClick={() => handleCall()} disabled={dncChecking} className="bg-success text-success-foreground px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:opacity-90 transition-all disabled:opacity-50">
+                      {dncChecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Phone className="w-3.5 h-3.5" />} Call
+                    </button>
+                  ) : (
+                    <button onClick={handleHangUp} className="bg-destructive text-destructive-foreground px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:opacity-90 transition-all">
+                      <PhoneOff className="w-3.5 h-3.5" /> End Call
+                    </button>
+                  )}
+                  <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="bg-muted text-muted-foreground hover:bg-muted/80 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:opacity-90 transition-all disabled:opacity-40">
+                    <SkipForward className="w-3.5 h-3.5" /> Skip
+                  </button>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:opacity-90 transition-all">
+                        <CalendarPlus className="w-3.5 h-3.5" /> Schedule
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-3" align="start">
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-sm">Schedule Appointment</h4>
+                        <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                        <div className="flex gap-2">
+                          <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                          <button onClick={() => toast.success("Time selected.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                {/* Dialer status pill */}
+                <div className="shrink-0">
+                  {dialerReady ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-success/10 text-success">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" /> Ready
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-yellow-100 text-yellow-700">
+                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" /> Init...
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Session stats */}
+            <div className="grid grid-cols-3 gap-2 py-2 border-t border-border/50">
+              {[
+                { label: "Duration", value: fmtDuration(sessionSeconds) },
+                { label: "Calls", value: session?.calls_made ?? 0 },
+                { label: "Connected", value: session?.calls_connected ?? 0 },
+              ].map((s) => (
+                <div key={s.label} className="text-center">
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
+                  <p className="text-xs font-bold font-mono text-foreground mt-0.5">{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-border/50">
+              <button onClick={endSession} className="text-[10px] text-destructive hover:text-destructive/80 font-medium flex items-center gap-1">
+                <ChevronLeft className="w-3 h-3" /> End Session
+              </button>
+              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium truncate max-w-[120px]">{selectedCampaign?.name}</span>
+            </div>
+
+            {/* Call status indicator */}
+            {callStatus === "connecting" && (
+              <div className="flex items-center justify-center gap-2 text-primary font-medium text-xs bg-primary/10 rounded-lg p-2 mt-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+              </div>
+            )}
+            {callStatus === "connected" && (
+              <div className="flex items-center justify-between text-xs bg-card border border-border rounded-lg p-2 mt-2">
+                <div className="flex items-center gap-1.5 text-success font-medium">
+                  <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Connected
+                </div>
+                <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
+                <div className="flex gap-1">
+                  <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
+                    {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                  </button>
+                  <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
+                    <Pause className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden">
 
           {/* Slim Contact Header */}
           <div className="p-4 border-b border-border space-y-2 shrink-0">
@@ -1816,6 +1806,7 @@ const DialerPage: React.FC = () => {
           </div>
         </div>
       </div>
+    </div>
 
       {/* ── Full View Dialog ── */}
       <Dialog open={showFullView} onOpenChange={setShowFullView}>
