@@ -13,7 +13,7 @@ import { useNotifications, type DbNotification } from "@/contexts/NotificationCo
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const pageTitles: Record<string, string> = {
-  "/": "Dashboard",
+  "/dashboard": "Dashboard",
   "/dialer": "Dialer",
   "/contacts": "Contacts",
   "/conversations": "Conversations",
