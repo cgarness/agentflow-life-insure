@@ -367,9 +367,9 @@ const FloatingDialer: React.FC = () => {
   ];
 
   const statusDotColor =
-    telnyxStatus === 'ready' || telnyxStatus === 'registered' ? '#22c55e' : '#94a3b8';
+    telnyxStatus === 'ready' ? '#22c55e' : '#94a3b8';
   const shouldPulse =
-    (telnyxStatus === 'registered' || telnyxStatus === 'ready') && telnyxCallState !== 'active';
+    telnyxStatus === 'ready' && telnyxCallState !== 'active';
 
   return (
     <>
