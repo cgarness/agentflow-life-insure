@@ -396,39 +396,7 @@ const Dashboard: React.FC = () => {
           ))}
         </div>
 
-        {/* Quick Actions Row */}
-        {!showOnboarding && (
-          <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={() => navigate("/dialer")}
-              className="bg-success hover:bg-success/90 text-success-foreground"
-            >
-              <Phone className="w-4 h-4 mr-2" />
-              Start Dialing
-            </Button>
-            <Button
-              onClick={() => navigate("/contacts")}
-              variant="default"
-            >
-              <UserPlus className="w-4 h-4 mr-2" />
-              New Contact
-            </Button>
-            <Button
-              onClick={() => navigate("/calendar")}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground"
-            >
-              <Calendar className="w-4 h-4 mr-2" />
-              Schedule Appointment
-            </Button>
-            <Button
-              onClick={() => navigate("/reports")}
-              variant="outline"
-            >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              View Reports
-            </Button>
-          </div>
-        )}
+
 
         {/* Widgets Grid */}
         {!showOnboarding && (
