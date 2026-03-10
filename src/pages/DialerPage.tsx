@@ -6,7 +6,7 @@ import {
   Zap, User, Mail, MapPin, ExternalLink, FileText,
   MessageSquare, CalendarPlus, CheckCircle, Pin,
   PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
-  MessageCircle, MailIcon, RefreshCw,
+  MessageCircle, MailIcon, RefreshCw, Filter, Send,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -1181,32 +1181,107 @@ const DialerPage: React.FC = () => {
         ))}
       </div>
 
-      {/* ── Three Panels ── */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-3 min-h-0 overflow-hidden">
-
-        {/* ═══ LEFT PANEL ═══ */}
-        <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
-          mobileTab !== "left" && "hidden lg:flex")}>
-          <div className="p-3 border-b border-border space-y-3 shrink-0">
-            {/* Dial mode */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-xs text-muted-foreground cursor-default opacity-50">Predictive</span>
-                </TooltipTrigger>
-                <TooltipContent>Coming Soon</TooltipContent>
-              </Tooltip>
+      {/* ── Main Workspace ── */}
+      <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
+        
+        {/* ══ LEFT & CENTER WRAPPER ══ */}
+        <div className="flex-1 flex flex-col gap-3 min-w-0">
+          
+          {/* Top Bar (Dispositions & Appointment) OVER Left & Center */}
+          <div className="shrink-0 bg-card border border-border rounded-xl p-3 flex items-center gap-3 overflow-x-auto">
+            <span className="text-sm font-semibold text-foreground shrink-0">Dispositions:</span>
+            <div className="flex gap-2 flex-1 items-center">
+              {dispositions.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border",
+                    selectedDispId === d.id ? "border-ring ring-1 ring-ring/30 shadow-sm font-bold opacity-100" : "border-transparent hover:brightness-95 opacity-70 hover:opacity-100"
+                  )}
+                  style={{ backgroundColor: `${d.color}20`, color: d.color }}
+                >
+                  {d.name}
+                </button>
+              ))}
             </div>
-            {/* Calling hours */}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Clock className="w-3 h-3" />
-              <input type="number" min={0} max={23} value={callingHoursStart} onChange={(e) => setCallingHoursStart(Number(e.target.value))}
-                className="w-10 bg-background border border-input rounded px-1 py-0.5 text-foreground text-center" />
-              <span>to</span>
-              <input type="number" min={0} max={23} value={callingHoursEnd} onChange={(e) => setCallingHoursEnd(Number(e.target.value))}
-                className="w-10 bg-background border border-input rounded px-1 py-0.5 text-foreground text-center" />
-              <span className="text-[10px]">(lead's local time)</span>
+            {selectedDisp?.require_notes && (
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="text"
+                  value={dispNotes}
+                  onChange={(e) => setDispNotes(e.target.value)}
+                  placeholder={`Notes (${selectedDisp.min_note_chars} chars)...`}
+                  className="bg-background border border-input rounded-lg px-2 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            )}
+            <button 
+              onClick={() => handleSaveDisposition()}
+              disabled={!selectedDispId || !notesValid}
+              className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-4 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+            >
+              Save Disp.
+            </button>
+            <div className="w-px h-6 bg-border shrink-0 mx-1" />
+            
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="shrink-0 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 transition-colors px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
+                  <CalendarPlus className="w-3.5 h-3.5" /> Schedule Appointment
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-3" align="end">
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm">Schedule Appointment</h4>
+                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                  <div className="flex gap-2">
+                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                    <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Inner Grid for Left & Center Panels */}
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0">
+
+            {/* ═══ LEFT PANEL ═══ */}
+            <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
+              mobileTab !== "left" && "hidden lg:flex")}>
+          <div className="p-3 border-b border-border space-y-3 shrink-0">
+            {/* Dial mode & Queue options */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Menu</span>
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="text-xs flex items-center gap-1.5 border border-border bg-background px-2 py-1.5 rounded-md text-foreground hover:bg-accent transition-colors">
+                    <Filter className="w-3 h-3" /> Filter & Sort <ChevronDown className="w-3 h-3" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-3 space-y-3" align="start">
+                  <h4 className="font-semibold text-sm">Queue Options</h4>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-foreground">Sort By</label>
+                    <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+                      <option>Queue Order (Default)</option>
+                      <option>Timezone (East to West)</option>
+                      <option>Lead Score (High to Low)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-foreground">Filter States</label>
+                    <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+                      <option>All States</option>
+                      <option>East Coast</option>
+                      <option>West Coast</option>
+                    </select>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -1366,7 +1441,7 @@ const DialerPage: React.FC = () => {
         </div>
 
         {/* ═══ CENTER PANEL ═══ */}
-        <div className={cn("lg:col-span-2 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
+        <div className={cn("lg:col-span-2 bg-card border border-border rounded-xl flex flex-col overflow-hidden relative",
           mobileTab !== "center" && "hidden lg:flex")}>
 
           {/* Error banner */}
@@ -1378,264 +1453,89 @@ const DialerPage: React.FC = () => {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {!currentLead && !quickDialMode ? (
-              /* No lead */
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Phone className="w-16 h-16 text-muted-foreground mb-4" />
                 <p className="text-lg font-medium text-foreground">No leads in queue</p>
                 <p className="text-sm text-muted-foreground">All leads have been called or are outside calling hours.</p>
               </div>
-            ) : callStatus === "ended" ? (
-              /* ── POST-CALL DISPOSITION ── */
-              <div className="space-y-6 max-w-lg mx-auto">
-                <h2 className="text-xl font-bold text-foreground text-center">How did it go?</h2>
-                <p className="text-sm text-muted-foreground text-center">Call duration: {fmtTime(callSeconds)}</p>
-
-                {/* Disposition grid */}
-                <div className="grid grid-cols-2 gap-2">
-                  {dispositions.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
-                      className={cn(
-                        "rounded-lg px-3 py-2.5 text-sm font-medium text-left transition-all border-2",
-                        selectedDispId === d.id ? "border-ring ring-2 ring-ring/30" : "border-transparent",
-                      )}
-                      style={{
-                        backgroundColor: `${d.color}20`,
-                        color: d.color,
-                      }}
-                    >
-                      {d.name}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Disposition-aware actions */}
-                {selectedDisp && (
-                  <div className="space-y-4">
-                    {selectedDisp.require_notes && (
-                      <div>
-                        <label className="text-sm font-medium text-foreground">Notes <span className="text-destructive">*</span></label>
-                        <textarea
-                          value={dispNotes}
-                          onChange={(e) => setDispNotes(e.target.value)}
-                          placeholder="Required notes..."
-                          className="mt-1 w-full bg-background border border-input rounded-lg p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none h-24"
-                        />
-                        <p className={cn("text-xs mt-1", dispNotes.length >= selectedDisp.min_note_chars ? "text-green-500" : "text-muted-foreground")}>
-                          {dispNotes.length} / {selectedDisp.min_note_chars} characters required
-                        </p>
-                      </div>
-                    )}
-                    {selectedDisp.callback_scheduler && (
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-foreground">Schedule Callback</label>
-                        <div className="flex gap-2">
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" size="sm" className={cn("flex-1 justify-start text-left", !callbackDate && "text-muted-foreground")}>
-                                <CalendarPlus className="w-4 h-4 mr-2" />
-                                {callbackDate ? format(callbackDate, "MMM d, yyyy") : "Pick date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-3 pointer-events-auto" />
-                            </PopoverContent>
-                          </Popover>
-                          <input
-                            type="time"
-                            value={callbackTime}
-                            onChange={(e) => setCallbackTime(e.target.value)}
-                            className="bg-background border border-input rounded-lg px-3 py-1.5 text-sm text-foreground"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Save & Next */}
-                <button
-                  onClick={handleSaveDisposition}
-                  disabled={!selectedDispId || !notesValid}
-                  className="w-full bg-primary text-primary-foreground rounded-lg py-3 font-medium disabled:opacity-40 transition-colors hover:bg-primary/90"
-                >
-                  Save & Next
-                </button>
-                <button onClick={handleSkipDisposition} className="w-full text-sm text-muted-foreground hover:text-foreground">
-                  Skip Disposition
-                </button>
-              </div>
             ) : (
-              /* ── IDLE / CONNECTING / CONNECTED ── */
-              <div className="space-y-6">
-                {/* Contact info */}
+              <>
+                {/* ── Contact Details Header ── */}
                 {currentLead && (
-                  <div className="text-center space-y-2">
-                    <h2 className="text-2xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
-                    <p className="text-xl font-mono text-foreground">
-                      {isOpenPool && lockCountdown !== null ? "Locked — ready to dial" : currentLead.phone}
-                    </p>
-                    <div className="flex items-center justify-center gap-3 text-sm">
-                      <span className="bg-accent text-accent-foreground px-2 py-0.5 rounded">{currentLead.state}</span>
-                      <span className="text-teal-500">{getContactLocalTime(currentLead.state)}</span>
-                      {currentLead.source && <span className="text-muted-foreground">{currentLead.source}</span>}
-                    </div>
-                    {/* Caller ID display */}
-                    <div className="flex items-center justify-center gap-2 text-xs">
-                      {currentCallerId.matchType === "local" ? (
-                        <>
-                          <span className="text-muted-foreground">Calling from:</span>
-                          <span className="font-mono text-foreground">{formatPhoneDisplay(currentCallerId.callerNumber)}</span>
-                          <span className="bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
-                            Local Match ({currentCallerId.matchedAreaCode})
-                          </span>
-                        </>
-                      ) : currentCallerId.matchType === "default" ? (
-                        <>
-                          <span className="text-muted-foreground">Calling from:</span>
-                          <span className="font-mono text-foreground">{formatPhoneDisplay(currentCallerId.callerNumber)}</span>
-                          <span className="bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full text-[10px] font-medium">Default</span>
-                        </>
-                      ) : (
-                        <span className="text-destructive">No caller ID — add numbers in Settings</span>
-                      )}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button onClick={refreshPhoneCache} className="text-muted-foreground hover:text-foreground p-0.5">
-                            <RefreshCw className="w-3 h-3" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Refresh phone numbers</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-                )}
-
-                {/* Call controls */}
-                {callStatus === "idle" && (
-                  <div className="space-y-3">
-                    {/* DNC Warning Banner */}
-                    {dncWarning && (
-                      <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-destructive">
-                          <AlertTriangle className="w-5 h-5 shrink-0" />
-                          <p className="text-sm font-semibold">This number is on the Do Not Call list</p>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Calling this number may violate DNC regulations. Proceed with caution.</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => { setDncWarning(false); handleSkipLead(); }}
-                            className="flex-1 border border-border text-foreground rounded-lg py-2 text-sm font-medium hover:bg-accent transition-colors">
-                            Cancel Call
-                          </button>
-                          <button onClick={() => handleCall(true)}
-                            className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-2 text-sm font-medium hover:bg-destructive/90 transition-colors">
-                            Proceed Anyway
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {!dncWarning && (
-                      <>
-                        <button onClick={() => handleCall()}
-                          disabled={dncChecking}
-                          className="w-full bg-green-600 text-white rounded-xl py-4 text-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-3 disabled:opacity-50">
-                          {dncChecking ? <><Loader2 className="w-5 h-5 animate-spin" /> Checking...</> : <><Phone className="w-6 h-6" /> Call</>}
-                        </button>
-                        <button onClick={handleSkipLead}
-                          className="w-full border border-border text-muted-foreground rounded-xl py-2.5 text-sm font-medium hover:bg-accent transition-colors flex items-center justify-center gap-2">
-                          <SkipForward className="w-4 h-4" /> Skip
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {callStatus === "connecting" && (
-                  <div className="text-center space-y-4">
-                    <div className="w-20 h-20 mx-auto rounded-full border-4 border-primary/30 flex items-center justify-center animate-pulse">
-                      <Phone className="w-8 h-8 text-primary" />
-                    </div>
-                    <p className="text-primary font-medium">Connecting...</p>
-                    <button onClick={() => { setCallStatus("idle"); if (callRef.current) try { callRef.current.hangup(); } catch {} }}
-                      className="bg-muted text-muted-foreground rounded-lg px-6 py-2 text-sm">Cancel</button>
-                  </div>
-                )}
-
-                {callStatus === "connected" && (
-                  <div className="text-center space-y-4">
-                    <p className="text-4xl font-mono font-bold text-foreground">{fmtTime(callSeconds)}</p>
-                    <div className="flex items-center justify-center gap-2 text-green-500 text-sm">
-                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
-                    </div>
-                    {activeCallerId && (
-                      <p className="text-xs text-muted-foreground">
-                        Calling from: {formatPhoneDisplay(activeCallerId.callerNumber)}
-                      </p>
-                    )}
-                    <div className="flex justify-center gap-4">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => { telnyxToggleMute(); setMuted(!muted); }}
-                            className={cn("p-3 rounded-full transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}
-                          >
-                            {telnyxIsMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{telnyxIsMuted ? "Unmute" : "Mute"}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button onClick={() => { telnyxToggleHold(); }}
-                            className={cn("p-3 rounded-full transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                            <Pause className="w-5 h-5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Hold</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button onClick={() => toast.info("VM Drop coming soon")}
-                            className="p-3 rounded-full bg-muted text-muted-foreground hover:bg-muted/80">
-                            <Voicemail className="w-5 h-5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Voicemail Drop</TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <button onClick={handleHangUp}
-                      className="w-full bg-destructive text-destructive-foreground rounded-xl py-3 font-semibold flex items-center justify-center gap-2">
-                      <PhoneOff className="w-5 h-5" /> Hang Up
+                  <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border relative group">
+                    <button className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 text-xs bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded-md">
+                      <Pencil className="w-3 h-3" /> Edit Fields
                     </button>
+                    <div className="col-span-2">
+                       <h2 className="text-3xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Phone</p>
+                      <p className="font-mono text-base text-foreground flex items-center gap-2">
+                        {isOpenPool && lockCountdown !== null ? <span className="text-orange-500 text-sm flex items-center gap-1"><Lock className="w-3.5 h-3.5"/> Locked</span> : currentLead.phone}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Email</p>
+                      <p className="text-base text-foreground break-all">{currentLead.email || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">State / Tz</p>
+                      <p className="text-base text-foreground flex items-center gap-2">
+                        {currentLead.state} <span className="text-sm bg-accent px-1.5 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Source & Age</p>
+                      <p className="text-base text-foreground">{currentLead.source || "Unknown"} {currentLead.age ? `· ${currentLead.age} yrs` : ""}</p>
+                    </div>
                   </div>
                 )}
 
-                {/* ── Conversation History Feed ── */}
-                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && currentLead && (
-                  <div className="border border-border rounded-xl overflow-hidden">
-                    <div className="px-4 py-2.5 bg-accent/50 border-b border-border">
-                      <h3 className="text-sm font-medium text-foreground mb-2">Conversation History</h3>
+                {/* ── Conversation History with SMS/Email Sender ── */}
+                {currentLead && (
+                  <div className="border border-border rounded-xl overflow-hidden mt-6">
+                    <div className="px-4 py-3 bg-accent/50 border-b border-border flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-foreground">Conversation & Outreach</h3>
                       <div className="flex gap-1 flex-wrap">
                         {(["all", "calls", "notes", "appointments", "activity"] as const).map((f) => (
-                          <button
-                            key={f}
-                            onClick={() => setFeedFilter(f)}
-                            className={cn(
-                              "px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors capitalize",
-                              feedFilter === f
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted text-muted-foreground hover:bg-muted/80"
-                            )}
-                          >
+                          <button key={f} onClick={() => setFeedFilter(f)} className={cn("px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors capitalize", feedFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
                             {f}
                           </button>
                         ))}
                       </div>
                     </div>
-                    <div className="max-h-[400px] overflow-y-auto p-3 space-y-2 bg-muted/10">
+                    
+                    {/* SMS / Email Sender */}
+                    <div className="p-3 border-b border-border bg-card">
+                       <div className="flex items-center justify-between mb-2">
+                          <label className="text-xs font-semibold text-foreground flex items-center gap-2">
+                             <Send className="w-3.5 h-3.5" /> Send Message
+                          </label>
+                          <select className="bg-background border border-input rounded text-xs px-2 py-1 focus:outline-none text-muted-foreground">
+                             <option>Select Template...</option>
+                             <option>Introduction SMS</option>
+                             <option>Follow-up Email</option>
+                             <option>VM Drop Template</option>
+                          </select>
+                       </div>
+                       <textarea 
+                          placeholder="Type your message here..."
+                          className="w-full bg-background border border-input rounded-lg p-2 text-xs h-16 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                       />
+                       <div className="flex justify-end gap-2 mt-2">
+                          <button className="bg-green-600/10 text-green-600 hover:bg-green-600/20 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+                             <MessageCircle className="w-3.5 h-3.5"/> Send SMS
+                          </button>
+                          <button className="bg-blue-600/10 text-blue-600 hover:bg-blue-600/20 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
+                             <MailIcon className="w-3.5 h-3.5"/> Send Email
+                          </button>
+                       </div>
+                    </div>
+
+                    <div className="max-h-[350px] overflow-y-auto p-3 space-y-2 bg-muted/10">
                       {historyLoading ? (
                         <div className="space-y-2">
                           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
@@ -1651,21 +1551,11 @@ const DialerPage: React.FC = () => {
                           {filteredFeed.map((item) => {
                             const expanded = expandedFeedItems.has(item.id);
                             const borderColors: Record<FeedItemType, string> = {
-                              call: "border-l-green-500",
-                              note: "border-l-blue-500",
-                              appointment: "border-l-purple-500",
-                              activity: "border-l-muted-foreground/50",
-                              sms: "border-l-green-500",
-                              email: "border-l-blue-500",
+                              call: "border-l-green-500", note: "border-l-blue-500", appointment: "border-l-purple-500",
+                              activity: "border-l-muted-foreground/50", sms: "border-l-green-500", email: "border-l-blue-500",
                             };
                             return (
-                              <div
-                                key={item.id}
-                                className={cn(
-                                  "bg-card rounded-lg p-3 border-l-[3px] text-xs",
-                                  borderColors[item.type] || "border-l-muted"
-                                )}
-                              >
+                              <div key={item.id} className={cn("bg-card rounded-lg p-3 border-l-[3px] text-xs", borderColors[item.type] || "border-l-muted")}>
                                 {item.type === "call" && (() => {
                                   const c = item.data as CallRecord;
                                   const connected = (c.duration ?? 0) > 0;
@@ -1673,88 +1563,46 @@ const DialerPage: React.FC = () => {
                                   return (
                                     <div className="space-y-1">
                                       <div className="flex items-center gap-2">
-                                        {connected
-                                          ? <Phone className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                                          : <PhoneMissed className="w-3.5 h-3.5 text-destructive shrink-0" />
-                                        }
-                                        <span className="font-medium text-foreground">
-                                          Call — {connected ? fmtTime(c.duration!) : "No Answer"}
-                                        </span>
+                                        {connected ? <Phone className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <PhoneMissed className="w-3.5 h-3.5 text-destructive shrink-0" />}
+                                        <span className="font-medium text-foreground">Call — {connected ? fmtTime(c.duration!) : "No Answer"}</span>
                                         {c.disposition_name && (
-                                          <span
-                                            className="px-1.5 py-0.5 rounded-full text-[10px] font-medium ml-auto"
-                                            style={{
-                                              backgroundColor: dispColor ? `${dispColor}20` : undefined,
-                                              color: dispColor || undefined,
-                                            }}
-                                          >
-                                            {c.disposition_name}
-                                          </span>
+                                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium ml-auto" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
                                         )}
                                       </div>
-                                      {getAgentFirstName(c.agent_id) && (
-                                        <p className="text-muted-foreground ml-5">{getAgentFirstName(c.agent_id)}</p>
-                                      )}
-                                      {c.notes && (
-                                        <p
-                                          className={cn("text-muted-foreground ml-5 cursor-pointer", !expanded && "line-clamp-2")}
-                                          onClick={() => toggleFeedExpand(item.id)}
-                                        >
-                                          {c.notes}
-                                        </p>
-                                      )}
+                                      {getAgentFirstName(c.agent_id) && <p className="text-muted-foreground ml-5">{getAgentFirstName(c.agent_id)}</p>}
+                                      {c.notes && <p className={cn("text-muted-foreground ml-5 cursor-pointer", !expanded && "line-clamp-2")} onClick={() => toggleFeedExpand(item.id)}>{c.notes}</p>}
                                       <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
                                     </div>
                                   );
                                 })()}
-
                                 {item.type === "note" && (() => {
                                   const n = item.data as ContactNote;
                                   return (
                                     <div className="space-y-1">
                                       <div className="flex items-center gap-2">
                                         <Pencil className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                        {n.pinned && (
-                                          <span className="flex items-center gap-0.5 text-primary text-[10px] font-medium">
-                                            <Pin className="w-3 h-3" /> Pinned
-                                          </span>
-                                        )}
+                                        {n.pinned && <span className="flex items-center gap-0.5 text-primary text-[10px] font-medium"><Pin className="w-3 h-3" /> Pinned</span>}
                                       </div>
-                                      <p
-                                        className={cn("text-foreground ml-5 cursor-pointer", !expanded && "line-clamp-3")}
-                                        onClick={() => toggleFeedExpand(item.id)}
-                                      >
-                                        {n.content}
-                                      </p>
-                                      {getAgentFirstName((n as any).author_id) && (
-                                        <p className="text-muted-foreground ml-5">{getAgentFirstName((n as any).author_id)}</p>
-                                      )}
+                                      <p className={cn("text-foreground ml-5 cursor-pointer", !expanded && "line-clamp-3")} onClick={() => toggleFeedExpand(item.id)}>{n.content}</p>
+                                      {getAgentFirstName((n as any).author_id) && <p className="text-muted-foreground ml-5">{getAgentFirstName((n as any).author_id)}</p>}
                                       <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
                                     </div>
                                   );
                                 })()}
-
                                 {item.type === "appointment" && (() => {
                                   const a = item.data as AppointmentRecord;
                                   return (
                                     <div className="space-y-1">
                                       <div className="flex items-center gap-2">
                                         <CalendarDays className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                        <span className="font-medium text-foreground">
-                                          {a.type} — {a.status}
-                                        </span>
+                                        <span className="font-medium text-foreground">{a.type} — {a.status}</span>
                                       </div>
-                                      <p className="text-muted-foreground ml-5">
-                                        {format(new Date(a.start_time), "MMM d, yyyy h:mm a")}
-                                      </p>
-                                      {getAgentFirstName(a.created_by) && (
-                                        <p className="text-muted-foreground ml-5">{getAgentFirstName(a.created_by)}</p>
-                                      )}
+                                      <p className="text-muted-foreground ml-5">{format(new Date(a.start_time), "MMM d, yyyy h:mm a")}</p>
+                                      {getAgentFirstName(a.created_by) && <p className="text-muted-foreground ml-5">{getAgentFirstName(a.created_by)}</p>}
                                       <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
                                     </div>
                                   );
                                 })()}
-
                                 {item.type === "activity" && (() => {
                                   const a = item.data as ActivityRecord;
                                   return (
@@ -1762,15 +1610,12 @@ const DialerPage: React.FC = () => {
                                       <div className="flex items-center gap-2">
                                         <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                                         <span className="text-foreground">{a.description}</span>
-                                        <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">
-                                          {a.activity_type}
-                                        </span>
+                                        <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">{a.activity_type}</span>
                                       </div>
                                       <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
                                     </div>
                                   );
                                 })()}
-
                                 {item.type === "sms" && (() => {
                                   const a = item.data as ActivityRecord;
                                   const direction = a.metadata?.direction || "sent";
@@ -1779,15 +1624,12 @@ const DialerPage: React.FC = () => {
                                       <div className="flex items-center gap-2">
                                         <MessageCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
                                         <span className="text-foreground flex-1">{a.description}</span>
-                                        <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full capitalize">
-                                          {direction}
-                                        </span>
+                                        <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full capitalize">{direction}</span>
                                       </div>
                                       <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
                                     </div>
                                   );
                                 })()}
-
                                 {item.type === "email" && (() => {
                                   const a = item.data as ActivityRecord;
                                   const direction = a.metadata?.direction || "sent";
@@ -1796,9 +1638,7 @@ const DialerPage: React.FC = () => {
                                       <div className="flex items-center gap-2">
                                         <MailIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                         <span className="text-foreground flex-1">{a.description}</span>
-                                        <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full capitalize">
-                                          {direction}
-                                        </span>
+                                        <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full capitalize">{direction}</span>
                                       </div>
                                       <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
                                     </div>
@@ -1813,66 +1653,18 @@ const DialerPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-
-                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && (
-                  <div className="border border-border rounded-xl overflow-hidden">
-                    <button onClick={() => setScriptCollapsed(!scriptCollapsed)}
-                      className="w-full flex items-center justify-between px-4 py-2.5 bg-accent/50 hover:bg-accent transition-colors">
-                      <span className="text-sm font-medium text-foreground flex items-center gap-2">
-                        <FileText className="w-4 h-4" /> Call Script
-                      </span>
-                      <ChevronLeft className={cn("w-4 h-4 text-muted-foreground transition-transform", scriptCollapsed ? "-rotate-90" : "rotate-90")} />
-                    </button>
-                    {!scriptCollapsed && (
-                      <div className="p-4 max-h-[300px] overflow-y-auto text-sm text-foreground whitespace-pre-wrap">
-                        {scriptContent ? (
-                          scriptContent
-                            .replace(/\{first_name\}/g, currentLead?.first_name ?? "")
-                            .replace(/\{last_name\}/g, currentLead?.last_name ?? "")
-                            .replace(/\{state\}/g, currentLead?.state ?? "")
-                            .replace(/\{agent_name\}/g, agentName)
-                        ) : (
-                          <p className="text-muted-foreground italic">No script assigned. You can assign scripts to campaigns in Campaign Settings.</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Quick Notes */}
-                {(callStatus === "idle" || callStatus === "connecting" || callStatus === "connected") && currentLead && (
-                  <div className="space-y-3">
-                    {contactNotes.length > 0 && (
-                      <div className="space-y-1">
-                        {contactNotes.map((n) => (
-                          <div key={n.id} className="text-xs bg-accent/50 rounded-lg p-2 text-foreground">
-                            {n.pinned && <span className="text-primary mr-1">📌</span>}
-                            {n.content}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <textarea
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="Add a note..."
-                        className="flex-1 bg-background border border-input rounded-lg p-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-16 focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                      <button onClick={handleSaveNote} disabled={!newNote.trim()}
-                        className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40">
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              </>
             )}
           </div>
         </div>
+        
+        {/* Close Inner Grid */}
+        </div>
+        {/* Close Left & Center Wrapper */}
+        </div>
 
         {/* ═══ RIGHT PANEL ═══ */}
-        <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
+        <div className={cn("w-full lg:w-[360px] xl:w-[400px] shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
           mobileTab !== "right" && "hidden lg:flex")}>
           <div className="flex-1 overflow-y-auto p-4 space-y-5">
             {!currentLead ? (
@@ -1882,61 +1674,142 @@ const DialerPage: React.FC = () => {
               </div>
             ) : (
               <>
+                {/* ── Call Controls (Top Bar) ── */}
+                <div className="space-y-3 pb-4 border-b border-border">
+                  {dncWarning && callStatus === "idle" && (
+                    <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2 mb-3">
+                      <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
+                        <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
+                        <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    {callStatus === "idle" ? (
+                      <button onClick={() => handleCall()} disabled={dncChecking} className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                        {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+                      </button>
+                    ) : (
+                      <button onClick={handleHangUp} className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
+                        <PhoneOff className="w-4 h-4" /> End
+                      </button>
+                    )}
+                    <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="flex-1 border border-border bg-accent/30 text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
+                      <SkipForward className="w-4 h-4" /> Skip
+                    </button>
+                  </div>
+
+                  {callStatus === "connecting" && (
+                     <div className="flex items-center justify-center gap-2 text-primary font-medium text-xs mt-2 bg-primary/10 rounded-lg p-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+                     </div>
+                  )}
+                  {callStatus === "connected" && (
+                     <div className="flex items-center justify-between text-xs mt-2 bg-card border border-border rounded-lg p-2">
+                        <div className="flex items-center gap-1.5 text-green-500 font-medium">
+                           <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
+                        </div>
+                        <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
+                        <div className="flex gap-1">
+                          <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
+                             {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                          </button>
+                          <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
+                             <Pause className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                     </div>
+                  )}
+
+                  {/* Caller ID Badge */}
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-xs text-muted-foreground">Calling from:</span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="flex items-center gap-1.5 bg-accent text-accent-foreground border border-border px-2 py-1.5 rounded text-[11px] font-mono hover:bg-accent/80 transition-colors">
+                          {activeCallerId ? formatPhoneDisplay(activeCallerId.callerNumber) : formatPhoneDisplay(currentCallerId.callerNumber)}
+                          <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-2" align="end">
+                         <div className="space-y-2">
+                           <p className="text-xs font-semibold px-1">Select Caller ID</p>
+                           {phoneCache?.allNumbers.map(num => (
+                              <button key={num.phone_number} className="w-full text-left font-mono text-xs px-2 py-1.5 hover:bg-accent rounded transition-colors">
+                                 {formatPhoneDisplay(num.phone_number)}
+                                 {num.location && <span className="ml-2 text-muted-foreground text-[10px]">{num.location}</span>}
+                              </button>
+                           ))}
+                         </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+
+                {/* ── Quick Notes & Script ── */}
+                <div className="space-y-4">
+                  <div className="border border-border rounded-xl overflow-hidden shadow-sm">
+                    <button onClick={() => setScriptCollapsed(!scriptCollapsed)} className="w-full flex items-center justify-between px-3 py-2 bg-accent/50 hover:bg-accent transition-colors">
+                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Call Script</span>
+                      <ChevronLeft className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", scriptCollapsed ? "-rotate-90" : "rotate-90")} />
+                    </button>
+                    {!scriptCollapsed && (
+                      <div className="p-3 max-h-[150px] overflow-y-auto text-xs text-foreground whitespace-pre-wrap bg-card">
+                        {scriptContent ? scriptContent.replace(/\{first_name\}/g, currentLead.first_name).replace(/\{last_name\}/g, currentLead.last_name).replace(/\{state\}/g, currentLead.state).replace(/\{agent_name\}/g, agentName) : <p className="text-muted-foreground italic">No script assigned.</p>}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    {contactNotes.length > 0 && (
+                      <div className="space-y-1">
+                        {contactNotes.slice(0,2).map((n) => (
+                          <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
+                            {n.pinned && <span className="text-primary mr-1">📌</span>}{n.content}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Quick note..." className="flex-1 bg-background border border-input rounded-lg p-2 text-xs text-foreground resize-none h-12 focus:outline-none focus:ring-1 focus:ring-ring" />
+                      <button onClick={handleSaveNote} disabled={!newNote.trim()} className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40"><Pencil className="w-3.5 h-3.5"/></button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full h-px bg-border my-2" />
+
                 {/* ── Previous Attempts ── */}
                 {(() => {
-                  const attempts = [...callHistory].reverse(); // oldest first for numbering
+                  const attempts = [...callHistory].reverse();
                   const count = attempts.length;
                   return (
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Previous Attempts</h4>
-                        {count > 0 && (
-                          <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">
-                            {count} attempt{count !== 1 ? "s" : ""}
-                          </span>
-                        )}
+                        <h4 className="text-xs font-semibold text-foreground tracking-wider">Previous Attempts</h4>
+                        {count > 0 && <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">{count} attempt{count !== 1 ? "s" : ""}</span>}
                       </div>
                       {count === 0 ? (
-                        <p className="text-xs text-green-500 italic">First attempt</p>
+                        <p className="text-[11px] text-green-500 italic">First attempt</p>
                       ) : (
-                        <div className="max-h-[200px] overflow-y-auto space-y-1.5">
+                        <div className="max-h-[120px] overflow-y-auto space-y-1.5">
                           {[...callHistory].map((c, idx) => {
-                            const attemptNum = count - idx; // most recent first, numbered from oldest
+                            const attemptNum = count - idx;
                             const dispColor = getDispColor(c.disposition_name);
-                            const agentFirst = getAgentFirstName(c.agent_id);
-                            const isOlderThan7d = c.started_at && (Date.now() - new Date(c.started_at).getTime()) > 7 * 86400000;
                             return (
-                              <div key={c.id} className="flex items-center gap-2 text-xs bg-accent/30 rounded-lg p-2">
+                              <div key={c.id} className="flex items-center gap-2 text-[11px] bg-accent/30 rounded-lg p-1.5">
                                 <span className="text-muted-foreground font-mono shrink-0">#{attemptNum}</span>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-foreground">
-                                    {c.started_at
-                                      ? isOlderThan7d
-                                        ? format(new Date(c.started_at), "MMM d, h:mm a")
-                                        : timeAgo(c.started_at)
-                                      : "—"}
-                                  </p>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span className="text-muted-foreground">
-                                      {(c.duration ?? 0) > 0 ? fmtTime(c.duration!) : "No Answer"}
-                                    </span>
-                                    {agentFirst && <span className="text-muted-foreground">· {agentFirst}</span>}
-                                  </div>
+                                  <p className="text-foreground">{c.started_at ? timeAgo(c.started_at) : "—"}</p>
                                 </div>
                                 {c.disposition_name ? (
-                                  <span
-                                    className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-                                    style={{
-                                      backgroundColor: dispColor ? `${dispColor}20` : undefined,
-                                      color: dispColor || undefined,
-                                    }}
-                                  >
-                                    {c.disposition_name}
-                                  </span>
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
                                 ) : (
-                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground">
-                                    No Disposition
-                                  </span>
+                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-muted text-muted-foreground">No Disp</span>
                                 )}
                               </div>
                             );
@@ -1947,58 +1820,16 @@ const DialerPage: React.FC = () => {
                   );
                 })()}
 
-                {/* Contact Card */}
-                <div className="text-center space-y-2">
-                  <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-bold mx-auto">
-                    {currentLead.first_name[0]}{currentLead.last_name[0]}
-                  </div>
-                  <h3 className="font-semibold text-foreground">{currentLead.first_name} {currentLead.last_name}</h3>
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <p className="flex items-center justify-center gap-1"><Phone className="w-3 h-3" /> {currentLead.phone}</p>
-                    {currentLead.email && <p className="flex items-center justify-center gap-1"><Mail className="w-3 h-3" /> {currentLead.email}</p>}
-                    <p className="flex items-center justify-center gap-1"><MapPin className="w-3 h-3" /> {currentLead.state}</p>
-                    {currentLead.source && <p>Source: {currentLead.source}</p>}
-                  </div>
-                  <button onClick={() => navigate(`/contacts?contact=${currentLead.lead_id}`)}
-                    className="text-xs text-primary hover:underline flex items-center justify-center gap-1 mx-auto">
-                    <ExternalLink className="w-3 h-3" /> View Full Contact
-                  </button>
-                </div>
-
-                {/* Disposition History */}
+                {/* ── Activity Timeline ── */}
                 <div>
-                  <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Call History</h4>
-                  {callHistory.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">No previous calls</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {callHistory.map((c) => (
-                        <div key={c.id} className="flex items-center justify-between text-xs bg-accent/30 rounded-lg p-2">
-                          <div>
-                            <p className="text-foreground">{c.started_at ? format(new Date(c.started_at), "MMM d, h:mm a") : "—"}</p>
-                            <p className="text-muted-foreground">{c.duration ? fmtTime(c.duration) : "0:00"}</p>
-                          </div>
-                          {c.disposition_name && (
-                            <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-[10px] font-medium">
-                              {c.disposition_name}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Activity Timeline */}
-                <div>
-                  <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Activity</h4>
+                  <h4 className="text-xs font-semibold text-foreground tracking-wider mb-2">Activity Summary</h4>
                   {activities.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">No activity yet</p>
+                    <p className="text-[11px] text-muted-foreground italic">No activity yet</p>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 max-h-[100px] overflow-y-auto">
                       {activities.map((a) => (
-                        <div key={a.id} className="flex items-start gap-2 text-xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                        <div key={a.id} className="flex items-start gap-2 text-[11px]">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1 shrink-0" />
                           <div className="flex-1">
                             <p className="text-foreground">{a.description}</p>
                             <p className="text-muted-foreground">{timeAgo(a.created_at)}</p>
@@ -2008,12 +1839,13 @@ const DialerPage: React.FC = () => {
                     </div>
                   )}
                 </div>
+
               </>
             )}
           </div>
         </div>
       </div>
-
+      
       {/* ── Session Summary Modal ── */}
       <AnimatePresence>
         {showSummary && summaryData && (
