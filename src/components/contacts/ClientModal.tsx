@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Phone, Mail, Calendar, Pencil, Trash2, GitMerge, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare } from "lucide-react";
+import { X, Phone, Mail, Calendar, Pencil, Trash2, GitMerge, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare, Loader2 } from "lucide-react";
 import { Client, ContactNote, ContactActivity, Call } from "@/lib/types";
 import { mockUsers, mockCalls, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
@@ -99,12 +99,56 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
   const [lastUpdated, setLastUpdated] = useState(new Date().toISOString());
+  const [showSmsCompose, setShowSmsCompose] = useState(false);
+  const [smsText, setSmsText] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
   const AGENT_NAME = "Chris Garcia";
 
   const logActivity = (description: string, type: string) => {
     const entry: ContactActivity = { id: `act-${Date.now()}`, contactId: client?.id ?? "", contactType: "client", type, description, agentId: "u1", agentName: AGENT_NAME, createdAt: new Date().toISOString() };
     setActivities(prev => [entry, ...prev]);
     setLastUpdated(new Date().toISOString());
+  };
+
+  const handleSmsSend = async () => {
+    if (!smsText.trim() || !client) return;
+    setSmsSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error("You must be logged in to send messages", { duration: 5000 });
+        setSmsSending(false);
+        return;
+      }
+      const res = await fetch(
+        `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-sms`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            to: client.phone,
+            body: smsText.trim(),
+            lead_id: client.id,
+          }),
+        }
+      );
+      const result = await res.json();
+      if (!result.success) {
+        toast.error(result.error || "Failed to send message", { duration: 5000 });
+        setSmsSending(false);
+        return;
+      }
+      toast.success("Message sent", { duration: 3000 });
+      setShowSmsCompose(false);
+      setSmsText("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send message", { duration: 5000 });
+    } finally {
+      setSmsSending(false);
+    }
   };
 
   useEffect(() => {
@@ -124,6 +168,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
       setActiveTab("Overview"); setEditMode(false); setHasChanges(false);
       setNewNote(""); setNoteError(""); setPinNewNote(false); setHistoryFilter("All");
       setShowAppt(false); setLastUpdated(new Date().toISOString());
+      setShowSmsCompose(false); setSmsText(""); setSmsSending(false);
     }
     loadData();
   }, [client]);
@@ -183,7 +228,11 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
           {/* Action buttons */}
           <div className="flex items-center gap-2 shrink-0">
             <Button className="px-4 py-2.5 text-sm bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" />Call</Button>
-            <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>Configure Telnyx in Settings</TooltipContent></Tooltip>
+            {client.phone ? (
+              <Button variant="outline" className="px-4 py-2.5 text-sm" onClick={() => { setShowSmsCompose(true); setSmsText(""); }}><MessageSquare className="size-4 mr-1" />SMS</Button>
+            ) : (
+              <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm" disabled><MessageSquare className="size-4 mr-1" />SMS</Button></span></TooltipTrigger><TooltipContent>No phone number</TooltipContent></Tooltip>
+            )}
             <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
             <Button className="px-4 py-2.5 text-sm bg-purple-500 hover:bg-purple-600 text-white" onClick={() => setShowAppt(true)}><Calendar className="size-4 mr-1" />Schedule</Button>
             <Button variant="ghost" className="px-4 py-2.5 text-sm" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="size-4" /></Button>
@@ -277,6 +326,36 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
     <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>Delete Client</DialogTitle><DialogDescription>Delete {client.firstName} {client.lastName}? This cannot be undone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="destructive" onClick={async () => { await onDelete(client.id); setConfirmDelete(false); onClose(); toast.success("Client deleted"); }}>Delete</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}><DialogContent><DialogHeader><DialogTitle>Unsaved Changes</DialogTitle><DialogDescription>You have unsaved changes. Leave anyway?</DialogDescription></DialogHeader><DialogFooter><Button onClick={() => setConfirmDiscard(false)}>Stay</Button><Button variant="outline" onClick={() => { setConfirmDiscard(false); setEditMode(false); setHasChanges(false); onClose(); }}>Leave Without Saving</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={!!deleteNoteId} onOpenChange={() => setDeleteNoteId(null)}><DialogContent><DialogHeader><DialogTitle>Delete Note</DialogTitle><DialogDescription>Are you sure?</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDeleteNoteId(null)}>Cancel</Button><Button variant="destructive" onClick={() => deleteNoteId && handleDeleteNote(deleteNoteId)}>Delete</Button></DialogFooter></DialogContent></Dialog>
+
+    <Dialog open={showSmsCompose} onOpenChange={setShowSmsCompose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Send SMS</DialogTitle>
+          <DialogDescription>Send a message to {client.firstName} {client.lastName}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-md bg-muted/60 px-3 py-2">
+            <p className="text-sm font-medium text-foreground">{client.firstName} {client.lastName}</p>
+            <p className="text-xs text-muted-foreground">{client.phone}</p>
+          </div>
+          <textarea
+            value={smsText}
+            onChange={e => setSmsText(e.target.value)}
+            placeholder="Type your message..."
+            rows={4}
+            className={`${inp} min-h-[100px] py-2`}
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowSmsCompose(false)}>Cancel</Button>
+          <Button onClick={handleSmsSend} disabled={smsSending || !smsText.trim()}>
+            {smsSending && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+            {smsSending ? "Sending..." : "Send"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <AppointmentModal
       open={showAppt}
