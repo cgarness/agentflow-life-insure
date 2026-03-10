@@ -34,6 +34,9 @@ interface Campaign {
   status: string;
   total_leads: number;
   description: string;
+  leads_contacted?: number;
+  leads_converted?: number;
+  cached_states?: string[];
 }
 
 interface CampaignLead {
@@ -309,11 +312,26 @@ const DialerPage: React.FC = () => {
       setCampaignsLoading(true);
       const { data } = await supabase
         .from("campaigns")
-        .select("id, name, type, status, total_leads, description")
+        .select("id, name, type, status, total_leads, description, leads_contacted, leads_converted")
         .eq("status", "Active")
         .gt("total_leads", 0)
         .order("name");
-      setCampaigns(data || []);
+
+      if (data) {
+        // Fetch states for each campaign
+        const campaignsWithStates = await Promise.all(
+          data.map(async (c: any) => {
+            const { data: states } = await supabase.rpc("get_campaign_states", { p_campaign_id: c.id });
+            return {
+              ...c,
+              cached_states: states || [],
+            };
+          })
+        );
+        setCampaigns(campaignsWithStates);
+      } else {
+        setCampaigns([]);
+      }
       setCampaignsLoading(false);
     };
     fetch();
@@ -917,23 +935,84 @@ const DialerPage: React.FC = () => {
             <p className="text-sm text-muted-foreground">Create a campaign with leads to start dialing.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filtered.map((c) => (
-              <div key={c.id} className="bg-card border border-border rounded-xl p-5 hover:border-primary hover:shadow-md transition-all cursor-pointer group">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-foreground truncate">{c.name}</span>
-                  <span className="shrink-0 bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs font-medium">{c.total_leads} leads</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((c) => {
+              const contacted = c.leads_contacted || 0;
+              const converted = c.leads_converted || 0;
+              const remaining = Math.max(0, c.total_leads - contacted);
+              const progressPct = c.total_leads > 0 ? Math.round((contacted / c.total_leads) * 100) : 0;
+              const convertRate = contacted > 0 ? ((converted / contacted) * 100).toFixed(1) : "0.0";
+
+              return (
+                <div key={c.id} className="bg-card border border-border rounded-xl flex flex-col hover:border-primary/50 hover:shadow-lg transition-all group overflow-hidden">
+                  <div className="p-5 flex-1 flex flex-col">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <h3 className="font-bold text-lg text-foreground leading-tight line-clamp-2">{c.name}</h3>
+                      <span className="shrink-0 bg-primary/10 text-primary border border-primary/20 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                        {c.type}
+                      </span>
+                    </div>
+
+                    {c.description && (
+                      <p className="text-xs text-muted-foreground mb-4 line-clamp-2">{c.description}</p>
+                    )}
+
+                    {/* Progress Bar */}
+                    <div className="mt-auto space-y-3">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{contacted} Contacted</span>
+                        <span>{c.total_leads} Total</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary rounded-full transition-all duration-500"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Metrics Grid */}
+                    <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-border/50">
+                      <div className="text-center">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Left</p>
+                        <p className="font-mono text-sm font-semibold text-foreground">{remaining}</p>
+                      </div>
+                      <div className="text-center border-l border-r border-border/50">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Wins</p>
+                        <p className="font-mono text-sm font-semibold text-success">{converted}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Close Rate</p>
+                        <p className="font-mono text-sm font-semibold text-foreground">{convertRate}%</p>
+                      </div>
+                    </div>
+
+                    {/* States Badges */}
+                    {c.cached_states && c.cached_states.length > 0 && (
+                      <div className="mt-4 flex flex-wrap gap-1.5">
+                        {c.cached_states.slice(0, 5).map(state => (
+                          <span key={state} className="bg-accent/50 text-accent-foreground border border-border/50 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                            {state}
+                          </span>
+                        ))}
+                        {c.cached_states.length > 5 && (
+                          <span className="bg-muted text-muted-foreground border border-border/50 px-1.5 py-0.5 rounded text-[10px] font-medium cursor-help" title={c.cached_states.slice(5).join(', ')}>
+                            +{c.cached_states.length - 5}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => startSession(c)}
+                    className="w-full bg-accent/30 text-accent-foreground py-3.5 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors outline-none flex items-center justify-center gap-2 border-t border-border group-hover:border-transparent"
+                  >
+                    <Phone className="w-4 h-4" /> Start Dialing This List
+                  </button>
                 </div>
-                {c.description && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{c.description}</p>}
-                <p className="text-xs text-muted-foreground mt-2">Type: {c.type}</p>
-                <button
-                  onClick={() => startSession(c)}
-                  className="w-full mt-4 bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
-                >
-                  Start Dialing <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
