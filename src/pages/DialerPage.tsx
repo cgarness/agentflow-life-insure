@@ -5,7 +5,7 @@ import {
   AlertTriangle, Delete, Lock,
   Zap, ExternalLink, FileText,
   CalendarPlus, CheckCircle,
-  Pencil,
+  Pencil, Send,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -260,6 +260,12 @@ const DialerPage: React.FC = () => {
 
   /* ── Right panel tab ── */
   const [rightPanelTab, setRightPanelTab] = useState<"activity" | "scripts" | "queue">("activity");
+
+  /* ── Message Composer ── */
+  const [messageTab, setMessageTab] = useState<"sms" | "email">("sms");
+  const [messageText, setMessageText] = useState("");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
 
   /* ── Session summary modal ── */
   const [showSummary, setShowSummary] = useState(false);
@@ -1148,30 +1154,6 @@ const DialerPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Telnyx Status Indicator ── */}
-      <div className="shrink-0 mb-3">
-        {telnyxStatus === "connecting" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /> Dialer connecting...
-          </span>
-        )}
-        {telnyxStatus === "ready" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-            <span className="w-2 h-2 rounded-full bg-green-500" /> Dialer ready
-          </span>
-        )}
-        {telnyxStatus === "error" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500" /> Dialer error — check Telnyx credentials in Settings
-          </span>
-        )}
-        {telnyxStatus === "idle" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-            <span className="w-2 h-2 rounded-full bg-gray-400" /> Configure Telnyx in Settings to enable calling
-          </span>
-        )}
-      </div>
-
       {/* ── Mobile tab switcher ── */}
       <div className="lg:hidden shrink-0 flex bg-accent rounded-lg p-0.5 mb-3">
         {(["center", "right"] as const).map((t) => (
@@ -1184,205 +1166,9 @@ const DialerPage: React.FC = () => {
       </div>
 
       {/* ── Main Workspace ── */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-3 min-h-0 overflow-hidden">
 
-        {/* ═══ CENTER PANEL ═══ */}
-        <div className={cn("lg:col-span-2 bg-card border border-border rounded-xl flex flex-col overflow-hidden relative",
-          mobileTab !== "center" && "hidden lg:flex")}>
-
-          {/* Error banner */}
-          {dialerError && (
-            <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-2 shrink-0">
-              <AlertTriangle className="w-4 h-4 text-destructive" />
-              <span className="text-xs text-destructive flex-1">{dialerError}</span>
-              <button onClick={() => window.location.reload()} className="text-xs text-destructive underline">Retry</button>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {!currentLead && !quickDialMode ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <Phone className="w-16 h-16 text-muted-foreground mb-4" />
-                <p className="text-lg font-medium text-foreground">No leads in queue</p>
-                <p className="text-sm text-muted-foreground">All leads have been called or are outside calling hours.</p>
-              </div>
-            ) : (
-              <>
-                {/* ── Contact Header ── */}
-                {currentLead && (
-                  <div className="text-center space-y-3 pb-4 border-b border-border">
-                    <h2 className="text-3xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
-                    <p className="font-mono text-lg text-foreground">
-                      {isOpenPool && lockCountdown !== null ? (
-                        <span className="text-orange-500 inline-flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> Locked</span>
-                      ) : currentLead.phone}
-                    </p>
-                    <div className="flex items-center justify-center gap-2">
-                      <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.state}</span>
-                      <span className="text-sm bg-accent px-2 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
-                      {currentLead.age && <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.age} yrs</span>}
-                    </div>
-                    {/* From number badge */}
-                    <div className="max-w-xs mx-auto w-full">
-                      <div className="bg-primary/15 text-primary border border-primary/30 rounded-lg px-4 py-2 text-sm font-mono font-semibold text-center">
-                        From: {formatPhoneDisplay(activeCallerId?.callerNumber || currentCallerId.callerNumber)}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Call Controls ── */}
-                {currentLead && (
-                  <div className="space-y-4 max-w-lg mx-auto w-full">
-                    {/* DNC Warning */}
-                    {dncWarning && callStatus === "idle" && (
-                      <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2">
-                        <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
-                          <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
-                          <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Status indicators */}
-                    {callStatus === "connecting" && (
-                      <div className="flex items-center justify-center gap-2 text-primary font-medium text-sm bg-primary/10 rounded-lg p-4">
-                        <Loader2 className="w-5 h-5 animate-spin" /> Connecting...
-                      </div>
-                    )}
-                    {callStatus === "connected" && (
-                      <div className="text-center space-y-3 py-4">
-                        <div className="flex items-center justify-center gap-1.5 text-green-500 text-sm font-medium">
-                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
-                        </div>
-                        <p className="text-4xl font-mono font-bold text-foreground">{fmtTime(callSeconds)}</p>
-                        <div className="flex justify-center gap-3">
-                          <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }}
-                            className={cn("p-3 rounded-full transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                            {telnyxIsMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                          </button>
-                          <button onClick={() => telnyxToggleHold()}
-                            className={cn("p-3 rounded-full transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                            <Pause className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Call / End / Skip buttons */}
-                    {callStatus !== "ended" && (
-                      <div className="flex gap-3">
-                        {callStatus === "idle" ? (
-                          <button onClick={() => handleCall()} disabled={dncChecking}
-                            className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                            {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
-                          </button>
-                        ) : (
-                          <button onClick={handleHangUp}
-                            className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
-                            <PhoneOff className="w-4 h-4" /> End Call
-                          </button>
-                        )}
-                        <button onClick={handleSkipLead} disabled={callStatus !== "idle"}
-                          className="flex-1 border border-border bg-accent/30 text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
-                          <SkipForward className="w-4 h-4" /> Skip
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Disposition grid (wrap-up) */}
-                    <AnimatePresence>
-                      {callStatus === "ended" && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 20 }}
-                          className="space-y-4"
-                        >
-                          <p className="text-sm text-muted-foreground text-center">Call ended · {fmtTime(callSeconds)}</p>
-                          <div className="grid grid-cols-3 gap-2">
-                            {dispositions.map((d, idx) => (
-                              <button
-                                key={d.id}
-                                onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
-                                className={cn(
-                                  "py-3 px-4 text-sm font-medium rounded-lg border transition-colors flex items-center gap-2",
-                                  selectedDispId === d.id
-                                    ? "border-ring ring-1 ring-ring/30 shadow-sm"
-                                    : "border-border hover:border-ring/50"
-                                )}
-                              >
-                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">{idx + 1}</span>
-                                <span className="text-foreground truncate">{d.name}</span>
-                              </button>
-                            ))}
-                          </div>
-
-                          {/* Notes input if required */}
-                          {selectedDisp?.require_notes && (
-                            <input
-                              type="text"
-                              value={dispNotes}
-                              onChange={(e) => setDispNotes(e.target.value)}
-                              placeholder={`Notes required (min ${selectedDisp.min_note_chars} chars)...`}
-                              className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                            />
-                          )}
-
-                          {/* Callback scheduler */}
-                          {selectedDisp?.callback_scheduler && (
-                            <div className="flex items-center gap-2">
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button className="flex items-center gap-1.5 bg-accent text-accent-foreground border border-border px-3 py-2 rounded-lg text-sm hover:bg-accent/80 transition-colors">
-                                    <CalendarPlus className="w-4 h-4" />
-                                    {callbackDate ? format(callbackDate, "MMM d, yyyy") : "Schedule Callback"}
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-3" align="start">
-                                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
-                                  <div className="flex gap-2 mt-2">
-                                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                              {callbackDate && (
-                                <span className="text-xs text-muted-foreground">at {callbackTime}</span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Save / Skip buttons */}
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleSaveDisposition()}
-                              disabled={!selectedDispId || !notesValid}
-                              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors py-3 rounded-lg text-sm font-bold disabled:opacity-50"
-                            >
-                              Save Disposition
-                            </button>
-                            <button
-                              onClick={() => handleSkipDisposition()}
-                              className="border border-border bg-accent/30 text-foreground hover:bg-accent transition-colors py-3 px-6 rounded-lg text-sm font-medium"
-                            >
-                              Skip
-                            </button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* ═══ RIGHT PANEL (Tabbed) ═══ */}
+        {/* ═══ LEFT PANEL (Activity / Scripts / Queue) ═══ */}
         <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
           mobileTab !== "right" && "hidden lg:flex")}>
 
@@ -1452,34 +1238,6 @@ const DialerPage: React.FC = () => {
                           <p className="text-foreground">{agentName}</p>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Disposition History */}
-                    <div>
-                      <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Disposition History</h4>
-                      {callHistory.length === 0 ? (
-                        <p className="text-[11px] text-green-500 italic">First attempt — no history</p>
-                      ) : (
-                        <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
-                          {[...callHistory].map((c, idx) => {
-                            const attemptNum = callHistory.length - idx;
-                            const dispColor = getDispColor(c.disposition_name);
-                            return (
-                              <div key={c.id} className="flex items-center gap-2 text-[11px] bg-accent/30 rounded-lg p-1.5">
-                                <span className="text-muted-foreground font-mono shrink-0">#{attemptNum}</span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-foreground">{c.started_at ? timeAgo(c.started_at) : "—"}</p>
-                                </div>
-                                {c.disposition_name ? (
-                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
-                                ) : (
-                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-muted text-muted-foreground">No Disp</span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
 
                     {/* Schedule & Full View buttons */}
@@ -1639,6 +1397,368 @@ const DialerPage: React.FC = () => {
                     End Session
                   </button>
                 </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ═══ CENTER PANEL ═══ */}
+        <div className={cn("lg:col-span-3 bg-card border border-border rounded-xl flex flex-col overflow-hidden relative",
+          mobileTab !== "center" && "hidden lg:flex")}>
+
+          {/* Error banner */}
+          {dialerError && (
+            <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-2 shrink-0">
+              <AlertTriangle className="w-4 h-4 text-destructive" />
+              <span className="text-xs text-destructive flex-1">{dialerError}</span>
+              <button onClick={() => window.location.reload()} className="text-xs text-destructive underline">Retry</button>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {!currentLead && !quickDialMode ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <Phone className="w-16 h-16 text-muted-foreground mb-4" />
+                <p className="text-lg font-medium text-foreground">No leads in queue</p>
+                <p className="text-sm text-muted-foreground">All leads have been called or are outside calling hours.</p>
+              </div>
+            ) : (
+              <>
+                {/* ── Three Action Buttons ── */}
+                {currentLead && (
+                  <div className="flex gap-3">
+                    {callStatus === "idle" ? (
+                      <button onClick={() => handleCall()} disabled={dncChecking}
+                        className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                        {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+                      </button>
+                    ) : (
+                      <button onClick={handleHangUp}
+                        className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
+                        <PhoneOff className="w-4 h-4" /> End Call
+                      </button>
+                    )}
+                    <button onClick={handleSkipLead} disabled={callStatus !== "idle"}
+                      className="flex-1 border border-border bg-muted text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
+                      <SkipForward className="w-4 h-4" /> Skip
+                    </button>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="flex-1 border border-purple-500/50 text-purple-600 rounded-lg py-3 text-sm font-bold hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2">
+                          <CalendarPlus className="w-4 h-4" /> Schedule
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-3" align="end">
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-sm">Schedule Appointment</h4>
+                          <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                          <div className="flex gap-2">
+                            <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                            <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                )}
+
+                {/* ── Contact Header ── */}
+                {currentLead && (
+                  <div className="text-center space-y-3 pb-4 border-b border-border">
+                    <h2 className="text-3xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
+                    <p className="font-mono text-lg text-foreground">
+                      {isOpenPool && lockCountdown !== null ? (
+                        <span className="text-orange-500 inline-flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> Locked</span>
+                      ) : currentLead.phone}
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.state}</span>
+                      <span className="text-sm bg-accent px-2 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
+                      {currentLead.age && <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.age} yrs</span>}
+                    </div>
+                    {/* From number badge */}
+                    <div className="max-w-xs mx-auto w-full">
+                      <div className="bg-primary/15 text-primary border border-primary/30 rounded-lg px-4 py-2 text-sm font-mono font-semibold text-center">
+                        From: {formatPhoneDisplay(activeCallerId?.callerNumber || currentCallerId.callerNumber)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Call Status Indicators + Disposition Wrap-up ── */}
+                {currentLead && (
+                  <div className="space-y-4 max-w-lg mx-auto w-full">
+                    {/* DNC Warning */}
+                    {dncWarning && callStatus === "idle" && (
+                      <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
+                          <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
+                          <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Connecting indicator */}
+                    {callStatus === "connecting" && (
+                      <div className="flex items-center justify-center gap-2 text-primary font-medium text-sm bg-primary/10 rounded-lg p-4">
+                        <Loader2 className="w-5 h-5 animate-spin" /> Connecting...
+                      </div>
+                    )}
+
+                    {/* Connected timer + controls */}
+                    {callStatus === "connected" && (
+                      <div className="text-center space-y-3 py-4">
+                        <div className="flex items-center justify-center gap-1.5 text-green-500 text-sm font-medium">
+                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
+                        </div>
+                        <p className="text-4xl font-mono font-bold text-foreground">{fmtTime(callSeconds)}</p>
+                        <div className="flex justify-center gap-3">
+                          <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }}
+                            className={cn("p-3 rounded-full transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
+                            {telnyxIsMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                          </button>
+                          <button onClick={() => telnyxToggleHold()}
+                            className={cn("p-3 rounded-full transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
+                            <Pause className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Disposition grid (wrap-up) */}
+                    <AnimatePresence>
+                      {callStatus === "ended" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 20 }}
+                          className="space-y-4"
+                        >
+                          <p className="text-sm text-muted-foreground text-center">Call ended · {fmtTime(callSeconds)}</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {dispositions.map((d, idx) => (
+                              <button
+                                key={d.id}
+                                onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
+                                className={cn(
+                                  "py-3 px-4 text-sm font-medium rounded-lg border transition-colors flex items-center gap-2",
+                                  selectedDispId === d.id
+                                    ? "border-ring ring-1 ring-ring/30 shadow-sm"
+                                    : "border-border hover:border-ring/50"
+                                )}
+                              >
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">{idx + 1}</span>
+                                <span className="text-foreground truncate">{d.name}</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Notes input if required */}
+                          {selectedDisp?.require_notes && (
+                            <input
+                              type="text"
+                              value={dispNotes}
+                              onChange={(e) => setDispNotes(e.target.value)}
+                              placeholder={`Notes required (min ${selectedDisp.min_note_chars} chars)...`}
+                              className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                          )}
+
+                          {/* Callback scheduler */}
+                          {selectedDisp?.callback_scheduler && (
+                            <div className="flex items-center gap-2">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="flex items-center gap-1.5 bg-accent text-accent-foreground border border-border px-3 py-2 rounded-lg text-sm hover:bg-accent/80 transition-colors">
+                                    <CalendarPlus className="w-4 h-4" />
+                                    {callbackDate ? format(callbackDate, "MMM d, yyyy") : "Schedule Callback"}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-3" align="start">
+                                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                                  <div className="flex gap-2 mt-2">
+                                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                              {callbackDate && (
+                                <span className="text-xs text-muted-foreground">at {callbackTime}</span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Save / Skip buttons */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSaveDisposition()}
+                              disabled={!selectedDispId || !notesValid}
+                              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors py-3 rounded-lg text-sm font-bold disabled:opacity-50"
+                            >
+                              Save Disposition
+                            </button>
+                            <button
+                              onClick={() => handleSkipDisposition()}
+                              className="border border-border bg-accent/30 text-foreground hover:bg-accent transition-colors py-3 px-6 rounded-lg text-sm font-medium"
+                            >
+                              Skip
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+
+                {/* ── Contact Details ── */}
+                {currentLead && callStatus !== "ended" && (
+                  <div className="bg-accent/30 rounded-xl p-4 space-y-3">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contact Details</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Full Name</p>
+                        <p className="font-medium text-foreground">{currentLead.first_name} {currentLead.last_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Phone</p>
+                        <p className="font-mono text-foreground">{isOpenPool && lockCountdown !== null ? "Hidden" : currentLead.phone}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Email</p>
+                        <p className="text-foreground break-all">{currentLead.email || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">State</p>
+                        <p className="text-foreground">{currentLead.state}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Age</p>
+                        <p className="text-foreground">{currentLead.age ? `${currentLead.age} yrs` : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Lead Source</p>
+                        <p className="text-foreground">{currentLead.source || "Unknown"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Status</p>
+                        <p className="text-foreground">{currentLead.status}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Assigned</p>
+                        <p className="text-foreground">{agentName}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Message Composer ── */}
+                {currentLead && callStatus !== "ended" && (
+                  <div className="bg-card border border-border rounded-xl overflow-hidden">
+                    {/* SMS / Email tab bar */}
+                    <div className="flex border-b border-border">
+                      {(["sms", "email"] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setMessageTab(tab)}
+                          className={cn(
+                            "flex-1 py-2.5 text-sm font-medium text-center uppercase tracking-wider transition-colors",
+                            messageTab === tab
+                              ? "border-b-2 border-primary text-primary"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {/* Subject line (email only) */}
+                      {messageTab === "email" && (
+                        <input
+                          type="text"
+                          value={messageSubject}
+                          onChange={(e) => setMessageSubject(e.target.value)}
+                          placeholder="Subject..."
+                          className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      )}
+                      <textarea
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        rows={3}
+                        placeholder="Type your message..."
+                        className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <div className="flex items-center gap-2">
+                        {/* Templates dropdown */}
+                        <div className="relative">
+                          <button
+                            onClick={() => setTemplateDropdownOpen(!templateDropdownOpen)}
+                            className="border border-border bg-background text-foreground rounded-lg px-3 py-2 text-sm font-medium hover:bg-accent transition-colors flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" /> Templates
+                          </button>
+                          {templateDropdownOpen && (
+                            <div className="absolute bottom-full mb-1 left-0 z-10 bg-card border border-border rounded-xl shadow-lg overflow-hidden min-w-[200px]">
+                              {[
+                                { label: "Intro Message", text: `Hi ${currentLead.first_name}, this is ${agentName} reaching out about your life insurance inquiry. I'd love to connect and answer any questions you have!` },
+                                { label: "Follow Up", text: `Hi ${currentLead.first_name}, just following up on our earlier conversation. Are you still interested in exploring your life insurance options?` },
+                                { label: "Appointment Reminder", text: `Hi ${currentLead.first_name}, this is a reminder about your upcoming appointment. Please let me know if you need to reschedule!` },
+                              ].map((t) => (
+                                <button
+                                  key={t.label}
+                                  onClick={() => { setMessageText(t.text); setTemplateDropdownOpen(false); }}
+                                  className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+                                >
+                                  {t.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => { toast.success("Message sent!"); setMessageText(""); setMessageSubject(""); }}
+                          className="ml-auto bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2"
+                        >
+                          <Send className="w-4 h-4" /> Send
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Disposition History ── */}
+                {currentLead && callStatus !== "ended" && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Disposition History</h4>
+                    {callHistory.length === 0 ? (
+                      <p className="text-[11px] text-green-500 italic">First attempt — no history</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                        {[...callHistory].map((c, idx) => {
+                          const attemptNum = callHistory.length - idx;
+                          const dispColor = getDispColor(c.disposition_name);
+                          return (
+                            <div key={c.id} className="flex items-center gap-2 text-[11px] bg-accent/30 rounded-lg p-1.5">
+                              <span className="text-muted-foreground font-mono shrink-0">#{attemptNum}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-foreground">{c.started_at ? timeAgo(c.started_at) : "—"}</p>
+                              </div>
+                              {c.disposition_name ? (
+                                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
+                              ) : (
+                                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-muted text-muted-foreground">No Disp</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
