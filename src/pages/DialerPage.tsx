@@ -1559,17 +1559,18 @@ const DialerPage: React.FC = () => {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 flex flex-col min-h-0">
             {!currentLead && !quickDialMode ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="flex flex-col items-center justify-center flex-1 text-center p-4">
                 <Phone className="w-16 h-16 text-muted-foreground mb-4" />
                 <p className="text-lg font-medium text-foreground">No leads in queue</p>
                 <p className="text-sm text-muted-foreground">All leads have been called or are outside calling hours.</p>
               </div>
             ) : currentLead ? (
               <>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col">
                 {/* ── Section A: Compact Contact Details Grid ── */}
-                <div className="bg-accent/30 rounded-xl p-4">
+                <div className="bg-accent/30 rounded-xl p-4 shrink-0">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
                       { label: "Full Name", value: `${currentLead.first_name} ${currentLead.last_name}` },
@@ -1590,7 +1591,7 @@ const DialerPage: React.FC = () => {
                 </div>
 
                 {/* ── Dispositions Bar ── */}
-                <div className="bg-accent/20 rounded-xl p-3 flex items-center gap-3 overflow-x-auto">
+                <div className="bg-accent/20 rounded-xl p-3 flex items-center gap-3 overflow-x-auto shrink-0">
                   <span className="text-sm font-semibold text-foreground shrink-0">Dispositions:</span>
                   <div className="flex gap-2 flex-1 items-center">
                     {dispositions.map((d) => (
@@ -1626,7 +1627,7 @@ const DialerPage: React.FC = () => {
                 </div>
 
                 {/* ── Section B: Unified Conversation Panel ── */}
-                <div className="flex flex-col border border-border rounded-xl overflow-hidden" style={{ height: "540px" }}>
+                <div className="flex-1 flex flex-col border border-border rounded-xl overflow-hidden min-h-[300px]">
                   {/* Scrollable conversation feed */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/10">
                     {historyLoading ? (
@@ -1735,9 +1736,11 @@ const DialerPage: React.FC = () => {
                       </>
                     )}
                   </div>
+                </div>
+                </div>
 
                   {/* Composer */}
-                  <div className="border-t border-border p-3 bg-card shrink-0 space-y-2">
+                  <div className="border-t border-border p-3 bg-card shrink-0 space-y-2 mt-auto">
                     {/* Channel toggle */}
                     <div className="flex items-center gap-2">
                       <div className="flex bg-muted rounded-lg p-0.5">
@@ -1808,7 +1811,6 @@ const DialerPage: React.FC = () => {
                       )}
                     </div>
                   </div>
-                </div>
               </>
             ) : null}
           </div>
