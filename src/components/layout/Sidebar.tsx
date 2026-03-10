@@ -14,7 +14,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: Phone, label: "Dialer", path: "/dialer" },
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: MessageSquare, label: "Conversations", path: "/conversations" },
