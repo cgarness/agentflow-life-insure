@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
-  Phone, PhoneOff, Mic, MicOff, Pause, Voicemail,
-  Clock, SkipForward, Search, ChevronLeft, Loader2,
-  ArrowRight, AlertTriangle, X, Hash, Delete, Lock,
-  Zap, User, Mail, MapPin, ExternalLink, FileText,
-  MessageSquare, CalendarPlus, CheckCircle, Pin,
-  PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
-  MessageCircle, MailIcon, RefreshCw, Filter, Send,
+  Phone, PhoneOff, Mic, MicOff, Pause,
+  SkipForward, Search, ChevronLeft, Loader2,
+  AlertTriangle, Delete, Lock,
+  Zap, ExternalLink, FileText,
+  CalendarPlus, CheckCircle,
+  Pencil,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -257,7 +256,10 @@ const DialerPage: React.FC = () => {
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   /* ── Mobile tab ── */
-  const [mobileTab, setMobileTab] = useState<"center" | "left" | "right">("center");
+  const [mobileTab, setMobileTab] = useState<"center" | "right">("center");
+
+  /* ── Right panel tab ── */
+  const [rightPanelTab, setRightPanelTab] = useState<"activity" | "scripts" | "queue">("activity");
 
   /* ── Session summary modal ── */
   const [showSummary, setShowSummary] = useState(false);
@@ -1172,273 +1174,17 @@ const DialerPage: React.FC = () => {
 
       {/* ── Mobile tab switcher ── */}
       <div className="lg:hidden shrink-0 flex bg-accent rounded-lg p-0.5 mb-3">
-        {(["center", "left", "right"] as const).map((t) => (
+        {(["center", "right"] as const).map((t) => (
           <button key={t} onClick={() => setMobileTab(t)}
-            className={cn("flex-1 py-1.5 text-xs rounded-md text-center transition-colors capitalize",
+            className={cn("flex-1 py-1.5 text-xs rounded-md text-center transition-colors",
               mobileTab === t ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground")}>
-            {t === "center" ? "Call" : t === "left" ? "Queue" : "Details"}
+            {t === "center" ? "Call" : "Details"}
           </button>
         ))}
       </div>
 
       {/* ── Main Workspace ── */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
-        
-        {/* ══ LEFT & CENTER WRAPPER ══ */}
-        <div className="flex-1 flex flex-col gap-3 min-w-0">
-          
-          {/* Top Bar (Dispositions & Appointment) OVER Left & Center */}
-          <div className="shrink-0 bg-card border border-border rounded-xl p-3 flex items-center gap-3 overflow-x-auto">
-            <span className="text-sm font-semibold text-foreground shrink-0">Dispositions:</span>
-            <div className="flex gap-2 flex-1 items-center">
-              {dispositions.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border",
-                    selectedDispId === d.id ? "border-ring ring-1 ring-ring/30 shadow-sm font-bold opacity-100" : "border-transparent hover:brightness-95 opacity-70 hover:opacity-100"
-                  )}
-                  style={{ backgroundColor: `${d.color}20`, color: d.color }}
-                >
-                  {d.name}
-                </button>
-              ))}
-            </div>
-            {selectedDisp?.require_notes && (
-              <div className="flex items-center gap-2 shrink-0">
-                <input
-                  type="text"
-                  value={dispNotes}
-                  onChange={(e) => setDispNotes(e.target.value)}
-                  placeholder={`Notes (${selectedDisp.min_note_chars} chars)...`}
-                  className="bg-background border border-input rounded-lg px-2 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            )}
-            <button 
-              onClick={() => handleSaveDisposition()}
-              disabled={!selectedDispId || !notesValid}
-              className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-4 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
-            >
-              Save Disp.
-            </button>
-            <div className="w-px h-6 bg-border shrink-0 mx-1" />
-            
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="shrink-0 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 transition-colors px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
-                  <CalendarPlus className="w-3.5 h-3.5" /> Schedule Appointment
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-3" align="end">
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-sm">Schedule Appointment</h4>
-                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
-                  <div className="flex gap-2">
-                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
-                    <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          {/* Inner Grid for Left & Center Panels */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0">
-
-            {/* ═══ LEFT PANEL ═══ */}
-            <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
-              mobileTab !== "left" && "hidden lg:flex")}>
-          <div className="p-3 border-b border-border space-y-3 shrink-0">
-            {/* Dial mode & Queue options */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Menu</span>
-              </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="text-xs flex items-center gap-1.5 border border-border bg-background px-2 py-1.5 rounded-md text-foreground hover:bg-accent transition-colors">
-                    <Filter className="w-3 h-3" /> Filter & Sort <ChevronDown className="w-3 h-3" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-3 space-y-3" align="start">
-                  <h4 className="font-semibold text-sm">Queue Options</h4>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Sort By</label>
-                    <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
-                      <option>Queue Order (Default)</option>
-                      <option>Timezone (East to West)</option>
-                      <option>Lead Score (High to Low)</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Filter States</label>
-                    <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
-                      <option>All States</option>
-                      <option>East Coast</option>
-                      <option>West Coast</option>
-                    </select>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-
-          {/* SharkTank banner */}
-          {isOpenPool && (
-            <div className="px-3 py-2 bg-orange-500/10 border-b border-orange-500/20 flex items-center gap-2 shrink-0">
-              <Zap className="w-4 h-4 text-orange-500" />
-              <span className="text-xs font-semibold text-orange-500">SharkTank Mode</span>
-            </div>
-          )}
-
-          {/* Lead queue */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {leadsLoading ? (
-              [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
-            ) : filteredLeads.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">No leads in queue</div>
-            ) : (
-              filteredLeads.map((lead, idx) => {
-                const isCurrent = idx === currentLeadIdx;
-                const localTime = getContactLocalTime(lead.state);
-                const isHovered = hoveredLeadId === lead.id;
-                const lastCall = lead.lead_id ? leadLastCalls[lead.lead_id] : null;
-                const lastCallDispColor = lastCall?.disposition_name ? getDispColor(lastCall.disposition_name) : null;
-
-                return (
-                  <div
-                    key={lead.id}
-                    className="relative"
-                    onMouseEnter={() => {
-                      hoverTimerRef.current = setTimeout(() => setHoveredLeadId(lead.id), 300);
-                    }}
-                    onMouseLeave={() => {
-                      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-                      setHoveredLeadId(null);
-                    }}
-                  >
-                    <button
-                      onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
-                      className={cn(
-                        "w-full text-left rounded-lg p-2.5 transition-all border",
-                        isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
-                        <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 ml-4">
-                        <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
-                        {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
-                        {localTime && <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{localTime}</span>}
-                      </div>
-                      {isCurrent && lockCountdown !== null && (
-                        <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
-                      )}
-                    </button>
-
-                    {/* ── Hover Preview Card (desktop only) ── */}
-                    <AnimatePresence>
-                      {isHovered && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.15, ease: "easeOut" }}
-                          className="hidden lg:block absolute left-full top-0 ml-2 z-50 w-[280px] bg-card border border-border rounded-lg shadow-lg p-3 space-y-2"
-                        >
-                          {/* Arrow pointing left */}
-                          <div className="absolute left-0 top-4 -translate-x-full">
-                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-border" />
-                          </div>
-                          <div className="absolute left-0 top-4 -translate-x-[calc(100%-1px)]">
-                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-card" />
-                          </div>
-
-                          {/* Name */}
-                          <p className="font-bold text-sm text-foreground">{lead.first_name} {lead.last_name}</p>
-
-                          {/* Phone */}
-                          <p className="font-mono text-xs text-foreground">
-                            {isOpenPool && !isCurrent
-                              ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
-                              : lead.phone}
-                          </p>
-
-                          {/* Email */}
-                          <p className="text-xs text-muted-foreground">
-                            {lead.email || "No email"}
-                          </p>
-
-                          {/* State + Local Time */}
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
-                            {localTime && <span className="text-teal-500">{localTime}</span>}
-                          </div>
-
-                          {/* Lead Score */}
-                          {lead.lead_id ? (() => {
-                            // lead_score not on campaign_leads, show from call_attempts context
-                            return null;
-                          })() : null}
-
-                          {/* Lead Source */}
-                          {lead.source && (
-                            <p className="text-[10px] text-muted-foreground">Source: {lead.source}</p>
-                          )}
-
-                          <div className="border-t border-border pt-2 space-y-1.5">
-                            {/* Last Disposition */}
-                            {lastCall?.disposition_name ? (
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <span className="text-muted-foreground">Last:</span>
-                                <span
-                                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-                                  style={{
-                                    backgroundColor: lastCallDispColor ? `${lastCallDispColor}20` : undefined,
-                                    color: lastCallDispColor || undefined,
-                                  }}
-                                >
-                                  {lastCall.disposition_name}
-                                </span>
-                              </div>
-                            ) : (
-                              <p className="text-[10px] text-muted-foreground italic">No previous calls</p>
-                            )}
-
-                            {/* Call Attempts */}
-                            <p className="text-[10px] text-muted-foreground">
-                              {lead.call_attempts > 0 ? `${lead.call_attempts} previous attempt${lead.call_attempts !== 1 ? "s" : ""}` : "First attempt"}
-                            </p>
-
-                            {/* Last Contacted */}
-                            <p className="text-[10px] text-muted-foreground">
-                              {lead.last_called_at ? `Last contacted ${timeAgo(lead.last_called_at)}` : "Never contacted"}
-                            </p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Queue footer */}
-          <div className="p-3 border-t border-border space-y-2 shrink-0">
-            <p className="text-[10px] text-muted-foreground">
-              {callableCount} callable · {outsideCount} outside hours · {leads.length} total
-            </p>
-            <button onClick={endSession}
-              className="w-full border border-destructive text-destructive rounded-lg py-2 text-sm font-medium hover:bg-destructive/10 transition-colors">
-              End Session
-            </button>
-          </div>
-        </div>
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0 overflow-hidden">
 
         {/* ═══ CENTER PANEL ═══ */}
         <div className={cn("lg:col-span-2 bg-card border border-border rounded-xl flex flex-col overflow-hidden relative",
@@ -1462,343 +1208,261 @@ const DialerPage: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* ── Contact Details Header ── */}
+                {/* ── Contact Header ── */}
                 {currentLead && (
-                  <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border relative group">
-                    <button className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 text-xs bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded-md">
-                      <Pencil className="w-3 h-3" /> Edit Fields
-                    </button>
-                    <div className="col-span-2">
-                       <h2 className="text-3xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
+                  <div className="text-center space-y-3 pb-4 border-b border-border">
+                    <h2 className="text-3xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
+                    <p className="font-mono text-lg text-foreground">
+                      {isOpenPool && lockCountdown !== null ? (
+                        <span className="text-orange-500 inline-flex items-center justify-center gap-1"><Lock className="w-4 h-4" /> Locked</span>
+                      ) : currentLead.phone}
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.state}</span>
+                      <span className="text-sm bg-accent px-2 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
+                      {currentLead.age && <span className="text-sm bg-accent px-2 py-0.5 rounded text-accent-foreground font-medium">{currentLead.age} yrs</span>}
                     </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Phone</p>
-                      <p className="font-mono text-base text-foreground flex items-center gap-2">
-                        {isOpenPool && lockCountdown !== null ? <span className="text-orange-500 text-sm flex items-center gap-1"><Lock className="w-3.5 h-3.5"/> Locked</span> : currentLead.phone}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Email</p>
-                      <p className="text-base text-foreground break-all">{currentLead.email || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">State / Tz</p>
-                      <p className="text-base text-foreground flex items-center gap-2">
-                        {currentLead.state} <span className="text-sm bg-accent px-1.5 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Source & Age</p>
-                      <p className="text-base text-foreground">{currentLead.source || "Unknown"} {currentLead.age ? `· ${currentLead.age} yrs` : ""}</p>
+                    {/* From number badge */}
+                    <div className="max-w-xs mx-auto w-full">
+                      <div className="bg-primary/15 text-primary border border-primary/30 rounded-lg px-4 py-2 text-sm font-mono font-semibold text-center">
+                        From: {formatPhoneDisplay(activeCallerId?.callerNumber || currentCallerId.callerNumber)}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* ── Conversation History with SMS/Email Sender ── */}
+                {/* ── Call Controls ── */}
                 {currentLead && (
-                  <div className="border border-border rounded-xl overflow-hidden mt-6">
-                    <div className="px-4 py-3 bg-accent/50 border-b border-border flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-foreground">Conversation & Outreach</h3>
-                      <div className="flex gap-1 flex-wrap">
-                        {(["all", "calls", "notes", "appointments", "activity"] as const).map((f) => (
-                          <button key={f} onClick={() => setFeedFilter(f)} className={cn("px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors capitalize", feedFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                            {f}
-                          </button>
-                        ))}
+                  <div className="space-y-4 max-w-lg mx-auto w-full">
+                    {/* DNC Warning */}
+                    {dncWarning && callStatus === "idle" && (
+                      <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
+                          <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
+                          <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
+                        </div>
                       </div>
-                    </div>
-                    
-                    {/* SMS / Email Sender */}
-                    <div className="p-3 border-b border-border bg-card">
-                       <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-semibold text-foreground flex items-center gap-2">
-                             <Send className="w-3.5 h-3.5" /> Send Message
-                          </label>
-                          <select className="bg-background border border-input rounded text-xs px-2 py-1 focus:outline-none text-muted-foreground">
-                             <option>Select Template...</option>
-                             <option>Introduction SMS</option>
-                             <option>Follow-up Email</option>
-                             <option>VM Drop Template</option>
-                          </select>
-                       </div>
-                       <textarea 
-                          placeholder="Type your message here..."
-                          className="w-full bg-background border border-input rounded-lg p-2 text-xs h-16 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                       />
-                       <div className="flex justify-end gap-2 mt-2">
-                          <button className="bg-green-600/10 text-green-600 hover:bg-green-600/20 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
-                             <MessageCircle className="w-3.5 h-3.5"/> Send SMS
-                          </button>
-                          <button className="bg-blue-600/10 text-blue-600 hover:bg-blue-600/20 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
-                             <MailIcon className="w-3.5 h-3.5"/> Send Email
-                          </button>
-                       </div>
-                    </div>
+                    )}
 
-                    <div className="max-h-[350px] overflow-y-auto p-3 space-y-2 bg-muted/10">
-                      {historyLoading ? (
-                        <div className="space-y-2">
-                          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                    {/* Status indicators */}
+                    {callStatus === "connecting" && (
+                      <div className="flex items-center justify-center gap-2 text-primary font-medium text-sm bg-primary/10 rounded-lg p-4">
+                        <Loader2 className="w-5 h-5 animate-spin" /> Connecting...
+                      </div>
+                    )}
+                    {callStatus === "connected" && (
+                      <div className="text-center space-y-3 py-4">
+                        <div className="flex items-center justify-center gap-1.5 text-green-500 text-sm font-medium">
+                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
                         </div>
-                      ) : filteredFeed.length === 0 ? (
-                        <div className="text-center py-8">
-                          <MessageSquare className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                          <p className="text-sm text-muted-foreground">No conversation history yet.</p>
-                          <p className="text-xs text-muted-foreground">This will be the first touchpoint.</p>
+                        <p className="text-4xl font-mono font-bold text-foreground">{fmtTime(callSeconds)}</p>
+                        <div className="flex justify-center gap-3">
+                          <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }}
+                            className={cn("p-3 rounded-full transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
+                            {telnyxIsMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                          </button>
+                          <button onClick={() => telnyxToggleHold()}
+                            className={cn("p-3 rounded-full transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
+                            <Pause className="w-5 h-5" />
+                          </button>
                         </div>
-                      ) : (
-                        <>
-                          {filteredFeed.map((item) => {
-                            const expanded = expandedFeedItems.has(item.id);
-                            const borderColors: Record<FeedItemType, string> = {
-                              call: "border-l-green-500", note: "border-l-blue-500", appointment: "border-l-purple-500",
-                              activity: "border-l-muted-foreground/50", sms: "border-l-green-500", email: "border-l-blue-500",
-                            };
-                            return (
-                              <div key={item.id} className={cn("bg-card rounded-lg p-3 border-l-[3px] text-xs", borderColors[item.type] || "border-l-muted")}>
-                                {item.type === "call" && (() => {
-                                  const c = item.data as CallRecord;
-                                  const connected = (c.duration ?? 0) > 0;
-                                  const dispColor = getDispColor(c.disposition_name);
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        {connected ? <Phone className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <PhoneMissed className="w-3.5 h-3.5 text-destructive shrink-0" />}
-                                        <span className="font-medium text-foreground">Call — {connected ? fmtTime(c.duration!) : "No Answer"}</span>
-                                        {c.disposition_name && (
-                                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium ml-auto" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
-                                        )}
-                                      </div>
-                                      {getAgentFirstName(c.agent_id) && <p className="text-muted-foreground ml-5">{getAgentFirstName(c.agent_id)}</p>}
-                                      {c.notes && <p className={cn("text-muted-foreground ml-5 cursor-pointer", !expanded && "line-clamp-2")} onClick={() => toggleFeedExpand(item.id)}>{c.notes}</p>}
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "note" && (() => {
-                                  const n = item.data as ContactNote;
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <Pencil className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                        {n.pinned && <span className="flex items-center gap-0.5 text-primary text-[10px] font-medium"><Pin className="w-3 h-3" /> Pinned</span>}
-                                      </div>
-                                      <p className={cn("text-foreground ml-5 cursor-pointer", !expanded && "line-clamp-3")} onClick={() => toggleFeedExpand(item.id)}>{n.content}</p>
-                                      {getAgentFirstName((n as any).author_id) && <p className="text-muted-foreground ml-5">{getAgentFirstName((n as any).author_id)}</p>}
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "appointment" && (() => {
-                                  const a = item.data as AppointmentRecord;
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <CalendarDays className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                        <span className="font-medium text-foreground">{a.type} — {a.status}</span>
-                                      </div>
-                                      <p className="text-muted-foreground ml-5">{format(new Date(a.start_time), "MMM d, yyyy h:mm a")}</p>
-                                      {getAgentFirstName(a.created_by) && <p className="text-muted-foreground ml-5">{getAgentFirstName(a.created_by)}</p>}
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "activity" && (() => {
-                                  const a = item.data as ActivityRecord;
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                                        <span className="text-foreground">{a.description}</span>
-                                        <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">{a.activity_type}</span>
-                                      </div>
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "sms" && (() => {
-                                  const a = item.data as ActivityRecord;
-                                  const direction = a.metadata?.direction || "sent";
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <MessageCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                                        <span className="text-foreground flex-1">{a.description}</span>
-                                        <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full capitalize">{direction}</span>
-                                      </div>
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "email" && (() => {
-                                  const a = item.data as ActivityRecord;
-                                  const direction = a.metadata?.direction || "sent";
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <MailIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                        <span className="text-foreground flex-1">{a.description}</span>
-                                        <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full capitalize">{direction}</span>
-                                      </div>
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            );
-                          })}
-                          <div ref={feedEndRef} />
-                        </>
+                      </div>
+                    )}
+
+                    {/* Call / End / Skip buttons */}
+                    {callStatus !== "ended" && (
+                      <div className="flex gap-3">
+                        {callStatus === "idle" ? (
+                          <button onClick={() => handleCall()} disabled={dncChecking}
+                            className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                            {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+                          </button>
+                        ) : (
+                          <button onClick={handleHangUp}
+                            className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
+                            <PhoneOff className="w-4 h-4" /> End Call
+                          </button>
+                        )}
+                        <button onClick={handleSkipLead} disabled={callStatus !== "idle"}
+                          className="flex-1 border border-border bg-accent/30 text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
+                          <SkipForward className="w-4 h-4" /> Skip
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Disposition grid (wrap-up) */}
+                    <AnimatePresence>
+                      {callStatus === "ended" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 20 }}
+                          className="space-y-4"
+                        >
+                          <p className="text-sm text-muted-foreground text-center">Call ended · {fmtTime(callSeconds)}</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {dispositions.map((d, idx) => (
+                              <button
+                                key={d.id}
+                                onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
+                                className={cn(
+                                  "py-3 px-4 text-sm font-medium rounded-lg border transition-colors flex items-center gap-2",
+                                  selectedDispId === d.id
+                                    ? "border-ring ring-1 ring-ring/30 shadow-sm"
+                                    : "border-border hover:border-ring/50"
+                                )}
+                              >
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">{idx + 1}</span>
+                                <span className="text-foreground truncate">{d.name}</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Notes input if required */}
+                          {selectedDisp?.require_notes && (
+                            <input
+                              type="text"
+                              value={dispNotes}
+                              onChange={(e) => setDispNotes(e.target.value)}
+                              placeholder={`Notes required (min ${selectedDisp.min_note_chars} chars)...`}
+                              className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                          )}
+
+                          {/* Callback scheduler */}
+                          {selectedDisp?.callback_scheduler && (
+                            <div className="flex items-center gap-2">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="flex items-center gap-1.5 bg-accent text-accent-foreground border border-border px-3 py-2 rounded-lg text-sm hover:bg-accent/80 transition-colors">
+                                    <CalendarPlus className="w-4 h-4" />
+                                    {callbackDate ? format(callbackDate, "MMM d, yyyy") : "Schedule Callback"}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-3" align="start">
+                                  <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                                  <div className="flex gap-2 mt-2">
+                                    <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                              {callbackDate && (
+                                <span className="text-xs text-muted-foreground">at {callbackTime}</span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Save / Skip buttons */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSaveDisposition()}
+                              disabled={!selectedDispId || !notesValid}
+                              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors py-3 rounded-lg text-sm font-bold disabled:opacity-50"
+                            >
+                              Save Disposition
+                            </button>
+                            <button
+                              onClick={() => handleSkipDisposition()}
+                              className="border border-border bg-accent/30 text-foreground hover:bg-accent transition-colors py-3 px-6 rounded-lg text-sm font-medium"
+                            >
+                              Skip
+                            </button>
+                          </div>
+                        </motion.div>
                       )}
-                    </div>
+                    </AnimatePresence>
                   </div>
                 )}
               </>
             )}
           </div>
         </div>
-        
-        {/* Close Inner Grid */}
-        </div>
-        {/* Close Left & Center Wrapper */}
-        </div>
 
-        {/* ═══ RIGHT PANEL ═══ */}
-        <div className={cn("w-full lg:w-[360px] xl:w-[400px] shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
+        {/* ═══ RIGHT PANEL (Tabbed) ═══ */}
+        <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
           mobileTab !== "right" && "hidden lg:flex")}>
+
+          {/* Tab bar */}
+          <div className="shrink-0 flex border-b border-border">
+            {(["activity", "scripts", "queue"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setRightPanelTab(tab)}
+                className={cn(
+                  "flex-1 py-2.5 text-sm font-medium text-center capitalize transition-colors",
+                  rightPanelTab === tab
+                    ? "border-b-2 border-primary text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tab === "activity" ? "Activity" : tab === "scripts" ? "Scripts" : "Queue"}
+              </button>
+            ))}
+          </div>
+
           <div className="flex-1 overflow-y-auto p-4 space-y-5">
-            {!currentLead ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <Phone className="w-10 h-10 text-muted-foreground mb-3" />
-                <p className="text-sm text-muted-foreground">Select a list and start dialing</p>
-              </div>
-            ) : (
+            {/* ── Activity Tab ── */}
+            {rightPanelTab === "activity" && (
               <>
-                {/* ── Call Controls (Top Bar) ── */}
-                <div className="space-y-3 pb-4 border-b border-border">
-                  {dncWarning && callStatus === "idle" && (
-                    <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2 mb-3">
-                      <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
-                        <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
-                        <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
+                {!currentLead ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <Phone className="w-10 h-10 text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">Select a list and start dialing</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Contact Details Card */}
+                    <div className="bg-accent/30 rounded-xl p-4 space-y-3">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contact Details</h4>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Full Name</p>
+                          <p className="font-medium text-foreground">{currentLead.first_name} {currentLead.last_name}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Phone</p>
+                          <p className="font-mono text-foreground">{isOpenPool && lockCountdown !== null ? "Hidden" : currentLead.phone}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Email</p>
+                          <p className="text-foreground break-all">{currentLead.email || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">State</p>
+                          <p className="text-foreground">{currentLead.state}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Age</p>
+                          <p className="text-foreground">{currentLead.age ? `${currentLead.age} yrs` : "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Lead Source</p>
+                          <p className="text-foreground">{currentLead.source || "Unknown"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Status</p>
+                          <p className="text-foreground">{currentLead.status}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Assigned</p>
+                          <p className="text-foreground">{agentName}</p>
+                        </div>
                       </div>
                     </div>
-                  )}
 
-                  <div className="flex gap-2">
-                    {callStatus === "idle" ? (
-                      <button onClick={() => handleCall()} disabled={dncChecking} className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                        {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
-                      </button>
-                    ) : (
-                      <button onClick={handleHangUp} className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
-                        <PhoneOff className="w-4 h-4" /> End
-                      </button>
-                    )}
-                    <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="flex-1 border border-border bg-accent/30 text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
-                      <SkipForward className="w-4 h-4" /> Skip
-                    </button>
-                  </div>
-
-                  {callStatus === "connecting" && (
-                     <div className="flex items-center justify-center gap-2 text-primary font-medium text-xs mt-2 bg-primary/10 rounded-lg p-2">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
-                     </div>
-                  )}
-                  {callStatus === "connected" && (
-                     <div className="flex items-center justify-between text-xs mt-2 bg-card border border-border rounded-lg p-2">
-                        <div className="flex items-center gap-1.5 text-green-500 font-medium">
-                           <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
-                        </div>
-                        <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
-                        <div className="flex gap-1">
-                          <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
-                             {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                          </button>
-                          <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
-                             <Pause className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                     </div>
-                  )}
-
-                  {/* Caller ID Badge */}
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-xs text-muted-foreground">Calling from:</span>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className="flex items-center gap-1.5 bg-accent text-accent-foreground border border-border px-2 py-1.5 rounded text-[11px] font-mono hover:bg-accent/80 transition-colors">
-                          {activeCallerId ? formatPhoneDisplay(activeCallerId.callerNumber) : formatPhoneDisplay(currentCallerId.callerNumber)}
-                          <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-56 p-2" align="end">
-                         <div className="space-y-2">
-                           <p className="text-xs font-semibold px-1">Select Caller ID</p>
-                           {phoneCache?.allNumbers.map(num => (
-                              <button key={num.phone_number} className="w-full text-left font-mono text-xs px-2 py-1.5 hover:bg-accent rounded transition-colors">
-                                 {formatPhoneDisplay(num.phone_number)}
-                                 {num.location && <span className="ml-2 text-muted-foreground text-[10px]">{num.location}</span>}
-                              </button>
-                           ))}
-                         </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
-
-                {/* ── Quick Notes & Script ── */}
-                <div className="space-y-4">
-                  <div className="border border-border rounded-xl overflow-hidden shadow-sm">
-                    <button onClick={() => setScriptCollapsed(!scriptCollapsed)} className="w-full flex items-center justify-between px-3 py-2 bg-accent/50 hover:bg-accent transition-colors">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Call Script</span>
-                      <ChevronLeft className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", scriptCollapsed ? "-rotate-90" : "rotate-90")} />
-                    </button>
-                    {!scriptCollapsed && (
-                      <div className="p-3 max-h-[150px] overflow-y-auto text-xs text-foreground whitespace-pre-wrap bg-card">
-                        {scriptContent ? scriptContent.replace(/\{first_name\}/g, currentLead.first_name).replace(/\{last_name\}/g, currentLead.last_name).replace(/\{state\}/g, currentLead.state).replace(/\{agent_name\}/g, agentName) : <p className="text-muted-foreground italic">No script assigned.</p>}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    {contactNotes.length > 0 && (
-                      <div className="space-y-1">
-                        {contactNotes.slice(0,2).map((n) => (
-                          <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
-                            {n.pinned && <span className="text-primary mr-1">📌</span>}{n.content}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Quick note..." className="flex-1 bg-background border border-input rounded-lg p-2 text-xs text-foreground resize-none h-12 focus:outline-none focus:ring-1 focus:ring-ring" />
-                      <button onClick={handleSaveNote} disabled={!newNote.trim()} className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40"><Pencil className="w-3.5 h-3.5"/></button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="w-full h-px bg-border my-2" />
-
-                {/* ── Previous Attempts ── */}
-                {(() => {
-                  const attempts = [...callHistory].reverse();
-                  const count = attempts.length;
-                  return (
+                    {/* Disposition History */}
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-semibold text-foreground tracking-wider">Previous Attempts</h4>
-                        {count > 0 && <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">{count} attempt{count !== 1 ? "s" : ""}</span>}
-                      </div>
-                      {count === 0 ? (
-                        <p className="text-[11px] text-green-500 italic">First attempt</p>
+                      <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Disposition History</h4>
+                      {callHistory.length === 0 ? (
+                        <p className="text-[11px] text-green-500 italic">First attempt — no history</p>
                       ) : (
-                        <div className="max-h-[120px] overflow-y-auto space-y-1.5">
+                        <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
                           {[...callHistory].map((c, idx) => {
-                            const attemptNum = count - idx;
+                            const attemptNum = callHistory.length - idx;
                             const dispColor = getDispColor(c.disposition_name);
                             return (
                               <div key={c.id} className="flex items-center gap-2 text-[11px] bg-accent/30 rounded-lg p-1.5">
@@ -1817,29 +1481,164 @@ const DialerPage: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  );
-                })()}
 
-                {/* ── Activity Timeline ── */}
-                <div>
-                  <h4 className="text-xs font-semibold text-foreground tracking-wider mb-2">Activity Summary</h4>
-                  {activities.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground italic">No activity yet</p>
-                  ) : (
-                    <div className="space-y-1.5 max-h-[100px] overflow-y-auto">
-                      {activities.map((a) => (
-                        <div key={a.id} className="flex items-start gap-2 text-[11px]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1 shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-foreground">{a.description}</p>
-                            <p className="text-muted-foreground">{timeAgo(a.created_at)}</p>
+                    {/* Schedule & Full View buttons */}
+                    <div className="flex gap-2 pt-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button className="flex-1 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 transition-colors px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5">
+                            <CalendarPlus className="w-3.5 h-3.5" /> Schedule
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-3" align="end">
+                          <div className="space-y-3">
+                            <h4 className="font-semibold text-sm">Schedule Appointment</h4>
+                            <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
+                            <div className="flex gap-2">
+                              <input type="time" value={callbackTime} onChange={(e) => setCallbackTime(e.target.value)} className="w-full bg-background border border-input rounded-md px-2 py-1 text-sm" />
+                              <button onClick={() => toast.success("Time selected. Save disposition to finalize.")} className="bg-primary text-primary-foreground text-xs px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Set</button>
+                            </div>
                           </div>
+                        </PopoverContent>
+                      </Popover>
+                      {currentLead?.lead_id && (
+                        <button
+                          onClick={() => navigate(`/leads/${currentLead.lead_id}`)}
+                          className="flex-1 border border-border bg-accent/30 text-foreground hover:bg-accent transition-colors px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> Full View
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* ── Scripts Tab ── */}
+            {rightPanelTab === "scripts" && (
+              <>
+                {!currentLead ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <FileText className="w-10 h-10 text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground">No lead selected</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Script sections */}
+                    <div className="border border-border rounded-xl overflow-hidden shadow-sm">
+                      <button onClick={() => setScriptCollapsed(!scriptCollapsed)} className="w-full flex items-center justify-between px-3 py-2 bg-accent/50 hover:bg-accent transition-colors">
+                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Call Script</span>
+                        <ChevronLeft className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", scriptCollapsed ? "-rotate-90" : "rotate-90")} />
+                      </button>
+                      {!scriptCollapsed && (
+                        <div className="p-3 max-h-[300px] overflow-y-auto text-xs text-foreground whitespace-pre-wrap bg-card">
+                          {scriptContent ? scriptContent.replace(/\{first_name\}/g, currentLead.first_name).replace(/\{last_name\}/g, currentLead.last_name).replace(/\{state\}/g, currentLead.state).replace(/\{agent_name\}/g, agentName) : <p className="text-muted-foreground italic">No script assigned.</p>}
                         </div>
-                      ))}
+                      )}
+                    </div>
+
+                    {/* Pinned Notes */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Pinned Notes</h4>
+                      {contactNotes.length > 0 && (
+                        <div className="space-y-1">
+                          {contactNotes.filter((n) => n.pinned).map((n) => (
+                            <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
+                              <span className="text-primary mr-1">📌</span>{n.content}
+                            </div>
+                          ))}
+                          {contactNotes.filter((n) => !n.pinned).slice(0, 2).map((n) => (
+                            <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
+                              {n.content}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Quick note..." className="flex-1 bg-background border border-input rounded-lg p-2 text-xs text-foreground resize-none h-16 focus:outline-none focus:ring-1 focus:ring-ring" />
+                        <button onClick={handleSaveNote} disabled={!newNote.trim()} className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40"><Pencil className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* ── Queue Tab ── */}
+            {rightPanelTab === "queue" && (
+              <>
+                {/* Campaign info */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Dialer</span>
+                      <span className="text-xs text-muted-foreground">{leads.length} remaining</span>
+                    </div>
+                  </div>
+                  {isOpenPool && (
+                    <div className="flex items-center gap-2 bg-orange-500/10 rounded-lg p-2">
+                      <Zap className="w-4 h-4 text-orange-500" />
+                      <span className="text-xs font-semibold text-orange-500">SharkTank Mode</span>
                     </div>
                   )}
                 </div>
 
+                {/* Next 2 leads */}
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Up Next</h4>
+                  {leadsLoading ? (
+                    [1, 2].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
+                  ) : leads.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">No leads in queue</p>
+                  ) : (
+                    filteredLeads.slice(currentLeadIdx, currentLeadIdx + 2).map((lead, idx) => {
+                      const actualIdx = currentLeadIdx + idx;
+                      const isCurrent = actualIdx === currentLeadIdx;
+                      const localTime = getContactLocalTime(lead.state);
+                      return (
+                        <button
+                          key={lead.id}
+                          onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(actualIdx); }}
+                          className={cn(
+                            "w-full text-left rounded-lg p-2.5 transition-all border",
+                            isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
+                            <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 ml-4">
+                            <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
+                            {lead.age && <span className="text-[10px] text-muted-foreground">{lead.age} yrs</span>}
+                            {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
+                            {localTime && <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{localTime}</span>}
+                          </div>
+                          {/* Attempt dots */}
+                          {lead.call_attempts > 0 && (
+                            <div className="flex items-center gap-0.5 mt-1 ml-4">
+                              {Array.from({ length: Math.min(lead.call_attempts, 5) }).map((_, i) => (
+                                <span key={i} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />
+                              ))}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Pause & End Session */}
+                <div className="space-y-2 pt-4">
+                  <p className="text-[10px] text-muted-foreground">
+                    {callableCount} callable · {outsideCount} outside hours · {leads.length} total
+                  </p>
+                  <button onClick={endSession}
+                    className="w-full border border-destructive text-destructive rounded-lg py-2.5 text-sm font-medium hover:bg-destructive/10 transition-colors">
+                    End Session
+                  </button>
+                </div>
               </>
             )}
           </div>
