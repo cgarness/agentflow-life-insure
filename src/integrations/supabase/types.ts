@@ -995,6 +995,56 @@ export type Database = {
         }
         Relationships: []
       }
+      messages: {
+        Row: {
+          body: string
+          created_at: string | null
+          created_by: string | null
+          direction: string
+          from_number: string
+          id: string
+          lead_id: string | null
+          sent_at: string | null
+          status: string
+          telnyx_message_id: string | null
+          to_number: string
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          created_by?: string | null
+          direction: string
+          from_number: string
+          id?: string
+          lead_id?: string | null
+          sent_at?: string | null
+          status?: string
+          telnyx_message_id?: string | null
+          to_number: string
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          created_by?: string | null
+          direction?: string
+          from_number?: string
+          id?: string
+          lead_id?: string | null
+          sent_at?: string | null
+          status?: string
+          telnyx_message_id?: string | null
+          to_number?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           action_label: string | null
