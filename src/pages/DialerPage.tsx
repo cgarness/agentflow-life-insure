@@ -6,7 +6,7 @@ import {
   Zap, User, Mail, MapPin, ExternalLink, FileText,
   MessageSquare, CalendarPlus, CheckCircle, Pin,
   PhoneMissed, Pencil, CalendarDays, Activity, ChevronDown,
-  MessageCircle, MailIcon, RefreshCw, Filter, Send,
+  MessageCircle, MailIcon, RefreshCw, Filter, Send, Eye,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 
 /* ─── Types ─── */
@@ -130,6 +131,25 @@ interface DialerSession {
   calls_connected: number;
   total_talk_time: number;
   started_at: string;
+}
+
+interface TelnyxNumber {
+  id: string;
+  phone_number: string;
+  label: string | null;
+  is_default: boolean;
+}
+
+interface MessageRecord {
+  id: string;
+  contact_id: string;
+  agent_id: string | null;
+  channel: "sms" | "email";
+  direction: "inbound" | "outbound";
+  body: string | null;
+  subject: string | null;
+  status: string;
+  created_at: string;
 }
 
 /* ─── Helpers ─── */
@@ -272,6 +292,22 @@ const DialerPage: React.FC = () => {
   const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  /* ── Telnyx Numbers ── */
+  const [telnyxNumbers, setTelnyxNumbers] = useState<TelnyxNumber[]>([]);
+  const [telnyxNumbersLoading, setTelnyxNumbersLoading] = useState(true);
+  const [selectedTelnyxNumberId, setSelectedTelnyxNumberId] = useState<string | null>(null);
+
+  /* ── Conversation Messages ── */
+  const [contactMessages, setContactMessages] = useState<MessageRecord[]>([]);
+  const [composerChannel, setComposerChannel] = useState<"sms" | "email">("sms");
+  const [smsBody, setSmsBody] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  /* ── Full View Dialog ── */
+  const [showFullView, setShowFullView] = useState(false);
+
   /* ── Derived ── */
   const currentLead = leads[currentLeadIdx] ?? null;
   const isOpenPool = selectedCampaign?.type === "Open Pool";
@@ -305,6 +341,23 @@ const DialerPage: React.FC = () => {
   }, []);
 
   useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
+
+  /* ── Fetch telnyx numbers ── */
+  useEffect(() => {
+    const fetchTelnyxNumbers = async () => {
+      setTelnyxNumbersLoading(true);
+      const { data, error } = await (supabase as any).from("telnyx_numbers")
+        .select("id, phone_number, label, is_default")
+        .order("created_at");
+      if (data && !error) {
+        setTelnyxNumbers(data);
+        const defaultNum = data.find((n: TelnyxNumber) => n.is_default);
+        if (defaultNum) setSelectedTelnyxNumberId(defaultNum.id);
+      }
+      setTelnyxNumbersLoading(false);
+    };
+    fetchTelnyxNumbers();
+  }, []);
 
   /* ── Fetch campaigns ── */
   useEffect(() => {
@@ -407,10 +460,14 @@ const DialerPage: React.FC = () => {
       setCallHistory([]);
       setActivities([]);
       setAppointments([]);
+      setContactMessages([]);
       return;
     }
     const lid = currentLead.lead_id;
     setHistoryLoading(true);
+    setSmsBody("");
+    setEmailBody("");
+    setEmailSubject("");
 
     const fetchAll = async () => {
       // notes (all, not just 3)
@@ -425,18 +482,23 @@ const DialerPage: React.FC = () => {
       // appointments
       const apptP = supabase.from("appointments").select("id, title, type, status, start_time, contact_name, created_by, created_at")
         .eq("contact_id", lid).order("created_at", { ascending: false });
+      // messages
+      const msgsP = (supabase as any).from("messages").select("id, contact_id, agent_id, channel, direction, body, subject, status, created_at")
+        .eq("contact_id", lid).order("created_at", { ascending: true });
 
-      const [notesRes, callsRes, activitiesRes, apptRes] = await Promise.all([notesP, callsP, activitiesP, apptP]);
+      const [notesRes, callsRes, activitiesRes, apptRes, msgsRes] = await Promise.all([notesP, callsP, activitiesP, apptP, msgsP]);
       
       const notes = notesRes.data || [];
       const calls = (callsRes.data as CallRecord[]) || [];
       const acts = (activitiesRes.data as ActivityRecord[]) || [];
       const appts = (apptRes.data as AppointmentRecord[]) || [];
+      const msgs = (msgsRes.data as MessageRecord[]) || [];
 
       setContactNotes(notes);
       setCallHistory(calls);
       setActivities(acts);
       setAppointments(appts);
+      setContactMessages(msgs);
 
       // Collect unique agent IDs from calls and fetch profiles
       const agentIds = new Set<string>();
@@ -481,10 +543,13 @@ const DialerPage: React.FC = () => {
         items.push({ id: `activity-${a.id}`, type: "activity", timestamp: a.created_at, data: a });
       }
     });
+    contactMessages.forEach((m) => {
+      items.push({ id: `msg-${m.id}`, type: m.channel === "sms" ? "sms" : "email", timestamp: m.created_at, data: m });
+    });
 
     items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     return items;
-  }, [callHistory, contactNotes, appointments, activities]);
+  }, [callHistory, contactNotes, appointments, activities, contactMessages]);
 
   const filteredFeed = useMemo(() => {
     if (feedFilter === "all") return conversationFeed;
@@ -499,6 +564,51 @@ const DialerPage: React.FC = () => {
   useEffect(() => {
     if (feedEndRef.current) feedEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [filteredFeed.length]);
+
+  /* ── Smart timestamp formatter ── */
+  const formatMessageTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return format(d, "h:mm a");
+    if (diffDays < 7) return format(d, "EEE h:mm a");
+    return format(d, "MMM d h:mm a");
+  };
+
+  /* ── Send message handler ── */
+  const handleSendMessage = async () => {
+    if (!currentLead?.lead_id) return;
+    const body = composerChannel === "sms" ? smsBody.trim() : emailBody.trim();
+    if (!body) return;
+    const subject = composerChannel === "email" ? emailSubject.trim() : null;
+
+    const { data, error } = await (supabase as any).from("messages").insert({
+      contact_id: currentLead.lead_id,
+      agent_id: agentId,
+      channel: composerChannel,
+      direction: "outbound",
+      body,
+      subject,
+    }).select().single();
+
+    if (error) {
+      toast.error("Failed to send message");
+      return;
+    }
+    if (data) {
+      setContactMessages((prev) => [...prev, data as MessageRecord]);
+    }
+    if (composerChannel === "sms") setSmsBody(""); else { setEmailBody(""); setEmailSubject(""); }
+    toast.success(`${composerChannel.toUpperCase()} sent`);
+  };
+
+  /* ── Selected telnyx number ── */
+  const selectedTelnyxNumber = telnyxNumbers.find((n) => n.id === selectedTelnyxNumberId) ?? telnyxNumbers.find((n) => n.is_default) ?? telnyxNumbers[0];
+  const formatTelnyxDisplay = (n: TelnyxNumber) => {
+    const display = formatPhoneDisplay(n.phone_number);
+    return n.label ? `${display} — ${n.label}` : display;
+  };
 
   const getAgentFirstName = (agentId: string | null) => {
     if (!agentId) return "";
@@ -1118,120 +1228,34 @@ const DialerPage: React.FC = () => {
   }
 
   /* ════════════════════════════════════════════════════
-     ACTIVE SESSION — THREE PANEL LAYOUT
+     ACTIVE SESSION — TWO PANEL LAYOUT
      ════════════════════════════════════════════════════ */
   return (
     <div className="flex flex-col h-[calc(100vh-var(--topbar-height)-2rem)] overflow-hidden">
-      {/* ── Session Stats Bar ── */}
-      <div className="shrink-0 bg-card border border-border rounded-xl px-4 py-2 mb-3 flex items-center gap-6 overflow-x-auto">
-        <button onClick={endSession} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0">
-          <ChevronLeft className="w-4 h-4" /> End
-        </button>
-        <div className="flex items-center gap-6 text-center">
-          {[
-            { label: "Duration", value: fmtDuration(sessionSeconds) },
-            { label: "Calls", value: session?.calls_made ?? 0 },
-            { label: "Connected", value: session?.calls_connected ?? 0 },
-            { label: "Avg Duration", value: session && session.calls_connected > 0 ? fmtTime(Math.round(session.total_talk_time / session.calls_connected)) : "0:00" },
-            { label: "Talk Time", value: fmtDuration(session?.total_talk_time ?? 0) },
-          ].map((s) => (
-            <div key={s.label} className="shrink-0">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
-              <p className="text-sm font-bold font-mono text-foreground">{s.value}</p>
-            </div>
-          ))}
-        </div>
-        <div className="ml-auto shrink-0">
-          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign?.name}</span>
-        </div>
-      </div>
-
-      {/* ── Telnyx Status Indicator ── */}
-      <div className="shrink-0 mb-3">
-        {telnyxStatus === "connecting" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /> Dialer connecting...
-          </span>
-        )}
-        {telnyxStatus === "ready" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-            <span className="w-2 h-2 rounded-full bg-green-500" /> Dialer ready
-          </span>
-        )}
-        {telnyxStatus === "error" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500" /> Dialer error — check Telnyx credentials in Settings
-          </span>
-        )}
-        {telnyxStatus === "idle" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-            <span className="w-2 h-2 rounded-full bg-gray-400" /> Configure Telnyx in Settings to enable calling
-          </span>
-        )}
-      </div>
-
-      {/* ── Mobile tab switcher ── */}
-      <div className="lg:hidden shrink-0 flex bg-accent rounded-lg p-0.5 mb-3">
-        {(["center", "left", "right"] as const).map((t) => (
-          <button key={t} onClick={() => setMobileTab(t)}
-            className={cn("flex-1 py-1.5 text-xs rounded-md text-center transition-colors capitalize",
-              mobileTab === t ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground")}>
-            {t === "center" ? "Call" : t === "left" ? "Queue" : "Details"}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Main Workspace ── */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
-        
-        {/* ══ LEFT & CENTER WRAPPER ══ */}
-        <div className="flex-1 flex flex-col gap-3 min-w-0">
-          
-          {/* Top Bar (Dispositions & Appointment) OVER Left & Center */}
-          <div className="shrink-0 bg-card border border-border rounded-xl p-3 flex items-center gap-3 overflow-x-auto">
-            <span className="text-sm font-semibold text-foreground shrink-0">Dispositions:</span>
-            <div className="flex gap-2 flex-1 items-center">
-              {dispositions.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border",
-                    selectedDispId === d.id ? "border-ring ring-1 ring-ring/30 shadow-sm font-bold opacity-100" : "border-transparent hover:brightness-95 opacity-70 hover:opacity-100"
-                  )}
-                  style={{ backgroundColor: `${d.color}20`, color: d.color }}
-                >
-                  {d.name}
-                </button>
-              ))}
-            </div>
-            {selectedDisp?.require_notes && (
-              <div className="flex items-center gap-2 shrink-0">
-                <input
-                  type="text"
-                  value={dispNotes}
-                  onChange={(e) => setDispNotes(e.target.value)}
-                  placeholder={`Notes (${selectedDisp.min_note_chars} chars)...`}
-                  className="bg-background border border-input rounded-lg px-2 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
+      {/* ── Unified Top Bar ── */}
+      <div className="shrink-0 bg-card border border-border rounded-xl px-4 py-3 mb-3 space-y-2">
+        {/* Row 1: Action buttons + Dialer status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {callStatus === "idle" ? (
+              <button onClick={() => handleCall()} disabled={dncChecking} className="bg-success text-success-foreground px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150 disabled:opacity-50">
+                {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+              </button>
+            ) : (
+              <button onClick={handleHangUp} className="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
+                <PhoneOff className="w-4 h-4" /> End Call
+              </button>
             )}
-            <button 
-              onClick={() => handleSaveDisposition()}
-              disabled={!selectedDispId || !notesValid}
-              className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-4 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
-            >
-              Save Disp.
+            <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="bg-muted text-muted-foreground hover:bg-muted/80 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150 disabled:opacity-40">
+              <SkipForward className="w-4 h-4" /> Skip
             </button>
-            <div className="w-px h-6 bg-border shrink-0 mx-1" />
-            
             <Popover>
               <PopoverTrigger asChild>
-                <button className="shrink-0 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 transition-colors px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
-                  <CalendarPlus className="w-3.5 h-3.5" /> Schedule Appointment
+                <button className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
+                  <CalendarPlus className="w-4 h-4" /> Schedule
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-3" align="end">
+              <PopoverContent className="w-auto p-3" align="start">
                 <div className="space-y-3">
                   <h4 className="font-semibold text-sm">Schedule Appointment</h4>
                   <Calendar mode="single" selected={callbackDate} onSelect={setCallbackDate} initialFocus className="p-0 border-none" />
@@ -1242,47 +1266,121 @@ const DialerPage: React.FC = () => {
                 </div>
               </PopoverContent>
             </Popover>
+            <button onClick={() => setShowFullView(true)} className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
+              <Eye className="w-4 h-4" /> Full View
+            </button>
           </div>
-
-          {/* Inner Grid for Left & Center Panels */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0">
-
-            {/* ═══ LEFT PANEL ═══ */}
-            <div className={cn("lg:col-span-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
-              mobileTab !== "left" && "hidden lg:flex")}>
-          <div className="p-3 border-b border-border space-y-3 shrink-0">
-            {/* Dial mode & Queue options */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Menu</span>
-              </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="text-xs flex items-center gap-1.5 border border-border bg-background px-2 py-1.5 rounded-md text-foreground hover:bg-accent transition-colors">
-                    <Filter className="w-3 h-3" /> Filter & Sort <ChevronDown className="w-3 h-3" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-3 space-y-3" align="start">
-                  <h4 className="font-semibold text-sm">Queue Options</h4>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Sort By</label>
-                    <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
-                      <option>Queue Order (Default)</option>
-                      <option>Timezone (East to West)</option>
-                      <option>Lead Score (High to Low)</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Filter States</label>
-                    <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
-                      <option>All States</option>
-                      <option>East Coast</option>
-                      <option>West Coast</option>
-                    </select>
-                  </div>
-                </PopoverContent>
-              </Popover>
+          {/* Dialer status pill */}
+          <div className="shrink-0">
+            {dialerReady ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-success/10 text-success">
+                <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Dialer Ready
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /> Initializing...
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Row 2: Session stats */}
+        <div className="flex items-center gap-6 overflow-x-auto">
+          <button onClick={endSession} className="shrink-0 text-sm text-destructive hover:text-destructive/80 font-medium flex items-center gap-1">
+            <ChevronLeft className="w-4 h-4" /> End Session
+          </button>
+          {[
+            { label: "Duration", value: fmtDuration(sessionSeconds) },
+            { label: "Calls", value: session?.calls_made ?? 0 },
+            { label: "Connected", value: session?.calls_connected ?? 0 },
+            { label: "Avg Duration", value: session && session.calls_connected > 0 ? fmtTime(Math.round(session.total_talk_time / session.calls_connected)) : "0:00" },
+            { label: "Talk Time", value: fmtDuration(session?.total_talk_time ?? 0) },
+          ].map((s) => (
+            <div key={s.label} className="shrink-0 text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
+              <p className="text-sm font-bold font-mono text-foreground">{s.value}</p>
             </div>
+          ))}
+          <div className="ml-auto shrink-0">
+            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign?.name}</span>
+          </div>
+        </div>
+        {/* Call status indicator */}
+        {callStatus === "connecting" && (
+          <div className="flex items-center gap-2 text-primary font-medium text-xs bg-primary/10 rounded-lg p-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+          </div>
+        )}
+        {callStatus === "connected" && (
+          <div className="flex items-center justify-between text-xs bg-card border border-border rounded-lg p-2">
+            <div className="flex items-center gap-1.5 text-success font-medium">
+              <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Connected
+            </div>
+            <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
+            <div className="flex gap-1">
+              <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
+                {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
+                <Pause className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Mobile tab switcher ── */}
+      <div className="lg:hidden shrink-0 flex bg-accent rounded-lg p-0.5 mb-3">
+        {(["center", "left"] as const).map((t) => (
+          <button key={t} onClick={() => setMobileTab(t)}
+            className={cn("flex-1 py-1.5 text-xs rounded-md text-center transition-colors capitalize",
+              mobileTab === t ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground")}>
+            {t === "center" ? "Call" : "Queue"}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Main Workspace — Two Column Layout ── */}
+      <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
+
+        {/* ═══ LEFT PANEL ═══ */}
+        <div className={cn("w-full lg:w-[320px] shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
+          mobileTab !== "left" && "hidden lg:flex")}>
+
+          {/* Slim Contact Header */}
+          <div className="p-4 border-b border-border space-y-2 shrink-0">
+            {currentLead ? (
+              <>
+                <h2 className="text-xl font-bold text-foreground leading-tight">{currentLead.first_name} {currentLead.last_name}</h2>
+                <p className="text-lg font-semibold font-mono text-foreground">{currentLead.phone}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-xs font-medium">{currentLead.state}</span>
+                  <span className="text-[#00ff88] text-xs font-bold" style={{ textShadow: "0 0 6px rgba(0,255,136,0.4)" }}>{getContactLocalTime(currentLead.state)}</span>
+                  {currentLead.age && <span className="bg-accent text-accent-foreground px-2 py-0.5 rounded text-xs font-medium">{currentLead.age} yrs</span>}
+                </div>
+                {/* From number dropdown */}
+                <div className="pt-1">
+                  {telnyxNumbersLoading ? (
+                    <Skeleton className="h-8 w-full rounded-lg" />
+                  ) : (
+                    <select
+                      value={selectedTelnyxNumberId ?? ""}
+                      onChange={(e) => setSelectedTelnyxNumberId(e.target.value)}
+                      className="w-full bg-accent text-foreground rounded-lg text-sm border border-border px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      {telnyxNumbers.length === 0 ? (
+                        <option value="">+19097381193</option>
+                      ) : (
+                        telnyxNumbers.map((n) => (
+                          <option key={n.id} value={n.id}>{formatTelnyxDisplay(n)}</option>
+                        ))
+                      )}
+                    </select>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No lead selected</p>
+            )}
           </div>
 
           {/* SharkTank banner */}
@@ -1293,155 +1391,150 @@ const DialerPage: React.FC = () => {
             </div>
           )}
 
-          {/* Lead queue */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {leadsLoading ? (
-              [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
-            ) : filteredLeads.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">No leads in queue</div>
-            ) : (
-              filteredLeads.map((lead, idx) => {
-                const isCurrent = idx === currentLeadIdx;
-                const localTime = getContactLocalTime(lead.state);
-                const isHovered = hoveredLeadId === lead.id;
-                const lastCall = lead.lead_id ? leadLastCalls[lead.lead_id] : null;
-                const lastCallDispColor = lastCall?.disposition_name ? getDispColor(lastCall.disposition_name) : null;
-
-                return (
-                  <div
-                    key={lead.id}
-                    className="relative"
-                    onMouseEnter={() => {
-                      hoverTimerRef.current = setTimeout(() => setHoveredLeadId(lead.id), 300);
-                    }}
-                    onMouseLeave={() => {
-                      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-                      setHoveredLeadId(null);
-                    }}
-                  >
-                    <button
-                      onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
-                      className={cn(
-                        "w-full text-left rounded-lg p-2.5 transition-all border",
-                        isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
-                        <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 ml-4">
-                        <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
-                        {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
-                        {localTime && <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{localTime}</span>}
-                      </div>
-                      {isCurrent && lockCountdown !== null && (
-                        <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
-                      )}
+          {/* Tabs: Activity / Scripts / Queue */}
+          {/* Keeping existing tab structure with the lead queue below */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-border space-y-3 shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Menu</span>
+                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="text-xs flex items-center gap-1.5 border border-border bg-background px-2 py-1.5 rounded-md text-foreground hover:bg-accent transition-colors">
+                      <Filter className="w-3 h-3" /> Filter & Sort <ChevronDown className="w-3 h-3" />
                     </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-3 space-y-3" align="start">
+                    <h4 className="font-semibold text-sm">Queue Options</h4>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Sort By</label>
+                      <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+                        <option>Queue Order (Default)</option>
+                        <option>Timezone (East to West)</option>
+                        <option>Lead Score (High to Low)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">Filter States</label>
+                      <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+                        <option>All States</option>
+                        <option>East Coast</option>
+                        <option>West Coast</option>
+                      </select>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
 
-                    {/* ── Hover Preview Card (desktop only) ── */}
-                    <AnimatePresence>
-                      {isHovered && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.15, ease: "easeOut" }}
-                          className="hidden lg:block absolute left-full top-0 ml-2 z-50 w-[280px] bg-card border border-border rounded-lg shadow-lg p-3 space-y-2"
-                        >
-                          {/* Arrow pointing left */}
-                          <div className="absolute left-0 top-4 -translate-x-full">
-                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-border" />
-                          </div>
-                          <div className="absolute left-0 top-4 -translate-x-[calc(100%-1px)]">
-                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-card" />
-                          </div>
+            {/* Lead queue */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {leadsLoading ? (
+                [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
+              ) : filteredLeads.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">No leads in queue</div>
+              ) : (
+                filteredLeads.map((lead, idx) => {
+                  const isCurrent = idx === currentLeadIdx;
+                  const localTime = getContactLocalTime(lead.state);
+                  const isHovered = hoveredLeadId === lead.id;
+                  const lastCall = lead.lead_id ? leadLastCalls[lead.lead_id] : null;
+                  const lastCallDispColor = lastCall?.disposition_name ? getDispColor(lastCall.disposition_name) : null;
 
-                          {/* Name */}
-                          <p className="font-bold text-sm text-foreground">{lead.first_name} {lead.last_name}</p>
+                  return (
+                    <div
+                      key={lead.id}
+                      className="relative"
+                      onMouseEnter={() => {
+                        hoverTimerRef.current = setTimeout(() => setHoveredLeadId(lead.id), 300);
+                      }}
+                      onMouseLeave={() => {
+                        if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                        setHoveredLeadId(null);
+                      }}
+                    >
+                      <button
+                        onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
+                        className={cn(
+                          "w-full text-left rounded-lg p-2.5 transition-all border",
+                          isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
+                          <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 ml-4">
+                          <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{lead.state}</span>
+                          {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
+                          {localTime && <span className="text-[10px] ml-auto shrink-0 font-bold" style={{ color: "#00ff88", textShadow: "0 0 4px rgba(0,255,136,0.3)" }}>{localTime}</span>}
+                        </div>
+                        {isCurrent && lockCountdown !== null && (
+                          <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
+                        )}
+                      </button>
 
-                          {/* Phone */}
-                          <p className="font-mono text-xs text-foreground">
-                            {isOpenPool && !isCurrent
-                              ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
-                              : lead.phone}
-                          </p>
-
-                          {/* Email */}
-                          <p className="text-xs text-muted-foreground">
-                            {lead.email || "No email"}
-                          </p>
-
-                          {/* State + Local Time */}
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{lead.state}</span>
-                            {localTime && <span className="text-teal-500">{localTime}</span>}
-                          </div>
-
-                          {/* Lead Score */}
-                          {lead.lead_id ? (() => {
-                            // lead_score not on campaign_leads, show from call_attempts context
-                            return null;
-                          })() : null}
-
-                          {/* Lead Source */}
-                          {lead.source && (
-                            <p className="text-[10px] text-muted-foreground">Source: {lead.source}</p>
-                          )}
-
-                          <div className="border-t border-border pt-2 space-y-1.5">
-                            {/* Last Disposition */}
-                            {lastCall?.disposition_name ? (
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <span className="text-muted-foreground">Last:</span>
-                                <span
-                                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-                                  style={{
-                                    backgroundColor: lastCallDispColor ? `${lastCallDispColor}20` : undefined,
-                                    color: lastCallDispColor || undefined,
-                                  }}
-                                >
-                                  {lastCall.disposition_name}
-                                </span>
-                              </div>
-                            ) : (
-                              <p className="text-[10px] text-muted-foreground italic">No previous calls</p>
-                            )}
-
-                            {/* Call Attempts */}
-                            <p className="text-[10px] text-muted-foreground">
-                              {lead.call_attempts > 0 ? `${lead.call_attempts} previous attempt${lead.call_attempts !== 1 ? "s" : ""}` : "First attempt"}
+                      {/* ── Hover Preview Card (desktop only) ── */}
+                      <AnimatePresence>
+                        {isHovered && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.15, ease: "easeOut" }}
+                            className="hidden lg:block absolute left-full top-0 ml-2 z-50 w-[280px] bg-card border border-border rounded-lg shadow-lg p-3 space-y-2"
+                          >
+                            <div className="absolute left-0 top-4 -translate-x-full">
+                              <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-border" />
+                            </div>
+                            <div className="absolute left-0 top-4 -translate-x-[calc(100%-1px)]">
+                              <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-card" />
+                            </div>
+                            <p className="font-bold text-sm text-foreground">{lead.first_name} {lead.last_name}</p>
+                            <p className="font-mono text-xs text-foreground">
+                              {isOpenPool && !isCurrent
+                                ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
+                                : lead.phone}
                             </p>
+                            <p className="text-xs text-muted-foreground">{lead.email || "No email"}</p>
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{lead.state}</span>
+                              {localTime && <span style={{ color: "#00ff88" }}>{localTime}</span>}
+                            </div>
+                            {lead.source && <p className="text-[10px] text-muted-foreground">Source: {lead.source}</p>}
+                            <div className="border-t border-border pt-2 space-y-1.5">
+                              {lastCall?.disposition_name ? (
+                                <div className="flex items-center gap-1.5 text-xs">
+                                  <span className="text-muted-foreground">Last:</span>
+                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: lastCallDispColor ? `${lastCallDispColor}20` : undefined, color: lastCallDispColor || undefined }}>{lastCall.disposition_name}</span>
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-muted-foreground italic">No previous calls</p>
+                              )}
+                              <p className="text-[10px] text-muted-foreground">{lead.call_attempts > 0 ? `${lead.call_attempts} previous attempt${lead.call_attempts !== 1 ? "s" : ""}` : "First attempt"}</p>
+                              <p className="text-[10px] text-muted-foreground">{lead.last_called_at ? `Last contacted ${timeAgo(lead.last_called_at)}` : "Never contacted"}</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })
+              )}
+            </div>
 
-                            {/* Last Contacted */}
-                            <p className="text-[10px] text-muted-foreground">
-                              {lead.last_called_at ? `Last contacted ${timeAgo(lead.last_called_at)}` : "Never contacted"}
-                            </p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Queue footer */}
-          <div className="p-3 border-t border-border space-y-2 shrink-0">
-            <p className="text-[10px] text-muted-foreground">
-              {callableCount} callable · {outsideCount} outside hours · {leads.length} total
-            </p>
-            <button onClick={endSession}
-              className="w-full border border-destructive text-destructive rounded-lg py-2 text-sm font-medium hover:bg-destructive/10 transition-colors">
-              End Session
-            </button>
+            {/* Queue footer */}
+            <div className="p-3 border-t border-border space-y-2 shrink-0">
+              <p className="text-[10px] text-muted-foreground">
+                {callableCount} callable · {outsideCount} outside hours · {leads.length} total
+              </p>
+            </div>
           </div>
         </div>
 
         {/* ═══ CENTER PANEL ═══ */}
-        <div className={cn("lg:col-span-2 bg-card border border-border rounded-xl flex flex-col overflow-hidden relative",
+        <div className={cn("flex-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
           mobileTab !== "center" && "hidden lg:flex")}>
 
           {/* Error banner */}
@@ -1453,398 +1546,306 @@ const DialerPage: React.FC = () => {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* DNC Warning */}
+          {dncWarning && callStatus === "idle" && (
+            <div className="mx-4 mt-3 bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
+                <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
+                <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {!currentLead && !quickDialMode ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <Phone className="w-16 h-16 text-muted-foreground mb-4" />
                 <p className="text-lg font-medium text-foreground">No leads in queue</p>
                 <p className="text-sm text-muted-foreground">All leads have been called or are outside calling hours.</p>
               </div>
-            ) : (
+            ) : currentLead ? (
               <>
-                {/* ── Contact Details Header ── */}
-                {currentLead && (
-                  <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border relative group">
-                    <button className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 text-xs bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded-md">
-                      <Pencil className="w-3 h-3" /> Edit Fields
-                    </button>
-                    <div className="col-span-2">
-                       <h2 className="text-3xl font-bold text-foreground">{currentLead.first_name} {currentLead.last_name}</h2>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Phone</p>
-                      <p className="font-mono text-base text-foreground flex items-center gap-2">
-                        {isOpenPool && lockCountdown !== null ? <span className="text-orange-500 text-sm flex items-center gap-1"><Lock className="w-3.5 h-3.5"/> Locked</span> : currentLead.phone}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Email</p>
-                      <p className="text-base text-foreground break-all">{currentLead.email || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">State / Tz</p>
-                      <p className="text-base text-foreground flex items-center gap-2">
-                        {currentLead.state} <span className="text-sm bg-accent px-1.5 py-0.5 rounded text-teal-500 font-medium">{getContactLocalTime(currentLead.state)}</span>
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Source & Age</p>
-                      <p className="text-base text-foreground">{currentLead.source || "Unknown"} {currentLead.age ? `· ${currentLead.age} yrs` : ""}</p>
-                    </div>
+                {/* ── Section A: Compact Contact Details Grid ── */}
+                <div className="bg-accent/30 rounded-xl p-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {[
+                      { label: "Full Name", value: `${currentLead.first_name} ${currentLead.last_name}` },
+                      { label: "Phone", value: currentLead.phone, mono: true },
+                      { label: "Email", value: currentLead.email || "—" },
+                      { label: "State", value: currentLead.state },
+                      { label: "Age", value: currentLead.age ? `${currentLead.age} yrs` : "—" },
+                      { label: "Lead Source", value: currentLead.source || "Unknown" },
+                      { label: "Status", value: currentLead.status },
+                      { label: "Assigned", value: agentName },
+                    ].map((f) => (
+                      <div key={f.label}>
+                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-0.5">{f.label}</p>
+                        <p className={cn("text-foreground text-sm font-medium", (f as any).mono && "font-mono")}>{f.value}</p>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
 
-                {/* ── Conversation History with SMS/Email Sender ── */}
-                {currentLead && (
-                  <div className="border border-border rounded-xl overflow-hidden mt-6">
-                    <div className="px-4 py-3 bg-accent/50 border-b border-border flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-foreground">Conversation & Outreach</h3>
-                      <div className="flex gap-1 flex-wrap">
-                        {(["all", "calls", "notes", "appointments", "activity"] as const).map((f) => (
-                          <button key={f} onClick={() => setFeedFilter(f)} className={cn("px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors capitalize", feedFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                            {f}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    {/* SMS / Email Sender */}
-                    <div className="p-3 border-b border-border bg-card">
-                       <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-semibold text-foreground flex items-center gap-2">
-                             <Send className="w-3.5 h-3.5" /> Send Message
-                          </label>
-                          <select className="bg-background border border-input rounded text-xs px-2 py-1 focus:outline-none text-muted-foreground">
-                             <option>Select Template...</option>
-                             <option>Introduction SMS</option>
-                             <option>Follow-up Email</option>
-                             <option>VM Drop Template</option>
-                          </select>
-                       </div>
-                       <textarea 
-                          placeholder="Type your message here..."
-                          className="w-full bg-background border border-input rounded-lg p-2 text-xs h-16 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                       />
-                       <div className="flex justify-end gap-2 mt-2">
-                          <button className="bg-green-600/10 text-green-600 hover:bg-green-600/20 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
-                             <MessageCircle className="w-3.5 h-3.5"/> Send SMS
-                          </button>
-                          <button className="bg-blue-600/10 text-blue-600 hover:bg-blue-600/20 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5">
-                             <MailIcon className="w-3.5 h-3.5"/> Send Email
-                          </button>
-                       </div>
-                    </div>
-
-                    <div className="max-h-[350px] overflow-y-auto p-3 space-y-2 bg-muted/10">
-                      {historyLoading ? (
-                        <div className="space-y-2">
-                          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
-                        </div>
-                      ) : filteredFeed.length === 0 ? (
-                        <div className="text-center py-8">
-                          <MessageSquare className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                          <p className="text-sm text-muted-foreground">No conversation history yet.</p>
-                          <p className="text-xs text-muted-foreground">This will be the first touchpoint.</p>
-                        </div>
-                      ) : (
-                        <>
-                          {filteredFeed.map((item) => {
-                            const expanded = expandedFeedItems.has(item.id);
-                            const borderColors: Record<FeedItemType, string> = {
-                              call: "border-l-green-500", note: "border-l-blue-500", appointment: "border-l-purple-500",
-                              activity: "border-l-muted-foreground/50", sms: "border-l-green-500", email: "border-l-blue-500",
-                            };
-                            return (
-                              <div key={item.id} className={cn("bg-card rounded-lg p-3 border-l-[3px] text-xs", borderColors[item.type] || "border-l-muted")}>
-                                {item.type === "call" && (() => {
-                                  const c = item.data as CallRecord;
-                                  const connected = (c.duration ?? 0) > 0;
-                                  const dispColor = getDispColor(c.disposition_name);
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        {connected ? <Phone className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <PhoneMissed className="w-3.5 h-3.5 text-destructive shrink-0" />}
-                                        <span className="font-medium text-foreground">Call — {connected ? fmtTime(c.duration!) : "No Answer"}</span>
-                                        {c.disposition_name && (
-                                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium ml-auto" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
-                                        )}
-                                      </div>
-                                      {getAgentFirstName(c.agent_id) && <p className="text-muted-foreground ml-5">{getAgentFirstName(c.agent_id)}</p>}
-                                      {c.notes && <p className={cn("text-muted-foreground ml-5 cursor-pointer", !expanded && "line-clamp-2")} onClick={() => toggleFeedExpand(item.id)}>{c.notes}</p>}
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "note" && (() => {
-                                  const n = item.data as ContactNote;
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <Pencil className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                        {n.pinned && <span className="flex items-center gap-0.5 text-primary text-[10px] font-medium"><Pin className="w-3 h-3" /> Pinned</span>}
-                                      </div>
-                                      <p className={cn("text-foreground ml-5 cursor-pointer", !expanded && "line-clamp-3")} onClick={() => toggleFeedExpand(item.id)}>{n.content}</p>
-                                      {getAgentFirstName((n as any).author_id) && <p className="text-muted-foreground ml-5">{getAgentFirstName((n as any).author_id)}</p>}
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "appointment" && (() => {
-                                  const a = item.data as AppointmentRecord;
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <CalendarDays className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                        <span className="font-medium text-foreground">{a.type} — {a.status}</span>
-                                      </div>
-                                      <p className="text-muted-foreground ml-5">{format(new Date(a.start_time), "MMM d, yyyy h:mm a")}</p>
-                                      {getAgentFirstName(a.created_by) && <p className="text-muted-foreground ml-5">{getAgentFirstName(a.created_by)}</p>}
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "activity" && (() => {
-                                  const a = item.data as ActivityRecord;
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                                        <span className="text-foreground">{a.description}</span>
-                                        <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-auto">{a.activity_type}</span>
-                                      </div>
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "sms" && (() => {
-                                  const a = item.data as ActivityRecord;
-                                  const direction = a.metadata?.direction || "sent";
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <MessageCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                                        <span className="text-foreground flex-1">{a.description}</span>
-                                        <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded-full capitalize">{direction}</span>
-                                      </div>
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                                {item.type === "email" && (() => {
-                                  const a = item.data as ActivityRecord;
-                                  const direction = a.metadata?.direction || "sent";
-                                  return (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <MailIcon className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                        <span className="text-foreground flex-1">{a.description}</span>
-                                        <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full capitalize">{direction}</span>
-                                      </div>
-                                      <p className="text-muted-foreground/70 ml-5">{timeAgo(item.timestamp)}</p>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            );
-                          })}
-                          <div ref={feedEndRef} />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-        
-        {/* Close Inner Grid */}
-        </div>
-        {/* Close Left & Center Wrapper */}
-        </div>
-
-        {/* ═══ RIGHT PANEL ═══ */}
-        <div className={cn("w-full lg:w-[360px] xl:w-[400px] shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
-          mobileTab !== "right" && "hidden lg:flex")}>
-          <div className="flex-1 overflow-y-auto p-4 space-y-5">
-            {!currentLead ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <Phone className="w-10 h-10 text-muted-foreground mb-3" />
-                <p className="text-sm text-muted-foreground">Select a list and start dialing</p>
-              </div>
-            ) : (
-              <>
-                {/* ── Call Controls (Top Bar) ── */}
-                <div className="space-y-3 pb-4 border-b border-border">
-                  {dncWarning && callStatus === "idle" && (
-                    <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2 mb-3">
-                      <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
-                        <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
-                        <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    {callStatus === "idle" ? (
-                      <button onClick={() => handleCall()} disabled={dncChecking} className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                        {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+                {/* ── Dispositions Bar ── */}
+                <div className="bg-accent/20 rounded-xl p-3 flex items-center gap-3 overflow-x-auto">
+                  <span className="text-sm font-semibold text-foreground shrink-0">Dispositions:</span>
+                  <div className="flex gap-2 flex-1 items-center">
+                    {dispositions.map((d) => (
+                      <button
+                        key={d.id}
+                        onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border",
+                          selectedDispId === d.id ? "border-ring ring-1 ring-ring/30 shadow-sm font-bold opacity-100" : "border-transparent hover:brightness-95 opacity-70 hover:opacity-100"
+                        )}
+                        style={{ backgroundColor: `${d.color}20`, color: d.color }}
+                      >
+                        {d.name}
                       </button>
+                    ))}
+                  </div>
+                  {selectedDisp?.require_notes && (
+                    <input
+                      type="text"
+                      value={dispNotes}
+                      onChange={(e) => setDispNotes(e.target.value)}
+                      placeholder={`Notes (${selectedDisp.min_note_chars} chars)...`}
+                      className="bg-background border border-input rounded-lg px-2 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
+                    />
+                  )}
+                  <button
+                    onClick={() => handleSaveDisposition()}
+                    disabled={!selectedDispId || !notesValid}
+                    className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-4 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+                  >
+                    Save Disp.
+                  </button>
+                </div>
+
+                {/* ── Section B: Unified Conversation Panel ── */}
+                <div className="flex flex-col border border-border rounded-xl overflow-hidden" style={{ height: "540px" }}>
+                  {/* Scrollable conversation feed */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/10">
+                    {historyLoading ? (
+                      <div className="space-y-2">
+                        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                      </div>
+                    ) : filteredFeed.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center">
+                        <MessageSquare className="w-10 h-10 text-muted-foreground mb-3" />
+                        <p className="text-sm text-muted-foreground">No conversation history yet</p>
+                      </div>
                     ) : (
-                      <button onClick={handleHangUp} className="flex-1 bg-destructive text-destructive-foreground rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 shadow-sm shadow-destructive/20 hover:bg-destructive/90 transition-colors">
-                        <PhoneOff className="w-4 h-4" /> End
-                      </button>
-                    )}
-                    <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="flex-1 border border-border bg-accent/30 text-foreground rounded-lg py-3 text-sm font-bold hover:bg-accent transition-colors flex items-center justify-center gap-2 disabled:opacity-40">
-                      <SkipForward className="w-4 h-4" /> Skip
-                    </button>
-                  </div>
+                      <>
+                        {filteredFeed.map((item) => {
+                          const expanded = expandedFeedItems.has(item.id);
 
-                  {callStatus === "connecting" && (
-                     <div className="flex items-center justify-center gap-2 text-primary font-medium text-xs mt-2 bg-primary/10 rounded-lg p-2">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
-                     </div>
-                  )}
-                  {callStatus === "connected" && (
-                     <div className="flex items-center justify-between text-xs mt-2 bg-card border border-border rounded-lg p-2">
-                        <div className="flex items-center gap-1.5 text-green-500 font-medium">
-                           <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Connected
-                        </div>
-                        <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
-                        <div className="flex gap-1">
-                          <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
-                             {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                          </button>
-                          <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
-                             <Pause className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                     </div>
-                  )}
-
-                  {/* Caller ID Badge */}
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-xs text-muted-foreground">Calling from:</span>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className="flex items-center gap-1.5 bg-accent text-accent-foreground border border-border px-2 py-1.5 rounded text-[11px] font-mono hover:bg-accent/80 transition-colors">
-                          {activeCallerId ? formatPhoneDisplay(activeCallerId.callerNumber) : formatPhoneDisplay(currentCallerId.callerNumber)}
-                          <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-56 p-2" align="end">
-                         <div className="space-y-2">
-                           <p className="text-xs font-semibold px-1">Select Caller ID</p>
-                           {phoneCache?.allNumbers.map(num => (
-                              <button key={num.phone_number} className="w-full text-left font-mono text-xs px-2 py-1.5 hover:bg-accent rounded transition-colors">
-                                 {formatPhoneDisplay(num.phone_number)}
-                                 {num.location && <span className="ml-2 text-muted-foreground text-[10px]">{num.location}</span>}
-                              </button>
-                           ))}
-                         </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
-
-                {/* ── Quick Notes & Script ── */}
-                <div className="space-y-4">
-                  <div className="border border-border rounded-xl overflow-hidden shadow-sm">
-                    <button onClick={() => setScriptCollapsed(!scriptCollapsed)} className="w-full flex items-center justify-between px-3 py-2 bg-accent/50 hover:bg-accent transition-colors">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Call Script</span>
-                      <ChevronLeft className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", scriptCollapsed ? "-rotate-90" : "rotate-90")} />
-                    </button>
-                    {!scriptCollapsed && (
-                      <div className="p-3 max-h-[150px] overflow-y-auto text-xs text-foreground whitespace-pre-wrap bg-card">
-                        {scriptContent ? scriptContent.replace(/\{first_name\}/g, currentLead.first_name).replace(/\{last_name\}/g, currentLead.last_name).replace(/\{state\}/g, currentLead.state).replace(/\{agent_name\}/g, agentName) : <p className="text-muted-foreground italic">No script assigned.</p>}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    {contactNotes.length > 0 && (
-                      <div className="space-y-1">
-                        {contactNotes.slice(0,2).map((n) => (
-                          <div key={n.id} className="text-[11px] bg-accent/50 rounded-md p-1.5 text-foreground line-clamp-2">
-                            {n.pinned && <span className="text-primary mr-1">📌</span>}{n.content}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Quick note..." className="flex-1 bg-background border border-input rounded-lg p-2 text-xs text-foreground resize-none h-12 focus:outline-none focus:ring-1 focus:ring-ring" />
-                      <button onClick={handleSaveNote} disabled={!newNote.trim()} className="self-end bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40"><Pencil className="w-3.5 h-3.5"/></button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="w-full h-px bg-border my-2" />
-
-                {/* ── Previous Attempts ── */}
-                {(() => {
-                  const attempts = [...callHistory].reverse();
-                  const count = attempts.length;
-                  return (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-semibold text-foreground tracking-wider">Previous Attempts</h4>
-                        {count > 0 && <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">{count} attempt{count !== 1 ? "s" : ""}</span>}
-                      </div>
-                      {count === 0 ? (
-                        <p className="text-[11px] text-green-500 italic">First attempt</p>
-                      ) : (
-                        <div className="max-h-[120px] overflow-y-auto space-y-1.5">
-                          {[...callHistory].map((c, idx) => {
-                            const attemptNum = count - idx;
+                          {/* Call entries — center-aligned pill */}
+                          if (item.type === "call") {
+                            const c = item.data as CallRecord;
+                            const connected = (c.duration ?? 0) > 0;
                             const dispColor = getDispColor(c.disposition_name);
                             return (
-                              <div key={c.id} className="flex items-center gap-2 text-[11px] bg-accent/30 rounded-lg p-1.5">
-                                <span className="text-muted-foreground font-mono shrink-0">#{attemptNum}</span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-foreground">{c.started_at ? timeAgo(c.started_at) : "—"}</p>
+                              <div key={item.id} className="flex justify-center">
+                                <div className="bg-muted rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Phone className="w-3.5 h-3.5" />
+                                  <span>Call — {c.disposition_name || (connected ? "Connected" : "No Answer")}</span>
+                                  {connected && <span>· {fmtTime(c.duration!)}</span>}
+                                  <span>· {formatMessageTime(item.timestamp)}</span>
                                 </div>
-                                {c.disposition_name ? (
-                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium" style={{ backgroundColor: dispColor ? `${dispColor}20` : undefined, color: dispColor || undefined }}>{c.disposition_name}</span>
-                                ) : (
-                                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-muted text-muted-foreground">No Disp</span>
-                                )}
                               </div>
                             );
-                          })}
-                        </div>
+                          }
+
+                          {/* Note entries */}
+                          if (item.type === "note") {
+                            const n = item.data as ContactNote;
+                            return (
+                              <div key={item.id} className="flex justify-center">
+                                <div className="bg-blue-500/10 rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-blue-400">
+                                  <Pencil className="w-3 h-3" />
+                                  <span className={cn("max-w-[300px]", !expanded && "truncate")} onClick={() => toggleFeedExpand(item.id)}>{n.content}</span>
+                                  <span className="text-muted-foreground">· {formatMessageTime(item.timestamp)}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          {/* Appointment entries */}
+                          if (item.type === "appointment") {
+                            const a = item.data as AppointmentRecord;
+                            return (
+                              <div key={item.id} className="flex justify-center">
+                                <div className="bg-purple-500/10 rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-purple-400">
+                                  <CalendarDays className="w-3 h-3" />
+                                  <span>{a.type} — {a.status}</span>
+                                  <span className="text-muted-foreground">· {formatMessageTime(item.timestamp)}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          {/* SMS / Email message entries */}
+                          if (item.type === "sms" || item.type === "email") {
+                            const isMsg = item.id.startsWith("msg-");
+                            const direction = isMsg ? (item.data as MessageRecord).direction : ((item.data as ActivityRecord).metadata?.direction || "outbound");
+                            const body = isMsg ? (item.data as MessageRecord).body : (item.data as ActivityRecord).description;
+                            const channel = item.type === "sms" ? "SMS" : "Email";
+                            const isOutbound = direction === "outbound";
+
+                            return (
+                              <div key={item.id} className={cn("flex", isOutbound ? "justify-end" : "justify-start")}>
+                                <div className="max-w-[70%]">
+                                  <div className={cn(
+                                    "px-4 py-2.5 text-sm leading-relaxed",
+                                    isOutbound
+                                      ? "bg-primary text-primary-foreground rounded-2xl rounded-br-sm"
+                                      : "bg-accent text-foreground rounded-2xl rounded-bl-sm"
+                                  )}>
+                                    {body}
+                                  </div>
+                                  <p className={cn("text-xs text-muted-foreground mt-1", isOutbound ? "text-right" : "text-left")}>
+                                    {channel} · {formatMessageTime(item.timestamp)}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          {/* Activity entries */}
+                          if (item.type === "activity") {
+                            const a = item.data as ActivityRecord;
+                            return (
+                              <div key={item.id} className="flex justify-center">
+                                <div className="bg-muted/50 rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Activity className="w-3 h-3" />
+                                  <span>{a.description}</span>
+                                  <span>· {formatMessageTime(item.timestamp)}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return null;
+                        })}
+                        <div ref={feedEndRef} />
+                      </>
+                    )}
+                  </div>
+
+                  {/* Composer */}
+                  <div className="border-t border-border p-3 bg-card shrink-0 space-y-2">
+                    {/* Channel toggle */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex bg-muted rounded-lg p-0.5">
+                        <button onClick={() => setComposerChannel("sms")} className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors", composerChannel === "sms" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>SMS</button>
+                        <button onClick={() => setComposerChannel("email")} className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors", composerChannel === "email" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>Email</button>
+                      </div>
+                    </div>
+
+                    {/* Email subject (only for email) */}
+                    {composerChannel === "email" && (
+                      <input
+                        type="text"
+                        value={emailSubject}
+                        onChange={(e) => setEmailSubject(e.target.value)}
+                        placeholder="Subject..."
+                        className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    )}
+
+                    {/* Textarea */}
+                    <textarea
+                      rows={3}
+                      value={composerChannel === "sms" ? smsBody : emailBody}
+                      onChange={(e) => composerChannel === "sms" ? setSmsBody(e.target.value) : setEmailBody(e.target.value)}
+                      placeholder="Type a message..."
+                      className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+
+                    {/* Bottom row: Templates + Send */}
+                    <div className="flex items-center justify-between relative">
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowTemplates(!showTemplates)}
+                          className="border border-border bg-background text-foreground hover:bg-accent px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" /> Templates
+                        </button>
+                        {/* Templates popover */}
+                        {showTemplates && (
+                          <div className="absolute bottom-full left-0 mb-2 w-72 bg-card border border-border rounded-xl shadow-xl p-2 space-y-1 z-50">
+                            {[
+                              { name: "Intro Message", text: `Hi ${currentLead?.first_name ?? ""}, I'm reaching out about your life insurance inquiry. Is now a good time to chat?` },
+                              { name: "Follow Up", text: `Hi ${currentLead?.first_name ?? ""}, just following up from our recent conversation. Do you have a few minutes this week?` },
+                              { name: "Appointment Reminder", text: `Hi ${currentLead?.first_name ?? ""}, just a reminder about your appointment. Looking forward to speaking with you!` },
+                            ].map((t) => (
+                              <button
+                                key={t.name}
+                                onClick={() => {
+                                  if (composerChannel === "sms") setSmsBody(t.text); else setEmailBody(t.text);
+                                  setShowTemplates(false);
+                                }}
+                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent text-xs transition-colors"
+                              >
+                                <p className="font-medium text-foreground">{t.name}</p>
+                                <p className="text-muted-foreground line-clamp-1 mt-0.5">{t.text}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {(composerChannel === "sms" ? smsBody.trim() : emailBody.trim()) && (
+                        <button
+                          onClick={handleSendMessage}
+                          className="bg-primary text-primary-foreground px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-primary/90 transition-colors"
+                        >
+                          <Send className="w-3.5 h-3.5" /> Send {composerChannel === "sms" ? "SMS" : "Email"}
+                        </button>
                       )}
                     </div>
-                  );
-                })()}
-
-                {/* ── Activity Timeline ── */}
-                <div>
-                  <h4 className="text-xs font-semibold text-foreground tracking-wider mb-2">Activity Summary</h4>
-                  {activities.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground italic">No activity yet</p>
-                  ) : (
-                    <div className="space-y-1.5 max-h-[100px] overflow-y-auto">
-                      {activities.map((a) => (
-                        <div key={a.id} className="flex items-start gap-2 text-[11px]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1 shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-foreground">{a.description}</p>
-                            <p className="text-muted-foreground">{timeAgo(a.created_at)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  </div>
                 </div>
-
               </>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
+
+      {/* ── Full View Dialog ── */}
+      <Dialog open={showFullView} onOpenChange={setShowFullView}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : "Contact Details"}</DialogTitle>
+            <DialogDescription>Full contact information</DialogDescription>
+          </DialogHeader>
+          {currentLead && (
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              {[
+                { label: "Full Name", value: `${currentLead.first_name} ${currentLead.last_name}` },
+                { label: "Phone", value: currentLead.phone },
+                { label: "Email", value: currentLead.email || "—" },
+                { label: "State", value: currentLead.state },
+                { label: "Age", value: currentLead.age ? `${currentLead.age} yrs` : "—" },
+                { label: "Lead Source", value: currentLead.source || "Unknown" },
+                { label: "Status", value: currentLead.status },
+                { label: "Assigned", value: agentName },
+                { label: "Call Attempts", value: `${currentLead.call_attempts}` },
+                { label: "Last Disposition", value: currentLead.disposition || "None" },
+              ].map((f) => (
+                <div key={f.label}>
+                  <p className="text-muted-foreground text-xs uppercase tracking-wider mb-0.5">{f.label}</p>
+                  <p className="text-foreground text-sm font-medium">{f.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       
       {/* ── Session Summary Modal ── */}
       <AnimatePresence>
