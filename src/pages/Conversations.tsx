@@ -162,7 +162,7 @@ const Conversations: React.FC = () => {
 
       const result = await res.json();
 
-      if (!res.ok) {
+      if (!result.success) {
         toast.error(result.error || "Failed to send message", { duration: 5000 });
         setSending(false);
         return;
@@ -170,7 +170,7 @@ const Conversations: React.FC = () => {
 
       // Optimistic update
       const newMsg: Message = {
-        id: result.id || crypto.randomUUID(),
+        id: result.message_id || crypto.randomUUID(),
         body: messageText.trim(),
         direction: "outbound",
         sent_at: new Date().toISOString(),
