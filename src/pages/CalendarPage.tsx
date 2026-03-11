@@ -88,6 +88,7 @@ const CalendarPage: React.FC = () => {
 
   // New Design State
   const [currentView, setCurrentView] = useState<ViewType>("Month");
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const views: { name: ViewType; icon: any }[] = [
     { name: "Month", icon: LayoutGrid },
@@ -295,12 +296,11 @@ const CalendarPage: React.FC = () => {
 
   const openSchedule = (date?: Date, time?: string) => {
     setModalEditing(null);
-    setModalDefaultDate(date);
+    setModalDefaultDate(date || currentDate);
     setModalDefaultTime(time);
     setModalOpen(true);
-    setCreatingNew(false);
-    setSelectedContact(null);
   };
+
 
   const openEdit = (a: CalendarAppointment) => {
     const meta = appointmentMetaById[a.id];
@@ -342,7 +342,8 @@ const CalendarPage: React.FC = () => {
           const dayAppts = appointments.filter(a => sameDay(new Date(a.date), date));
 
           return (
-            <div key={i} onClick={() => openSchedule(date)} className={`h-full bg-card p-1.5 border-t border-border transition-colors hover:bg-accent/5 cursor-pointer relative ${!isCurrentMonth ? "opacity-30" : ""}`}>
+            <div key={i} onClick={() => setSelectedDate(date)} className={`h-full bg-card p-1.5 border-t border-border transition-colors hover:bg-accent/5 cursor-pointer relative ${!isCurrentMonth ? "opacity-30" : ""} ${sameDay(date, selectedDate) ? "ring-2 ring-primary ring-inset z-10" : ""}`}>
+
               <span className={`text-xs font-medium ${isCurrentMonth && sameDay(date, new Date()) ? "bg-primary text-primary-foreground w-6 h-6 flex items-center justify-center rounded-full" : "text-foreground"}`}>
                 {dayDisplay}
               </span>
@@ -502,14 +503,18 @@ const CalendarPage: React.FC = () => {
     </div>
   );
 
-  const upcomingAppts = useMemo(() => {
+  const agendaAppts = useMemo(() => {
     return appointments
-      .filter(a => new Date(a.date) >= new Date().setHours(0,0,0,0))
-      .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(0, 5);
-  }, [appointments]);
+      .filter(a => sameDay(new Date(a.date), selectedDate))
+      .sort((a,b) => {
+        const timeA = timeStringToDate(new Date(a.date), a.startTime).getTime();
+        const timeB = timeStringToDate(new Date(b.date), b.startTime).getTime();
+        return timeA - timeB;
+      });
+  }, [appointments, selectedDate]);
 
   if (loading) return (
+
     <div className="h-full flex items-center justify-center">
       <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
@@ -547,7 +552,18 @@ const CalendarPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3 z-10">
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/30 border border-border mr-2">
+            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+            <input 
+              type="text" 
+              placeholder="Search meetings..." 
+              className="bg-transparent border-none text-xs focus:ring-0 w-32" 
+              value={contactSearch}
+              onChange={(e) => setContactSearch(e.target.value)}
+            />
+          </div>
           {googleConnected && (
+
             <button onClick={handleSyncNow} disabled={syncing} title="Sync Google Calendar" className="p-2 rounded-lg bg-accent/50 border border-border text-muted-foreground hover:text-foreground transition-all disabled:opacity-50">
               <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
             </button>
@@ -575,18 +591,22 @@ const CalendarPage: React.FC = () => {
           <div className="p-4 border-b border-border bg-muted/10 shrink-0">
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2 uppercase tracking-tight">
               <Rows3 className="w-4 h-4 text-primary" />
-              Calendar Cards
+              Agenda
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
-            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Next 5 Events</div>
-            {upcomingAppts.length === 0 ? (
-               <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
+              {sameDay(selectedDate, new Date()) ? "Today" : selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </div>
+            {agendaAppts.length === 0 ? (
+               <div className="flex flex-col items-center justify-center py-10 text-center px-4 bg-muted/5 rounded-xl border border-dashed border-border">
                   <Clock className="w-8 h-8 text-muted-foreground mb-2 opacity-20" />
-                  <p className="text-xs text-muted-foreground">No upcoming meetings</p>
+                  <p className="text-[10px] text-muted-foreground">No events scheduled</p>
+                  <button onClick={() => openSchedule(selectedDate)} className="mt-3 text-[10px] font-bold text-primary hover:underline uppercase tracking-tight">Schedule One</button>
                </div>
             ) : (
-              upcomingAppts.map(appt => (
+              agendaAppts.map(appt => (
+
                 <div key={appt.id} onClick={() => openEdit(appt)} className="group relative bg-accent/10 border border-border rounded-xl p-3 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer">
                   <div className="flex items-center justify-between mb-2">
                     <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase" style={{ backgroundColor: `${APPOINTMENT_TYPE_COLORS[appt.type]}20`, color: APPOINTMENT_TYPE_COLORS[appt.type] }}>
@@ -629,76 +649,18 @@ const CalendarPage: React.FC = () => {
         </div>
       </div>
 
-      {/* --- Modals & Flows --- */}
-      {(shouldShowContactSearch || shouldShowCreateForm) && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setModalOpen(false); }} />
-          <div className="relative w-full max-w-[480px] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-             <div className="p-5 border-b border-border bg-muted/5">
-              <h2 className="text-lg font-bold text-foreground">{creatingNew ? "Create New Contact" : "Select Contact"}</h2>
-              <p className="text-xs text-muted-foreground mt-1">{creatingNew ? "Enter the new contact's name" : "Search for an existing contact or create a new one"}</p>
-            </div>
-            <div className="p-5 space-y-4">
-              {!creatingNew ? (
-                <>
-                  <div className="relative">
-                    <label className="text-xs font-bold text-muted-foreground uppercase mb-1.5 block">Search Lead</label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <input value={contactSearch} onChange={e => searchContacts(e.target.value)} placeholder="Type name..." className="w-full h-11 pl-10 pr-4 rounded-xl bg-accent text-sm text-foreground border border-border focus:ring-2 focus:ring-primary focus:outline-none transition-all" autoFocus />
-                    </div>
-                    {searchLoading && <p className="text-[10px] text-muted-foreground mt-2">Searching database...</p>}
-                    {contactResults.length > 0 && (
-                      <div className="absolute z-50 left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                        {contactResults.map(c => (
-                          <button key={c.id} onClick={() => { setSelectedContact(c); setContactResults([]); setContactSearch(""); }} className="w-full text-left px-4 py-3 text-sm text-foreground hover:bg-accent flex items-center justify-between border-b border-border/50 last:border-0">
-                            <span className="font-medium">{c.name}</span>
-                            <span className="text-xs text-muted-foreground">{c.phone}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <button onClick={() => { setCreatingNew(true); const parts = contactSearch.trim().split(/\s+/); setNewFirstName(parts[0] || ""); setNewLastName(parts.slice(1).join(" ") || ""); }} className="w-full py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border-2 border-dashed border-primary/30 text-primary hover:bg-primary/5 transition-all">
-                    <Plus className="w-4 h-4" /> CREATE NEW CONTACT
-                  </button>
-                </>
-              ) : (
-                <div className="space-y-4">
-                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">First Name</label>
-                      <input value={newFirstName} onChange={e => setNewFirstName(e.target.value)} className="w-full h-11 px-4 rounded-xl bg-accent text-sm border border-border focus:ring-2 focus:ring-primary focus:outline-none" placeholder="First name" autoFocus />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">Last Name</label>
-                      <input value={newLastName} onChange={e => setNewLastName(e.target.value)} className="w-full h-11 px-4 rounded-xl bg-accent text-sm border border-border focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Last name" />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setCreatingNew(false)} className="flex-1 py-3 rounded-xl text-xs font-bold text-muted-foreground hover:bg-accent transition-all uppercase tracking-wider underline">Go back</button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center justify-end p-5 border-t border-border bg-muted/5 gap-3">
-              <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-xs font-bold text-muted-foreground uppercase">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <AppointmentModal
-        open={shouldShowAppointmentModal}
-        onClose={() => { setModalOpen(false); setSelectedContact(null); setCreatingNew(false); }}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
         onSave={handleSave}
         onDelete={modalEditing ? handleDeleteAppointment : undefined}
         editing={modalEditing}
         defaultDate={modalDefaultDate}
         defaultTime={modalDefaultTime}
-        prefillContactName={selectedContact?.name || (creatingNew ? `${newFirstName} ${newLastName}`.trim() : undefined)}
+        prefillContactName={selectedContact?.name}
         prefillContactId={selectedContact?.id}
       />
+
 
       {contactModalLead && (
         <ContactModal
