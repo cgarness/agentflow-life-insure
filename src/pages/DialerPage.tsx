@@ -372,15 +372,39 @@ export default function DialerPage() {
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
-      <div className="flex justify-between items-center border-b px-4 py-2">
-        <button className="border border-destructive text-destructive text-sm rounded-lg px-3 py-1.5 font-semibold">
+      <div className="flex items-center border-b px-4 py-2 gap-4">
+        {/* LEFT */}
+        <button className="border border-destructive text-destructive text-xs rounded-lg px-3 py-1 font-semibold shrink-0">
           ← End Session
         </button>
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-success inline-block" />
-          <span className="text-success font-semibold text-sm">Dialer Ready</span>
+
+        {/* CENTER-LEFT: inline stats */}
+        <div className="flex items-center flex-1">
+          {[
+            { label: "Calls", value: sessionStats.calls },
+            { label: "Connected", value: sessionStats.connected },
+            { label: "Avg Duration", value: avgDuration },
+            { label: "Talk Time", value: fmtDuration(sessionStats.talkSeconds) },
+            { label: "Conv Rate", value: convRate },
+            { label: "Callbacks", value: sessionStats.callbacks },
+          ].map((s) => (
+            <div key={s.label} className="flex flex-col items-center px-3 border-r border-border last:border-0">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</div>
+              <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
+            </div>
+          ))}
         </div>
-        <span className="text-muted-foreground text-sm">{selectedCampaign?.name ?? "No campaign"}</span>
+
+        {/* RIGHT */}
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-success inline-block" />
+            <span className="text-success text-xs font-semibold">Dialer Ready</span>
+          </div>
+          <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
+            {selectedCampaign?.name ?? "No Campaign"}
+          </span>
+        </div>
       </div>
 
       {/* ── COLUMNS ── */}
@@ -461,23 +485,6 @@ export default function DialerPage() {
             </button>
           </div>
 
-          {/* 3. Session stats */}
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: "Calls", value: sessionStats.calls },
-              { label: "Connected", value: sessionStats.connected },
-              { label: "Avg Duration", value: avgDuration },
-              { label: "Talk Time", value: fmtDuration(sessionStats.talkSeconds) },
-              { label: "Conv Rate", value: convRate },
-              { label: "Callbacks", value: sessionStats.callbacks },
-            ].map((s) => (
-              <div key={s.label} className="bg-card border rounded-lg p-2 text-center">
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">{s.label}</div>
-                <div className="text-base font-bold font-mono text-foreground">{s.value}</div>
-              </div>
-            ))}
-          </div>
-
           {/* 4. Tab bar */}
           <div className="border rounded-lg overflow-hidden flex">
             {(["dispositions", "queue", "scripts"] as const).map((tab) => (
@@ -510,11 +517,6 @@ export default function DialerPage() {
                         <span className="bg-accent border rounded px-1.5 py-0.5">{currentLead.state}</span>
                       )}
                       {currentLead.age && <span>Age {currentLead.age}</span>}
-                    </div>
-                    <div className="mt-1">
-                      <select className="bg-accent border border-border rounded text-xs px-2 py-1 text-foreground">
-                        <option>+19097381193</option>
-                      </select>
                     </div>
                   </div>
                 )}
@@ -678,8 +680,11 @@ export default function DialerPage() {
 
           {/* 2. Conversation history */}
           <div className="flex-1 bg-card border rounded-xl flex flex-col overflow-hidden">
-            <div className="font-semibold text-sm text-foreground px-4 py-3 border-b">
-              Conversation History
+            <div className="flex justify-between items-center px-4 py-2 border-b border-border">
+              <span className="font-semibold text-sm text-foreground">Conversation History</span>
+              <select className="bg-accent border border-border text-xs text-foreground rounded-lg px-2 py-1 h-7">
+                <option>+19097381193</option>
+              </select>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
               {loadingHistory && (
