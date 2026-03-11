@@ -90,7 +90,7 @@ const MonthView: React.FC<Props> = ({
             const isSelected = sameDay(cell.date, selectedDate);
             return (
               <button key={i} onClick={() => { onSelectDate(cell.date); if (cell.inMonth) onDayClick(cell.date); }}
-                className={`min-h-[100px] p-1.5 border text-left transition-colors duration-150 flex flex-col ${
+                className={`min-h-[80px] lg:min-h-[100px] min-w-0 p-1.5 border text-left transition-colors duration-150 flex flex-col ${
                   !cell.inMonth ? "opacity-40" : ""
                 } ${isSelected ? "border-transparent border-r-border border-b-border ring-2 ring-primary ring-inset z-10 relative" : "border-transparent border-r-border border-b-border"} ${isToday && cell.inMonth && isSelected ? "bg-primary/5" : ""} hover:bg-accent/30`}>
                 <div className="flex w-full justify-center">
@@ -99,7 +99,7 @@ const MonthView: React.FC<Props> = ({
                     {cell.date.getDate()}
                   </span>
                 </div>
-                <div className="flex flex-col gap-0.5 mt-1 overflow-hidden flex-1">
+                <div className="flex flex-col gap-0.5 mt-1 overflow-hidden flex-1 w-full min-w-0">
                   {appts.slice(0, 2).map(a => {
                     const col = APPOINTMENT_TYPE_COLORS[a.type];
                     return (
