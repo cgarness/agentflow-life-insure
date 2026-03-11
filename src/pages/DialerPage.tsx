@@ -522,27 +522,13 @@ export default function DialerPage() {
                   <div className="p-5 flex-1 flex flex-col" onClick={() => setSelectedCampaignId(campaign.id)}>
                     
                     {/* Campaign Name Row */}
-                    <div className="mb-4">
+                    <div className="mb-4 flex items-start justify-between gap-2">
                       <h3 className="font-bold text-xl text-foreground leading-tight line-clamp-2">
                         {campaign.name}
                       </h3>
-                    </div>
-
-                    {/* Meta/Status Row */}
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {/* Health Indicator */}
-                        <div className={cn("w-2 h-2 rounded-full shrink-0", isMockActive ? "bg-success animate-pulse" : campaign.status === "Paused" ? "bg-warning" : "bg-muted-foreground")} />
-                        
-                        <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
-                      </div>
-                      
-                      {/* Action Icons */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button className="p-1 text-muted-foreground hover:text-foreground transition-colors" onClick={e => e.stopPropagation()}>
-                          <Settings className="w-4 h-4" />
-                        </button>
-                      </div>
+                      <button className="p-1 text-muted-foreground hover:text-foreground transition-colors shrink-0" onClick={e => e.stopPropagation()}>
+                        <Settings className="w-4 h-4" />
+                      </button>
                     </div>
 
                     {/* Mini Stats Row */}
@@ -560,23 +546,13 @@ export default function DialerPage() {
                     {/* States Badges */}
                     <div className="mb-5">
                       <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="grid grid-cols-4 gap-1.5">
                         {mockStates.map(s => {
-                          const outsideHours = s.state === "FL" || s.state === "NY";
                           return (
                             <span 
                               key={s.state} 
-                              className={cn(
-                                "flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium transition-all",
-                                outsideHours && "opacity-50 grayscale"
-                              )}
-                              style={outsideHours ? { backgroundColor: 'var(--muted)', color: 'var(--muted-foreground)', border: '1px solid var(--border)' } : {
-                                backgroundColor: s.bg,
-                                color: s.color,
-                                border: s.border
-                              }}
+                              className="flex items-center justify-center text-[10px] px-1 py-0.5 rounded-md font-medium transition-all bg-blue-500/10 text-blue-500 border border-blue-500/20"
                             >
-                              {outsideHours && <Clock className="w-3 h-3" />}
                               {s.state} ({s.count})
                             </span>
                           );
