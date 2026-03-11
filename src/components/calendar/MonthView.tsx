@@ -92,7 +92,7 @@ const MonthView: React.FC<Props> = ({
               <button key={i} onClick={() => { onSelectDate(cell.date); if (cell.inMonth) onDayClick(cell.date); }}
                 className={`min-h-[100px] p-1.5 border-b border-r border-border text-left transition-colors duration-150 flex flex-col ${
                   !cell.inMonth ? "opacity-40" : ""
-                } ${isSelected ? "ring-2 ring-primary ring-inset" : ""} ${isToday && cell.inMonth ? "bg-primary/5" : ""} hover:bg-accent/30`}>
+                } ${isSelected ? "ring-2 ring-primary ring-inset" : ""} ${isToday && cell.inMonth && isSelected ? "bg-primary/5" : ""} hover:bg-accent/30`}>
                 <span className={`text-sm font-medium inline-flex items-center justify-center ${isToday && cell.inMonth ? "w-6 h-6 rounded-full text-white" : "text-foreground"}`}
                   style={isToday && cell.inMonth ? { backgroundColor: "#3B82F6" } : undefined}>
                   {cell.date.getDate()}

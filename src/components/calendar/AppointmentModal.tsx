@@ -183,10 +183,10 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                   style={{ backgroundColor: "#14B8A626", color: "#14B8A6", border: "1px solid #14B8A64D", cursor: contactInfo ? "pointer" : "default" }}>
                   {contactInfo?.name || prefillContactName}
                 </button>
-                {editing && contactInfo && (
+                {contactInfo && (
                   <button onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); setMiniCardOpen(false); onClose(); toast.info(`Opening contact record for ${contactInfo.name}`); }}
                     className="text-sm hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
-                    Full View →
+                    View Contact →
                   </button>
                 )}
               </div>

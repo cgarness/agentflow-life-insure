@@ -1,17 +1,27 @@
 
 
-## Plan: Fix Calendar Selection + Add View Contact Button + Fix Build Error
+## Plan: Add Dev-Only Auth Bypass via Query Parameter
 
-### 1. Fix build error — `src/lib/telnyx.ts` line 29
-Change `callerIdNumber` to `callerNumber`.
+**What**: Allow bypassing authentication in development by adding `?bypass_auth=true` to the URL. This lets the browser automation tool access protected routes without logging in.
 
-### 2. Fix double-selection appearance — `src/components/calendar/MonthView.tsx` line 95
-The today cell always gets `bg-primary/5` background, making it look selected alongside the actually selected day.
+**How**: Modify the `ProtectedRoute` component in `src/App.tsx` (lines 36-45) to check for the `bypass_auth=true` query parameter. The bypass will only work in development mode (`import.meta.env.DEV`).
 
-**Fix**: Change the condition from `isToday && cell.inMonth` to `isToday && cell.inMonth && isSelected` so the background highlight only applies when today IS the selected day.
+```typescript
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  const searchParams = new URLSearchParams(window.location.search);
+  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
+  
+  if (bypassAuth) return <>{children}</>;
+  if (isLoading) return (/* spinner */);
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+```
 
-### 3. Add "View Contact" button — `src/components/calendar/AppointmentModal.tsx` line 186
-Currently the "Full View →" link only shows when `editing && contactInfo`. Change the condition to also show when a contact is linked in a new appointment (i.e., when `contactInfo` exists regardless of editing state). Also rename the link text to "View Contact" for clarity.
+**Safety**: `import.meta.env.DEV` is `false` in production builds, so the bypass is completely stripped out. No security risk in deployed builds.
 
-**Change**: Line 186 — remove the `editing &&` condition so it reads `{contactInfo && (`.
+**Usage**: When asking me to test, I'll navigate to e.g. `/settings?bypass_auth=true`.
+
+**Note**: Profile-dependent features (user name, avatar, etc.) will show empty/null since there's no actual session. But it's sufficient for testing UI and OAuth flows.
 
