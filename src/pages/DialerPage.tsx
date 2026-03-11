@@ -44,6 +44,7 @@ import { Calendar } from "@/components/ui/calendar";
 import ContactModal from "@/components/contacts/ContactModal";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead } from "@/lib/types";
+import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
 /* ─── Types ─── */
 
@@ -158,6 +159,7 @@ export default function DialerPage() {
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { user } = useAuth();
 
@@ -214,6 +216,23 @@ export default function DialerPage() {
       if (callTimerRef.current) clearInterval(callTimerRef.current);
     };
   }, []);
+
+  // live local time badge — updates every minute when lead state changes
+  useEffect(() => {
+    const state = currentLead?.state;
+    if (!state) {
+      setContactLocalTimeDisplay("");
+      return;
+    }
+    const update = () => {
+      const t = getContactLocalTime(state);
+      const tz = getContactTimezone(state);
+      setContactLocalTimeDisplay(t && tz ? `${t} ${tz}` : t);
+    };
+    update();
+    const interval = setInterval(update, 60000);
+    return () => clearInterval(interval);
+  }, [currentLead?.state]);
 
   /* --- keyboard shortcuts --- */
 
@@ -744,8 +763,24 @@ export default function DialerPage() {
             </button>
           </div>
 
-          {/* Tab bar */}
-          <div className="border rounded-lg overflow-hidden flex">
+          {/* Contact info card — fixed above tabs, always visible */}
+          {currentLead && (
+            <div className="shrink-0 bg-card border rounded-lg p-3">
+              <div className="text-2xl font-bold text-foreground">
+                {currentLead.first_name} {currentLead.last_name}
+              </div>
+              <div className="font-mono text-muted-foreground text-xs">{currentLead.phone}</div>
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                {currentLead.state && (
+                  <span className="bg-accent border rounded px-1.5 py-0.5">{currentLead.state}</span>
+                )}
+                {currentLead.age && <span>Age {currentLead.age}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Tab bar — fixed directly below contact info */}
+          <div className="shrink-0 border rounded-lg overflow-hidden flex">
             {(["dispositions", "queue", "scripts"] as const).map((tab) => (
               <button
                 key={tab}
@@ -759,34 +794,18 @@ export default function DialerPage() {
             ))}
           </div>
 
-          {/* Tab content */}
+          {/* Tab content — only this area scrolls */}
           <div className="flex-1 overflow-y-auto">
-            {/* FIX 4: Dispositions tab — mini-card + disposition grid + Quick Notes */}
+            {/* FIX 4: Dispositions tab — disposition grid + Quick Notes */}
             {leftTab === "dispositions" && (
               <div className="flex flex-col gap-3">
-                {/* Mini-card */}
-                {currentLead && (
-                  <div className="bg-card border rounded-lg p-3">
-                    <div className="font-bold text-sm text-foreground">
-                      {currentLead.first_name} {currentLead.last_name}
-                    </div>
-                    <div className="font-mono text-muted-foreground text-xs">{currentLead.phone}</div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      {currentLead.state && (
-                        <span className="bg-accent border rounded px-1.5 py-0.5">{currentLead.state}</span>
-                      )}
-                      {currentLead.age && <span>Age {currentLead.age}</span>}
-                    </div>
-                  </div>
-                )}
-
                 {/* Disposition grid — always visible */}
                 <div>
                   <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
                     Select Disposition
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {dispositions.map((d, i) => {
+                    {dispositions.map((d) => {
                       const isSelected = selectedDisp?.id === d.id;
                       return (
                         <button
@@ -814,7 +833,6 @@ export default function DialerPage() {
                           >
                             {d.name}
                           </span>
-                          <span className="text-[10px] text-muted-foreground ml-auto">{i + 1}</span>
                         </button>
                       );
                     })}
@@ -920,6 +938,13 @@ export default function DialerPage() {
         <div className="flex-1 flex flex-col gap-3 overflow-hidden min-h-0 p-3">
           {/* 1. Contact details header */}
           <div className="shrink-0 bg-card border rounded-xl p-4">
+            {contactLocalTimeDisplay && (
+              <div className="mb-3">
+                <span className="inline-flex items-center bg-green-500 text-white rounded-full px-2 py-0.5 text-xs font-semibold">
+                  {contactLocalTimeDisplay}
+                </span>
+              </div>
+            )}
             <div className="grid grid-cols-4 gap-4">
               {[
                 {
@@ -1003,71 +1028,71 @@ export default function DialerPage() {
                   </div>
                 ))}
             </div>
+          </div>
 
-            {/* FIX 1 + FIX 2: Composer — shrink-0, pinned to bottom */}
-            <div className="shrink-0 border-t border-border flex flex-col pt-3">
-              <div className="px-4">
-                {/* Tab switcher */}
-                <div className="flex gap-2 mb-2">
-                  {(["sms", "email"] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => handleSmsTabChange(tab)}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
-                        smsTab === tab
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-accent text-muted-foreground"
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
+          {/* SMS composer — shrink-0, pinned to bottom of right column */}
+          <div className="shrink-0 bg-card border rounded-xl flex flex-col pt-3">
+            <div className="px-4">
+              {/* Tab switcher */}
+              <div className="flex gap-2 mb-2">
+                {(["sms", "email"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => handleSmsTabChange(tab)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
+                      smsTab === tab
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-accent text-muted-foreground"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab Fields */}
+              {smsTab === "email" ? (
+                <div className="flex flex-col gap-2">
+                  <input
+                    value={subjectText}
+                    onChange={(e) => setSubjectText(e.target.value)}
+                    placeholder="Subject"
+                    className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
+                  />
+                  <textarea
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type EMAIL message…"
+                    className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20"
+                  />
                 </div>
+              ) : (
+                <div className="text-foreground">
+                  <input
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type SMS message…"
+                    className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
+                  />
+                </div>
+              )}
+            </div>
 
-                {/* Tab Fields */}
-                {smsTab === "email" ? (
-                  <div className="flex flex-col gap-2">
-                    <input
-                      value={subjectText}
-                      onChange={(e) => setSubjectText(e.target.value)}
-                      placeholder="Subject"
-                      className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
-                    />
-                    <textarea
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      placeholder="Type EMAIL message…"
-                      className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20"
-                    />
-                  </div>
-                ) : (
-                  <div className="text-foreground">
-                    <input
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      placeholder="Type SMS message…"
-                      className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-                    />
-                  </div>
-                )}
-              </div>
+            {/* Action Buttons Row: Templates + Send */}
+            <div className="flex items-center gap-2 px-4 py-3">
+              <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 hover:bg-accent/80 transition-colors">
+                <FileText className="w-4 h-4" />
+                Templates
+              </button>
 
-              {/* Action Buttons Row: Templates + Send */}
-              <div className="flex items-center gap-2 px-4 py-3">
-                <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 hover:bg-accent/80 transition-colors">
-                  <FileText className="w-4 h-4" />
-                  Templates
-                </button>
-                
-                <button
-                  onClick={handleSendMessage}
-                  className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-primary/90 transition-colors"
-                  title={smsTab === "email" ? "Send Email" : "Send SMS"}
-                >
-                  <span>Send</span>
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
+              <button
+                onClick={handleSendMessage}
+                className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-primary/90 transition-colors"
+                title={smsTab === "email" ? "Send Email" : "Send SMS"}
+              >
+                <span>Send</span>
+                <Send className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
