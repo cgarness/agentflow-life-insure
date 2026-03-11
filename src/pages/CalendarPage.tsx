@@ -1,38 +1,40 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Phone, MessageSquare, Mail, User, ChevronDown, Pencil, Calendar as CalIcon, RefreshCw } from "lucide-react";
-import { CalendarAppointment, CalAppointmentStatus, CalAppointmentType, APPOINTMENT_TYPE_COLORS, APPOINTMENT_STATUS_COLORS } from "@/contexts/CalendarContext";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Plus, 
+  Search, 
+  Calendar as CalendarIcon, 
+  Clock, 
+  User, 
+  Phone,
+  MessageSquare,
+  Mail,
+  ChevronDown,
+  RefreshCw,
+  LayoutGrid,
+  Columns3,
+  Rows3,
+  List as ListIcon
+} from "lucide-react";
+import { 
+  CalendarAppointment, 
+  CalAppointmentStatus, 
+  CalAppointmentType, 
+  APPOINTMENT_TYPE_COLORS, 
+  APPOINTMENT_STATUS_COLORS 
+} from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import MonthView from "@/components/calendar/MonthView";
-import WeekView from "@/components/calendar/WeekView";
-import DayView from "@/components/calendar/DayView";
-import DayAgendaPanel from "@/components/calendar/DayAgendaPanel";
-import ListView from "@/components/calendar/ListView";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { mockLeads } from "@/lib/mock-data";
 import { Lead } from "@/lib/types";
 
+// Helper functions from original
 function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
-
-type ViewType = "month" | "week" | "day" | "list";
-const VIEWS: { key: ViewType; label: string }[] = [
-  { key: "month", label: "Month" },
-  { key: "week", label: "Week" },
-  { key: "day", label: "Day" },
-  { key: "list", label: "List" },
-];
-
-const VALID_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"];
-const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
-
-type AppointmentSyncMeta = {
-  externalEventId: string | null;
-  syncSource: string;
-  externalProvider: string | null;
-};
 
 const timeStringToDate = (baseDate: Date, time: string) => {
   const date = new Date(baseDate);
@@ -48,15 +50,24 @@ const timeStringToDate = (baseDate: Date, time: string) => {
   return date;
 };
 
+type ViewType = "Month" | "Week" | "Day" | "List";
+
+const VALID_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"];
+const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
+
+type AppointmentSyncMeta = {
+  externalEventId: string | null;
+  syncSource: string;
+  externalProvider: string | null;
+};
+
 const CalendarPage: React.FC = () => {
+  // --- Original State & Logic ---
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [appointmentMetaById, setAppointmentMetaById] = useState<Record<string, AppointmentSyncMeta>>({});
-  const [view, setView] = useState<ViewType>("month");
-  const [currentMonth, setCurrentMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
-  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
 
-  // Google Calendar sync state
   const [googleConnected, setGoogleConnected] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -64,90 +75,35 @@ const CalendarPage: React.FC = () => {
   const [modalEditing, setModalEditing] = useState<CalendarAppointment | null>(null);
   const [modalDefaultDate, setModalDefaultDate] = useState<Date | undefined>(undefined);
   const [modalDefaultTime, setModalDefaultTime] = useState<string | undefined>(undefined);
-
   const [contactModalLead, setContactModalLead] = useState<Lead | null>(null);
 
-  // FIX 1 — Contact search state (Supabase)
+  // Contact search state
   const [contactSearch, setContactSearch] = useState("");
   const [contactResults, setContactResults] = useState<Array<{ id: string; name: string; phone: string; email: string }>>([]);
   const [selectedContact, setSelectedContact] = useState<{ id: string; name: string; phone: string; email: string } | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
-
-  // FIX 2 — Create new contact flow
   const [creatingNew, setCreatingNew] = useState(false);
   const [newFirstName, setNewFirstName] = useState("");
   const [newLastName, setNewLastName] = useState("");
 
-  const year = currentMonth.getFullYear();
-  const month = currentMonth.getMonth();
+  // New Design State
+  const [currentView, setCurrentView] = useState<ViewType>("Month");
 
-  // FIX 1 — Search contacts from Supabase leads table
-  const searchContacts = async (query: string) => {
-    setContactSearch(query);
-    setSelectedContact(null);
-    if (query.length < 2) { setContactResults([]); return; }
-    setSearchLoading(true);
-    const { data, error } = await supabase
-      .from('leads')
-      .select('id, first_name, last_name, phone, email')
-      .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
-      .limit(8);
-    if (!error && data) {
-      setContactResults(data.map(l => ({
-        id: l.id,
-        name: `${l.first_name} ${l.last_name}`,
-        phone: l.phone || "",
-        email: l.email || "",
-      })));
-    }
-    setSearchLoading(false);
-  };
+  const views: { name: ViewType; icon: any }[] = [
+    { name: "Month", icon: LayoutGrid },
+    { name: "Week", icon: Columns3 },
+    { name: "Day", icon: Rows3 },
+    { name: "List", icon: ListIcon },
+  ];
 
-  const resetContactState = () => {
-    setSelectedContact(null);
-    setCreatingNew(false);
-    setContactSearch("");
-    setContactResults([]);
-    setNewFirstName("");
-    setNewLastName("");
-  };
-
-  // Check Google Calendar connection status
-  const checkGoogleStatus = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.functions.invoke("google-calendar-status", { body: {} });
-      if (!error && data?.connected) {
-        setGoogleConnected(true);
-      } else {
-        setGoogleConnected(false);
-      }
-    } catch {
-      setGoogleConnected(false);
-    }
-  }, []);
-
-  const handleSyncNow = async () => {
-    setSyncing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("google-calendar-inbound-sync", { body: {} });
-      if (error) {
-        toast({ title: "Sync failed", description: String(error), variant: "destructive" });
-      } else {
-        const imported = data?.imported ?? 0;
-        const updated = data?.updated ?? 0;
-        toast({ title: "Google Calendar synced", description: `${imported} imported, ${updated} updated` });
-        await fetchAppointments();
-      }
-    } catch (e) {
-      toast({ title: "Sync failed", variant: "destructive" });
-    }
-    setSyncing(false);
-  };
-
+  // Logic Implementations
   const fetchAppointments = useCallback(async () => {
     setLoading(true);
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
     const startOfMonth = new Date(year, month, 1).toISOString();
     const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+    
     const { data, error } = await supabase
       .from('appointments')
       .select('*')
@@ -162,11 +118,10 @@ const CalendarPage: React.FC = () => {
     }
 
     const nextMeta: Record<string, AppointmentSyncMeta> = {};
-    const mapped: CalendarAppointment[] = (data || []).map((appt: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const mapped: CalendarAppointment[] = (data || []).map((appt: any) => {
       const startDate = new Date(appt.start_time);
       const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
-      const formatTime = (d: Date) =>
-        d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const formatTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
       nextMeta[appt.id] = {
         externalEventId: appt.external_event_id ?? null,
@@ -192,28 +147,42 @@ const CalendarPage: React.FC = () => {
     setAppointments(mapped);
     setAppointmentMetaById(nextMeta);
     setLoading(false);
-  }, [year, month]);
+  }, [currentDate]);
 
-  const warnExternalSyncFailed = () => {
-    toast({
-      title: "Saved locally, but Google sync failed",
-      description: "This appointment was saved in AgentFlow. Please retry sync from Calendar settings.",
-      variant: "destructive",
-    });
+  const checkGoogleStatus = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("google-calendar-status", { body: {} });
+      if (!error && data?.connected) setGoogleConnected(true);
+      else setGoogleConnected(false);
+    } catch {
+      setGoogleConnected(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAppointments();
+    checkGoogleStatus();
+  }, [fetchAppointments, checkGoogleStatus]);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-calendar-inbound-sync", { body: {} });
+      if (error) {
+        toast({ title: "Sync failed", variant: "destructive" });
+      } else {
+        toast({ title: "Google Calendar synced", description: `${data?.imported ?? 0} imported, ${data?.updated ?? 0} updated` });
+        await fetchAppointments();
+      }
+    } catch (e) {
+      toast({ title: "Sync failed", variant: "destructive" });
+    }
+    setSyncing(false);
   };
 
-  const syncAppointmentToGoogle = async (payload: {
-    action: "create" | "update" | "delete";
-    appointmentId: string;
-    title?: string;
-    notes?: string;
-    startTime?: string;
-    endTime?: string;
-    attendeeEmail?: string | null;
-    externalEventId?: string | null;
-  }) => {
+  const syncAppointmentToGoogle = async (payload: any) => {
     try {
-      const { error } = await supabase.functions.invoke("google-calendar-sync-appointment", {
+      await supabase.functions.invoke("google-calendar-sync-appointment", {
         body: {
           action: payload.action,
           appointment_id: payload.appointmentId,
@@ -225,60 +194,21 @@ const CalendarPage: React.FC = () => {
           external_event_id: payload.externalEventId,
         },
       });
-
-      if (error) {
-        console.error("External calendar sync failed", error);
-        warnExternalSyncFailed();
-      }
     } catch (error) {
-      console.error("External calendar sync threw", error);
-      warnExternalSyncFailed();
+      console.error("External sync failed", error);
     }
   };
 
   const resolveAttendeeEmail = async (contactId?: string, fallbackEmail?: string | null) => {
     if (fallbackEmail) return fallbackEmail;
     if (!contactId) return null;
-
-    const { data } = await supabase
-      .from("leads")
-      .select("email")
-      .eq("id", contactId)
-      .maybeSingle();
-
+    const { data } = await supabase.from("leads").select("email").eq("id", contactId).maybeSingle();
     return data?.email || null;
-  };
-
-  useEffect(() => {
-    fetchAppointments();
-    checkGoogleStatus();
-  }, [fetchAppointments, checkGoogleStatus]);
-
-  const openSchedule = (defaultDate?: Date, defaultTime?: string) => {
-    setModalEditing(null);
-    setModalDefaultDate(defaultDate);
-    setModalDefaultTime(defaultTime);
-    resetContactState();
-    setModalOpen(true);
-  };
-
-  const openEdit = (a: CalendarAppointment) => {
-    // Prevent editing external (Google) events
-    const meta = appointmentMetaById[a.id];
-    if (meta?.syncSource === "external") {
-      toast({ title: "This event is managed in Google Calendar", description: "Edit it in Google Calendar to update it here." });
-      return;
-    }
-    setModalEditing(a);
-    setModalDefaultDate(undefined);
-    setModalDefaultTime(undefined);
-    setModalOpen(true);
   };
 
   const handleSave = async (data: Omit<CalendarAppointment, "id">) => {
     const startDate = timeStringToDate(new Date(data.date), data.startTime);
     const endDate = timeStringToDate(new Date(data.date), data.endTime);
-
     let contactId = selectedContact?.id || data.contactId || "";
     let attendeeEmail: string | null = selectedContact?.email || null;
 
@@ -286,13 +216,8 @@ const CalendarPage: React.FC = () => {
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
         .insert([{ first_name: newFirstName.trim(), last_name: newLastName.trim() }])
-        .select()
-        .single();
-
-      if (leadError || !newLead) {
-        toast({ title: "Failed to create contact", variant: "destructive" });
-        return;
-      }
+        .select().single();
+      if (leadError || !newLead) { toast({ title: "Failed to create contact", variant: "destructive" }); return; }
       contactId = newLead.id;
       attendeeEmail = newLead.email || null;
     }
@@ -311,19 +236,10 @@ const CalendarPage: React.FC = () => {
 
     if (modalEditing) {
       const existingMeta = appointmentMetaById[modalEditing.id];
-      const { error } = await supabase
-        .from("appointments")
-        .update(localPayload)
-        .eq("id", modalEditing.id);
-
-      if (error) {
-        toast({ title: "Failed to update appointment", variant: "destructive" });
-        return;
-      }
-
+      const { error } = await supabase.from("appointments").update(localPayload).eq("id", modalEditing.id);
+      if (error) { toast({ title: "Failed to update appointment", variant: "destructive" }); return; }
       toast({ title: "Appointment updated" });
       await fetchAppointments();
-
       await syncAppointmentToGoogle({
         action: "update",
         appointmentId: modalEditing.id,
@@ -337,20 +253,10 @@ const CalendarPage: React.FC = () => {
       return;
     }
 
-    const { data: inserted, error } = await supabase
-      .from('appointments')
-      .insert([localPayload])
-      .select('id')
-      .single();
-
-    if (error || !inserted) {
-      toast({ title: "Failed to save appointment", variant: "destructive" });
-      return;
-    }
-
+    const { data: inserted, error } = await supabase.from('appointments').insert([localPayload]).select('id').single();
+    if (error || !inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
     toast({ title: "Appointment scheduled" });
     await fetchAppointments();
-
     await syncAppointmentToGoogle({
       action: "create",
       appointmentId: inserted.id,
@@ -364,39 +270,46 @@ const CalendarPage: React.FC = () => {
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     const externalEventId = appointmentMetaById[appointmentId]?.externalEventId;
-    const { error } = await supabase
-      .from('appointments')
-      .delete()
-      .eq('id', appointmentId);
-
-    if (error) {
-      console.error('Error deleting appointment:', error);
-      toast({ title: "Failed to delete appointment", variant: "destructive" });
-      return;
-    }
-
+    const { error } = await supabase.from('appointments').delete().eq('id', appointmentId);
+    if (error) { toast({ title: "Failed to delete appointment", variant: "destructive" }); return; }
     toast({ title: "Appointment deleted" });
     await fetchAppointments();
-
-    await syncAppointmentToGoogle({
-      action: "delete",
-      appointmentId,
-      externalEventId,
-    });
+    await syncAppointmentToGoogle({ action: "delete", appointmentId, externalEventId });
   };
 
-  const handleStatusChange = async (id: string, status: CalAppointmentStatus) => {
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status, sync_source: "internal" })
-      .eq("id", id);
+  const searchContacts = async (query: string) => {
+    setContactSearch(query);
+    setSelectedContact(null);
+    if (query.length < 2) { setContactResults([]); return; }
+    setSearchLoading(true);
+    const { data, error } = await supabase
+      .from('leads')
+      .select('id, first_name, last_name, phone, email')
+      .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
+      .limit(8);
+    if (!error && data) {
+      setContactResults(data.map(l => ({ id: l.id, name: `${l.first_name} ${l.last_name}`, phone: l.phone || "", email: l.email || "" })));
+    }
+    setSearchLoading(false);
+  };
 
-    if (error) {
-      toast({ title: "Failed to update status", variant: "destructive" });
+  const openSchedule = (date?: Date, time?: string) => {
+    setModalEditing(null);
+    setModalDefaultDate(date);
+    setModalDefaultTime(time);
+    setModalOpen(true);
+    setCreatingNew(false);
+    setSelectedContact(null);
+  };
+
+  const openEdit = (a: CalendarAppointment) => {
+    const meta = appointmentMetaById[a.id];
+    if (meta?.syncSource === "external") {
+      toast({ title: "Managed in Google Calendar", description: "Edit it in Google Calendar to update it here." });
       return;
     }
-
-    await fetchAppointments();
+    setModalEditing(a);
+    setModalOpen(true);
   };
 
   const handleOpenContact = (contactId: string) => {
@@ -404,367 +317,380 @@ const CalendarPage: React.FC = () => {
     if (lead) setContactModalLead(lead);
   };
 
-  const prevMonth = () => setCurrentMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
-  const nextMonth = () => setCurrentMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
-  const goToday = () => {
-    const d = new Date(); d.setDate(1); d.setHours(0,0,0,0);
-    setCurrentMonth(d);
-    const t = new Date(); t.setHours(0,0,0,0);
-    setSelectedDate(t);
-  };
+  // Helper View Renders
+  const renderMonthView = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const safeAppointments = appointments ?? [];
-  const dayAppointments = safeAppointments.filter(a => {
-    try { return sameDay(new Date(a.date), selectedDate); } catch { return false; }
-  });
-
-  // Whether the AppointmentModal should open (editing, or contact selected/creating)
-  const shouldShowAppointmentModal = modalOpen && (
-    !!modalEditing ||
-    !!selectedContact ||
-    (creatingNew && !!newFirstName.trim() && !!newLastName.trim())
-  );
-
-  // Whether to show the contact search pre-step
-  const shouldShowContactSearch = modalOpen && !modalEditing && !selectedContact && !creatingNew;
-
-  // Whether to show the create new contact form
-  const shouldShowCreateForm = modalOpen && !modalEditing && creatingNew && !selectedContact;
-
-  if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="grid grid-cols-7 gap-px bg-border/50 border border-border rounded-xl overflow-hidden shadow-sm h-full flex-1">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          <div key={day} className="bg-muted/30 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
+            {day}
+          </div>
+        ))}
+        {Array.from({ length: 35 }).map((_, i) => {
+          let dayDisplay, isCurrentMonth = true;
+          if (i < firstDay) { dayDisplay = daysInPrevMonth - (firstDay - i - 1); isCurrentMonth = false; }
+          else if (i >= firstDay + daysInMonth) { dayDisplay = i - (firstDay + daysInMonth) + 1; isCurrentMonth = false; }
+          else { dayDisplay = i - firstDay + 1; }
+
+          const date = new Date(year, isCurrentMonth ? month : (i < firstDay ? month - 1 : month + 1), dayDisplay);
+          const dayAppts = appointments.filter(a => sameDay(new Date(a.date), date));
+
+          return (
+            <div key={i} onClick={() => openSchedule(date)} className={`h-full bg-card p-1.5 border-t border-border transition-colors hover:bg-accent/5 cursor-pointer relative ${!isCurrentMonth ? "opacity-30" : ""}`}>
+              <span className={`text-xs font-medium ${isCurrentMonth && sameDay(date, new Date()) ? "bg-primary text-primary-foreground w-6 h-6 flex items-center justify-center rounded-full" : "text-foreground"}`}>
+                {dayDisplay}
+              </span>
+              <div className="mt-1 space-y-0.5 overflow-hidden">
+                {dayAppts.slice(0, 3).map(a => (
+                  <div key={a.id} onClick={(e) => { e.stopPropagation(); openEdit(a); }} className="text-[9px] px-1 py-0 rounded border truncate font-medium" style={{ backgroundColor: `${APPOINTMENT_TYPE_COLORS[a.type]}15`, color: APPOINTMENT_TYPE_COLORS[a.type], borderColor: `${APPOINTMENT_TYPE_COLORS[a.type]}40` }}>
+                    {a.startTime.split(':')[0]} {a.title}
+                  </div>
+                ))}
+                {dayAppts.length > 3 && <div className="text-[8px] text-muted-foreground pl-1">+{dayAppts.length - 3} more</div>}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
-  }
+  };
 
-  const isToday = (() => {
-    const n = new Date();
-    return selectedDate.getFullYear() === n.getFullYear() && selectedDate.getMonth() === n.getMonth() && selectedDate.getDate() === n.getDate();
-  })();
-  const dateLabel = selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-
-  return (
-    <div className="space-y-4 h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-foreground">Calendar</h1>
-          {googleConnected && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-              Google Calendar
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {googleConnected && (
-            <button
-              onClick={handleSyncNow}
-              disabled={syncing}
-              className="px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors duration-150 border border-border text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Syncing..." : "Sync Now"}
-            </button>
-          )}
-          {/* Segmented view toggle */}
-          <div className="flex items-center rounded-lg overflow-hidden border border-border">
-            {VIEWS.map(v => (
-              <button key={v.key} onClick={() => setView(v.key)}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
-                  view === v.key
-                    ? "text-white"
-                    : "text-muted-foreground hover:text-foreground bg-transparent"
-                }`}
-                style={view === v.key ? { backgroundColor: "#3B82F6" } : undefined}>
-                {v.label}
-              </button>
+  const renderWeekView = () => (
+    <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col h-full bg-muted/5">
+       <div className="grid grid-cols-8 gap-px bg-border/50 border-b border-border shrink-0">
+        <div className="bg-muted/10 p-2"></div>
+        {Array.from({ length: 7 }).map((_, i) => {
+          const d = new Date(currentDate);
+          d.setDate(d.getDate() - d.getDay() + i);
+          return (
+            <div key={i} className="bg-muted/10 p-2 text-center">
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+              <div className={`text-sm font-bold ${sameDay(d, new Date()) ? "text-primary" : ""}`}>{d.getDate()}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex-1 overflow-y-auto no-scrollbar">
+        <div className="grid grid-cols-8 gap-px bg-border/10 h-[1000px]">
+          <div className="col-span-1 border-r border-border bg-card/50">
+            {Array.from({ length: 14 }).map((_, i) => (
+              <div key={i} className="h-20 border-b border-border/50 text-[9px] text-muted-foreground p-1.5 text-right">{i + 7}:00 AM</div>
             ))}
           </div>
-          <button onClick={() => openSchedule()} className="px-4 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors duration-150" style={{ backgroundColor: "#3B82F6" }}>
-            <Plus className="w-4 h-4" /> Schedule Appointment
+          {Array.from({ length: 7 }).map((_, i) => {
+             const d = new Date(currentDate);
+             d.setDate(d.getDate() - d.getDay() + i);
+             const dayAppts = appointments.filter(a => sameDay(new Date(a.date), d));
+             return (
+              <div key={i} className="relative group border-r border-border last:border-r-0">
+                 {Array.from({ length: 14 }).map((_, j) => (
+                  <div key={j} className="h-20 border-b border-border/50 group-hover:bg-accent/5 transition-colors"></div>
+                ))}
+                {dayAppts.map(a => {
+                  const [hourStr, minPart] = a.startTime.split(':');
+                  const hour = parseInt(hourStr) + (a.startTime.includes('PM') && hourStr !== '12' ? 12 : (a.startTime.includes('AM') && hourStr === '12' ? -12 : 0));
+                  const top = (hour - 7) * 80 + (parseInt(minPart) / 60) * 80;
+                  return (
+                    <div key={a.id} onClick={() => openEdit(a)} className="absolute left-0.5 right-0.5 p-1.5 rounded-md border-l-2 shadow-sm z-10 cursor-pointer hover:brightness-95 transition-all text-xs overflow-hidden" style={{ top: `${top}px`, backgroundColor: `${APPOINTMENT_TYPE_COLORS[a.type]}20`, borderColor: APPOINTMENT_TYPE_COLORS[a.type] }}>
+                      <div className="font-bold truncate" style={{ color: APPOINTMENT_TYPE_COLORS[a.type] }}>{a.title}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDayView = () => {
+    const dayAppts = appointments.filter(a => sameDay(new Date(a.date), currentDate));
+    return (
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col h-full">
+        <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
+          <div>
+            <h3 className="text-base font-bold">{currentDate.toLocaleDateString('en-US', { weekday: 'long' })}</h3>
+            <p className="text-xs text-muted-foreground">{currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto no-scrollbar p-6">
+          <div className="space-y-6">
+            {dayAppts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <CalendarIcon className="w-12 h-12 mb-4 opacity-20" />
+                <p>No appointments scheduled for today</p>
+              </div>
+            ) : (
+              dayAppts.map(appt => (
+                <div key={appt.id} onClick={() => openEdit(appt)} className="flex gap-6 items-start group cursor-pointer">
+                  <div className="w-20 pt-1 text-sm font-medium text-muted-foreground shrink-0">{appt.startTime}</div>
+                  <div className="flex-1 p-5 rounded-xl border border-border hover:border-primary/50 hover:shadow-md transition-all bg-accent/5" style={{ borderLeft: `4px solid ${APPOINTMENT_TYPE_COLORS[appt.type]}` }}>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="text-base font-bold text-foreground">{appt.title}</h4>
+                        <div className="flex items-center gap-4 mt-2">
+                           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                             <User className="w-3.5 h-3.5" /> {appt.contactName}
+                           </div>
+                           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                             <Clock className="w-3.5 h-3.5" /> {appt.endTime ? `${appt.startTime} - ${appt.endTime}` : appt.startTime}
+                           </div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase" style={{ backgroundColor: `${APPOINTMENT_STATUS_COLORS[appt.status]}20`, color: APPOINTMENT_STATUS_COLORS[appt.status] }}>
+                        {appt.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderListView = () => (
+    <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
+      <div className="overflow-y-auto no-scrollbar">
+        <table className="w-full text-left">
+          <thead className="sticky top-0 z-10 bg-muted/20 border-b border-border">
+            <tr className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <th className="px-6 py-4">Title</th>
+              <th className="px-6 py-4">Contact</th>
+              <th className="px-6 py-4">Date & Time</th>
+              <th className="px-6 py-4">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {appointments.map(appt => (
+              <tr key={appt.id} onClick={() => openEdit(appt)} className="hover:bg-accent/5 transition-colors cursor-pointer group">
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: APPOINTMENT_TYPE_COLORS[appt.type] }} />
+                    <span className="text-sm font-medium text-foreground">{appt.title}</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold">
+                      {(appt.contactName || "?")[0]}
+                    </div>
+                    <span className="text-sm truncate">{appt.contactName}</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                   <div className="text-sm text-foreground">{new Date(appt.date).toLocaleDateString()}</div>
+                   <div className="text-[10px] text-muted-foreground">{appt.startTime}</div>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="px-2 py-1 rounded-full text-[10px] font-bold uppercase" style={{ backgroundColor: `${APPOINTMENT_STATUS_COLORS[appt.status]}20`, color: APPOINTMENT_STATUS_COLORS[appt.status] }}>{appt.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const upcomingAppts = useMemo(() => {
+    return appointments
+      .filter(a => new Date(a.date) >= new Date().setHours(0,0,0,0))
+      .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 5);
+  }, [appointments]);
+
+  if (loading) return (
+    <div className="h-full flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  const shouldShowContactSearch = modalOpen && !modalEditing && !selectedContact && !creatingNew;
+  const shouldShowCreateForm = modalOpen && !modalEditing && creatingNew && !selectedContact;
+  const shouldShowAppointmentModal = modalOpen && (!!modalEditing || !!selectedContact || (creatingNew && !!newFirstName && !!newLastName));
+
+  return (
+    <div className="p-4 space-y-4 max-w-[1600px] mx-auto h-[calc(100vh-var(--topbar-height)-1rem)] flex flex-col overflow-hidden animate-in fade-in duration-500">
+      {/* Consolidated Header */}
+      <div className="relative flex items-center justify-between bg-card p-3 rounded-xl border border-border shadow-sm shrink-0 min-h-[64px]">
+        <div className="flex items-center bg-muted/50 p-1 rounded-lg border border-border backdrop-blur-sm z-10">
+          {views.map(v => (
+            <button key={v.name} onClick={() => setCurrentView(v.name)} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${currentView === v.name ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground hover:bg-accent/50"}`}>
+              <v.icon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{v.name}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center pointer-events-auto">
+            <h1 className="text-lg font-extrabold tracking-tight text-foreground flex items-center gap-2">
+              <div className="p-1 rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                <CalendarIcon className="w-4 h-4" />
+              </div>
+              Calendar
+            </h1>
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mt-0.5">
+              {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 z-10">
+          {googleConnected && (
+            <button onClick={handleSyncNow} disabled={syncing} title="Sync Google Calendar" className="p-2 rounded-lg bg-accent/50 border border-border text-muted-foreground hover:text-foreground transition-all disabled:opacity-50">
+              <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
+            </button>
+          )}
+          <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg border border-border">
+            <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-1.5 rounded-md hover:bg-accent transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+            <button onClick={() => setCurrentDate(new Date())} className="px-2 py-0.5 text-[9px] font-bold bg-accent rounded hover:bg-accent/80 transition-colors uppercase">Today</button>
+            <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-1.5 rounded-md hover:bg-accent transition-colors"><ChevronRight className="w-4 h-4"/></button>
+          </div>
+          <button onClick={() => openSchedule()} className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+            <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
           </button>
         </div>
       </div>
 
-      {/* Views */}
-      {view === "month" && (
-        <div className="flex bg-card rounded-lg border border-border overflow-hidden" style={{ height: "calc(100vh - 180px)" }}>
-          <div className="flex-1 flex flex-col p-4 min-h-0">
-            <MonthView
-              currentMonth={currentMonth}
-              onPrevMonth={prevMonth}
-              onNextMonth={nextMonth}
-              onToday={goToday}
-              appointments={safeAppointments}
-              selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
-              onDayClick={() => {}}
-              onEditAppointment={openEdit}
-              onDeleteAppointment={handleDeleteAppointment}
-              onStatusChange={handleStatusChange}
-              onOpenContact={handleOpenContact}
-            />
+      <div className="flex-1 flex flex-row gap-4 min-h-0 overflow-hidden">
+        <div className="flex-1 relative min-h-0">
+          {currentView === "Month" && renderMonthView()}
+          {currentView === "Week" && renderWeekView()}
+          {currentView === "Day" && renderDayView()}
+          {currentView === "List" && renderListView()}
+        </div>
+
+        <div className="w-80 hidden xl:flex flex-col bg-card border border-border rounded-xl shadow-sm overflow-hidden min-h-0">
+          <div className="p-4 border-b border-border bg-muted/10 shrink-0">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2 uppercase tracking-tight">
+              <Rows3 className="w-4 h-4 text-primary" />
+              Calendar Cards
+            </h3>
           </div>
-          {/* FIX 3 — Custom agenda panel with Call/Text/Email action buttons */}
-          <div className="w-[340px] shrink-0 bg-card border-l border-border flex flex-col h-full">
-            <div className="p-4 border-b border-border">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-foreground">{dateLabel}</h3>
-                  {isToday && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white" style={{ backgroundColor: "#3B82F6" }}>Today</span>}
-                </div>
-                <button onClick={() => openSchedule(selectedDate)} className="w-6 h-6 rounded-md flex items-center justify-center hover:bg-accent text-muted-foreground hover:text-foreground transition-colors duration-150">
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {dayAppointments.length > 0 ? `${dayAppointments.length} appointment${dayAppointments.length !== 1 ? "s" : ""}` : "No appointments"}
-              </p>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {dayAppointments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <CalIcon className="w-8 h-8 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">No appointments</p>
-                  <p className="text-xs text-muted-foreground mt-1">Click + to schedule one</p>
-                </div>
-              ) : (
-                dayAppointments.map(a => {
-                  const typeColor = APPOINTMENT_TYPE_COLORS[a.type];
-                  const statusColor = APPOINTMENT_STATUS_COLORS[a.status];
-                  const meta = appointmentMetaById[a.id];
-                  const isGoogleEvent = meta?.syncSource === "external" && meta?.externalProvider === "google";
-                  return (
-                    <div key={a.id} className="relative bg-accent/50 rounded-lg p-3 group" style={{ borderLeft: `3px solid ${typeColor}` }}>
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-muted-foreground">{a.startTime} – {a.endTime}</div>
-                        {isGoogleEvent && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
-                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                            Google
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-base font-bold text-foreground mt-0.5">{a.title}</div>
-                      {/* Action buttons — hidden for Google events */}
-                      {!isGoogleEvent && (
-                        <div className="flex gap-2 mt-2">
-                          <button
-                            onClick={() => toast({ title: "Opening dialer..." })}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 sidebar-transition"
-                          >
-                            <Phone className="w-3 h-3" /> Call
-                          </button>
-                          <button
-                            onClick={() => toast({ title: "Opening SMS..." })}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-success/10 text-success text-xs font-medium hover:bg-success/20 sidebar-transition"
-                          >
-                            <MessageSquare className="w-3 h-3" /> Text
-                          </button>
-                          <button
-                            onClick={() => toast({ title: "Opening email..." })}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-info/10 text-info text-xs font-medium hover:bg-info/20 sidebar-transition"
-                          >
-                            <Mail className="w-3 h-3" /> Email
-                          </button>
-                        </div>
-                      )}
-                      {a.contactName && (
-                        <div className="flex items-center gap-1 mt-1.5 text-sm">
-                          <User className="w-3.5 h-3.5 text-muted-foreground" />
-                          {a.contactId ? (
-                            <button onClick={() => handleOpenContact(a.contactId)} className="hover:underline transition-colors duration-150" style={{ color: "#14B8A6" }}>{a.contactName}</button>
-                          ) : (
-                            <span className="text-foreground">{a.contactName}</span>
-                          )}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: typeColor + "33", color: typeColor }}>{a.type}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: statusColor + "33", color: statusColor }}>{a.status}</span>
-                      </div>
-                      {!isGoogleEvent && (
-                        <button onClick={() => openEdit(a)} className="absolute top-2 right-2 w-5 h-5 rounded flex items-center justify-center bg-accent text-muted-foreground hover:text-foreground transition-colors duration-150 opacity-0 group-hover:opacity-100">
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                      )}
+          <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
+            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Next 5 Events</div>
+            {upcomingAppts.length === 0 ? (
+               <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+                  <Clock className="w-8 h-8 text-muted-foreground mb-2 opacity-20" />
+                  <p className="text-xs text-muted-foreground">No upcoming meetings</p>
+               </div>
+            ) : (
+              upcomingAppts.map(appt => (
+                <div key={appt.id} onClick={() => openEdit(appt)} className="group relative bg-accent/10 border border-border rounded-xl p-3 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase" style={{ backgroundColor: `${APPOINTMENT_TYPE_COLORS[appt.type]}20`, color: APPOINTMENT_TYPE_COLORS[appt.type] }}>
+                      {appt.type}
+                    </span>
+                    <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                      <button className="p-1 rounded bg-background border border-border text-muted-foreground hover:text-primary"><Phone className="w-3 h-3"/></button>
+                      <button className="p-1 rounded bg-background border border-border text-muted-foreground hover:text-success"><MessageSquare className="w-3 h-3"/></button>
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                  <h4 className="text-sm font-bold text-foreground mb-1 group-hover:text-primary transition-colors">{appt.title}</h4>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      <span>{new Date(appt.date).toLocaleDateString()} at {appt.startTime}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <User className="w-3 h-3" />
+                      <span className="font-medium text-foreground">{appt.contactName}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+            
+            <div className="pt-4 px-1">
+              <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Daily Performance</div>
+              <div className="bg-primary/5 rounded-xl border border-primary/10 p-4 space-y-3">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-muted-foreground font-medium">Appointments Today</span>
+                  <span className="font-bold text-primary">{appointments.filter(a => sameDay(new Date(a.date), new Date())).length}</span>
+                </div>
+                <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary w-[60%] rounded-full shadow-[0_0_8px_rgba(59,130,246,0.3)]" />
+                </div>
+                <p className="text-[9px] text-muted-foreground leading-relaxed">Keep it up! Reach out to your next contact 10 mins early.</p>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {view === "week" && (
-        <div className="bg-card rounded-lg border border-border overflow-hidden p-4" style={{ height: "calc(100vh - 180px)" }}>
-          <WeekView
-            appointments={safeAppointments}
-            onEditAppointment={openEdit}
-            onDeleteAppointment={handleDeleteAppointment}
-            onStatusChange={handleStatusChange}
-            onOpenContact={handleOpenContact}
-            onScheduleAt={(date, time) => openSchedule(date, time)}
-          />
-        </div>
-      )}
-
-      {view === "day" && (
-        <div className="bg-card rounded-lg border border-border overflow-hidden p-4" style={{ height: "calc(100vh - 180px)" }}>
-          <DayView
-            appointments={safeAppointments}
-            onEditAppointment={openEdit}
-            onDeleteAppointment={handleDeleteAppointment}
-            onStatusChange={handleStatusChange}
-            onOpenContact={handleOpenContact}
-            onScheduleAt={(date, time) => openSchedule(date, time)}
-          />
-        </div>
-      )}
-
-      {view === "list" && (
-        <ListView
-          appointments={safeAppointments}
-          onEdit={openEdit}
-          onDelete={handleDeleteAppointment}
-          onStatusChange={handleStatusChange}
-          onOpenContact={handleOpenContact}
-          onSchedule={() => openSchedule()}
-        />
-      )}
-
-      {/* FIX 1 & 2 — Contact Search Step for New Appointments */}
+      {/* --- Modals & Flows --- */}
       {(shouldShowContactSearch || shouldShowCreateForm) && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => { setModalOpen(false); resetContactState(); }} />
-          <div className="relative w-full max-w-[480px] bg-card border border-border rounded-lg shadow-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-5 border-b border-border">
-              <h2 className="text-lg font-semibold text-foreground">
-                {creatingNew ? "Create New Contact" : "Select Contact"}
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                {creatingNew ? "Enter the new contact's name" : "Search for an existing contact or create a new one"}
-              </p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setModalOpen(false); }} />
+          <div className="relative w-full max-w-[480px] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+             <div className="p-5 border-b border-border bg-muted/5">
+              <h2 className="text-lg font-bold text-foreground">{creatingNew ? "Create New Contact" : "Select Contact"}</h2>
+              <p className="text-xs text-muted-foreground mt-1">{creatingNew ? "Enter the new contact's name" : "Search for an existing contact or create a new one"}</p>
             </div>
             <div className="p-5 space-y-4">
               {!creatingNew ? (
                 <>
                   <div className="relative">
-                    <label className="text-sm font-medium text-foreground block mb-1">Search Contact</label>
-                    <input
-                      value={contactSearch}
-                      onChange={e => searchContacts(e.target.value)}
-                      placeholder="Type a name to search leads..."
-                      className="w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150"
-                      autoFocus
-                    />
-                    {searchLoading && <p className="text-xs text-muted-foreground mt-1">Searching...</p>}
-                    {/* Search results dropdown */}
+                    <label className="text-xs font-bold text-muted-foreground uppercase mb-1.5 block">Search Lead</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <input value={contactSearch} onChange={e => searchContacts(e.target.value)} placeholder="Type name..." className="w-full h-11 pl-10 pr-4 rounded-xl bg-accent text-sm text-foreground border border-border focus:ring-2 focus:ring-primary focus:outline-none transition-all" autoFocus />
+                    </div>
+                    {searchLoading && <p className="text-[10px] text-muted-foreground mt-2">Searching database...</p>}
                     {contactResults.length > 0 && (
-                      <div className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      <div className="absolute z-50 left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-xl max-h-48 overflow-y-auto">
                         {contactResults.map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedContact(c);
-                              setContactResults([]);
-                              setContactSearch("");
-                            }}
-                            className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors duration-150 flex items-center justify-between"
-                          >
-                            <span>{c.name}</span>
+                          <button key={c.id} onClick={() => { setSelectedContact(c); setContactResults([]); setContactSearch(""); }} className="w-full text-left px-4 py-3 text-sm text-foreground hover:bg-accent flex items-center justify-between border-b border-border/50 last:border-0">
+                            <span className="font-medium">{c.name}</span>
                             <span className="text-xs text-muted-foreground">{c.phone}</span>
                           </button>
                         ))}
                       </div>
                     )}
-                    {contactSearch.length >= 2 && !searchLoading && contactResults.length === 0 && (
-                      <p className="text-xs text-muted-foreground mt-1">No matching contacts found</p>
-                    )}
                   </div>
-                  {/* Create New Contact option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCreatingNew(true);
-                      const parts = contactSearch.trim().split(/\s+/);
-                      setNewFirstName(parts[0] || "");
-                      setNewLastName(parts.slice(1).join(" ") || "");
-                      setContactResults([]);
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-md text-sm font-medium flex items-center gap-2 transition-colors duration-150 border border-dashed border-border hover:bg-accent/50"
-                  >
-                    <Plus className="w-4 h-4" style={{ color: "#3B82F6" }} />
-                    <span style={{ color: "#3B82F6" }}>Create New Contact</span>
+                  <button onClick={() => { setCreatingNew(true); const parts = contactSearch.trim().split(/\s+/); setNewFirstName(parts[0] || ""); setNewLastName(parts.slice(1).join(" ") || ""); }} className="w-full py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border-2 border-dashed border-primary/30 text-primary hover:bg-primary/5 transition-all">
+                    <Plus className="w-4 h-4" /> CREATE NEW CONTACT
                   </button>
                 </>
               ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
-                      <input
-                        value={newFirstName}
-                        onChange={e => setNewFirstName(e.target.value)}
-                        className="w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150"
-                        placeholder="First name"
-                        autoFocus
-                      />
+                <div className="space-y-4">
+                   <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground uppercase">First Name</label>
+                      <input value={newFirstName} onChange={e => setNewFirstName(e.target.value)} className="w-full h-11 px-4 rounded-xl bg-accent text-sm border border-border focus:ring-2 focus:ring-primary focus:outline-none" placeholder="First name" autoFocus />
                     </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
-                      <input
-                        value={newLastName}
-                        onChange={e => setNewLastName(e.target.value)}
-                        className="w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150"
-                        placeholder="Last name"
-                      />
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground uppercase">Last Name</label>
+                      <input value={newLastName} onChange={e => setNewLastName(e.target.value)} className="w-full h-11 px-4 rounded-xl bg-accent text-sm border border-border focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Last name" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      disabled={!newFirstName.trim() || !newLastName.trim()}
-                      onClick={() => {
-                        // Proceed to appointment form — contact will be created on final save
-                      }}
-                      className="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-                      style={{ backgroundColor: "#3B82F6" }}
-                    >
-                      Continue to Appointment
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setCreatingNew(false); setNewFirstName(""); setNewLastName(""); }}
-                      className="px-3 py-2 rounded-md text-sm font-medium text-muted-foreground border border-border hover:bg-accent transition-colors duration-150"
-                    >
-                      Back to Search
-                    </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCreatingNew(false)} className="flex-1 py-3 rounded-xl text-xs font-bold text-muted-foreground hover:bg-accent transition-all uppercase tracking-wider underline">Go back</button>
                   </div>
-                </>
+                </div>
               )}
             </div>
-            <div className="flex items-center justify-end p-5 border-t border-border">
-              <button
-                onClick={() => { setModalOpen(false); resetContactState(); }}
-                className="px-4 py-2 rounded-md text-sm font-medium text-muted-foreground border border-border hover:bg-accent transition-colors duration-150"
-              >
-                Cancel
-              </button>
+            <div className="flex items-center justify-end p-5 border-t border-border bg-muted/5 gap-3">
+              <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-xs font-bold text-muted-foreground uppercase">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Schedule/Edit Modal — opens after contact selected or when editing */}
       <AppointmentModal
         open={shouldShowAppointmentModal}
-        onClose={() => { setModalOpen(false); resetContactState(); }}
+        onClose={() => { setModalOpen(false); setSelectedContact(null); setCreatingNew(false); }}
         onSave={handleSave}
         onDelete={modalEditing ? handleDeleteAppointment : undefined}
         editing={modalEditing}
@@ -774,7 +700,6 @@ const CalendarPage: React.FC = () => {
         prefillContactId={selectedContact?.id}
       />
 
-      {/* Contact Modal */}
       {contactModalLead && (
         <ContactModal
           lead={contactModalLead}
