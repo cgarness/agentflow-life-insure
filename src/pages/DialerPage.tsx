@@ -972,71 +972,69 @@ export default function DialerPage() {
             </div>
 
             {/* FIX 1 + FIX 2: Composer — shrink-0, pinned to bottom */}
-            <div className="shrink-0 border-t border-border px-4 py-3">
-              {/* Tab switcher */}
-              <div className="flex gap-2">
-                {(["sms", "email"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => handleSmsTabChange(tab)}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
-                      smsTab === tab
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-accent text-muted-foreground"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
+            <div className="shrink-0 border-t border-border flex flex-col pt-3">
+              <div className="px-4">
+                {/* Tab switcher */}
+                <div className="flex gap-2 mb-2">
+                  {(["sms", "email"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => handleSmsTabChange(tab)}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
+                        smsTab === tab
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-accent text-muted-foreground"
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
 
-              {/* FIX 2: Email mode — subject + textarea + full-width send button */}
-              {smsTab === "email" ? (
-                <div className="flex flex-col gap-2 mt-2">
-                  <input
-                    value={subjectText}
-                    onChange={(e) => setSubjectText(e.target.value)}
-                    placeholder="Subject"
-                    className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
-                  />
-                  <div className="flex gap-2">
+                {/* Tab Fields */}
+                {smsTab === "email" ? (
+                  <div className="flex flex-col gap-2">
+                    <input
+                      value={subjectText}
+                      onChange={(e) => setSubjectText(e.target.value)}
+                      placeholder="Subject"
+                      className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
+                    />
                     <textarea
                       value={messageText}
                       onChange={(e) => setMessageText(e.target.value)}
                       placeholder="Type EMAIL message…"
-                      className="flex-1 bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20"
+                      className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20"
                     />
-                    <button
-                      onClick={handleSendMessage}
-                      className="bg-primary text-primary-foreground rounded-lg px-4 flex items-center justify-center shrink-0 h-20"
-                    >
-                      <Send className="w-5 h-5" />
-                    </button>
                   </div>
-                </div>
-              ) : (
-                /* SMS mode — single-line input + Send button side by side */
-                <div className="flex gap-2 mt-2">
-                  <input
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Type SMS message…"
-                    className="flex-1 bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+                ) : (
+                  <div className="text-foreground">
+                    <input
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      placeholder="Type SMS message…"
+                      className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
+                    />
+                  </div>
+                )}
+              </div>
 
-              {/* Templates button — below send in both modes */}
-              <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 w-fit mt-2">
-                <FileText className="w-4 h-4" />
-                Templates
-              </button>
+              {/* Action Buttons Row: Templates + Send */}
+              <div className="flex items-center gap-2 px-4 py-3">
+                <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 hover:bg-accent/80 transition-colors">
+                  <FileText className="w-4 h-4" />
+                  Templates
+                </button>
+                
+                <button
+                  onClick={handleSendMessage}
+                  className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-primary/90 transition-colors"
+                  title={smsTab === "email" ? "Send Email" : "Send SMS"}
+                >
+                  <span>Send</span>
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
