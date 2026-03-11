@@ -1174,7 +1174,7 @@ export default function DialerPage() {
 
       {/* FIX 8: Full View — Sync with Contacts page ContactModal */}
       <ContactModal
-        lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}
+        lead={showFullViewDrawer && currentLead ? mapDialerLeadToContactLead(currentLead) : null}
         onClose={() => setShowFullViewDrawer(false)}
         onUpdate={async (id, data) => {
           try {
