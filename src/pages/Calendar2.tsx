@@ -1,0 +1,339 @@
+import React, { useState } from "react";
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Plus, 
+  Search, 
+  Calendar as CalendarIcon, 
+  Clock, 
+  User, 
+  MoreHorizontal,
+  Mail,
+  Phone,
+  MessageSquare,
+  LayoutGrid,
+  Rows3,
+  Columns3,
+  List as ListIcon
+} from "lucide-react";
+
+type ViewType = "Month" | "Week" | "Day" | "List";
+
+interface Appointment {
+  id: string;
+  title: string;
+  time: string;
+  duration: string;
+  contact: string;
+  type: string;
+  status: "Scheduled" | "Confirmed" | "Completed";
+  color: string;
+}
+
+const mockAppointments: Appointment[] = [
+  {
+    id: "1",
+    title: "Sales Call: John Smith",
+    time: "10:00 AM",
+    duration: "45 min",
+    contact: "John Smith",
+    type: "Sales Call",
+    status: "Confirmed",
+    color: "#3B82F6"
+  },
+  {
+    id: "2",
+    title: "Follow Up: Sarah Connor",
+    time: "2:00 PM",
+    duration: "30 min",
+    contact: "Sarah Connor",
+    type: "Follow Up",
+    status: "Scheduled",
+    color: "#10B981"
+  }
+];
+
+const Calendar2: React.FC = () => {
+  const [currentView, setCurrentView] = useState<ViewType>("Month");
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const views: { name: ViewType; icon: any }[] = [
+    { name: "Month", icon: LayoutGrid },
+    { name: "Week", icon: Columns3 },
+    { name: "Day", icon: Rows3 },
+    { name: "List", icon: ListIcon },
+  ];
+
+  const getDaysInMonth = (year: number, month: number) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (year: number, month: number) => {
+    return new Date(year, month, 1).getDay();
+  };
+
+  const renderMonthView = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
+    
+    // Calculate days to show to ensure exactly 5 rows (35 days)
+    const prevMonthDays = getDaysInMonth(year, month - 1);
+    const days: { day: number; currentMonth: boolean }[] = [];
+
+    // Add days from previous month
+    for (let i = firstDay - 1; i >= 0; i--) {
+      days.push({ day: prevMonthDays - i, currentMonth: false });
+    }
+
+    // Add days from current month
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({ day: i, currentMonth: true });
+    }
+
+    // Fill remaining days from next month to reach 35 (5 rows * 7 days)
+    let nextMonthDay = 1;
+    while (days.length < 35) {
+      days.push({ day: nextMonthDay++, currentMonth: false });
+    }
+
+    // If it exceeds 35 (e.g. 6 rows needed naturally), we still force 5 rows by truncating/clamping
+    // but usually, a 5-row design is a specific aesthetic choice that might sacrifice some days or overlap.
+    // To strictly have 5 rows, we just take the first 35.
+    const displayDays = days.slice(0, 35);
+
+    return (
+      <div className="grid grid-cols-7 gap-px bg-border/50 border border-border rounded-xl overflow-hidden shadow-sm">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          <div key={day} className="bg-muted/30 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            {day}
+          </div>
+        ))}
+        {displayDays.map((dateObj, i) => (
+          <div 
+            key={i} 
+            className={`min-h-[100px] lg:min-h-[120px] bg-card p-2 border-t border-border transition-colors hover:bg-accent/5 cursor-pointer relative ${!dateObj.currentMonth ? "opacity-40" : ""}`}
+          >
+            <span className={`text-sm font-medium ${dateObj.currentMonth && dateObj.day === new Date().getDate() && month === new Date().getMonth() ? "bg-primary text-primary-foreground w-7 h-7 flex items-center justify-center rounded-full" : "text-foreground"}`}>
+              {dateObj.day}
+            </span>
+            {dateObj.currentMonth && dateObj.day === 12 && (
+              <div className="mt-2 space-y-1">
+                <div className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 border border-blue-200 truncate font-medium">
+                  10:00 Sales Call
+                </div>
+              </div>
+            )}
+            {dateObj.currentMonth && dateObj.day === 12 && (
+              <div className="mt-1">
+                <div className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-200 truncate font-medium">
+                  14:00 Follow Up
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderWeekView = () => (
+    <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col h-[600px]">
+      <div className="grid grid-cols-8 gap-px bg-border/50 border-b border-border">
+        <div className="bg-muted/10 p-4"></div>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, i) => (
+          <div key={day} className="bg-muted/10 p-4 text-center">
+            <div className="text-xs font-semibold text-muted-foreground uppercase">{day}</div>
+            <div className="text-lg font-bold">{(10 + i)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto no-scrollbar">
+        <div className="grid grid-cols-8 gap-px bg-border/20 h-[1000px]">
+          <div className="col-span-1">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="h-20 border-b border-border text-[10px] text-muted-foreground p-2 text-right">
+                {i + 8}:00 AM
+              </div>
+            ))}
+          </div>
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="relative group">
+               {Array.from({ length: 12 }).map((_, j) => (
+                <div key={j} className="h-20 border-b border-border group-hover:bg-accent/5 transition-colors"></div>
+              ))}
+              {i === 2 && (
+                <div className="absolute top-[160px] left-1 right-1 p-2 rounded-lg bg-primary/10 border-l-4 border-primary shadow-sm z-10">
+                  <div className="text-xs font-bold text-primary">Sales Call</div>
+                  <div className="text-[10px] text-primary/80">10:00 AM - 10:45 AM</div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDayView = () => (
+    <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col h-[600px]">
+      <div className="p-6 border-b border-border flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold">Wednesday</h3>
+          <p className="text-sm text-muted-foreground">March 12, 2026</p>
+        </div>
+        <div className="flex gap-2">
+           <button className="p-2 rounded-full hover:bg-accent text-muted-foreground"><Search className="w-5 h-5"/></button>
+           <button className="p-2 rounded-full hover:bg-accent text-muted-foreground"><MoreHorizontal className="w-5 h-5"/></button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto no-scrollbar p-6">
+        <div className="space-y-6">
+          {mockAppointments.map(appt => (
+            <div key={appt.id} className="flex gap-6 items-start group">
+              <div className="w-20 pt-1 text-sm font-medium text-muted-foreground">{appt.time}</div>
+              <div className="flex-1 p-4 rounded-xl border border-border hover:border-primary/50 hover:shadow-md transition-all cursor-pointer bg-accent/5">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-bold text-foreground">{appt.title}</h4>
+                    <div className="flex items-center gap-4 mt-2">
+                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                         <User className="w-3.5 h-3.5" /> {appt.contact}
+                       </div>
+                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                         <Clock className="w-3.5 h-3.5" /> {appt.duration}
+                       </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button className="p-1.5 rounded-lg bg-background border border-border hover:text-primary"><Phone className="w-4 h-4"/></button>
+                    <button className="p-1.5 rounded-lg bg-background border border-border hover:text-success"><MessageSquare className="w-4 h-4"/></button>
+                    <button className="p-1.5 rounded-lg bg-background border border-border hover:text-info"><Mail className="w-4 h-4"/></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderListView = () => (
+    <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="bg-muted/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <th className="px-6 py-4">Title</th>
+            <th className="px-6 py-4">Contact</th>
+            <th className="px-6 py-4">Time</th>
+            <th className="px-6 py-4">Status</th>
+            <th className="px-6 py-4 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {mockAppointments.map(appt => (
+            <tr key={appt.id} className="hover:bg-accent/5 transition-colors cursor-pointer group">
+              <td className="px-6 py-4 font-medium text-foreground">{appt.title}</td>
+              <td className="px-6 py-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">
+                    {appt.contact.charAt(0)}
+                  </div>
+                  <span className="text-sm">{appt.contact}</span>
+                </div>
+              </td>
+              <td className="px-6 py-4 text-sm text-muted-foreground">{appt.time}</td>
+              <td className="px-6 py-4">
+                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                  appt.status === "Confirmed" ? "bg-emerald-500/10 text-emerald-600" : "bg-blue-500/10 text-blue-600"
+                }`}>
+                  {appt.status}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-right">
+                <button className="p-2 rounded-lg hover:bg-background border border-transparent hover:border-border transition-all">
+                  <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="p-4 lg:p-8 space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+              <CalendarIcon className="w-6 h-6" />
+            </div>
+            Calendar 2
+          </h1>
+          <p className="text-muted-foreground font-medium">Manage your schedule and appointments</p>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center bg-muted/50 p-1 rounded-xl border border-border backdrop-blur-sm">
+            {views.map(v => (
+              <button
+                key={v.name}
+                onClick={() => setCurrentView(v.name)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                  currentView === v.name 
+                  ? "bg-card text-foreground shadow-sm ring-1 ring-border" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                }`}
+              >
+                <v.icon className="w-4 h-4" />
+                {v.name}
+              </button>
+            ))}
+          </div>
+
+          <button className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+            <Plus className="w-4 h-4" /> Schedule
+          </button>
+        </div>
+      </div>
+
+      {/* Main Calendar Content */}
+      <div className="space-y-6">
+        {/* Navigation Bar */}
+        <div className="flex items-center justify-between bg-card p-4 rounded-2xl border border-border shadow-sm">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold">
+              {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </h2>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-2 rounded-lg hover:bg-accent transition-colors"><ChevronLeft className="w-5 h-5"/></button>
+              <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1 text-xs font-bold bg-accent rounded-md hover:bg-accent/80 transition-colors">Today</button>
+              <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-2 rounded-lg hover:bg-accent transition-colors"><ChevronRight className="w-5 h-5"/></button>
+            </div>
+          </div>
+          <div className="hidden md:flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/30 border border-border">
+              <Search className="w-4 h-4 text-muted-foreground" />
+              <input type="text" placeholder="Search events..." className="bg-transparent border-none text-sm focus:ring-0 w-32 lg:w-48" />
+            </div>
+          </div>
+        </div>
+
+        {/* View Layouts */}
+        <div className="relative">
+          {currentView === "Month" && renderMonthView()}
+          {currentView === "Week" && renderWeekView()}
+          {currentView === "Day" && renderDayView()}
+          {currentView === "List" && renderListView()}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Calendar2;

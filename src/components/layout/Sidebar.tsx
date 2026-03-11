@@ -19,6 +19,8 @@ const menuItems = [
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: MessageSquare, label: "Conversations", path: "/conversations" },
   { icon: Calendar, label: "Calendar", path: "/calendar" },
+  { icon: Calendar, label: "Calendar 2", path: "/calendar-2" },
+
   { icon: Megaphone, label: "Campaigns", path: "/campaigns" },
   { icon: Trophy, label: "Leaderboard", path: "/leaderboard" },
   { icon: BarChart3, label: "Reports", path: "/reports" },

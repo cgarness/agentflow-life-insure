@@ -16,6 +16,8 @@ import DialerPage from "./pages/DialerPage";
 import Contacts from "./pages/Contacts";
 import Conversations from "./pages/Conversations";
 import CalendarPage from "./pages/CalendarPage";
+import Calendar2 from "./pages/Calendar2";
+
 import Campaigns from "./pages/Campaigns";
 import CampaignDetail from "./pages/CampaignDetail";
 import Leaderboard from "./pages/Leaderboard";
@@ -88,6 +90,8 @@ const App = () => (
                           <Route path="/contacts" element={<Contacts />} />
                           <Route path="/conversations" element={<Conversations />} />
                           <Route path="/calendar" element={<CalendarPage />} />
+                          <Route path="/calendar-2" element={<Calendar2 />} />
+
                           <Route path="/campaigns" element={<Campaigns />} />
                           <Route path="/campaigns/:id" element={<CampaignDetail />} />
                           <Route path="/leaderboard" element={<Leaderboard />} />
