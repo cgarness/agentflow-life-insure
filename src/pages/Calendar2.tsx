@@ -266,66 +266,66 @@ const Calendar2: React.FC = () => {
 
   return (
     <div className="p-4 space-y-4 max-w-[1600px] mx-auto h-[calc(100vh-var(--topbar-height)-1rem)] flex flex-col overflow-hidden animate-in fade-in duration-500">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div className="space-y-0.5">
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-              <CalendarIcon className="w-5 h-5" />
-            </div>
-            Calendar 2
-          </h1>
-          <p className="text-xs text-muted-foreground font-medium">Manage your schedule and appointments</p>
+      {/* Consolidated Header & Navigation */}
+      <div className="relative flex items-center justify-between bg-card p-3 rounded-xl border border-border shadow-sm shrink-0 min-h-[64px]">
+        {/* Left: View Toggles */}
+        <div className="flex items-center bg-muted/50 p-1 rounded-lg border border-border backdrop-blur-sm z-10">
+          {views.map(v => (
+            <button
+              key={v.name}
+              onClick={() => setCurrentView(v.name)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
+                currentView === v.name 
+                ? "bg-card text-foreground shadow-sm ring-1 ring-border" 
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              }`}
+            >
+              <v.icon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{v.name}</span>
+            </button>
+          ))}
         </div>
-        
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-muted/50 p-1 rounded-lg border border-border backdrop-blur-sm">
-            {views.map(v => (
-              <button
-                key={v.name}
-                onClick={() => setCurrentView(v.name)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
-                  currentView === v.name 
-                  ? "bg-card text-foreground shadow-sm ring-1 ring-border" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                }`}
-              >
-                <v.icon className="w-3.5 h-3.5" />
-                {v.name}
-              </button>
-            ))}
+
+        {/* Center: Title & Date */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center pointer-events-auto">
+            <h1 className="text-lg font-extrabold tracking-tight text-foreground flex items-center gap-2">
+              <div className="p-1 rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                <CalendarIcon className="w-4 h-4" />
+              </div>
+              Calendar 2
+            </h1>
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </span>
+          </div>
+        </div>
+
+
+        {/* Right: Search, Nav, and Schedule */}
+        <div className="flex items-center gap-3 z-10">
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/30 border border-border">
+            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+            <input type="text" placeholder="Search events..." className="bg-transparent border-none text-xs focus:ring-0 w-32" />
+          </div>
+          
+          <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg border border-border">
+            <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-1.5 rounded-md hover:bg-accent transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+            <button onClick={() => setCurrentDate(new Date())} className="px-2 py-1 text-[10px] font-bold bg-accent rounded hover:bg-accent/80 transition-colors uppercase tracking-tight">Today</button>
+            <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-1.5 rounded-md hover:bg-accent transition-colors"><ChevronRight className="w-4 h-4"/></button>
           </div>
 
-          <button className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
-            <Plus className="w-3.5 h-3.5" /> Schedule
+          <button className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+            <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
           </button>
         </div>
       </div>
 
       {/* Main Calendar Content */}
-      <div className="space-y-4 flex-1 flex flex-col min-h-0">
-        {/* Navigation Bar */}
-        <div className="flex items-center justify-between bg-card p-3 rounded-xl border border-border shadow-sm shrink-0">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-bold">
-              {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-            </h2>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-1.5 rounded-lg hover:bg-accent transition-colors"><ChevronLeft className="w-4 h-4"/></button>
-              <button onClick={() => setCurrentDate(new Date())} className="px-2 py-0.5 text-[10px] font-bold bg-accent rounded hover:bg-accent/80 transition-colors">Today</button>
-              <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-1.5 rounded-lg hover:bg-accent transition-colors"><ChevronRight className="w-4 h-4"/></button>
-            </div>
-          </div>
-          <div className="hidden md:flex items-center gap-2">
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-accent/30 border border-border">
-              <Search className="w-3.5 h-3.5 text-muted-foreground" />
-              <input type="text" placeholder="Search events..." className="bg-transparent border-none text-xs focus:ring-0 w-32" />
-            </div>
-          </div>
-        </div>
-
+      <div className="flex-1 flex flex-col min-h-0">
         {/* View Layouts */}
         <div className="relative flex-1 min-h-0">
+
           {currentView === "Month" && (
             <div className="h-full flex flex-col">
               <div className="grid grid-cols-7 gap-px bg-border/50 border border-border rounded-xl overflow-hidden shadow-sm h-full flex-1">
