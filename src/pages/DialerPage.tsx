@@ -636,8 +636,8 @@ export default function DialerPage() {
           ← End Session
         </button>
 
-        {/* CENTER-LEFT: inline stats */}
-        <div className="flex items-center flex-1">
+        {/* CENTER: centered inline stats in subtle boxes */}
+        <div className="flex items-center justify-center flex-1 gap-2">
           {[
             { label: "Calls", value: sessionStats.calls },
             { label: "Connected", value: sessionStats.connected },
@@ -646,8 +646,11 @@ export default function DialerPage() {
             { label: "Conv Rate", value: convRate },
             { label: "Callbacks", value: sessionStats.callbacks },
           ].map((s) => (
-            <div key={s.label} className="flex flex-col items-center px-3 border-r border-border last:border-0">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</div>
+            <div 
+              key={s.label} 
+              className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px] transition-all hover:bg-accent/50"
+            >
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">{s.label}</div>
               <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
             </div>
           ))}
