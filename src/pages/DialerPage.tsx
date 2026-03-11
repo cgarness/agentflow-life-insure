@@ -469,30 +469,33 @@ export default function DialerPage() {
                 >
                   <div className="p-5 flex-1 flex flex-col" onClick={() => setSelectedCampaignId(campaign.id)}>
                     
-                    {/* Header Row */}
-                    <div className="flex items-center justify-between gap-3 mb-3">
+                    {/* Campaign Name Row */}
+                    <div className="mb-4">
+                      <h3 className="font-bold text-xl text-foreground leading-tight line-clamp-2">
+                        {campaign.name}
+                      </h3>
+                    </div>
+
+                    {/* Meta/Status Row */}
+                    <div className="flex items-center justify-between gap-3 mb-4">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         {/* Health Indicator */}
                         <div className={cn("w-2 h-2 rounded-full shrink-0", isMockActive ? "bg-success animate-pulse" : campaign.status === "Paused" ? "bg-warning" : "bg-muted-foreground")} />
                         
-                        {/* Campaign Name with Dropdown Chevron */}
-                        <div className="flex items-center gap-1 font-bold text-lg text-foreground leading-tight truncate">
-                          <span className="truncate">{campaign.name}</span>
-                          <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 cursor-pointer" />
-                        </div>
-                        
                         {/* Type Badge */}
-                        <span className="shrink-0 bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs font-medium">
+                        <span className="shrink-0 bg-primary/10 text-primary px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
                           Power Dialer
                         </span>
+                        
+                        <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
                       </div>
                       
                       {/* Action Icons */}
                       <div className="flex items-center gap-2 shrink-0">
-                        <button className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors" onClick={e => e.stopPropagation()}>
+                        <button className="p-1 text-muted-foreground hover:text-foreground transition-colors" onClick={e => e.stopPropagation()}>
                           <BarChart3 className="w-4 h-4" />
                         </button>
-                        <button className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors" onClick={e => e.stopPropagation()}>
+                        <button className="p-1 text-muted-foreground hover:text-foreground transition-colors" onClick={e => e.stopPropagation()}>
                           <Settings className="w-4 h-4" />
                         </button>
                       </div>
