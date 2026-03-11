@@ -279,6 +279,9 @@ const DialerPage: React.FC = () => {
   /* ── Mobile tab ── */
   const [mobileTab, setMobileTab] = useState<"center" | "right">("center");
 
+  /* ── Left panel tab ── */
+  const [activeTab, setActiveTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
+
   /* ── Session summary modal ── */
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<{ calls: number; connected: number; talkTime: number; duration: number } | null>(null);
@@ -1228,31 +1231,118 @@ const DialerPage: React.FC = () => {
   }
 
   /* ════════════════════════════════════════════════════
-     ACTIVE SESSION — TWO PANEL LAYOUT
+     ACTIVE SESSION — TWO COLUMN LAYOUT
      ════════════════════════════════════════════════════ */
   return (
     <div className="flex flex-col h-[calc(100vh-var(--topbar-height)-2rem)] overflow-hidden">
-      {/* ── Unified Top Bar ── */}
-      <div className="shrink-0 bg-card border border-border rounded-xl px-4 py-3 mb-3 space-y-2">
-        {/* Row 1: Action buttons + Dialer status */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {callStatus === "idle" ? (
-              <button onClick={() => handleCall()} disabled={dncChecking} className="bg-success text-success-foreground px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150 disabled:opacity-50">
-                {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />} Call
+
+      {/* ── Top Control Bar ── */}
+      <div className="shrink-0 flex justify-between items-center border-b border-border px-4 py-2 mb-3">
+        <button
+          onClick={endSession}
+          className="text-sm border border-destructive text-destructive rounded-lg px-3 py-1.5 hover:bg-destructive/10 transition-colors"
+        >
+          ← End Session
+        </button>
+        <div className="flex items-center gap-2">
+          <span className={cn("w-2 h-2 rounded-full animate-pulse", dialerReady ? "bg-success" : "bg-yellow-500")} />
+          <span className={cn("font-semibold text-sm", dialerReady ? "text-success" : "text-yellow-500")}>
+            {dialerReady ? "Dialer Ready" : "Initializing..."}
+          </span>
+        </div>
+        <span className="text-sm text-muted-foreground">{selectedCampaign?.name ?? ""}</span>
+      </div>
+
+      {/* ── Error / DNC banners ── */}
+      {dialerError && (
+        <div className="shrink-0 px-4 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-2 mb-2">
+          <AlertTriangle className="w-4 h-4 text-destructive" />
+          <span className="text-xs text-destructive flex-1">{dialerError}</span>
+          <button onClick={() => window.location.reload()} className="text-xs text-destructive underline">Retry</button>
+        </div>
+      )}
+      {dncWarning && callStatus === "idle" && (
+        <div className="shrink-0 mx-4 mb-2 bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2">
+          <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
+            <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
+            <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Call status indicator ── */}
+      {callStatus === "connecting" && (
+        <div className="shrink-0 mx-4 mb-2 flex items-center gap-2 text-primary font-medium text-xs bg-primary/10 rounded-lg p-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+        </div>
+      )}
+      {callStatus === "connected" && (
+        <div className="shrink-0 mx-4 mb-2 flex items-center justify-between text-xs bg-card border border-border rounded-lg p-2">
+          <div className="flex items-center gap-1.5 text-success font-medium">
+            <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Connected
+          </div>
+          <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
+          <div className="flex gap-1">
+            <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
+              {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            </button>
+            <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
+              <Pause className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Two Column Layout ── */}
+      <div className="flex-1 flex gap-3 min-h-0 overflow-hidden">
+
+        {/* ═══ LEFT COLUMN ═══ */}
+        <div className="w-[320px] shrink-0 flex flex-col gap-3 overflow-hidden">
+
+          {/* SharkTank banner */}
+          {isOpenPool && (
+            <div className="shrink-0 px-3 py-2 bg-orange-500/10 border border-orange-500/20 rounded-lg flex items-center gap-2">
+              <Zap className="w-4 h-4 text-orange-500" />
+              <span className="text-xs font-semibold text-orange-500">SharkTank Mode</span>
+            </div>
+          )}
+
+          {/* 1. Action Buttons Row */}
+          <div className="grid grid-cols-4 gap-2 shrink-0">
+            {callStatus === "idle" || callStatus === "ended" ? (
+              <button
+                onClick={() => handleCall()}
+                disabled={dncChecking}
+                className="bg-success text-success-foreground rounded-xl py-3 font-semibold text-sm flex flex-col items-center gap-1 hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {dncChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                <span>Call</span>
               </button>
             ) : (
-              <button onClick={handleHangUp} className="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
-                <PhoneOff className="w-4 h-4" /> End Call
+              <button
+                onClick={handleHangUp}
+                className="bg-destructive text-destructive-foreground rounded-xl py-3 font-semibold text-sm flex flex-col items-center gap-1 hover:opacity-90 transition-opacity"
+              >
+                <PhoneOff className="w-4 h-4" />
+                <span>End</span>
               </button>
             )}
-            <button onClick={handleSkipLead} disabled={callStatus !== "idle"} className="bg-muted text-muted-foreground hover:bg-muted/80 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150 disabled:opacity-40">
-              <SkipForward className="w-4 h-4" /> Skip
+            <button
+              onClick={handleSkipLead}
+              disabled={callStatus !== "idle"}
+              className="bg-accent text-foreground border border-border rounded-xl py-3 font-semibold text-sm flex flex-col items-center gap-1 hover:bg-accent/80 transition-colors disabled:opacity-40"
+            >
+              <SkipForward className="w-4 h-4" />
+              <span>Skip</span>
             </button>
             <Popover>
               <PopoverTrigger asChild>
-                <button className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
-                  <CalendarPlus className="w-4 h-4" /> Schedule
+                <button className="bg-accent text-foreground border border-border rounded-xl py-3 font-semibold text-sm flex flex-col items-center gap-1 hover:bg-accent/80 transition-colors">
+                  <CalendarPlus className="w-4 h-4" />
+                  <span>Schedule</span>
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-3" align="start">
@@ -1266,553 +1356,513 @@ const DialerPage: React.FC = () => {
                 </div>
               </PopoverContent>
             </Popover>
-            <button onClick={() => setShowFullView(true)} className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:opacity-90 hover:scale-[1.02] transition-all duration-150">
-              <Eye className="w-4 h-4" /> Full View
+            <button
+              onClick={() => setShowFullView(true)}
+              className="bg-accent text-foreground border border-border rounded-xl py-3 font-semibold text-sm flex flex-col items-center gap-1 hover:bg-accent/80 transition-colors"
+            >
+              <Eye className="w-4 h-4" />
+              <span>Full View</span>
             </button>
           </div>
-          {/* Dialer status pill */}
-          <div className="shrink-0">
-            {dialerReady ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-success/10 text-success">
-                <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Dialer Ready
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /> Initializing...
-              </span>
-            )}
-          </div>
-        </div>
-        {/* Row 2: Session stats */}
-        <div className="flex items-center gap-6 overflow-x-auto">
-          <button onClick={endSession} className="shrink-0 text-sm text-destructive hover:text-destructive/80 font-medium flex items-center gap-1">
-            <ChevronLeft className="w-4 h-4" /> End Session
-          </button>
-          {[
-            { label: "Duration", value: fmtDuration(sessionSeconds) },
-            { label: "Calls", value: session?.calls_made ?? 0 },
-            { label: "Connected", value: session?.calls_connected ?? 0 },
-            { label: "Avg Duration", value: session && session.calls_connected > 0 ? fmtTime(Math.round(session.total_talk_time / session.calls_connected)) : "0:00" },
-            { label: "Talk Time", value: fmtDuration(session?.total_talk_time ?? 0) },
-          ].map((s) => (
-            <div key={s.label} className="shrink-0 text-center">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
-              <p className="text-sm font-bold font-mono text-foreground">{s.value}</p>
-            </div>
-          ))}
-          <div className="ml-auto shrink-0">
-            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selectedCampaign?.name}</span>
-          </div>
-        </div>
-        {/* Call status indicator */}
-        {callStatus === "connecting" && (
-          <div className="flex items-center gap-2 text-primary font-medium text-xs bg-primary/10 rounded-lg p-2">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
-          </div>
-        )}
-        {callStatus === "connected" && (
-          <div className="flex items-center justify-between text-xs bg-card border border-border rounded-lg p-2">
-            <div className="flex items-center gap-1.5 text-success font-medium">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Connected
-            </div>
-            <p className="font-mono font-bold text-foreground text-sm">{fmtTime(callSeconds)}</p>
-            <div className="flex gap-1">
-              <button onClick={() => { telnyxToggleMute(); setMuted(!muted); }} className={cn("p-1.5 rounded transition-colors", telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-muted hover:bg-muted/80")}>
-                {telnyxIsMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-              </button>
-              <button onClick={() => telnyxToggleHold()} className={cn("p-1.5 rounded transition-colors", telnyxIsOnHold ? "bg-yellow-500/20 text-yellow-600" : "bg-muted hover:bg-muted/80")}>
-                <Pause className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
-      {/* ── Mobile tab switcher ── */}
-      <div className="lg:hidden shrink-0 flex bg-accent rounded-lg p-0.5 mb-3">
-        {(["center", "left"] as const).map((t) => (
-          <button key={t} onClick={() => setMobileTab(t)}
-            className={cn("flex-1 py-1.5 text-xs rounded-md text-center transition-colors capitalize",
-              mobileTab === t ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground")}>
-            {t === "center" ? "Call" : "Queue"}
-          </button>
-        ))}
-      </div>
+          {/* 2. Call Stats */}
+          <div className="grid grid-cols-3 gap-2 shrink-0">
+            {[
+              { label: "Calls", value: String(session?.calls_made ?? 0) },
+              { label: "Connected", value: String(session?.calls_connected ?? 0) },
+              { label: "Avg Duration", value: session && (session.calls_connected ?? 0) > 0 ? fmtTime(Math.round(session.total_talk_time / session.calls_connected)) : "0:00" },
+              { label: "Talk Time", value: fmtDuration(session?.total_talk_time ?? 0) },
+              { label: "Conv Rate", value: session && (session.calls_made ?? 0) > 0 ? `${Math.round(((session.calls_connected ?? 0) / session.calls_made) * 100)}%` : "0%" },
+              { label: "Callbacks", value: "0" },
+            ].map((s) => (
+              <div key={s.label} className="bg-card border border-border rounded-lg p-2 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">{s.label}</p>
+                <p className="text-base font-bold font-mono text-foreground mt-0.5">{s.value}</p>
+              </div>
+            ))}
+          </div>
 
-      {/* ── Main Workspace — Two Column Layout ── */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
-
-        {/* ═══ LEFT PANEL ═══ */}
-        <div className={cn("w-full lg:w-[320px] shrink-0 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
-          mobileTab !== "left" && "hidden lg:flex")}>
-
-          {/* Slim Contact Header */}
-          <div className="p-4 border-b border-border space-y-2 shrink-0">
-            {currentLead ? (
-              <>
-                <h2 className="text-xl font-bold text-foreground leading-tight">{currentLead.first_name} {currentLead.last_name}</h2>
-                <p className="text-lg font-semibold font-mono text-foreground">{currentLead.phone}</p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-xs font-medium">{currentLead.state}</span>
-                  <span className="text-[#00ff88] text-xs font-bold" style={{ textShadow: "0 0 6px rgba(0,255,136,0.4)" }}>{getContactLocalTime(currentLead.state)}</span>
-                  {currentLead.age && <span className="bg-accent text-accent-foreground px-2 py-0.5 rounded text-xs font-medium">{currentLead.age} yrs</span>}
-                </div>
-                {/* From number dropdown */}
-                <div className="pt-1">
-                  {telnyxNumbersLoading ? (
-                    <Skeleton className="h-8 w-full rounded-lg" />
-                  ) : (
-                    <select
-                      value={selectedTelnyxNumberId ?? ""}
-                      onChange={(e) => setSelectedTelnyxNumberId(e.target.value)}
-                      className="w-full bg-accent text-foreground rounded-lg text-sm border border-border px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      {telnyxNumbers.length === 0 ? (
-                        <option value="">+19097381193</option>
-                      ) : (
-                        telnyxNumbers.map((n) => (
-                          <option key={n.id} value={n.id}>{formatTelnyxDisplay(n)}</option>
-                        ))
-                      )}
-                    </select>
+          {/* 3. Tab Bar + 4. Tab Content */}
+          <div className="flex-1 flex flex-col border border-border rounded-lg overflow-hidden min-h-0">
+            {/* Tab Bar */}
+            <div className="flex shrink-0">
+              {(["dispositions", "queue", "scripts"] as const).map((tab, idx) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    "flex-1 py-2 text-xs font-semibold transition-colors",
+                    idx > 0 && "border-l border-border",
+                    activeTab === tab
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-accent text-muted-foreground hover:text-foreground"
                   )}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No lead selected</p>
-            )}
-          </div>
-
-          {/* SharkTank banner */}
-          {isOpenPool && (
-            <div className="px-3 py-2 bg-orange-500/10 border-b border-orange-500/20 flex items-center gap-2 shrink-0">
-              <Zap className="w-4 h-4 text-orange-500" />
-              <span className="text-xs font-semibold text-orange-500">SharkTank Mode</span>
-            </div>
-          )}
-
-          {/* Tabs: Activity / Scripts / Queue */}
-          {/* Keeping existing tab structure with the lead queue below */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-border space-y-3 shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Power Menu</span>
-                </div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button className="text-xs flex items-center gap-1.5 border border-border bg-background px-2 py-1.5 rounded-md text-foreground hover:bg-accent transition-colors">
-                      <Filter className="w-3 h-3" /> Filter & Sort <ChevronDown className="w-3 h-3" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-56 p-3 space-y-3" align="start">
-                    <h4 className="font-semibold text-sm">Queue Options</h4>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Sort By</label>
-                      <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
-                        <option>Queue Order (Default)</option>
-                        <option>Timezone (East to West)</option>
-                        <option>Lead Score (High to Low)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Filter States</label>
-                      <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
-                        <option>All States</option>
-                        <option>East Coast</option>
-                        <option>West Coast</option>
-                      </select>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+                >
+                  {tab === "dispositions" ? "Dispositions" : tab === "queue" ? "Queue" : "Scripts"}
+                </button>
+              ))}
             </div>
 
-            {/* Lead queue */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {leadsLoading ? (
-                [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
-              ) : filteredLeads.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">No leads in queue</div>
-              ) : (
-                filteredLeads.map((lead, idx) => {
-                  const isCurrent = idx === currentLeadIdx;
-                  const localTime = getContactLocalTime(lead.state);
-                  const isHovered = hoveredLeadId === lead.id;
-                  const lastCall = lead.lead_id ? leadLastCalls[lead.lead_id] : null;
-                  const lastCallDispColor = lastCall?.disposition_name ? getDispColor(lastCall.disposition_name) : null;
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto min-h-0">
 
-                  return (
-                    <div
-                      key={lead.id}
-                      className="relative"
-                      onMouseEnter={() => {
-                        hoverTimerRef.current = setTimeout(() => setHoveredLeadId(lead.id), 300);
-                      }}
-                      onMouseLeave={() => {
-                        if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-                        setHoveredLeadId(null);
-                      }}
-                    >
-                      <button
-                        onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
-                        className={cn(
-                          "w-full text-left rounded-lg p-2.5 transition-all border",
-                          isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
-                          <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1 ml-4">
-                          <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{lead.state}</span>
-                          {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
-                          {localTime && <span className="text-[10px] ml-auto shrink-0 font-bold" style={{ color: "#00ff88", textShadow: "0 0 4px rgba(0,255,136,0.3)" }}>{localTime}</span>}
-                        </div>
-                        {isCurrent && lockCountdown !== null && (
-                          <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
-                        )}
-                      </button>
-
-                      {/* ── Hover Preview Card (desktop only) ── */}
-                      <AnimatePresence>
-                        {isHovered && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.15, ease: "easeOut" }}
-                            className="hidden lg:block absolute left-full top-0 ml-2 z-50 w-[280px] bg-card border border-border rounded-lg shadow-lg p-3 space-y-2"
-                          >
-                            <div className="absolute left-0 top-4 -translate-x-full">
-                              <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-border" />
-                            </div>
-                            <div className="absolute left-0 top-4 -translate-x-[calc(100%-1px)]">
-                              <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-card" />
-                            </div>
-                            <p className="font-bold text-sm text-foreground">{lead.first_name} {lead.last_name}</p>
-                            <p className="font-mono text-xs text-foreground">
-                              {isOpenPool && !isCurrent
-                                ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
-                                : lead.phone}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{lead.email || "No email"}</p>
-                            <div className="flex items-center gap-2 text-xs">
-                              <span className="bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{lead.state}</span>
-                              {localTime && <span style={{ color: "#00ff88" }}>{localTime}</span>}
-                            </div>
-                            {lead.source && <p className="text-[10px] text-muted-foreground">Source: {lead.source}</p>}
-                            <div className="border-t border-border pt-2 space-y-1.5">
-                              {lastCall?.disposition_name ? (
-                                <div className="flex items-center gap-1.5 text-xs">
-                                  <span className="text-muted-foreground">Last:</span>
-                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: lastCallDispColor ? `${lastCallDispColor}20` : undefined, color: lastCallDispColor || undefined }}>{lastCall.disposition_name}</span>
-                                </div>
-                              ) : (
-                                <p className="text-[10px] text-muted-foreground italic">No previous calls</p>
-                              )}
-                              <p className="text-[10px] text-muted-foreground">{lead.call_attempts > 0 ? `${lead.call_attempts} previous attempt${lead.call_attempts !== 1 ? "s" : ""}` : "First attempt"}</p>
-                              <p className="text-[10px] text-muted-foreground">{lead.last_called_at ? `Last contacted ${timeAgo(lead.last_called_at)}` : "Never contacted"}</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Queue footer */}
-            <div className="p-3 border-t border-border space-y-2 shrink-0">
-              <p className="text-[10px] text-muted-foreground">
-                {callableCount} callable · {outsideCount} outside hours · {leads.length} total
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* ═══ CENTER PANEL ═══ */}
-        <div className={cn("flex-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden",
-          mobileTab !== "center" && "hidden lg:flex")}>
-
-          {/* Error banner */}
-          {dialerError && (
-            <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 flex items-center gap-2 shrink-0">
-              <AlertTriangle className="w-4 h-4 text-destructive" />
-              <span className="text-xs text-destructive flex-1">{dialerError}</span>
-              <button onClick={() => window.location.reload()} className="text-xs text-destructive underline">Retry</button>
-            </div>
-          )}
-
-          {/* DNC Warning */}
-          {dncWarning && callStatus === "idle" && (
-            <div className="mx-4 mt-3 bg-destructive/10 border border-destructive/30 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-1.5 text-destructive font-semibold text-xs">
-                <AlertTriangle className="w-4 h-4 shrink-0" /> DNC Warning
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => { setDncWarning(false); handleSkipLead(); }} className="flex-1 border border-border bg-background text-foreground rounded-md py-1.5 text-xs font-medium hover:bg-accent transition-colors">Cancel</button>
-                <button onClick={() => handleCall(true)} className="flex-1 bg-destructive text-destructive-foreground rounded-md py-1.5 text-xs font-medium hover:bg-destructive/90 transition-colors">Call Anyway</button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex-1 flex flex-col min-h-0">
-            {!currentLead && !quickDialMode ? (
-              <div className="flex flex-col items-center justify-center flex-1 text-center p-4">
-                <Phone className="w-16 h-16 text-muted-foreground mb-4" />
-                <p className="text-lg font-medium text-foreground">No leads in queue</p>
-                <p className="text-sm text-muted-foreground">All leads have been called or are outside calling hours.</p>
-              </div>
-            ) : currentLead ? (
-              <>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col">
-                {/* ── Section A: Compact Contact Details Grid ── */}
-                <div className="bg-accent/30 rounded-xl p-4 shrink-0">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                      { label: "Full Name", value: `${currentLead.first_name} ${currentLead.last_name}` },
-                      { label: "Phone", value: currentLead.phone, mono: true },
-                      { label: "Email", value: currentLead.email || "—" },
-                      { label: "State", value: currentLead.state },
-                      { label: "Age", value: currentLead.age ? `${currentLead.age} yrs` : "—" },
-                      { label: "Lead Source", value: currentLead.source || "Unknown" },
-                      { label: "Status", value: currentLead.status },
-                      { label: "Assigned", value: agentName },
-                    ].map((f) => (
-                      <div key={f.label}>
-                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-0.5">{f.label}</p>
-                        <p className={cn("text-foreground text-sm font-medium", (f as any).mono && "font-mono")}>{f.value}</p>
+              {/* ── Dispositions Tab ── */}
+              {activeTab === "dispositions" && (
+                <div className="p-3 space-y-4">
+                  {/* Section A: Current contact mini-card */}
+                  {currentLead ? (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="font-bold text-foreground text-sm">{currentLead.first_name} {currentLead.last_name}</p>
+                        <p className="font-mono text-xs text-muted-foreground">{currentLead.phone}</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-xs font-medium">{currentLead.state}</span>
+                        <span className="text-xs font-bold" style={{ color: "#00ff88" }}>{getContactLocalTime(currentLead.state)}</span>
+                        {currentLead.age && <span className="bg-accent text-foreground px-2 py-0.5 rounded text-xs">{currentLead.age} yrs</span>}
+                      </div>
+                      {telnyxNumbersLoading ? (
+                        <Skeleton className="h-8 w-full rounded-lg" />
+                      ) : (
+                        <select
+                          value={selectedTelnyxNumberId ?? ""}
+                          onChange={(e) => setSelectedTelnyxNumberId(e.target.value)}
+                          className="w-full bg-accent text-foreground rounded-lg text-xs border border-border px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                        >
+                          {telnyxNumbers.length === 0 ? (
+                            <option value="">+19097381193</option>
+                          ) : (
+                            telnyxNumbers.map((n) => (
+                              <option key={n.id} value={n.id}>{formatTelnyxDisplay(n)}</option>
+                            ))
+                          )}
+                        </select>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No lead selected</p>
+                  )}
 
-                {/* ── Dispositions Bar ── */}
-                <div className="bg-accent/20 rounded-xl p-3 flex items-center gap-3 overflow-x-auto shrink-0">
-                  <span className="text-sm font-semibold text-foreground shrink-0">Dispositions:</span>
-                  <div className="flex gap-2 flex-1 items-center">
-                    {dispositions.map((d) => (
+                  {/* Section B: Disposition grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {dispositions.map((d, idx) => (
                       <button
                         key={d.id}
-                        onClick={() => { setSelectedDispId(d.id); setDispNotes(""); setCallbackDate(undefined); }}
+                        onClick={() => { setSelectedDispId(d.id === selectedDispId ? null : d.id); setDispNotes(""); setCallbackDate(undefined); }}
                         className={cn(
-                          "px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border",
-                          selectedDispId === d.id ? "border-ring ring-1 ring-ring/30 shadow-sm font-bold opacity-100" : "border-transparent hover:brightness-95 opacity-70 hover:opacity-100"
+                          "flex items-center gap-2 px-2 py-2 rounded-lg text-xs border transition-colors",
+                          selectedDispId !== d.id && "bg-accent border-border"
                         )}
-                        style={{ backgroundColor: `${d.color}20`, color: d.color }}
+                        style={selectedDispId === d.id ? { borderColor: d.color, backgroundColor: `${d.color}22` } : undefined}
                       >
-                        {d.name}
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                        <span className="flex-1 font-medium text-foreground text-left leading-tight">{d.name}</span>
+                        <span className="text-muted-foreground ml-auto">{idx < 9 ? idx + 1 : ""}</span>
                       </button>
                     ))}
                   </div>
+
+                  {/* Notes field (shown when disposition requires it) */}
                   {selectedDisp?.require_notes && (
                     <input
                       type="text"
                       value={dispNotes}
                       onChange={(e) => setDispNotes(e.target.value)}
-                      placeholder={`Notes (${selectedDisp.min_note_chars} chars)...`}
-                      className="bg-background border border-input rounded-lg px-2 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
+                      placeholder={`Notes (${selectedDisp.min_note_chars} chars min)...`}
+                      className="w-full bg-background border border-input rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     />
                   )}
-                  <button
-                    onClick={() => handleSaveDisposition()}
-                    disabled={!selectedDispId || !notesValid}
-                    className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-4 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
-                  >
-                    Save Disp.
-                  </button>
-                </div>
 
-                {/* ── Section B: Unified Conversation Panel ── */}
-                <div className="flex-1 flex flex-col border border-border rounded-xl overflow-hidden min-h-[300px]">
-                  {/* Scrollable conversation feed */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/10">
-                    {historyLoading ? (
-                      <div className="space-y-2">
-                        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
-                      </div>
-                    ) : filteredFeed.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-center">
-                        <MessageSquare className="w-10 h-10 text-muted-foreground mb-3" />
-                        <p className="text-sm text-muted-foreground">No conversation history yet</p>
-                      </div>
-                    ) : (
-                      <>
-                        {filteredFeed.map((item) => {
-                          const expanded = expandedFeedItems.has(item.id);
+                  {/* Save Disposition button */}
+                  {selectedDispId && (
+                    <button
+                      onClick={handleSaveDisposition}
+                      disabled={!notesValid}
+                      className="w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-semibold disabled:opacity-50 hover:bg-primary/90 transition-colors"
+                    >
+                      Save Disposition
+                    </button>
+                  )}
 
-                          {/* Call entries — center-aligned pill */}
-                          if (item.type === "call") {
-                            const c = item.data as CallRecord;
-                            const connected = (c.duration ?? 0) > 0;
-                            const dispColor = getDispColor(c.disposition_name);
-                            return (
-                              <div key={item.id} className="flex justify-center">
-                                <div className="bg-muted rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                  <Phone className="w-3.5 h-3.5" />
-                                  <span>Call — {c.disposition_name || (connected ? "Connected" : "No Answer")}</span>
-                                  {connected && <span>· {fmtTime(c.duration!)}</span>}
-                                  <span>· {formatMessageTime(item.timestamp)}</span>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          {/* Note entries */}
-                          if (item.type === "note") {
-                            const n = item.data as ContactNote;
-                            return (
-                              <div key={item.id} className="flex justify-center">
-                                <div className="bg-blue-500/10 rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-blue-400">
-                                  <Pencil className="w-3 h-3" />
-                                  <span className={cn("max-w-[300px]", !expanded && "truncate")} onClick={() => toggleFeedExpand(item.id)}>{n.content}</span>
-                                  <span className="text-muted-foreground">· {formatMessageTime(item.timestamp)}</span>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          {/* Appointment entries */}
-                          if (item.type === "appointment") {
-                            const a = item.data as AppointmentRecord;
-                            return (
-                              <div key={item.id} className="flex justify-center">
-                                <div className="bg-purple-500/10 rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-purple-400">
-                                  <CalendarDays className="w-3 h-3" />
-                                  <span>{a.type} — {a.status}</span>
-                                  <span className="text-muted-foreground">· {formatMessageTime(item.timestamp)}</span>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          {/* SMS / Email message entries */}
-                          if (item.type === "sms" || item.type === "email") {
-                            const isMsg = item.id.startsWith("msg-");
-                            const direction = isMsg ? (item.data as MessageRecord).direction : ((item.data as ActivityRecord).metadata?.direction || "outbound");
-                            const body = isMsg ? (item.data as MessageRecord).body : (item.data as ActivityRecord).description;
-                            const channel = item.type === "sms" ? "SMS" : "Email";
-                            const isOutbound = direction === "outbound";
-
-                            return (
-                              <div key={item.id} className={cn("flex", isOutbound ? "justify-end" : "justify-start")}>
-                                <div className="max-w-[70%]">
-                                  <div className={cn(
-                                    "px-4 py-2.5 text-sm leading-relaxed",
-                                    isOutbound
-                                      ? "bg-primary text-primary-foreground rounded-2xl rounded-br-sm"
-                                      : "bg-accent text-foreground rounded-2xl rounded-bl-sm"
-                                  )}>
-                                    {body}
-                                  </div>
-                                  <p className={cn("text-xs text-muted-foreground mt-1", isOutbound ? "text-right" : "text-left")}>
-                                    {channel} · {formatMessageTime(item.timestamp)}
-                                  </p>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          {/* Activity entries */}
-                          if (item.type === "activity") {
-                            const a = item.data as ActivityRecord;
-                            return (
-                              <div key={item.id} className="flex justify-center">
-                                <div className="bg-muted/50 rounded-full px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                  <Activity className="w-3 h-3" />
-                                  <span>{a.description}</span>
-                                  <span>· {formatMessageTime(item.timestamp)}</span>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return null;
-                        })}
-                        <div ref={feedEndRef} />
-                      </>
-                    )}
-                  </div>
-                </div>
-                </div>
-
-                  {/* Composer */}
-                  <div className="border-t border-border p-3 bg-card shrink-0 space-y-2 mt-auto">
-                    {/* Channel toggle */}
-                    <div className="flex items-center gap-2">
-                      <div className="flex bg-muted rounded-lg p-0.5">
-                        <button onClick={() => setComposerChannel("sms")} className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors", composerChannel === "sms" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>SMS</button>
-                        <button onClick={() => setComposerChannel("email")} className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors", composerChannel === "email" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>Email</button>
-                      </div>
-                    </div>
-
-                    {/* Email subject (only for email) */}
-                    {composerChannel === "email" && (
-                      <input
-                        type="text"
-                        value={emailSubject}
-                        onChange={(e) => setEmailSubject(e.target.value)}
-                        placeholder="Subject..."
-                        className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    )}
-
-                    {/* Textarea */}
+                  {/* Section C: Quick Notes */}
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Quick Notes</p>
                     <textarea
-                      rows={3}
-                      value={composerChannel === "sms" ? smsBody : emailBody}
-                      onChange={(e) => composerChannel === "sms" ? setSmsBody(e.target.value) : setEmailBody(e.target.value)}
-                      placeholder="Type a message..."
-                      className="w-full bg-background border border-input rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      placeholder="Add a note..."
+                      className="w-full bg-accent border border-border rounded-lg p-2 text-sm text-foreground resize-none h-20"
                     />
-
-                    {/* Bottom row: Templates + Send */}
-                    <div className="flex items-center justify-between relative">
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowTemplates(!showTemplates)}
-                          className="border border-border bg-background text-foreground hover:bg-accent px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
-                        >
-                          <FileText className="w-3.5 h-3.5" /> Templates
-                        </button>
-                        {/* Templates popover */}
-                        {showTemplates && (
-                          <div className="absolute bottom-full left-0 mb-2 w-72 bg-card border border-border rounded-xl shadow-xl p-2 space-y-1 z-50">
-                            {[
-                              { name: "Intro Message", text: `Hi ${currentLead?.first_name ?? ""}, I'm reaching out about your life insurance inquiry. Is now a good time to chat?` },
-                              { name: "Follow Up", text: `Hi ${currentLead?.first_name ?? ""}, just following up from our recent conversation. Do you have a few minutes this week?` },
-                              { name: "Appointment Reminder", text: `Hi ${currentLead?.first_name ?? ""}, just a reminder about your appointment. Looking forward to speaking with you!` },
-                            ].map((t) => (
-                              <button
-                                key={t.name}
-                                onClick={() => {
-                                  if (composerChannel === "sms") setSmsBody(t.text); else setEmailBody(t.text);
-                                  setShowTemplates(false);
-                                }}
-                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent text-xs transition-colors"
-                              >
-                                <p className="font-medium text-foreground">{t.name}</p>
-                                <p className="text-muted-foreground line-clamp-1 mt-0.5">{t.text}</p>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {(composerChannel === "sms" ? smsBody.trim() : emailBody.trim()) && (
-                        <button
-                          onClick={handleSendMessage}
-                          className="bg-primary text-primary-foreground px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-primary/90 transition-colors"
-                        >
-                          <Send className="w-3.5 h-3.5" /> Send {composerChannel === "sms" ? "SMS" : "Email"}
-                        </button>
-                      )}
-                    </div>
+                    <button
+                      onClick={handleSaveNote}
+                      disabled={!newNote.trim() || !currentLead?.lead_id}
+                      className="w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-semibold disabled:opacity-50 hover:bg-primary/90 transition-colors"
+                    >
+                      Save Note
+                    </button>
                   </div>
-              </>
-            ) : null}
+                </div>
+              )}
+
+              {/* ── Queue Tab ── */}
+              {activeTab === "queue" && (
+                <div className="flex flex-col h-full">
+                  <div className="p-3 border-b border-border flex items-center justify-between shrink-0">
+                    <span className="text-xs text-muted-foreground">{callableCount} callable · {outsideCount} outside hours · {leads.length} total</span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="text-xs flex items-center gap-1.5 border border-border bg-background px-2 py-1.5 rounded-md text-foreground hover:bg-accent transition-colors">
+                          <Filter className="w-3 h-3" /> Filter <ChevronDown className="w-3 h-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-3 space-y-3" align="end">
+                        <h4 className="font-semibold text-sm">Queue Options</h4>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-foreground">Sort By</label>
+                          <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+                            <option>Queue Order (Default)</option>
+                            <option>Timezone (East to West)</option>
+                            <option>Lead Score (High to Low)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-foreground">Filter States</label>
+                          <select className="w-full bg-background border border-input rounded text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+                            <option>All States</option>
+                            <option>East Coast</option>
+                            <option>West Coast</option>
+                          </select>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                    {leadsLoading ? (
+                      [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
+                    ) : filteredLeads.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-sm">No leads in queue</div>
+                    ) : (
+                      filteredLeads.map((lead, idx) => {
+                        const isCurrent = idx === currentLeadIdx;
+                        const localTime = getContactLocalTime(lead.state);
+                        const isHovered = hoveredLeadId === lead.id;
+                        const lastCall = lead.lead_id ? leadLastCalls[lead.lead_id] : null;
+                        const lastCallDispColor = lastCall?.disposition_name ? getDispColor(lastCall.disposition_name) : null;
+
+                        return (
+                          <div
+                            key={lead.id}
+                            className="relative"
+                            onMouseEnter={() => { hoverTimerRef.current = setTimeout(() => setHoveredLeadId(lead.id), 300); }}
+                            onMouseLeave={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); setHoveredLeadId(null); }}
+                          >
+                            <button
+                              onClick={() => { if (callStatus === "idle") setCurrentLeadIdx(idx); }}
+                              className={cn(
+                                "w-full text-left rounded-lg p-2.5 transition-all border",
+                                isCurrent ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={cn("w-2 h-2 rounded-full shrink-0", lead.callable ? "bg-green-500" : "bg-yellow-500")} />
+                                <span className="font-semibold text-sm text-foreground truncate">{lead.first_name} {lead.last_name}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 ml-4">
+                                <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{lead.state}</span>
+                                {lead.source && <span className="text-[10px] text-muted-foreground truncate">{lead.source}</span>}
+                                {localTime && <span className="text-[10px] ml-auto shrink-0 font-bold" style={{ color: "#00ff88" }}>{localTime}</span>}
+                              </div>
+                              {isCurrent && lockCountdown !== null && (
+                                <div className="mt-1 ml-4 text-[10px] text-orange-500 font-medium">⏱ {lockCountdown}s to call</div>
+                              )}
+                            </button>
+
+                            {/* Hover Preview Card */}
+                            <AnimatePresence>
+                              {isHovered && (
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.95 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.95 }}
+                                  transition={{ duration: 0.15, ease: "easeOut" }}
+                                  className="hidden lg:block absolute left-full top-0 ml-2 z-50 w-[280px] bg-card border border-border rounded-lg shadow-lg p-3 space-y-2"
+                                >
+                                  <div className="absolute left-0 top-4 -translate-x-full">
+                                    <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-border" />
+                                  </div>
+                                  <div className="absolute left-0 top-4 -translate-x-[calc(100%-1px)]">
+                                    <div className="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-card" />
+                                  </div>
+                                  <p className="font-bold text-sm text-foreground">{lead.first_name} {lead.last_name}</p>
+                                  <p className="font-mono text-xs text-foreground">
+                                    {isOpenPool && !isCurrent
+                                      ? <span className="flex items-center gap-1 text-muted-foreground"><Lock className="w-3 h-3" /> Hidden</span>
+                                      : lead.phone}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{lead.email || "No email"}</p>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{lead.state}</span>
+                                    {localTime && <span style={{ color: "#00ff88" }}>{localTime}</span>}
+                                  </div>
+                                  {lead.source && <p className="text-[10px] text-muted-foreground">Source: {lead.source}</p>}
+                                  <div className="border-t border-border pt-2 space-y-1.5">
+                                    {lastCall?.disposition_name ? (
+                                      <div className="flex items-center gap-1.5 text-xs">
+                                        <span className="text-muted-foreground">Last:</span>
+                                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: lastCallDispColor ? `${lastCallDispColor}20` : undefined, color: lastCallDispColor || undefined }}>{lastCall.disposition_name}</span>
+                                      </div>
+                                    ) : (
+                                      <p className="text-[10px] text-muted-foreground italic">No previous calls</p>
+                                    )}
+                                    <p className="text-[10px] text-muted-foreground">{lead.call_attempts > 0 ? `${lead.call_attempts} previous attempt${lead.call_attempts !== 1 ? "s" : ""}` : "First attempt"}</p>
+                                    <p className="text-[10px] text-muted-foreground">{lead.last_called_at ? `Last contacted ${timeAgo(lead.last_called_at)}` : "Never contacted"}</p>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Scripts Tab ── */}
+              {activeTab === "scripts" && (
+                <div className="p-3 space-y-3">
+                  <div className="bg-card border border-border rounded-xl p-4">
+                    <p className="text-primary font-semibold text-sm mb-2">Opening Script</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Hi {currentLead ? currentLead.first_name : "[Name]"}, my name is {profile?.first_name ?? "your agent"} and I'm calling from AgentFlow Life Insurance. I noticed you recently inquired about life insurance coverage — I just have a couple of quick questions. Do you have two minutes?
+                    </p>
+                  </div>
+                  <div className="bg-card border border-border rounded-xl p-4">
+                    <p className="font-semibold text-sm mb-2" style={{ color: "#8B5CF6" }}>Objection Handling</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      I completely understand. Many of our clients felt the same way at first. What I can do is walk you through a few options that fit your budget — no pressure, no commitment. Would that be okay with you?
+                    </p>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+
+        {/* ═══ CENTER COLUMN ═══ */}
+        <div className="flex-1 flex flex-col gap-3 min-h-0 overflow-hidden">
+
+          {/* Contact Details Header Card */}
+          <div className="bg-card border border-border rounded-xl p-4 shrink-0">
+            {currentLead ? (
+              <div className="grid grid-cols-4 gap-4">
+                {[
+                  { label: "Full Name", value: `${currentLead.first_name} ${currentLead.last_name}` },
+                  { label: "Phone", value: currentLead.phone },
+                  { label: "Email", value: currentLead.email || "—" },
+                  { label: "State", value: currentLead.state },
+                  { label: "Age", value: currentLead.age ? `${currentLead.age} yrs` : "—" },
+                  { label: "Lead Source", value: currentLead.source || "Unknown" },
+                  { label: "Status", value: currentLead.status },
+                  { label: "Assigned", value: agentName },
+                ].map((f) => (
+                  <div key={f.label}>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{f.label}</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">{f.value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-4 text-center">
+                <Phone className="w-10 h-10 text-muted-foreground mb-2" />
+                <p className="text-sm font-medium text-foreground">No leads in queue</p>
+                <p className="text-xs text-muted-foreground">All leads have been called or are outside calling hours.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Conversation History */}
+          <div className="flex-1 bg-card border border-border rounded-xl flex flex-col overflow-hidden min-h-0">
+            {/* Header */}
+            <div className="px-4 py-3 border-b border-border shrink-0">
+              <span className="font-semibold text-sm text-foreground">Conversation History</span>
+            </div>
+
+            {/* Scrollable feed */}
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+              {historyLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                </div>
+              ) : filteredFeed.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <MessageSquare className="w-10 h-10 text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">No conversation history yet</p>
+                </div>
+              ) : (
+                <>
+                  {filteredFeed.map((item) => {
+                    const expanded = expandedFeedItems.has(item.id);
+
+                    if (item.type === "call") {
+                      const c = item.data as CallRecord;
+                      const connected = (c.duration ?? 0) > 0;
+                      return (
+                        <div key={item.id} className="flex items-start gap-3">
+                          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
+                            <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-foreground">Call — {c.disposition_name || (connected ? "Connected" : "No Answer")}{connected ? ` · ${fmtTime(c.duration!)}` : ""}</p>
+                            <p className="text-xs text-muted-foreground">{formatMessageTime(item.timestamp)}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item.type === "note") {
+                      const n = item.data as ContactNote;
+                      return (
+                        <div key={item.id} className="flex items-start gap-3">
+                          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
+                            <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-foreground cursor-pointer" onClick={() => toggleFeedExpand(item.id)}>{expanded ? n.content : n.content.length > 120 ? n.content.slice(0, 120) + "…" : n.content}</p>
+                            <p className="text-xs text-muted-foreground">{formatMessageTime(item.timestamp)}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item.type === "appointment") {
+                      const a = item.data as AppointmentRecord;
+                      return (
+                        <div key={item.id} className="flex items-start gap-3">
+                          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
+                            <CalendarDays className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-foreground">{a.type} — {a.status}</p>
+                            <p className="text-xs text-muted-foreground">{formatMessageTime(item.timestamp)}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item.type === "sms" || item.type === "email") {
+                      const isMsg = item.id.startsWith("msg-");
+                      const direction = isMsg ? (item.data as MessageRecord).direction : ((item.data as ActivityRecord).metadata?.direction || "outbound");
+                      const body = isMsg ? (item.data as MessageRecord).body : (item.data as ActivityRecord).description;
+                      const channel = item.type === "sms" ? "SMS" : "Email";
+                      const isOutbound = direction === "outbound";
+
+                      return (
+                        <div key={item.id} className={cn("flex", isOutbound ? "justify-end" : "justify-start")}>
+                          <div className="max-w-[70%]">
+                            <div className={cn(
+                              "px-4 py-2.5 text-sm leading-relaxed",
+                              isOutbound
+                                ? "bg-primary text-primary-foreground rounded-2xl rounded-br-sm"
+                                : "bg-accent text-foreground rounded-2xl rounded-bl-sm"
+                            )}>
+                              {body}
+                            </div>
+                            <p className={cn("text-xs text-muted-foreground mt-1", isOutbound ? "text-right" : "text-left")}>
+                              {channel} · {formatMessageTime(item.timestamp)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item.type === "activity") {
+                      const a = item.data as ActivityRecord;
+                      return (
+                        <div key={item.id} className="flex items-start gap-3">
+                          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
+                            <Activity className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-foreground">{a.description}</p>
+                            <p className="text-xs text-muted-foreground">{formatMessageTime(item.timestamp)}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                  <div ref={feedEndRef} />
+                </>
+              )}
+            </div>
+
+            {/* Composer */}
+            <div className="border-t border-border px-4 py-3 shrink-0 space-y-2">
+              {/* Channel tabs */}
+              <div className="flex bg-muted rounded-lg p-0.5 w-fit">
+                <button onClick={() => setComposerChannel("sms")} className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors", composerChannel === "sms" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>SMS</button>
+                <button onClick={() => setComposerChannel("email")} className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors", composerChannel === "email" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>Email</button>
+              </div>
+
+              {/* Email subject */}
+              {composerChannel === "email" && (
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Subject..."
+                  className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              )}
+
+              {/* Input + Send row */}
+              <div className="flex gap-2">
+                <input
+                  value={composerChannel === "sms" ? smsBody : emailBody}
+                  onChange={(e) => composerChannel === "sms" ? setSmsBody(e.target.value) : setEmailBody(e.target.value)}
+                  placeholder={composerChannel === "sms" ? "Type a message..." : "Type an email..."}
+                  className="flex-1 bg-accent border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
+                />
+                <button
+                  onClick={handleSendMessage}
+                  className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors"
+                >
+                  Send
+                </button>
+              </div>
+
+              {/* Templates button */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowTemplates(!showTemplates)}
+                  className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 hover:bg-accent/80 transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5" /> Templates
+                </button>
+                {showTemplates && (
+                  <div className="absolute bottom-full left-0 mb-2 w-72 bg-card border border-border rounded-xl shadow-xl p-2 space-y-1 z-50">
+                    {[
+                      { name: "Intro Message", text: `Hi ${currentLead?.first_name ?? ""}, I'm reaching out about your life insurance inquiry. Is now a good time to chat?` },
+                      { name: "Follow Up", text: `Hi ${currentLead?.first_name ?? ""}, just following up from our recent conversation. Do you have a few minutes this week?` },
+                      { name: "Appointment Reminder", text: `Hi ${currentLead?.first_name ?? ""}, just a reminder about your appointment. Looking forward to speaking with you!` },
+                    ].map((t) => (
+                      <button
+                        key={t.name}
+                        onClick={() => { if (composerChannel === "sms") setSmsBody(t.text); else setEmailBody(t.text); setShowTemplates(false); }}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent text-xs transition-colors"
+                      >
+                        <p className="font-medium text-foreground">{t.name}</p>
+                        <p className="text-muted-foreground line-clamp-1 mt-0.5">{t.text}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
