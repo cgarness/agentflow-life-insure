@@ -321,11 +321,10 @@ const Calendar2: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Calendar Content */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* View Layouts */}
-        <div className="relative flex-1 min-h-0">
-
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-row gap-4 min-h-0 overflow-hidden">
+        {/* Left: View Layouts */}
+        <div className="flex-1 relative min-h-0">
           {currentView === "Month" && (
             <div className="h-full flex flex-col">
               <div className="grid grid-cols-7 gap-px bg-border/50 border border-border rounded-xl overflow-hidden shadow-sm h-full flex-1">
@@ -334,17 +333,14 @@ const Calendar2: React.FC = () => {
                     {day}
                   </div>
                 ))}
-                {/* 35 days (5 rows * 7 columns) */}
                 {Array.from({ length: 35 }).map((_, i) => {
                    const year = currentDate.getFullYear();
                    const month = currentDate.getMonth();
                    const firstDay = new Date(year, month, 1).getDay();
                    const daysInPrevMonth = new Date(year, month, 0).getDate();
                    const daysInMonth = new Date(year, month + 1, 0).getDate();
-                   
                    let dayDisplay;
                    let isCurrentMonth = true;
-                   
                    if (i < firstDay) {
                      dayDisplay = daysInPrevMonth - (firstDay - i - 1);
                      isCurrentMonth = false;
@@ -354,23 +350,15 @@ const Calendar2: React.FC = () => {
                    } else {
                      dayDisplay = i - firstDay + 1;
                    }
-
                    return (
-                    <div 
-                      key={i} 
-                      className={`h-full bg-card p-1.5 border-t border-border transition-colors hover:bg-accent/5 cursor-pointer relative ${!isCurrentMonth ? "opacity-30" : ""}`}
-                    >
+                    <div key={i} className={`h-full bg-card p-1.5 border-t border-border transition-colors hover:bg-accent/5 cursor-pointer relative ${!isCurrentMonth ? "opacity-30" : ""}`}>
                       <span className={`text-xs font-medium ${isCurrentMonth && dayDisplay === new Date().getDate() && month === new Date().getMonth() ? "bg-primary text-primary-foreground w-6 h-6 flex items-center justify-center rounded-full" : "text-foreground"}`}>
                         {dayDisplay}
                       </span>
                       {isCurrentMonth && dayDisplay === 12 && (
                         <div className="mt-1 space-y-0.5">
-                          <div className="text-[9px] px-1 py-0 rounded bg-blue-500/10 text-blue-600 border border-blue-200 truncate font-medium">
-                            10:00 Sales
-                          </div>
-                          <div className="text-[9px] px-1 py-0 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-200 truncate font-medium">
-                            14:00 Follow
-                          </div>
+                          <div className="text-[9px] px-1 py-0 rounded bg-blue-500/10 text-blue-600 border border-blue-200 truncate font-medium">10:00 Sales</div>
+                          <div className="text-[9px] px-1 py-0 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-200 truncate font-medium">14:00 Follow</div>
                         </div>
                       )}
                     </div>
@@ -394,9 +382,7 @@ const Calendar2: React.FC = () => {
                 <div className="grid grid-cols-8 gap-px bg-border/20 h-[800px]">
                   <div className="col-span-1 border-r border-border">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-16 border-b border-border text-[9px] text-muted-foreground p-1.5 text-right">
-                        {i + 8}:00 AM
-                      </div>
+                      <div key={i} className="h-16 border-b border-border text-[9px] text-muted-foreground p-1.5 text-right">{i + 8}:00 AM</div>
                     ))}
                   </div>
                   {Array.from({ length: 7 }).map((_, i) => (
@@ -482,10 +468,72 @@ const Calendar2: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Right: Sidebar / Calendar Cards */}
+        <div className="w-80 hidden xl:flex flex-col bg-card border border-border rounded-xl shadow-sm overflow-hidden min-h-0">
+          <div className="p-4 border-b border-border bg-muted/10 shrink-0">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2 uppercase tracking-tight">
+              <Rows3 className="w-4 h-4 text-primary" />
+              Calendar Cards
+            </h3>
+          </div>
+          <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
+            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Upcoming</div>
+            {mockAppointments.map(appt => (
+              <div key={appt.id} className="group relative bg-accent/10 border border-border rounded-xl p-3 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer">
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                    appt.type === "Sales Call" ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"
+                  }`}>
+                    {appt.type}
+                  </span>
+                  <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button className="p-1 rounded bg-background border border-border text-muted-foreground hover:text-primary"><Phone className="w-3 h-3"/></button>
+                    <button className="p-1 rounded bg-background border border-border text-muted-foreground hover:text-success"><MessageSquare className="w-3 h-3"/></button>
+                  </div>
+                </div>
+                <h4 className="text-sm font-bold text-foreground mb-1 group-hover:text-primary transition-colors">{appt.title}</h4>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <Clock className="w-3 h-3" />
+                    <span>{appt.time} ({appt.duration})</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <User className="w-3 h-3" />
+                    <span className="font-medium text-foreground">{appt.contact}</span>
+                  </div>
+                </div>
+                <div className="absolute right-3 bottom-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-[10px] font-black">
+                     {appt.contact.split(' ').map(n => n[0]).join('')}
+                   </div>
+                </div>
+              </div>
+            ))}
+            
+            <div className="pt-4 px-1">
+              <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Today's Summary</div>
+              <div className="bg-primary/5 rounded-xl border border-primary/10 p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground font-medium">Total Appointments</span>
+                  <span className="text-sm font-bold text-primary">2</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground font-medium">Confirmed</span>
+                  <span className="text-sm font-bold text-emerald-600 font-mono">1</span>
+                </div>
+                <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary w-1/2 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
+
 
 
 export default Calendar2;
