@@ -28,8 +28,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
-import { mockLeads } from "@/lib/mock-data";
 import { Lead } from "@/lib/types";
+
 
 // Helper functions from original
 function sameDay(a: Date, b: Date) {
@@ -102,15 +102,17 @@ const CalendarPage: React.FC = () => {
     setLoading(true);
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-    const startOfMonth = new Date(year, month, 1).toISOString();
-    const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+    // Fetch a broader range: Start of month - 15 days to End of month + 15 days
+    const startRange = new Date(year, month, 1 - 15).toISOString();
+    const endRange = new Date(year, month + 1, 15, 23, 59, 59).toISOString();
     
     const { data, error } = await supabase
       .from('appointments')
       .select('*')
-      .gte('start_time', startOfMonth)
-      .lte('start_time', endOfMonth)
+      .gte('start_time', startRange)
+      .lte('start_time', endRange)
       .order('start_time', { ascending: true });
+
 
     if (error) {
       console.error('Error fetching appointments:', error);
@@ -312,10 +314,21 @@ const CalendarPage: React.FC = () => {
     setModalOpen(true);
   };
 
-  const handleOpenContact = (contactId: string) => {
-    const lead = (mockLeads ?? []).find(l => l.id === contactId);
-    if (lead) setContactModalLead(lead);
+  const handleOpenContact = async (contactId: string) => {
+    if (!contactId) return;
+    const { data, error } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', contactId)
+      .maybeSingle();
+    
+    if (!error && data) {
+      setContactModalLead(data as unknown as Lead);
+    } else {
+      toast({ title: "Failed to fetch contact details", variant: "destructive" });
+    }
   };
+
 
   // Helper View Renders
   const renderMonthView = () => {

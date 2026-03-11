@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { X, Phone, MessageSquare, Mail, Plus } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 import { mockUsers } from "@/lib/mock-data";
-import { toast } from "sonner";
+import { toast as toastSonner } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import ContactMiniCard from "./ContactMiniCard";
+
 
 const TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Other"];
 const STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
@@ -18,15 +20,7 @@ for (let h = 0; h < 24; h++) {
   }
 }
 
-// Mock contact data for the mini-card
-const MOCK_CONTACTS: Record<string, { name: string; phone: string; email: string; state: string; status: string; contactId: string }> = {
-  l1: { name: "James Morrison", phone: "(555) 201-4444", email: "james.morrison@email.com", state: "FL", status: "Hot", contactId: "l1" },
-  l2: { name: "Sarah Chen", phone: "(555) 302-5555", email: "sarah.chen@email.com", state: "CA", status: "Follow Up", contactId: "l2" },
-  l3: { name: "Marcus Webb", phone: "(555) 403-6666", email: "marcus.webb@email.com", state: "TX", status: "Interested", contactId: "l3" },
-  l4: { name: "Linda Park", phone: "(555) 504-7777", email: "linda.park@email.com", state: "NY", status: "Interested", contactId: "l4" },
-  l5: { name: "Robert Ellis", phone: "(555) 605-8888", email: "robert.ellis@email.com", state: "OH", status: "Contacted", contactId: "l5" },
-  l6: { name: "Diana Ross", phone: "(555) 706-9999", email: "diana.ross@email.com", state: "GA", status: "Closed Won", contactId: "l6" },
-};
+
 
 const agents = mockUsers.filter(u => u.status === "Active");
 
@@ -60,15 +54,10 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [miniCardOpen, setMiniCardOpen] = useState(false);
   const [miniCardRect, setMiniCardRect] = useState<DOMRect | null>(null);
 
-  // Contact search & inline create state
-  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
-  const [selectedContactId, setSelectedContactId] = useState("");
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newFirstName, setNewFirstName] = useState("");
-  const [newLastName, setNewLastName] = useState("");
-  const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [localContacts, setLocalContacts] = useState<Record<string, { name: string; phone: string; email: string; state: string; status: string; contactId: string }>>(MOCK_CONTACTS);
+  const [contactResults, setContactResults] = useState<Array<{ id: string; name: string; phone: string; email: string; state?: string; status?: string }>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -83,7 +72,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     setContactDropdownOpen(false);
     setShowCreateForm(false);
     setSelectedContactId("");
+    setContactResults([]);
     setNewFirstName(""); setNewLastName(""); setNewPhone(""); setNewEmail("");
+
     if (editing) {
       setTitle(editing.title);
       setType(editing.type);
@@ -116,7 +107,29 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   if (!open) return null;
 
   const contactId = editing?.contactId || prefillContactId || selectedContactId || "";
-  const contactInfo = contactId ? localContacts[contactId] : null;
+  const [contactInfo, setContactInfo] = useState<{ name: string; phone: string; email: string; state: string; status: string; contactId: string } | null>(null);
+
+  useEffect(() => {
+    if (!contactId) {
+      setContactInfo(null);
+      return;
+    }
+    const fetchLeadInfo = async () => {
+      const { data, error } = await supabase.from('leads').select('*').eq('id', contactId).maybeSingle();
+      if (data && !error) {
+        setContactInfo({
+          name: `${data.first_name} ${data.last_name}`,
+          phone: data.phone || "",
+          email: data.email || "",
+          state: data.state || "",
+          status: data.status || "",
+          contactId: data.id
+        });
+      }
+    };
+    fetchLeadInfo();
+  }, [contactId]);
+
   const contactFirstName = contactName.split(" ")[0] || "Contact";
 
   const validate = () => {
@@ -144,16 +157,18 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       contactId: editing?.contactId ?? prefillContactId ?? selectedContactId ?? "",
       date: dateObj, startTime, endTime, agent: agent.trim(), notes: notes.trim(),
     });
-    toast.success(editing ? "Appointment updated" : "Appointment scheduled successfully");
+    toastSonner.success(editing ? "Appointment updated" : "Appointment scheduled successfully");
     onClose();
   };
+
 
   const handleDelete = () => {
     if (editing && onDelete) {
       onDelete(editing.id);
-      toast.error("Appointment deleted");
+      toastSonner.error("Appointment deleted");
       onClose();
     }
+
   };
 
   const handleBadgeClick = (e: React.MouseEvent) => {
@@ -197,42 +212,58 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
               <input
                 ref={contactInputRef}
                 value={contactName}
-                onChange={e => {
-                  setContactName(e.target.value);
-                  setContactDropdownOpen(e.target.value.trim().length > 0);
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  setContactName(val);
                   setShowCreateForm(false);
                   setSelectedContactId("");
+                  
+                  if (val.trim().length >= 2) {
+                    setContactDropdownOpen(true);
+                    setSearchLoading(true);
+                    const { data, error } = await supabase
+                      .from('leads')
+                      .select('id, first_name, last_name, phone, email')
+                      .or(`first_name.ilike.%${val}%,last_name.ilike.%${val}%,phone.ilike.%${val}%`)
+                      .limit(5);
+                    if (!error && data) {
+                      setContactResults(data.map(l => ({ 
+                        id: l.id, 
+                        name: `${l.first_name} ${l.last_name}`, 
+                        phone: l.phone || "", 
+                        email: l.email || "" 
+                      })));
+                    }
+                    setSearchLoading(false);
+                  } else {
+                    setContactDropdownOpen(false);
+                    setContactResults([]);
+                  }
                 }}
-                onFocus={() => { if (contactName.trim().length > 0) setContactDropdownOpen(true); }}
+                onFocus={() => { if (contactName.trim().length >= 2) setContactDropdownOpen(true); }}
                 onBlur={() => { setTimeout(() => setContactDropdownOpen(false), 200); }}
                 placeholder="Search or enter contact name"
                 className={`${inputCls} text-base placeholder:text-muted-foreground`}
                 autoComplete="off"
               />
-              {!showCreateForm && <p className="text-xs text-muted-foreground mt-1">Type a name to search existing contacts</p>}
+              {!showCreateForm && <p className="text-xs text-muted-foreground mt-1">Type 2+ chars to search leads</p>}
+
 
               {/* Search dropdown */}
-              {contactDropdownOpen && !showCreateForm && (() => {
-                const query = contactName.trim().toLowerCase();
-                const matches = Object.values(localContacts).filter(c =>
-                  c.name.toLowerCase().includes(query)
-                );
-                const hasExactMatch = matches.some(c => c.name.toLowerCase() === query);
-                return (
-                  <div ref={dropdownRef} className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                    {matches.map(c => (
+              {contactDropdownOpen && !showCreateForm && (
+                 <div ref={dropdownRef} className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {searchLoading && <div className="px-3 py-2 text-xs text-muted-foreground italic">Searching leads...</div>}
+                    {!searchLoading && contactResults.map(c => (
                       <button
-                        key={c.contactId}
+                        key={c.id}
                         type="button"
                         onMouseDown={e => {
                           e.preventDefault();
                           setContactName(c.name);
-                          setSelectedContactId(c.contactId);
+                          setSelectedContactId(c.id);
                           setContactDropdownOpen(false);
-                          // Auto-fill title if empty
                           if (!title.trim()) {
-                            const first = c.name.split(" ")[0];
-                            setTitle(`Call with ${first}`);
+                            setTitle(`Call with ${c.name.split(" ")[0]}`);
                           }
                         }}
                         className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors duration-150 flex items-center justify-between"
@@ -241,14 +272,16 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                         <span className="text-xs text-muted-foreground">{c.phone}</span>
                       </button>
                     ))}
-                    {!hasExactMatch && query.length > 0 && (
+                    {!searchLoading && contactResults.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">No leads found</div>
+                    )}
+                    {!searchLoading && (
                       <button
                         type="button"
                         onMouseDown={e => {
                           e.preventDefault();
                           setContactDropdownOpen(false);
                           setShowCreateForm(true);
-                          // Pre-fill first name from typed text
                           const parts = contactName.trim().split(/\s+/);
                           setNewFirstName(parts[0] || "");
                           setNewLastName(parts.slice(1).join(" ") || "");
@@ -259,15 +292,12 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                         style={{ backgroundColor: "#3B82F60D" }}
                       >
                         <Plus className="w-4 h-4" style={{ color: "#3B82F6" }} />
-                        <span style={{ color: "#3B82F6" }} className="font-medium">Create new contact: {contactName.trim()}</span>
+                        <span style={{ color: "#3B82F6" }} className="font-medium">Create new lead: {contactName}</span>
                       </button>
                     )}
-                    {matches.length === 0 && query.length > 0 && (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">No matching contacts found</div>
-                    )}
                   </div>
-                );
-              })()}
+              )}
+
 
               {/* Inline mini-form for creating a new contact */}
               {showCreateForm && (
@@ -294,35 +324,42 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                   <div className="flex items-center gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (!newFirstName.trim() || !newLastName.trim() || !newPhone.trim()) {
-                          toast.error("First name, last name, and phone are required");
+                          toastSonner.error("First name, last name, and phone are required");
                           return;
                         }
-                        const newId = `local_${Date.now()}`;
-                        const fullName = `${newFirstName.trim()} ${newLastName.trim()}`;
-                        const newContact = {
-                          name: fullName,
-                          phone: newPhone.trim(),
-                          email: newEmail.trim(),
-                          state: "",
-                          status: "New",
-                          contactId: newId,
-                        };
-                        setLocalContacts(prev => ({ ...prev, [newId]: newContact }));
-                        setContactName(fullName);
-                        setSelectedContactId(newId);
-                        setShowCreateForm(false);
-                        // Auto-fill title if empty
-                        if (!title.trim()) {
-                          setTitle(`Call with ${newFirstName.trim()}`);
+                        
+                        const { data: newLead, error } = await supabase
+                          .from('leads')
+                          .insert([{ 
+                            first_name: newFirstName.trim(), 
+                            last_name: newLastName.trim(),
+                            phone: newPhone.trim(),
+                            email: newEmail.trim() || null,
+                            status: "New"
+                          }])
+                          .select().single();
+
+                        if (error || !newLead) {
+                          toastSonner.error("Failed to create lead");
+                          return;
                         }
-                        toast.success("New contact created");
+
+                        const fullName = `${newLead.first_name} ${newLead.last_name}`;
+                        setContactName(fullName);
+                        setSelectedContactId(newLead.id);
+                        setShowCreateForm(false);
+                        if (!title.trim()) {
+                          setTitle(`Call with ${newLead.first_name}`);
+                        }
+                        toastSonner.success("New lead created");
                       }}
                       className="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors duration-150"
                       style={{ backgroundColor: "#3B82F6" }}
                     >
-                      Save Contact & Continue
+                      Save Lead & Continue
+
                     </button>
                     <button
                       type="button"
@@ -412,25 +449,26 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
               <div className="grid grid-cols-3 gap-2">
                 <button
                   disabled={!contactId}
-                  onClick={() => { toast.success(`Opening dialer for ${contactName}`); window.dispatchEvent(new CustomEvent("openDialer")); }}
+                  onClick={() => { toastSonner.success(`Opening dialer for ${contactName}`); window.dispatchEvent(new CustomEvent("openDialer")); }}
                   className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${!contactId ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
                   style={{ backgroundColor: "#22C55E1A", color: "#22C55E", border: "1px solid #22C55E4D" }}>
                   <Phone className="w-3.5 h-3.5" /> Call {contactFirstName}
                 </button>
                 <button
                   disabled={!contactId}
-                  onClick={() => toast.success(`Appointment confirmation text sent to ${contactName}`)}
+                  onClick={() => toastSonner.success(`Appointment confirmation text sent to ${contactName}`)}
                   className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${!contactId ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
                   style={{ backgroundColor: "#3B82F61A", color: "#3B82F6", border: "1px solid #3B82F64D" }}>
                   <MessageSquare className="w-3.5 h-3.5" /> Confirm via Text
                 </button>
                 <button
                   disabled={!contactId}
-                  onClick={() => toast.success(`Appointment confirmation email sent to ${contactName}`)}
+                  onClick={() => toastSonner.success(`Appointment confirmation email sent to ${contactName}`)}
                   className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${!contactId ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
                   style={{ backgroundColor: "#A855F71A", color: "#A855F7", border: "1px solid #A855F74D" }}>
                   <Mail className="w-3.5 h-3.5" /> Confirm via Email
                 </button>
+
               </div>
             </div>
           </div>
