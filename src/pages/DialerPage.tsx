@@ -999,18 +999,20 @@ export default function DialerPage() {
                     placeholder="Subject"
                     className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
                   />
-                  <textarea
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Type EMAIL message…"
-                    className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full resize-none h-20"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold w-full"
-                  >
-                    Send
-                  </button>
+                  <div className="flex gap-2">
+                    <textarea
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      placeholder="Type EMAIL message…"
+                      className="flex-1 bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      className="bg-primary text-primary-foreground rounded-lg px-4 flex items-center justify-center shrink-0 h-20"
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
               ) : (
                 /* SMS mode — single-line input + Send button side by side */
