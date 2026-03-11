@@ -1,5 +1,5 @@
 # AgentFlow — AI System Instructions (Claude & Assistant)
-**Owner:** Chris Garness | **Last updated:** March 7, 2026
+**Owner:** Chris Garness | **Last updated:** March 10, 2026
 
 ---
 
@@ -210,7 +210,7 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 9. ✅ Custom Menu Links — COMPLETE
 10. ✅ Activity Log — COMPLETE
 11. ✅ Telnyx & Phone Numbers (Settings Rework) — COMPLETE
-12. 🔄 Main pages tab by tab (Contacts page functional with live data today)
+12. 🔄 Main pages tab by tab (Contacts page functional with live data, Dialer page enhanced with unified composer and robust contact modal)
 13. 🔄 Connect Supabase (All settings and contact tables are now fully live)
 14. ⬜ Go live
 

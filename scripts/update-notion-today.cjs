@@ -25,11 +25,11 @@ async function main() {
     }
 
     // Progress Tracker
-    const progressText = `[${date}] SESSION LOG: Completed the implementation and Supabase wiring for 5 remaining Settings sections: Email/SMS Templates, Carriers, Goal Setting, Custom Menu Links, and Activity Log. Pushed changes to GitHub origin main. Also successfully connected AgentFlow AI Assistant to Notion API for automated logging.`;
+    const progressText = `[${date}] SESSION LOG: Restructured Dialer active session layout: unified the SMS/Email composer pinned to the bottom of the conversation history, switched campaign selection UI to a responsive 4-column grid, implemented End Session functionality, and synced the robust "ContactModal" from the actual Contacts page to be used as the Dialer's "Full View", ensuring bi-directional database consistency.`;
     await appendParagraph(process.env.NOTION_PAGE_PROGRESS_TRACKER, progressText);
 
     // Decisions Log
-    const decisionText = `[${date}] DECISION: Implemented 5 settings sections manually in code (bypassing Lovable due to credits): EmailSMSTemplates, Carriers, GoalSetting, CustomMenuLinks, ActivityLog. Integrated Notion API via internal integration for AI automated logging. Schema '20260308200000_create_remaining_settings.sql' pushed to Supabase.`;
+    const decisionText = `[${date}] DECISION: We replaced the custom inline dialog in DialerPage with the shared <ContactModal> component used in the Contacts tab. This enriches the Dialer UI with activity timelines and history filtering without compromising the layout hierarchy.`;
     await appendParagraph(process.env.NOTION_PAGE_DECISIONS_LOG, decisionText);
 
     console.log("Notion updates completed.");
