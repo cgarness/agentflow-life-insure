@@ -34,12 +34,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Calendar } from "@/components/ui/calendar";
 
 /* ─── Types ─── */
@@ -123,6 +117,8 @@ export default function DialerPage() {
   });
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
+  const [subjectText, setSubjectText] = useState("");
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { user } = useAuth();
 
@@ -132,9 +128,11 @@ export default function DialerPage() {
   /* --- data loading --- */
 
   useEffect(() => {
+    setLoadingCampaigns(true);
     getCampaigns()
       .then(setCampaigns)
-      .catch(() => toast.error("Failed to load campaigns"));
+      .catch(() => toast.error("Failed to load campaigns"))
+      .finally(() => setLoadingCampaigns(false));
     dispositionsSupabaseApi
       .getAll()
       .then((ds) =>
@@ -355,6 +353,13 @@ export default function DialerPage() {
   function handleSendMessage() {
     toast.info(`${smsTab.toUpperCase()} sending coming soon`);
     setMessageText("");
+    setSubjectText("");
+  }
+
+  function handleSmsTabChange(tab: "sms" | "email") {
+    setSmsTab(tab);
+    setMessageText("");
+    setSubjectText("");
   }
 
   /* --- computed --- */
@@ -368,6 +373,62 @@ export default function DialerPage() {
       : "0%";
 
   /* ─── RENDER ─── */
+
+  // FIX 3: Show campaign selection screen when no campaign selected
+  if (selectedCampaignId === null) {
+    return (
+      <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6">
+        <h1 className="text-xl font-bold text-foreground mb-2">Select a Campaign to Begin</h1>
+        <p className="text-sm text-muted-foreground mb-6">
+          Choose an active campaign from the list below to load your lead queue.
+        </p>
+        <div className="bg-card border rounded-xl p-6 w-full max-w-md space-y-3">
+          {loadingCampaigns && (
+            <div className="flex justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!loadingCampaigns && campaigns.length === 0 && (
+            <p className="text-muted-foreground text-sm text-center">No active campaigns found.</p>
+          )}
+          {!loadingCampaigns &&
+            campaigns.map((campaign) => (
+              <div
+                key={campaign.id}
+                className="flex items-center justify-between p-3 rounded-lg bg-accent hover:bg-accent/80 cursor-pointer border border-border"
+                onClick={() => setSelectedCampaignId(campaign.id)}
+              >
+                <div>
+                  <div className="font-semibold text-foreground text-sm">{campaign.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {campaign.available_leads ?? 0} leads available
+                  </div>
+                </div>
+                <button
+                  className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1.5 rounded-lg"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCampaignId(campaign.id);
+                  }}
+                >
+                  Start →
+                </button>
+              </div>
+            ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Only render dialer UI when campaign is selected and leads exist
+  if (leadQueue.length === 0) {
+    return (
+      <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">Loading lead queue…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
@@ -411,38 +472,9 @@ export default function DialerPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* ── LEFT COLUMN ── */}
         <div className="w-80 shrink-0 flex flex-col gap-3 overflow-hidden p-3 border-r">
-          {/* 1. Campaign selector */}
-          {selectedCampaignId === null ? (
-            <select
-              className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-              value=""
-              onChange={(e) => setSelectedCampaignId(e.target.value || null)}
-            >
-              <option value="">Select a campaign…</option>
-              {campaigns.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm text-foreground truncate">
-                {selectedCampaign?.name}
-              </span>
-              <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
-                {leadQueue.length}
-              </span>
-              <span
-                className="text-primary cursor-pointer text-xs ml-auto"
-                onClick={() => setSelectedCampaignId(null)}
-              >
-                Change
-              </span>
-            </div>
-          )}
+          {/* FIX 5: Campaign selector removed — campaign is selected on the selection screen */}
 
-          {/* 2. Action buttons */}
+          {/* Action buttons */}
           <div className="grid grid-cols-4 gap-2">
             {onCall ? (
               <button
@@ -469,23 +501,35 @@ export default function DialerPage() {
               <SkipForward className="w-5 h-5" />
               Skip
             </button>
+            {/* FIX 6: Schedule button — light purple */}
             <button
               onClick={() => setShowScheduleModal(true)}
-              className="bg-accent border rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              style={{
+                backgroundColor: '#7C3AED1A',
+                color: '#7C3AED',
+                border: '1px solid #7C3AED40',
+              }}
             >
               <CalendarIcon className="w-5 h-5" />
               Schedule
             </button>
+            {/* FIX 7: Full View button — blue */}
             <button
               onClick={() => setShowFullViewDrawer(true)}
-              className="bg-accent border rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              style={{
+                backgroundColor: '#1D4ED81A',
+                color: '#3B82F6',
+                border: '1px solid #3B82F640',
+              }}
             >
               <Eye className="w-5 h-5" />
               Full View
             </button>
           </div>
 
-          {/* 4. Tab bar */}
+          {/* Tab bar */}
           <div className="border rounded-lg overflow-hidden flex">
             {(["dispositions", "queue", "scripts"] as const).map((tab) => (
               <button
@@ -500,9 +544,9 @@ export default function DialerPage() {
             ))}
           </div>
 
-          {/* 5. Tab content */}
+          {/* Tab content */}
           <div className="flex-1 overflow-y-auto">
-            {/* ── Dispositions tab ── */}
+            {/* FIX 4: Dispositions tab — mini-card + disposition grid + Quick Notes */}
             {leftTab === "dispositions" && (
               <div className="flex flex-col gap-3">
                 {/* Mini-card */}
@@ -521,7 +565,7 @@ export default function DialerPage() {
                   </div>
                 )}
 
-                {/* Wrap-up UI */}
+                {/* Disposition grid — maps over dispositions state */}
                 {showWrapUp && (
                   <>
                     <div className="grid grid-cols-2 gap-2">
@@ -551,7 +595,7 @@ export default function DialerPage() {
                       })}
                     </div>
 
-                    {/* Notes + save */}
+                    {/* Quick Notes section */}
                     <textarea
                       value={noteText}
                       onChange={(e) => {
@@ -579,7 +623,7 @@ export default function DialerPage() {
               </div>
             )}
 
-            {/* ── Queue tab ── */}
+            {/* FIX 4: Queue tab — maps over leadQueue */}
             {leftTab === "queue" && (
               <div className="flex flex-col">
                 {leadQueue.map((lead, i) => (
@@ -614,7 +658,7 @@ export default function DialerPage() {
               </div>
             )}
 
-            {/* ── Scripts tab ── */}
+            {/* Scripts tab */}
             {leftTab === "scripts" && (
               <div className="flex flex-col gap-3">
                 <div className="bg-card border rounded-xl p-4">
@@ -678,14 +722,17 @@ export default function DialerPage() {
             </div>
           </div>
 
-          {/* 2. Conversation history */}
-          <div className="flex-1 bg-card border rounded-xl flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-4 py-2 border-b border-border">
+          {/* FIX 1: Conversation history card with pinned composer */}
+          <div className="flex flex-col overflow-hidden flex-1 bg-card border rounded-xl">
+            {/* Header — shrink-0 */}
+            <div className="shrink-0 flex justify-between items-center px-4 py-2 border-b border-border">
               <span className="font-semibold text-sm text-foreground">Conversation History</span>
               <select className="bg-accent border border-border text-xs text-foreground rounded-lg px-2 py-1 h-7">
                 <option>+19097381193</option>
               </select>
             </div>
+
+            {/* Scrollable feed — flex-1 overflow-y-auto */}
             <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
               {loadingHistory && (
                 <div className="flex justify-center py-6">
@@ -725,43 +772,72 @@ export default function DialerPage() {
                   </div>
                 ))}
             </div>
-          </div>
 
-          {/* 3. Message composer */}
-          <div className="border-t px-4 py-3">
-            <div className="flex gap-2">
-              {(["sms", "email"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setSmsTab(tab)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
-                    smsTab === tab
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-accent text-muted-foreground"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <input
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                placeholder={`Type ${smsTab.toUpperCase()} message…`}
-                className="flex-1 bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-              />
-              <button
-                onClick={handleSendMessage}
-                className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold"
-              >
-                <Send className="w-4 h-4" />
+            {/* FIX 1 + FIX 2: Composer — shrink-0, pinned to bottom */}
+            <div className="shrink-0 border-t px-4 py-3">
+              {/* Tab switcher */}
+              <div className="flex gap-2">
+                {(["sms", "email"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => handleSmsTabChange(tab)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
+                      smsTab === tab
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-accent text-muted-foreground"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              {/* FIX 2: Email mode — subject + textarea + full-width send button */}
+              {smsTab === "email" ? (
+                <div className="flex flex-col gap-2 mt-2">
+                  <input
+                    value={subjectText}
+                    onChange={(e) => setSubjectText(e.target.value)}
+                    placeholder="Subject"
+                    className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
+                  />
+                  <textarea
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type EMAIL message…"
+                    className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full resize-none h-20"
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold w-full"
+                  >
+                    Send
+                  </button>
+                </div>
+              ) : (
+                /* SMS mode — single-line input + Send button side by side */
+                <div className="flex gap-2 mt-2">
+                  <input
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type SMS message…"
+                    className="flex-1 bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Templates button — below send in both modes */}
+              <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 w-fit mt-2">
+                <FileText className="w-4 h-4" />
+                Templates
               </button>
             </div>
-            <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 w-fit mt-2">
-              <FileText className="w-4 h-4" />
-              Templates
-            </button>
           </div>
         </div>
       </div>
@@ -865,17 +941,17 @@ export default function DialerPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── FULL VIEW DRAWER ── */}
-      <Sheet open={showFullViewDrawer} onOpenChange={setShowFullViewDrawer}>
-        <SheetContent side="right">
-          <SheetHeader>
-            <SheetTitle>
+      {/* FIX 8: Full View — centered Dialog modal (replaced Sheet/drawer) */}
+      <Dialog open={showFullViewDrawer} onOpenChange={setShowFullViewDrawer}>
+        <DialogContent className="max-w-2xl w-full max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
               {currentLead
                 ? `${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()
                 : "No Lead"}
-            </SheetTitle>
-          </SheetHeader>
-          <div className="flex flex-col gap-4 mt-4">
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 mt-2">
             {[
               {
                 label: "Full Name",
@@ -889,17 +965,33 @@ export default function DialerPage() {
               { label: "Age", value: currentLead?.age },
               { label: "Lead Source", value: currentLead?.source },
               { label: "Status", value: currentLead?.status },
-              { label: "Assigned Agent ID", value: currentLead?.claimed_by },
-              { label: "Notes", value: currentLead?.notes },
+              { label: "Assigned Agent", value: currentLead?.claimed_by },
             ].map((f) => (
               <div key={f.label}>
                 <div className="text-xs text-muted-foreground uppercase tracking-wide">{f.label}</div>
-                <div className="text-sm text-foreground font-medium mt-0.5">{f.value ?? "—"}</div>
+                <div className="text-sm font-semibold text-foreground mt-1">{f.value ?? "—"}</div>
               </div>
             ))}
+            {/* Notes — full width */}
+            <div className="col-span-2">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Notes</div>
+              <textarea
+                readOnly
+                value={currentLead?.notes ?? ""}
+                className="bg-accent border rounded-lg p-2 text-sm text-foreground w-full resize-none h-24"
+              />
+            </div>
           </div>
-        </SheetContent>
-      </Sheet>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={() => setShowFullViewDrawer(false)}
+              className="bg-accent text-foreground rounded-lg px-4 py-2 text-sm font-semibold"
+            >
+              Close
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
