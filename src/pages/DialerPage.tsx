@@ -607,7 +607,14 @@ export default function DialerPage() {
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 py-2 gap-4">
         {/* LEFT */}
-        <button className="border border-destructive text-destructive text-xs rounded-lg px-3 py-1 font-semibold shrink-0">
+        <button 
+          onClick={() => {
+            setSelectedCampaignId(null);
+            setLeadQueue([]);
+            setCurrentLeadIndex(0);
+          }}
+          className="border border-destructive text-destructive text-xs rounded-lg px-3 py-1 font-semibold shrink-0 hover:bg-destructive hover:text-destructive-foreground transition-colors"
+        >
           ← End Session
         </button>
 
