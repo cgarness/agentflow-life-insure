@@ -15,7 +15,13 @@ import {
   FileText,
   Loader2,
   Send,
+  ChevronDown,
+  BarChart3,
+  Settings,
+  TrendingUp,
+  Clock,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import {
@@ -439,78 +445,145 @@ export default function DialerPage() {
                   : [];
               const states = tags.filter((t: string) => /^[A-Z]{2}$/.test(t));
 
+              // Mock data overrides for demonstration as requested
+              const isMockActive = true;
+              const mockAvgCall = "3:24";
+              const mockStates = [
+                { state: "FL", count: 34, color: "#2563eb", bg: "rgba(59, 130, 246, 0.1)", border: "rgba(59, 130, 246, 0.3)" },
+                { state: "TX", count: 28, color: "#dc2626", bg: "rgba(239, 68, 68, 0.1)", border: "rgba(239, 68, 68, 0.3)" },
+                { state: "CA", count: 23, color: "#d97706", bg: "rgba(245, 158, 11, 0.1)", border: "rgba(245, 158, 11, 0.3)" },
+                { state: "NY", count: 18, color: "#9333ea", bg: "rgba(168, 85, 247, 0.1)", border: "rgba(168, 85, 247, 0.3)" },
+                { state: "OH", count: 12, color: "#16a34a", bg: "rgba(34, 197, 94, 0.1)", border: "rgba(34, 197, 94, 0.3)" },
+                { state: "WA", count: 8, color: "", bg: "", border: "" },
+                { state: "AZ", count: 6, color: "", bg: "", border: "" }
+              ];
+              const mockCallsMade = 89;
+              const mockConnected = 37;
+              const mockTotalLeads = 200;
+              const mockConnectRate = "42%";
+
               return (
                 <div
                   key={campaign.id}
-                  className="group relative bg-card border border-border rounded-xl p-4 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200 cursor-pointer"
-                  onClick={() => setSelectedCampaignId(campaign.id)}
+                  className="bg-card border border-border rounded-xl flex flex-col hover:border-primary/50 hover:shadow-lg transition-all group overflow-hidden"
                 >
-                  {/* Top row */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-foreground text-sm truncate group-hover:text-primary transition-colors">
-                        {campaign.name}
-                      </h3>
-                      {campaign.description && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">{campaign.description}</p>
-                      )}
-                    </div>
-                    <button
-                      className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded-lg opacity-80 group-hover:opacity-100 transition-opacity shrink-0 ml-3"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedCampaignId(campaign.id);
-                      }}
-                    >
-                      Start →
-                    </button>
-                  </div>
-
-                  {/* State badges */}
-                  {states.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {states.map((state: string) => (
-                        <span
-                          key={state}
-                          className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded border ${getStateColors(state)}`}
-                        >
-                          {state}
+                  <div className="p-5 flex-1 flex flex-col" onClick={() => setSelectedCampaignId(campaign.id)}>
+                    
+                    {/* Header Row */}
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {/* Health Indicator */}
+                        <div className={cn("w-2 h-2 rounded-full shrink-0", isMockActive ? "bg-success animate-pulse" : campaign.status === "Paused" ? "bg-warning" : "bg-muted-foreground")} />
+                        
+                        {/* Campaign Name with Dropdown Chevron */}
+                        <div className="flex items-center gap-1 font-bold text-lg text-foreground leading-tight truncate">
+                          <span className="truncate">{campaign.name}</span>
+                          <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 cursor-pointer" />
+                        </div>
+                        
+                        {/* Type Badge */}
+                        <span className="shrink-0 bg-primary/10 text-primary px-2 py-0.5 rounded-full text-xs font-medium">
+                          Power Dialer
                         </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Progress bar */}
-                  <div className="mb-2">
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                      <span>{total} total leads</span>
-                      <span>{remaining} remaining</span>
-                    </div>
-                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
-                      {convertedPct > 0 && (
-                        <div
-                          className="h-full bg-emerald-500 transition-all duration-500"
-                          style={{ width: `${convertedPct}%` }}
-                        />
-                      )}
-                      {contactedPct - convertedPct > 0 && (
-                        <div
-                          className="h-full bg-primary transition-all duration-500"
-                          style={{ width: `${contactedPct - convertedPct}%` }}
-                        />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5">
-                      <div className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                        <span className="text-[10px] text-muted-foreground">Converted {convertedPct}%</span>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-primary inline-block" />
-                        <span className="text-[10px] text-muted-foreground">Contacted {contactedPct}%</span>
+                      
+                      {/* Action Icons */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors" onClick={e => e.stopPropagation()}>
+                          <BarChart3 className="w-4 h-4" />
+                        </button>
+                        <button className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors" onClick={e => e.stopPropagation()}>
+                          <Settings className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mini Stats Row */}
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
+                        <TrendingUp className="w-3 h-3 text-success" />
+                        <span className="text-xs font-medium text-foreground">Connect Rate: {mockConnectRate}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
+                        <Clock className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-xs font-medium text-foreground">Avg Call: {mockAvgCall}</span>
+                      </div>
+                    </div>
+
+                    {/* States Badges */}
+                    <div className="mb-5">
+                      <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {mockStates.slice(0, 5).map(s => {
+                          const outsideHours = s.state === "FL" || s.state === "NY";
+                          return (
+                            <span 
+                              key={s.state} 
+                              className={cn(
+                                "flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium transition-all",
+                                outsideHours && "opacity-50 grayscale"
+                              )}
+                              style={outsideHours ? { backgroundColor: 'var(--muted)', color: 'var(--muted-foreground)', border: '1px solid var(--border)' } : {
+                                backgroundColor: s.bg,
+                                color: s.color,
+                                border: s.border
+                              }}
+                            >
+                              {outsideHours && <Clock className="w-3 h-3" />}
+                              {s.state} ({s.count})
+                            </span>
+                          );
+                        })}
+                        {mockStates.length > 5 && (
+                          <span className="bg-muted text-muted-foreground border border-border/50 px-2 py-0.5 rounded-full text-xs font-medium cursor-help" title={mockStates.slice(5).map(s => s.state).join(', ')}>
+                            +{mockStates.length - 5} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Progress Bar & Details */}
+                    <div className="mt-auto space-y-2">
+                      <p className="text-xs text-muted-foreground font-medium">Campaign Progress</p>
+                      <p className="text-xs text-foreground mb-1.5 font-medium">
+                        {mockCallsMade}/{mockTotalLeads} calls made · {mockConnected} connected ({mockConnectRate})
+                      </p>
+                      
+                      {/* Dual Layer Progress Bar Container */}
+                      <div className="relative w-full h-3 bg-accent rounded-full isolate">
+                        {/* Bottom Layer (Total Calls) */}
+                        <div 
+                          className="absolute top-0 left-0 h-full bg-primary/30 rounded-full transition-all duration-500"
+                          style={{ width: `44%` }}
+                        />
+                        {/* Top Layer (Connections) */}
+                        <div 
+                          className="absolute top-0 left-0 h-full bg-primary rounded-full transition-all duration-500 z-0"
+                          style={{ width: `18.5%` }}
+                        />
+                        {/* Milestone Tick Marks placed over everything */}
+                        <div className="absolute top-1/2 left-[25%] -translate-y-1/2 w-px h-4 bg-border z-10" />
+                        <div className="absolute top-1/2 left-[50%] -translate-y-1/2 w-px h-4 bg-border z-10" />
+                        <div className="absolute top-1/2 left-[75%] -translate-y-1/2 w-px h-4 bg-border z-10" />
+                      </div>
+                      
+                      <div className="pt-2 flex">
+                        <p className="font-mono text-sm font-semibold text-foreground">
+                          {campaign.total_leads ? Math.max(0, campaign.total_leads - mockCallsMade) : remaining} remaining
+                        </p>
                       </div>
                     </div>
                   </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedCampaignId(campaign.id);
+                    }}
+                    className="w-full bg-accent/30 text-accent-foreground py-3.5 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors outline-none flex items-center justify-center gap-2 border-t border-border group-hover:border-transparent cursor-pointer"
+                  >
+                    <Phone className="w-4 h-4" /> Start Dialing This List
+                  </button>
                 </div>
               );
             })}
