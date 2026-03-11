@@ -41,6 +41,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
+import ContactModal from "@/components/contacts/ContactModal";
+import { leadsSupabaseApi } from "@/lib/supabase-contacts";
+import { Lead } from "@/lib/types";
 
 /* ─── Types ─── */
 
@@ -85,6 +88,36 @@ function historyIcon(type: string) {
     default:
       return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
   }
+}
+
+/** 
+ * Maps the snake_case lead object from campaign_leads 
+ * to the camelCase Lead interface expected by ContactModal 
+ */
+function mapDialerLeadToContactLead(row: any): Lead {
+  if (!row) return {} as Lead;
+  return {
+    id: row.id,
+    firstName: row.first_name || "",
+    lastName: row.last_name || "",
+    phone: row.phone || "",
+    email: row.email || "",
+    state: row.state || "",
+    status: row.status || "New",
+    leadSource: row.source || "",
+    leadScore: row.lead_score ?? 5,
+    age: row.age ?? undefined,
+    dateOfBirth: row.date_of_birth ?? undefined,
+    healthStatus: row.health_status ?? undefined,
+    bestTimeToCall: row.best_time_to_call ?? undefined,
+    spouseInfo: row.spouse_info ?? undefined,
+    notes: row.notes ?? undefined,
+    assignedAgentId: row.claimed_by || row.assigned_agent_id || "",
+    lastContactedAt: row.last_contacted_at ?? undefined,
+    customFields: row.custom_fields ?? undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
 }
 
 /* ─── Component ─── */
@@ -1139,57 +1172,41 @@ export default function DialerPage() {
         </DialogContent>
       </Dialog>
 
-      {/* FIX 8: Full View — centered Dialog modal (replaced Sheet/drawer) */}
-      <Dialog open={showFullViewDrawer} onOpenChange={setShowFullViewDrawer}>
-        <DialogContent className="max-w-2xl w-full max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {currentLead
-                ? `${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()
-                : "No Lead"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 mt-2">
-            {[
-              {
-                label: "Full Name",
-                value: currentLead
-                  ? `${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()
-                  : null,
-              },
-              { label: "Phone", value: currentLead?.phone },
-              { label: "Email", value: currentLead?.email },
-              { label: "State", value: currentLead?.state },
-              { label: "Age", value: currentLead?.age },
-              { label: "Lead Source", value: currentLead?.source },
-              { label: "Status", value: currentLead?.status },
-              { label: "Assigned Agent", value: currentLead?.claimed_by },
-            ].map((f) => (
-              <div key={f.label}>
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">{f.label}</div>
-                <div className="text-sm font-semibold text-foreground mt-1">{f.value ?? "—"}</div>
-              </div>
-            ))}
-            {/* Notes — full width */}
-            <div className="col-span-2">
-              <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Notes</div>
-              <textarea
-                readOnly
-                value={currentLead?.notes ?? ""}
-                className="bg-accent border rounded-lg p-2 text-sm text-foreground w-full resize-none h-24"
-              />
-            </div>
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button
-              onClick={() => setShowFullViewDrawer(false)}
-              className="bg-accent text-foreground rounded-lg px-4 py-2 text-sm font-semibold"
-            >
-              Close
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* FIX 8: Full View — Sync with Contacts page ContactModal */}
+      <ContactModal
+        lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}
+        onClose={() => setShowFullViewDrawer(false)}
+        onUpdate={async (id, data) => {
+          try {
+            await leadsSupabaseApi.update(id, data);
+            // Refresh local queue state
+            setLeadQueue(prev => prev.map(l => l.id === id ? { ...l, ...data, 
+              // Map back to snake_case for local state consistency if needed
+              first_name: data.firstName ?? l.first_name,
+              last_name: data.lastName ?? l.last_name,
+              phone: data.phone ?? l.phone,
+              email: data.email ?? l.email,
+              state: data.state ?? l.state,
+              status: data.status ?? l.status,
+              source: data.leadSource ?? l.source,
+              lead_score: data.leadScore ?? l.lead_score,
+            } : l));
+            toast.success("Contact updated");
+          } catch (err: any) {
+            toast.error("Failed to update contact: " + err.message);
+          }
+        }}
+        onDelete={async (id) => {
+          try {
+            await leadsSupabaseApi.delete(id);
+            setLeadQueue(prev => prev.filter(l => l.id !== id));
+            setShowFullViewDrawer(false);
+            toast.success("Contact deleted");
+          } catch (err: any) {
+            toast.error("Failed to delete contact: " + err.message);
+          }
+        }}
+      />
     </div>
   );
 }
