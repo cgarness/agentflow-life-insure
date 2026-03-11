@@ -565,37 +565,53 @@ export default function DialerPage() {
                   </div>
                 )}
 
-                {/* Disposition grid — maps over dispositions state */}
-                {showWrapUp && (
-                  <>
-                    <div className="grid grid-cols-2 gap-2">
-                      {dispositions.map((d, i) => {
-                        const isSelected = selectedDisp?.id === d.id;
-                        return (
-                          <button
-                            key={d.id}
-                            onClick={() => handleSelectDisposition(d)}
-                            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left ${
-                              isSelected ? "border-2" : "bg-accent border border-border"
-                            }`}
-                            style={
-                              isSelected
-                                ? { borderColor: d.color, backgroundColor: `${d.color}21` }
-                                : undefined
-                            }
+                {/* Disposition grid — always visible */}
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
+                    Select Disposition
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {dispositions.map((d, i) => {
+                      const isSelected = selectedDisp?.id === d.id;
+                      return (
+                        <button
+                          key={d.id}
+                          onClick={() => handleSelectDisposition(d)}
+                          className={`rounded-lg px-2 py-2 text-left w-full flex items-center gap-2 cursor-pointer ${
+                            isSelected ? "" : "bg-accent border border-border"
+                          }`}
+                          style={
+                            isSelected
+                              ? {
+                                  backgroundColor: d.color + "22",
+                                  border: "1.5px solid " + d.color,
+                                }
+                              : undefined
+                          }
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: d.color }}
+                          />
+                          <span
+                            className="text-xs font-semibold"
+                            style={{ color: isSelected ? d.color : undefined }}
                           >
-                            <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: d.color }}
-                            />
-                            <span className="flex-1 truncate">{d.name}</span>
-                            <span className="text-muted-foreground text-xs">{i + 1}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                            {d.name}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground ml-auto">{i + 1}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                    {/* Quick Notes section */}
+                {/* Quick Notes section — only when showWrapUp */}
+                {showWrapUp && (
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1">
+                      Quick Notes
+                    </div>
                     <textarea
                       value={noteText}
                       onChange={(e) => {
@@ -603,22 +619,22 @@ export default function DialerPage() {
                         setNoteError(false);
                       }}
                       placeholder="Add notes…"
-                      className={`bg-accent border rounded-lg p-2 text-sm resize-none h-20 w-full ${
+                      className={`bg-accent border rounded-lg p-2 text-sm text-foreground w-full resize-none h-20 ${
                         noteError ? "border-destructive" : "border-border"
                       }`}
                     />
-                    {selectedDisp && selectedDisp.minNoteChars > 0 && (
-                      <div className="text-xs text-muted-foreground text-right -mt-2">
-                        {noteText.length}/{selectedDisp.minNoteChars}
+                    {selectedDisp?.requireNotes && selectedDisp.minNoteChars > 0 && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {noteText.length} / {selectedDisp.minNoteChars} min
                       </div>
                     )}
                     <button
                       onClick={handleSaveAndContinue}
-                      className="bg-primary text-primary-foreground w-full rounded-lg py-2 text-sm font-semibold"
+                      className="bg-primary text-primary-foreground w-full rounded-lg py-2 text-sm font-semibold mt-1"
                     >
                       Save &amp; Continue
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             )}
@@ -686,9 +702,9 @@ export default function DialerPage() {
         </div>
 
         {/* ── CENTER COLUMN ── */}
-        <div className="flex-1 flex flex-col gap-3 overflow-hidden p-3">
+        <div className="flex-1 flex flex-col gap-3 overflow-hidden min-h-0 p-3">
           {/* 1. Contact details header */}
-          <div className="bg-card border rounded-xl p-4">
+          <div className="shrink-0 bg-card border rounded-xl p-4">
             <div className="grid grid-cols-4 gap-4">
               {[
                 {
@@ -723,9 +739,9 @@ export default function DialerPage() {
           </div>
 
           {/* FIX 1: Conversation history card with pinned composer */}
-          <div className="flex flex-col overflow-hidden flex-1 bg-card border rounded-xl">
+          <div className="flex flex-col overflow-hidden bg-card border rounded-xl" style={{ flex: 1, minHeight: 0 }}>
             {/* Header — shrink-0 */}
-            <div className="shrink-0 flex justify-between items-center px-4 py-2 border-b border-border">
+            <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
               <span className="font-semibold text-sm text-foreground">Conversation History</span>
               <select className="bg-accent border border-border text-xs text-foreground rounded-lg px-2 py-1 h-7">
                 <option>+19097381193</option>
@@ -733,7 +749,7 @@ export default function DialerPage() {
             </div>
 
             {/* Scrollable feed — flex-1 overflow-y-auto */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
+            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3" style={{ minHeight: 0 }}>
               {loadingHistory && (
                 <div className="flex justify-center py-6">
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -774,7 +790,7 @@ export default function DialerPage() {
             </div>
 
             {/* FIX 1 + FIX 2: Composer — shrink-0, pinned to bottom */}
-            <div className="shrink-0 border-t px-4 py-3">
+            <div className="shrink-0 border-t border-border px-4 py-3">
               {/* Tab switcher */}
               <div className="flex gap-2">
                 {(["sms", "email"] as const).map((tab) => (
