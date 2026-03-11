@@ -534,19 +534,11 @@ export default function DialerPage() {
                         {/* Health Indicator */}
                         <div className={cn("w-2 h-2 rounded-full shrink-0", isMockActive ? "bg-success animate-pulse" : campaign.status === "Paused" ? "bg-warning" : "bg-muted-foreground")} />
                         
-                        {/* Type Badge */}
-                        <span className="shrink-0 bg-primary/10 text-primary px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                          Power Dialer
-                        </span>
-                        
                         <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
                       </div>
                       
                       {/* Action Icons */}
                       <div className="flex items-center gap-2 shrink-0">
-                        <button className="p-1 text-muted-foreground hover:text-foreground transition-colors" onClick={e => e.stopPropagation()}>
-                          <BarChart3 className="w-4 h-4" />
-                        </button>
                         <button className="p-1 text-muted-foreground hover:text-foreground transition-colors" onClick={e => e.stopPropagation()}>
                           <Settings className="w-4 h-4" />
                         </button>
@@ -569,7 +561,7 @@ export default function DialerPage() {
                     <div className="mb-5">
                       <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
                       <div className="flex flex-wrap gap-1.5">
-                        {mockStates.slice(0, 5).map(s => {
+                        {mockStates.map(s => {
                           const outsideHours = s.state === "FL" || s.state === "NY";
                           return (
                             <span 
@@ -589,11 +581,6 @@ export default function DialerPage() {
                             </span>
                           );
                         })}
-                        {mockStates.length > 5 && (
-                          <span className="bg-muted text-muted-foreground border border-border/50 px-2 py-0.5 rounded-full text-xs font-medium cursor-help" title={mockStates.slice(5).map(s => s.state).join(', ')}>
-                            +{mockStates.length - 5} more
-                          </span>
-                        )}
                       </div>
                     </div>
 
@@ -601,7 +588,7 @@ export default function DialerPage() {
                     <div className="mt-auto space-y-2">
                       <p className="text-xs text-muted-foreground font-medium">Campaign Progress</p>
                       <p className="text-xs text-foreground mb-1.5 font-medium">
-                        {mockCallsMade}/{mockTotalLeads} calls made · {mockConnected} connected ({mockConnectRate})
+                        {mockCallsMade}/{mockTotalLeads} calls made
                       </p>
                       
                       {/* Dual Layer Progress Bar Container */}
