@@ -415,7 +415,7 @@ export default function DialerPage() {
           </p>
         </div>
 
-        <div className="w-full max-w-lg space-y-3">
+        <div className="w-full max-w-7xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {loadingCampaigns && (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-primary mb-3" />
