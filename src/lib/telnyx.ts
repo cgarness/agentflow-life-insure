@@ -26,7 +26,7 @@ export async function makeCall(destinationNumber: string, callerId: string) {
   const client = await initTelnyx();
   const call = client.newCall({
     destinationNumber,
-    callerIdNumber: callerId,
+    callerNumber: callerId,
   });
   return call;
 }
