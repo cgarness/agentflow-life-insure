@@ -90,16 +90,24 @@ const MonthView: React.FC<Props> = ({
             const isSelected = sameDay(cell.date, selectedDate);
             return (
               <button key={i} onClick={() => { onSelectDate(cell.date); if (cell.inMonth) onDayClick(cell.date); }}
-                className={`min-h-[80px] lg:min-h-[100px] min-w-0 p-1.5 border text-left transition-colors duration-150 flex flex-col ${
+                className={`min-h-[60px] sm:min-h-[80px] lg:min-h-[100px] min-w-0 p-1 sm:p-1.5 border text-left transition-colors duration-150 flex flex-col ${
                   !cell.inMonth ? "opacity-40" : ""
-                } ${isSelected ? "border-transparent border-r-border border-b-border ring-2 ring-primary ring-inset z-10 relative" : "border-transparent border-r-border border-b-border"} ${isToday && cell.inMonth && isSelected ? "bg-primary/5" : ""} hover:bg-accent/30`}>
-                <div className="flex w-full justify-center">
-                  <span className={`text-sm font-medium inline-flex items-center justify-center ${isToday && cell.inMonth ? "w-6 h-6 rounded-full text-white" : "text-foreground"}`}
-                    style={isToday && cell.inMonth ? { backgroundColor: "#3B82F6" } : undefined}>
+                } ${isSelected ? "border-transparent border-r-border border-b-border outline outline-2 outline-primary outline-offset-[-2px] z-10 relative" : "border-transparent border-r-border border-b-border"} ${isToday && cell.inMonth && isSelected ? "bg-primary/5" : ""} hover:bg-accent/30`}>
+                <div className="flex items-start justify-between w-full">
+                  <span
+                    className={`
+                      inline-flex items-center justify-center
+                      text-xs font-medium leading-none
+                      w-6 h-6 rounded-full shrink-0
+                      ${isToday && cell.inMonth
+                        ? "bg-primary text-primary-foreground"
+                        : "text-foreground"}
+                    `}
+                  >
                     {cell.date.getDate()}
                   </span>
                 </div>
-                <div className="flex flex-col gap-0.5 mt-1 overflow-hidden flex-1 w-full min-w-0">
+                <div className="flex gap-0.5 mt-0.5 flex-wrap overflow-hidden max-h-[16px]">
                   {appts.slice(0, 2).map(a => {
                     const col = APPOINTMENT_TYPE_COLORS[a.type];
                     return (
