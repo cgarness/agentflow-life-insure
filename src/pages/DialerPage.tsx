@@ -376,45 +376,144 @@ export default function DialerPage() {
 
   // FIX 3: Show campaign selection screen when no campaign selected
   if (selectedCampaignId === null) {
+    // Extract unique states from all campaign lead data for badges
+    const getStateColors = (state: string): string => {
+      const colors: Record<string, string> = {
+        CA: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+        TX: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+        FL: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+        NY: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+        IL: "bg-pink-500/20 text-pink-400 border-pink-500/30",
+        PA: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+        OH: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+        GA: "bg-rose-500/20 text-rose-400 border-rose-500/30",
+        NC: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
+        MI: "bg-teal-500/20 text-teal-400 border-teal-500/30",
+        AZ: "bg-red-500/20 text-red-400 border-red-500/30",
+        NV: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+      };
+      return colors[state] || "bg-muted text-muted-foreground border-border";
+    };
+
     return (
       <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6">
-        <h1 className="text-xl font-bold text-foreground mb-2">Select a Campaign to Begin</h1>
-        <p className="text-sm text-muted-foreground mb-6">
-          Choose an active campaign from the list below to load your lead queue.
-        </p>
-        <div className="bg-card border rounded-xl p-6 w-full max-w-md space-y-3">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-full mb-4">
+            <Phone className="w-3.5 h-3.5" />
+            DIALER
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mb-1">Select a Campaign</h1>
+          <p className="text-sm text-muted-foreground">
+            Choose an active campaign to start dialing
+          </p>
+        </div>
+
+        <div className="w-full max-w-lg space-y-3">
           {loadingCampaigns && (
-            <div className="flex justify-center py-4">
-              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-primary mb-3" />
+              <p className="text-sm text-muted-foreground">Loading campaigns…</p>
             </div>
           )}
           {!loadingCampaigns && campaigns.length === 0 && (
-            <p className="text-muted-foreground text-sm text-center">No active campaigns found.</p>
+            <div className="text-center py-12 bg-card border border-dashed rounded-xl">
+              <p className="text-muted-foreground text-sm">No active campaigns found.</p>
+              <p className="text-muted-foreground text-xs mt-1">Create a campaign to get started.</p>
+            </div>
           )}
           {!loadingCampaigns &&
-            campaigns.map((campaign) => (
-              <div
-                key={campaign.id}
-                className="flex items-center justify-between p-3 rounded-lg bg-accent hover:bg-accent/80 cursor-pointer border border-border"
-                onClick={() => setSelectedCampaignId(campaign.id)}
-              >
-                <div>
-                  <div className="font-semibold text-foreground text-sm">{campaign.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {campaign.available_leads ?? 0} leads available
+            campaigns.map((campaign) => {
+              const total = campaign.total_leads ?? 0;
+              const contacted = campaign.leads_contacted ?? 0;
+              const converted = campaign.leads_converted ?? 0;
+              const remaining = Math.max(0, total - contacted);
+              const contactedPct = total > 0 ? Math.round((contacted / total) * 100) : 0;
+              const convertedPct = total > 0 ? Math.round((converted / total) * 100) : 0;
+
+              // Parse tags as states if they look like state abbreviations
+              const tags: string[] = Array.isArray(campaign.tags)
+                ? campaign.tags
+                : typeof campaign.tags === "string"
+                  ? JSON.parse(campaign.tags || "[]")
+                  : [];
+              const states = tags.filter((t: string) => /^[A-Z]{2}$/.test(t));
+
+              return (
+                <div
+                  key={campaign.id}
+                  className="group relative bg-card border border-border rounded-xl p-4 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200 cursor-pointer"
+                  onClick={() => setSelectedCampaignId(campaign.id)}
+                >
+                  {/* Top row */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-foreground text-sm truncate group-hover:text-primary transition-colors">
+                        {campaign.name}
+                      </h3>
+                      {campaign.description && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{campaign.description}</p>
+                      )}
+                    </div>
+                    <button
+                      className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded-lg opacity-80 group-hover:opacity-100 transition-opacity shrink-0 ml-3"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedCampaignId(campaign.id);
+                      }}
+                    >
+                      Start →
+                    </button>
+                  </div>
+
+                  {/* State badges */}
+                  {states.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {states.map((state: string) => (
+                        <span
+                          key={state}
+                          className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded border ${getStateColors(state)}`}
+                        >
+                          {state}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Progress bar */}
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                      <span>{total} total leads</span>
+                      <span>{remaining} remaining</span>
+                    </div>
+                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
+                      {convertedPct > 0 && (
+                        <div
+                          className="h-full bg-emerald-500 transition-all duration-500"
+                          style={{ width: `${convertedPct}%` }}
+                        />
+                      )}
+                      {contactedPct - convertedPct > 0 && (
+                        <div
+                          className="h-full bg-primary transition-all duration-500"
+                          style={{ width: `${contactedPct - convertedPct}%` }}
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <div className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                        <span className="text-[10px] text-muted-foreground">Converted {convertedPct}%</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-primary inline-block" />
+                        <span className="text-[10px] text-muted-foreground">Contacted {contactedPct}%</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <button
-                  className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1.5 rounded-lg"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedCampaignId(campaign.id);
-                  }}
-                >
-                  Start →
-                </button>
-              </div>
-            ))}
+              );
+            })}
         </div>
       </div>
     );
