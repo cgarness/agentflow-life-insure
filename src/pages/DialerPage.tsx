@@ -729,23 +729,7 @@ export default function DialerPage() {
             </button>
           </div>
 
-          {/* Contact info card — fixed above tabs, always visible */}
-          {currentLead && (
-            <div className="shrink-0 bg-card border rounded-lg p-3">
-              <div className="text-2xl font-bold text-foreground">
-                {currentLead.first_name} {currentLead.last_name}
-              </div>
-              <div className="font-mono text-muted-foreground text-xs">{currentLead.phone}</div>
-              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                {currentLead.state && (
-                  <span className="bg-accent border rounded px-1.5 py-0.5">{currentLead.state}</span>
-                )}
-                {currentLead.age && <span>Age {currentLead.age}</span>}
-              </div>
-            </div>
-          )}
-
-          {/* Tab bar — fixed directly below contact info */}
+          {/* Tab bar — fixed below action buttons */}
           <div className="shrink-0 border rounded-lg overflow-hidden flex">
             {(["dispositions", "queue", "scripts"] as const).map((tab) => (
               <button
