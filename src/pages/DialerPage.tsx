@@ -669,13 +669,22 @@ export default function DialerPage() {
           <div className="bg-card border rounded-xl p-4 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Contact Info</span>
-              <button 
-                onClick={() => setShowFullViewDrawer(true)}
-                className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
-                title="Edit Contact"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={() => setShowFullViewDrawer(true)}
+                  className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
+                  title="Full View"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </button>
+                <button 
+                  onClick={() => setShowFullViewDrawer(true)} // Currently both open the same "Full View" modal
+                  className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
+                  title="Edit Contact"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             {contactLocalTimeDisplay && (
@@ -871,25 +880,6 @@ export default function DialerPage() {
               <SkipForward className="w-5 h-5" />
               Skip
             </button>
-            <button
-              onClick={() => setShowAppointmentModal(true)}
-              className="bg-purple-500 hover:bg-purple-600 text-white rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-            >
-              <CalendarIcon className="w-5 h-5" />
-              Schedule
-            </button>
-            <button
-              onClick={() => setShowFullViewDrawer(true)}
-              className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-              style={{
-                backgroundColor: '#1D4ED81A',
-                color: '#3B82F6',
-                border: '1px solid #3B82F640',
-              }}
-            >
-              <Eye className="w-5 h-5" />
-              Full View
-            </button>
           </div>
 
           {/* Tab bar */}
@@ -910,77 +900,60 @@ export default function DialerPage() {
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto">
             {leftTab === "dispositions" && (
-              <div className="flex flex-col gap-3">
-                {/* Disposition grid */}
+              <div className="flex flex-col gap-4">
+                {/* Disposition Select */}
                 <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
-                    Select Disposition
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2 font-bold">
+                    Call Result
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {dispositions.map((d) => {
-                      const isSelected = selectedDisp?.id === d.id;
-                      return (
-                        <button
-                          key={d.id}
-                          onClick={() => handleSelectDisposition(d)}
-                          className={`rounded-lg px-2 py-2 text-left w-full flex items-center gap-2 cursor-pointer ${
-                            isSelected ? "" : "bg-accent border border-border"
-                          }`}
-                          style={
-                            isSelected
-                              ? {
-                                  backgroundColor: d.color + "22",
-                                  border: "1.5px solid " + d.color,
-                                }
-                              : undefined
-                          }
-                        >
-                          <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: d.color }}
-                          />
-                          <span
-                            className="text-xs font-semibold"
-                            style={{ color: isSelected ? d.color : undefined }}
-                          >
-                            {d.name}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <select
+                    value={selectedDisp?.id || ""}
+                    onChange={(e) => {
+                      const d = dispositions.find(disp => disp.id === e.target.value);
+                      if (d) handleSelectDisposition(d);
+                    }}
+                    className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/50 outline-none h-11"
+                  >
+                    <option value="" disabled>Select a disposition...</option>
+                    {dispositions.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* Quick Notes section */}
-                {showWrapUp && (
-                  <div>
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1">
-                      Quick Notes
-                    </div>
-                    <textarea
-                      value={noteText}
-                      onChange={(e) => {
-                        setNoteText(e.target.value);
-                        setNoteError(false);
-                      }}
-                      placeholder="Add notes…"
-                      className={`bg-accent border rounded-lg p-2 text-sm text-foreground w-full resize-none h-20 ${
-                        noteError ? "border-destructive" : "border-border"
-                      }`}
-                    />
-                    {selectedDisp?.requireNotes && selectedDisp.minNoteChars > 0 && (
-                      <div className="text-[10px] text-muted-foreground">
-                        {noteText.length} / {selectedDisp.minNoteChars} min
-                      </div>
-                    )}
-                    <button
-                      onClick={handleSaveAndContinue}
-                      className="bg-primary text-primary-foreground w-full rounded-lg py-2 text-sm font-semibold mt-1"
-                    >
-                      Save &amp; Continue
-                    </button>
+                {/* Notes and Save Button */}
+                <div className="flex flex-col gap-2">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1 font-bold">
+                    Call Notes
                   </div>
-                )}
+                  <textarea
+                    value={noteText}
+                    onChange={(e) => {
+                      setNoteText(e.target.value);
+                      setNoteError(false);
+                    }}
+                    placeholder="Brief summary of the conversation..."
+                    className={`bg-accent border rounded-lg p-3 text-sm text-foreground w-full resize-none h-32 focus:ring-2 focus:ring-primary/50 outline-none transition-all ${
+                      noteError ? "border-destructive ring-1 ring-destructive" : "border-border"
+                    }`}
+                  />
+                  {selectedDisp?.requireNotes && selectedDisp.minNoteChars > 0 && (
+                    <div className="text-[10px] flex justify-between px-1">
+                      <span className={noteText.length < selectedDisp.minNoteChars ? "text-destructive font-medium" : "text-success font-medium"}>
+                        {noteText.length} / {selectedDisp.minNoteChars} characters min
+                      </span>
+                      {noteError && <span className="text-destructive font-bold">Required</span>}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleSaveAndContinue}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground w-full rounded-xl py-3.5 text-sm font-bold mt-2 shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                  >
+                    Save Disposition & Continue
+                  </button>
+                </div>
               </div>
             )}
 
