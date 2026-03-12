@@ -774,25 +774,8 @@ export default function DialerPage() {
           </div>
 
           {/* SMS composer — shrink-0 */}
-          <div className="shrink-0 bg-card border rounded-xl flex flex-col pt-3">
-            <div className="px-4">
-              {/* Tab switcher */}
-              <div className="flex gap-2 mb-2">
-                {(["sms", "email"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => handleSmsTabChange(tab)}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold uppercase ${
-                      smsTab === tab
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-accent text-muted-foreground"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-
+          <div className="shrink-0 bg-card border rounded-xl flex flex-col mt-2">
+            <div className="px-4 pt-3">
               {/* Tab Fields */}
               {smsTab === "email" ? (
                 <div className="flex flex-col gap-2">
@@ -821,21 +804,41 @@ export default function DialerPage() {
               )}
             </div>
 
-            {/* Action Buttons Row: Templates + Send */}
-            <div className="flex items-center gap-2 px-4 py-3">
-              <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 hover:bg-accent/80 transition-colors">
-                <FileText className="w-4 h-4" />
-                Templates
-              </button>
+            {/* Action Buttons Row: Tabs (Left) + Actions (Right) */}
+            <div className="flex items-center justify-between px-4 py-3 border-t mt-3">
+              {/* LEFT: Tab switcher */}
+              <div className="flex gap-1">
+                {(["sms", "email"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => handleSmsTabChange(tab)}
+                    className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all ${
+                      smsTab === tab
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
 
-              <button
-                onClick={handleSendMessage}
-                className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 hover:bg-primary/90 transition-colors"
-                title={smsTab === "email" ? "Send Email" : "Send SMS"}
-              >
-                <span>Send</span>
-                <Send className="w-4 h-4" />
-              </button>
+              {/* RIGHT: Templates + Send */}
+              <div className="flex items-center gap-2">
+                <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent/80 transition-colors">
+                  <FileText className="w-3.5 h-3.5" />
+                  Templates
+                </button>
+
+                <button
+                  onClick={handleSendMessage}
+                  className="bg-success text-success-foreground rounded-lg px-4 py-1.5 text-xs font-bold flex items-center gap-2 hover:bg-success/90 transition-all shadow-sm border border-success/20"
+                  title={smsTab === "email" ? "Send Email" : "Send SMS"}
+                >
+                  <span>Send</span>
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
