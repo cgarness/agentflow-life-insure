@@ -795,15 +795,38 @@ export default function DialerPage() {
             </div>
 
             {currentLead && (
-              <h2 className="text-xl font-bold text-foreground mt-2 mb-1 tracking-tight">
-                {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
-              </h2>
-            )}
-
-            {contactLocalTimeDisplay && (
-              <div className="inline-flex items-center bg-green-500/10 text-green-500 rounded-full px-2 py-0.5 text-[10px] font-bold self-start border border-green-500/20">
-                <Clock className="w-3 h-3 mr-1" />
-                {contactLocalTimeDisplay}
+              <div className="flex flex-col gap-1 mt-2">
+                <h2 className="text-xl font-bold text-foreground tracking-tight">
+                  {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative w-max min-w-[120px]">
+                    <select
+                      value={currentLead?.status || ""}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      className="w-full text-[10px] uppercase tracking-widest font-bold rounded-md pl-2 pr-6 py-0.5 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
+                      style={{ 
+                        backgroundColor: currentStatusColor + '15',
+                        color: currentStatusColor,
+                        borderColor: currentStatusColor + '30'
+                      }}
+                    >
+                      {leadStages.map(s => (
+                        <option key={s.id} value={s.name} style={{ color: s.color }}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-2.5 h-2.5 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                  </div>
+                  
+                  {contactLocalTimeDisplay && (
+                    <div className="inline-flex items-center text-green-500 text-[10px] font-bold">
+                      <Clock className="w-2.5 h-2.5 mr-1" />
+                      {contactLocalTimeDisplay}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -834,29 +857,6 @@ export default function DialerPage() {
               ))}
             </div>
             
-            <div className="pt-2 border-t mt-1">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Status</div>
-              <div className="flex items-center gap-2 mt-1.5">
-                <div className="relative flex-1">
-                  <select
-                    value={currentLead?.status || ""}
-                    onChange={(e) => handleStatusChange(e.target.value)}
-                    className="w-full text-xs font-semibold rounded-md px-2 py-1 border-0 appearance-none focus:ring-2 focus:ring-primary/50 cursor-pointer transition-colors"
-                    style={{ 
-                      backgroundColor: currentStatusColor + '15',
-                      color: currentStatusColor
-                    }}
-                  >
-                    {leadStages.map(s => (
-                      <option key={s.id} value={s.name} style={{ color: s.color }}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
