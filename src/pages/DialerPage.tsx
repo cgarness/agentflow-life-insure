@@ -686,7 +686,7 @@ export default function DialerPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-112px)] lg:h-[calc(100vh-130px)] overflow-hidden bg-background text-foreground">
+    <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 pt-1 pb-2 gap-4">
         {/* LEFT */}
