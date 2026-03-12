@@ -111,8 +111,11 @@ function historyIcon(type: string) {
  */
 function mapDialerLeadToContactLead(row: any): Lead {
   if (!row) return {} as Lead;
+  // Use lead_id (the reference to the master leads table) as the id 
+  // so that ContactModal's onUpdate correctly updates the master record.
+  const idValue = row.lead_id || row.id;
   return {
-    id: row.id,
+    id: idValue,
     firstName: row.first_name || "",
     lastName: row.last_name || "",
     phone: row.phone || "",
@@ -398,18 +401,19 @@ export default function DialerPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!currentLead) return;
     try {
-      // Some systems use currentLead.id for campaign lead and lead_id for master contact
-      const campaignLeadId = currentLead.id;
-      const masterId = currentLead.lead_id || currentLead.id;
+      const campaignLeadId = currentLead.id; // Primary key in campaign_leads
+      const masterLeadId = currentLead.lead_id || currentLead.id; // Primary key in leads
 
       // 1. Update the campaign lead status and contact activities
-      await updateLeadStatus(campaignLeadId, masterId, newStatus);
+      await updateLeadStatus(campaignLeadId, masterLeadId, newStatus);
       
       // 2. Also ensure the master lead record itself is updated
-      try {
-        await leadsSupabaseApi.update(masterId, { status: newStatus as any });
-      } catch (e) {
-        console.warn("Master contact record update failed", e);
+      if (masterLeadId) {
+        try {
+          await leadsSupabaseApi.update(masterLeadId, { status: newStatus as any });
+        } catch (e) {
+          console.warn("Master contact record update failed", e);
+        }
       }
 
       // Update local queue state
@@ -1244,19 +1248,18 @@ export default function DialerPage() {
         onUpdate={async (id, data) => {
           try {
             await leadsSupabaseApi.update(id, data);
-            // Refresh local queue state
-            setLeadQueue(prev => prev.map(l => l.id === id ? { ...l, ...data, 
-              // Map back to snake_case for local state consistency if needed
+            // Refresh local queue state by matching either the lead_id or the internal id
+            setLeadQueue(prev => prev.map(l => (l.lead_id === id || l.id === id) ? {
+              ...l,
+              ...data,
               first_name: data.firstName ?? l.first_name,
               last_name: data.lastName ?? l.last_name,
-              phone: data.phone ?? l.phone,
               email: data.email ?? l.email,
+              phone: data.phone ?? l.phone,
               state: data.state ?? l.state,
               status: data.status ?? l.status,
-              source: data.leadSource ?? l.source,
-              lead_score: data.leadScore ?? l.lead_score,
             } : l));
-            toast.success("Contact updated");
+            toast.success("Contact updated successfully");
           } catch (err: any) {
             toast.error("Failed to update contact: " + err.message);
           }
