@@ -34,6 +34,7 @@ import {
   saveCall,
   saveNote,
   saveAppointment,
+  updateLeadStatus,
 } from "@/lib/dialer-api";
 import { useTelnyx } from "@/contexts/TelnyxContext";
 import {
@@ -393,7 +394,18 @@ export default function DialerPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!currentLead) return;
     try {
-      await leadsSupabaseApi.update(currentLead.id, { status: newStatus as any });
+      // 1. Update the campaign lead status (tracks progress in the dialer)
+      await updateLeadStatus(currentLead.id, newStatus);
+      
+      // 2. Also try to update the master record if possible
+      // Some systems use currentLead.id, others use currentLead.lead_id
+      const masterId = (currentLead as any).lead_id || currentLead.id;
+      try {
+        await leadsSupabaseApi.update(masterId, { status: newStatus as any });
+      } catch (e) {
+        console.warn("Master contact update failed", e);
+      }
+
       // Update local queue state
       setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: newStatus } : l));
       toast.success(`Status updated to ${newStatus}`);
