@@ -40,6 +40,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Calendar } from "@/components/ui/calendar";
 import ContactModal from "@/components/contacts/ContactModal";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import { useCalendar } from "@/contexts/CalendarContext";
