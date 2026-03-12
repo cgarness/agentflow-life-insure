@@ -21,6 +21,8 @@ import {
   Settings,
   TrendingUp,
   Clock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -667,23 +669,62 @@ export default function DialerPage() {
         {/* ── NEW LEFT COLUMN (Contact Info) ── */}
         <div className="w-72 shrink-0 flex flex-col gap-3">
           <div className="bg-card border rounded-xl p-4 flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Contact Info</span>
-              <div className="flex items-center gap-1.5">
-                <button 
-                  onClick={() => setShowFullViewDrawer(true)}
-                  className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
-                  title="Full View"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                </button>
-                <button 
-                  onClick={() => setShowFullViewDrawer(true)} // Currently both open the same "Full View" modal
-                  className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
-                  title="Edit Contact"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={() => {
+                      if (currentLeadIndex > 0) {
+                        setCurrentLeadIndex(i => i - 1);
+                        setShowWrapUp(false);
+                        setSelectedDisp(null);
+                        setNoteText("");
+                        setNoteError(false);
+                      }
+                    }}
+                    disabled={currentLeadIndex === 0}
+                    className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
+                    title="Previous Lead"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (currentLeadIndex < leadQueue.length - 1) {
+                        setCurrentLeadIndex(i => i + 1);
+                        setShowWrapUp(false);
+                        setSelectedDisp(null);
+                        setNoteText("");
+                        setNoteError(false);
+                      }
+                    }}
+                    disabled={currentLeadIndex >= leadQueue.length - 1}
+                    className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
+                    title="Next Lead"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Contact Info</span>
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    onClick={() => setShowFullViewDrawer(true)}
+                    className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
+                    title="Full View"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button 
+                    onClick={() => setShowFullViewDrawer(true)}
+                    className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
+                    title="Edit Contact"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 
