@@ -61,8 +61,8 @@ const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
 const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [active, setActive] = useState(0);
-  const { user } = useAuth();
-  const isMasterAdmin = user?.email === MASTER_ADMIN_EMAIL;
+  const { user, profile } = useAuth();
+  const isMasterAdmin = user?.email === MASTER_ADMIN_EMAIL || profile?.email === MASTER_ADMIN_EMAIL;
 
   useEffect(() => {
     const section = searchParams.get("section");
