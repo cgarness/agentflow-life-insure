@@ -66,7 +66,7 @@ export async function getLeadHistory(leadId: string) {
   }));
 
   const merged = [...callItems, ...activityItems];
-  merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   return merged;
 }
 

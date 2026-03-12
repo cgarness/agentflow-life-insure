@@ -190,6 +190,7 @@ export default function DialerPage() {
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const historyEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
@@ -260,6 +261,12 @@ export default function DialerPage() {
       .catch(() => toast.error("Failed to load history"))
       .finally(() => setLoadingHistory(false));
   }, [currentLead]);
+
+  useEffect(() => {
+    if (historyEndRef.current) {
+      historyEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [history]);
 
   // Trigger wrap-up when call ends
   useEffect(() => {
@@ -1089,6 +1096,7 @@ export default function DialerPage() {
                     </div>
                   </div>
                 ))}
+              <div ref={historyEndRef} />
             </div>
           </div>
 
@@ -1272,7 +1280,7 @@ export default function DialerPage() {
                         onClick={handleSaveOnly}
                         className="h-12 rounded-xl bg-accent text-accent-foreground font-bold text-xs shadow-sm hover:bg-accent/80 transition-all flex items-center justify-center"
                       >
-                        Save Only
+                        Save
                       </button>
                       <button
                         onClick={handleSaveAndNext}
