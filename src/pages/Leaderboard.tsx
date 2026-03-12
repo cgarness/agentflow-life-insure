@@ -160,18 +160,20 @@ const Leaderboard: React.FC = () => {
     const startISO = range.start.toISOString();
     const endISO = range.end.toISOString();
 
-    const [callsRes, apptsRes] = await Promise.all([
+    const [callsRes, apptsRes, winsRes] = await Promise.all([
       supabase.from("calls").select("agent_id, disposition_name, duration, started_at").gte("started_at", startISO).lte("started_at", endISO),
       supabase.from("appointments").select("created_by, created_at").gte("created_at", startISO).lte("created_at", endISO),
+      supabase.from("wins").select("agent_id, created_at").gte("created_at", startISO).lte("created_at", endISO),
     ]);
 
     const calls = callsRes.data || [];
     const appts = apptsRes.data || [];
+    const winsCurrent = winsRes.data || [];
 
     return profiles.map(p => {
       const agentCalls = calls.filter(c => c.agent_id === p.id);
       const callsMade = agentCalls.length;
-      const policiesSold = agentCalls.filter(c => c.disposition_name && (/sold/i.test(c.disposition_name) || /policy/i.test(c.disposition_name))).length;
+      const policiesSold = winsCurrent.filter(w => w.agent_id === p.id).length;
       const talkTime = agentCalls.reduce((s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0), 0);
       const appointmentsSet = appts.filter(a => a.created_by === p.id).length;
       const conversionRate = callsMade > 0 ? (policiesSold / callsMade) * 100 : 0;
@@ -182,14 +184,20 @@ const Leaderboard: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
+    const dbPeriod = period === "Today" ? "daily" : period === "This Week" ? "weekly" : "monthly";
+
     const [profilesRes, goalsRes] = await Promise.all([
       supabase.from("profiles").select("id, first_name, last_name, avatar_url, role"),
-      supabase.from("goals").select("metric, target_value"),
+      supabase.from("goals").select("metric, target_value").eq("period", dbPeriod),
     ]);
 
     const allProfiles = (profilesRes.data || []).filter(p => p.role?.toLowerCase() !== "admin");
     const goalsMap: Record<string, number> = {};
-    (goalsRes.data || []).forEach(g => { goalsMap[g.metric] = g.target_value; });
+    (goalsRes.data || []).forEach(g => { 
+      // Handle both simple "calls" and "daily_calls" style metrics
+      const key = g.metric.replace(/^(daily_|weekly_|monthly_)/, "");
+      goalsMap[key] = g.target_value; 
+    });
     setGoals(goalsMap);
 
     const range = getPeriodRange(period);

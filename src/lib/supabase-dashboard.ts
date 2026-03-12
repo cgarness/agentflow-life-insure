@@ -168,19 +168,17 @@ export const dashboardSupabaseApi = {
       callsYesterdayQuery = callsYesterdayQuery.eq("agent_id", userId);
     }
     
-    // Policies Sold This Month (disposition contains 'sold' or 'policy')
+    // Policies Sold This Month (from wins table)
     let policiesThisMonthQuery = supabase
-      .from("calls")
+      .from("wins")
       .select("id", { count: "exact", head: true })
-      .gte("started_at", ranges.monthStart.toISOString())
-      .or("disposition_name.ilike.%sold%,disposition_name.ilike.%policy%");
+      .gte("created_at", ranges.monthStart.toISOString());
     
     let policiesLastMonthQuery = supabase
-      .from("calls")
+      .from("wins")
       .select("id", { count: "exact", head: true })
-      .gte("started_at", ranges.lastMonthStart.toISOString())
-      .lt("started_at", ranges.monthStart.toISOString())
-      .or("disposition_name.ilike.%sold%,disposition_name.ilike.%policy%");
+      .gte("created_at", ranges.lastMonthStart.toISOString())
+      .lt("created_at", ranges.monthStart.toISOString());
     
     if (!isAdmin) {
       policiesThisMonthQuery = policiesThisMonthQuery.eq("agent_id", userId);
@@ -408,11 +406,10 @@ export const dashboardSupabaseApi = {
         .eq("agent_id", userId)
         .gte("started_at", ranges.todayStart.toISOString()),
       supabase
-        .from("calls")
+        .from("wins")
         .select("id", { count: "exact", head: true })
         .eq("agent_id", userId)
-        .gte("started_at", ranges.monthStart.toISOString())
-        .or("disposition_name.ilike.%sold%,disposition_name.ilike.%policy%"),
+        .gte("created_at", ranges.monthStart.toISOString()),
     ]);
     
     const goalMap = new Map((goals ?? []).map(g => [g.metric, g]));
@@ -462,20 +459,17 @@ export const dashboardSupabaseApi = {
       .select("id, first_name, last_name")
       .eq("status", "Active");
     
-    // Get calls with sold dispositions this month grouped by agent
-    const { data: calls } = await supabase
-      .from("calls")
-      .select("agent_id, disposition_name")
-      .gte("started_at", ranges.monthStart.toISOString());
+    // Get wins this month grouped by agent
+    const { data: wins } = await supabase
+      .from("wins")
+      .select("agent_id")
+      .gte("created_at", ranges.monthStart.toISOString());
     
     // Count policies per agent
     const policiesByAgent = new Map<string, number>();
-    for (const call of calls ?? []) {
-      if (!call.agent_id) continue;
-      const dispLower = (call.disposition_name || "").toLowerCase();
-      if (dispLower.includes("sold") || dispLower.includes("policy")) {
-        policiesByAgent.set(call.agent_id, (policiesByAgent.get(call.agent_id) ?? 0) + 1);
-      }
+    for (const win of wins ?? []) {
+      if (!win.agent_id) continue;
+      policiesByAgent.set(win.agent_id, (policiesByAgent.get(win.agent_id) ?? 0) + 1);
     }
     
     // Build leaderboard

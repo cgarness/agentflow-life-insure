@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,68 +48,77 @@ const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badge
   const weekStart = startOfWeek(subWeeks(now, weekOffset), { weekStartsOn: 1 });
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
 
-  useEffect(() => {
-    if (!open || !agent) return;
-    fetchWeekStats();
-    fetchGoals();
-    fetchTrend();
-    fetchCoachingNotes();
-  }, [open, agent, weekOffset]);
-
-  const fetchWeekStats = async () => {
+  const fetchWeekStats = useCallback(async () => {
     if (!agent) return;
     const ws = startOfDay(weekStart).toISOString();
     const we = new Date(weekEnd.getTime() + 86400000 - 1).toISOString();
 
-    const [callsRes, apptsRes] = await Promise.all([
+    const [callsRes, apptsRes, winsRes] = await Promise.all([
       supabase.from("calls").select("disposition_name, duration").eq("agent_id", agent.id).gte("started_at", ws).lte("started_at", we),
       supabase.from("appointments").select("id").eq("created_by", agent.id).gte("created_at", ws).lte("created_at", we),
+      supabase.from("wins").select("id").eq("agent_id", agent.id).gte("created_at", ws).lte("created_at", we),
     ]);
 
     const calls = callsRes.data || [];
     const callsMade = calls.length;
-    const policiesSold = calls.filter(c => c.disposition_name && (/sold/i.test(c.disposition_name) || /policy/i.test(c.disposition_name))).length;
+    const policiesSold = (winsRes.data || []).length;
     const talkTime = calls.reduce((s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0), 0);
     const appointmentsSet = (apptsRes.data || []).length;
     const conversionRate = callsMade > 0 ? (policiesSold / callsMade) * 100 : 0;
 
     setStats({ callsMade, policiesSold, appointmentsSet, talkTime, conversionRate });
-  };
+  }, [agent, weekStart, weekEnd]);
 
-  const fetchGoals = async () => {
-    const { data } = await supabase.from("goals").select("metric, target_value");
+  const fetchGoals = useCallback(async () => {
+    // Scorecard is weekly view, so fetch weekly goals
+    const { data } = await supabase.from("goals").select("metric, target_value").eq("period", "weekly");
     if (data) {
       const m: Record<string, number> = {};
-      data.forEach(g => { m[g.metric] = g.target_value; });
+      data.forEach(g => { 
+        const key = g.metric.replace(/^(daily_|weekly_|monthly_)/, "");
+        m[key] = g.target_value; 
+      });
       setGoals(m);
     }
-  };
+  }, []);
 
-  const fetchTrend = async () => {
+  const fetchTrend = useCallback(async () => {
     if (!agent) return;
+    const trendNow = new Date();
     const weeks: { week: string; calls: number; policies: number }[] = [];
     for (let i = 3; i >= 0; i--) {
-      const ws = startOfWeek(subWeeks(now, i), { weekStartsOn: 1 });
+      const ws = startOfWeek(subWeeks(trendNow, i), { weekStartsOn: 1 });
       const we = endOfWeek(ws, { weekStartsOn: 1 });
-      const { data } = await supabase.from("calls").select("disposition_name").eq("agent_id", agent.id).gte("started_at", startOfDay(ws).toISOString()).lte("started_at", new Date(we.getTime() + 86400000 - 1).toISOString());
-      const c = data || [];
+      const [callsRes, winsRes] = await Promise.all([
+        supabase.from("calls").select("id").eq("agent_id", agent.id).gte("started_at", startOfDay(ws).toISOString()).lte("started_at", new Date(we.getTime() + 86400000 - 1).toISOString()),
+        supabase.from("wins").select("id").eq("agent_id", agent.id).gte("created_at", startOfDay(ws).toISOString()).lte("created_at", new Date(we.getTime() + 86400000 - 1).toISOString()),
+      ]);
+      
       weeks.push({
         week: format(ws, "MMM d"),
-        calls: c.length,
-        policies: c.filter(x => x.disposition_name && (/sold/i.test(x.disposition_name) || /policy/i.test(x.disposition_name))).length,
+        calls: (callsRes.data || []).length,
+        policies: (winsRes.data || []).length,
       });
     }
     setTrendData(weeks);
-  };
+  }, [agent]);
 
-  const fetchCoachingNotes = async () => {
+  const fetchCoachingNotes = useCallback(async () => {
     if (!agent) return;
     const wsStr = format(weekStart, "yyyy-MM-dd");
     const { data } = await supabase.from("agent_scorecards").select("coaching_notes").eq("agent_id", agent.id).eq("week_start", wsStr).maybeSingle();
     const notes = data?.coaching_notes || "";
     setCoachingNotes(notes);
     setOriginalNotes(notes);
-  };
+  }, [agent, weekStart]);
+
+  useEffect(() => {
+    if (!open || !agent) return;
+    fetchWeekStats();
+    fetchGoals();
+    fetchTrend();
+    fetchCoachingNotes();
+  }, [open, agent, weekOffset, fetchWeekStats, fetchGoals, fetchTrend, fetchCoachingNotes]);
 
   const saveCoachingNotes = async () => {
     if (!agent) return;

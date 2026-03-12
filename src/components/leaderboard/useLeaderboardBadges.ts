@@ -16,14 +16,14 @@ export interface AgentFireStatus {
   avgCalls: number;
 }
 
-const BADGE_DEFS: Omit<Badge, "id">[] = [
-  { id: "onfire", label: "On Fire", icon: "🔥", color: "bg-orange-500/10 text-orange-600 border-orange-500/20", description: "Made calls on 5+ consecutive days" } as any,
-  { id: "closer", label: "Closer", icon: "⭐", color: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20", description: "Sold 10+ policies this month" } as any,
-  { id: "dialer", label: "Dialer", icon: "📞", color: "bg-blue-500/10 text-blue-600 border-blue-500/20", description: "Made 500+ calls this month" } as any,
-  { id: "perfect_week", label: "Perfect Week", icon: "✅", color: "bg-green-500/10 text-green-600 border-green-500/20", description: "Hit 100% of all goals this week" } as any,
-  { id: "rising_star", label: "Rising Star", icon: "📈", color: "bg-purple-500/10 text-purple-600 border-purple-500/20", description: "Rank improved by 3+ positions" } as any,
-  { id: "first_blood", label: "First Blood", icon: "🎯", color: "bg-teal-500/10 text-teal-600 border-teal-500/20", description: "Made their first ever sale" } as any,
-  { id: "top_performer", label: "Top Performer", icon: "👑", color: "bg-yellow-500/10 text-yellow-700 border-yellow-500/20", description: "Ranked #1 for 3+ consecutive weeks" } as any,
+const BADGE_DEFS: Badge[] = [
+  { id: "onfire", label: "On Fire", icon: "🔥", color: "bg-orange-500/10 text-orange-600 border-orange-500/20", description: "Made calls on 5+ consecutive days" },
+  { id: "closer", label: "Closer", icon: "⭐", color: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20", description: "Sold 10+ policies this month" },
+  { id: "dialer", label: "Dialer", icon: "📞", color: "bg-blue-500/10 text-blue-600 border-blue-500/20", description: "Made 500+ calls this month" },
+  { id: "perfect_week", label: "Perfect Week", icon: "✅", color: "bg-green-500/10 text-green-600 border-green-500/20", description: "Hit 100% of all goals this week" },
+  { id: "rising_star", label: "Rising Star", icon: "📈", color: "bg-purple-500/10 text-purple-600 border-purple-500/20", description: "Rank improved by 3+ positions" },
+  { id: "first_blood", label: "First Blood", icon: "🎯", color: "bg-teal-500/10 text-teal-600 border-teal-500/20", description: "Made their first ever sale" },
+  { id: "top_performer", label: "Top Performer", icon: "👑", color: "bg-yellow-500/10 text-yellow-700 border-yellow-500/20", description: "Ranked #1 for 3+ consecutive weeks" },
 ];
 
 export async function computeBadges(
@@ -39,14 +39,14 @@ export async function computeBadges(
   const thirtyDaysAgo = subDays(now, 30).toISOString();
 
   // Fetch all calls for streak + lifetime sold computation
-  const [recentCallsRes, lifetimeCallsRes, scorecardsRes] = await Promise.all([
+  const [recentCallsRes, lifetimeWinsRes, scorecardsRes] = await Promise.all([
     supabase.from("calls").select("agent_id, started_at, disposition_name").gte("started_at", thirtyDaysAgo).in("agent_id", agentIds),
-    supabase.from("calls").select("agent_id, disposition_name").in("agent_id", agentIds).or("disposition_name.ilike.%sold%,disposition_name.ilike.%policy%"),
+    supabase.from("wins").select("agent_id, created_at").in("agent_id", agentIds),
     supabase.from("agent_scorecards").select("agent_id, week_start, policies_sold").in("agent_id", agentIds).order("week_start", { ascending: false }).limit(500),
   ]);
 
   const recentCalls = recentCallsRes.data || [];
-  const lifetimeSold = lifetimeCallsRes.data || [];
+  const lifetimeWins = lifetimeWinsRes.data || [];
   const scorecards = scorecardsRes.data || [];
 
   for (const agentId of agentIds) {
@@ -68,13 +68,14 @@ export async function computeBadges(
     }
 
     // 2. Closer (10+ policies this month)
-    const monthCalls = agentCalls.filter(c => c.started_at && c.started_at >= monthStart);
-    const monthSold = monthCalls.filter(c => c.disposition_name && (/sold/i.test(c.disposition_name) || /policy/i.test(c.disposition_name))).length;
+    const monthWins = lifetimeWins.filter(w => w.agent_id === agentId && w.created_at && w.created_at >= monthStart);
+    const monthSold = monthWins.length;
     if (monthSold >= 10) {
       badges.push({ id: "closer", label: "Closer", icon: "⭐", color: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20", description: `${monthSold} policies sold this month` });
     }
 
     // 3. Dialer (500+ calls this month)
+    const monthCalls = agentCalls.filter(c => c.started_at && c.started_at >= monthStart);
     if (monthCalls.length >= 500) {
       badges.push({ id: "dialer", label: "Dialer", icon: "📞", color: "bg-blue-500/10 text-blue-600 border-blue-500/20", description: `${monthCalls.length} calls this month` });
     }
@@ -90,7 +91,7 @@ export async function computeBadges(
     }
 
     // 6. First Blood (first ever sale)
-    const totalLifetimeSold = lifetimeSold.filter(c => c.agent_id === agentId).length;
+    const totalLifetimeSold = lifetimeWins.filter(w => w.agent_id === agentId).length;
     if (totalLifetimeSold === 1) {
       badges.push({ id: "first_blood", label: "First Blood", icon: "🎯", color: "bg-teal-500/10 text-teal-600 border-teal-500/20", description: "First ever policy sold!" });
     }
