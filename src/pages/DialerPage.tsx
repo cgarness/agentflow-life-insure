@@ -48,7 +48,8 @@ import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
-import { Lead } from "@/lib/types";
+import { Lead, PipelineStage } from "@/lib/types";
+import { pipelineApi } from "@/lib/mock-api";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
@@ -144,6 +145,7 @@ export default function DialerPage() {
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
+  const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
   const [leftTab, setLeftTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
   // Call status from context
   const { 
@@ -215,12 +217,13 @@ export default function DialerPage() {
       .select("*")
       .eq("active", true)
       .then(({ data, error }) => {
-        if (error) {
-          console.error("Error fetching scripts:", error);
-        } else {
-          setAvailableScripts(data || []);
-        }
+        if (!error && data) setAvailableScripts(data);
       });
+    
+    // Fetch lead stages
+    pipelineApi.getLeadStages()
+      .then(setLeadStages)
+      .catch((err) => console.error("Error fetching lead stages:", err));
   }, []);
 
   useEffect(() => {
@@ -326,48 +329,66 @@ export default function DialerPage() {
     handleAdvance();
   }
 
-  async function handleSaveAndContinue() {
-    if (!selectedDisp || !currentLead || !user) return;
-    if (selectedDisp.requireNotes && noteText.trim().length < selectedDisp.minNoteChars) {
+  const handleSaveAndContinue = async () => {
+    if (!currentLead || !user) return;
+    if (selectedDisp?.requireNotes && noteText.length < selectedDisp.minNoteChars) {
       setNoteError(true);
-      toast.error(`Please add a note of at least ${selectedDisp.minNoteChars} characters`);
       return;
     }
-    setNoteError(false);
+
     try {
       await saveCall({
         lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
         duration_seconds: telnyxCallDuration,
-        disposition: selectedDisp.name,
-        disposition_color: selectedDisp.color,
+        disposition: selectedDisp?.name || "No Disposition",
+        disposition_color: selectedDisp?.color || "#6B7280",
         notes: noteText,
-        outcome: selectedDisp.name,
+        outcome: selectedDisp?.name || "No Outcome",
       });
-      if (noteText.trim().length > 0) {
+
+      if (noteText.trim()) {
         await saveNote({
           lead_id: currentLead.id,
           agent_id: user.id,
           content: noteText,
         });
       }
+
+      toast.success("Call saved successfully");
     } catch {
-      /* ignore */
+      toast.error("Failed to save call");
     }
+
     setSessionStats((s) => ({
       ...s,
       calls: s.calls + 1,
       connected: s.connected + 1,
       talkSeconds: s.talkSeconds + telnyxCallDuration,
     }));
-    if (selectedDisp.callbackScheduler) {
+
+    if (selectedDisp?.callbackScheduler) {
       setSessionStats((s) => ({ ...s, callbacks: s.callbacks + 1 }));
       setShowCallbackModal(true);
     } else {
       handleAdvance();
     }
-  }
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!currentLead) return;
+    try {
+      await leadsSupabaseApi.update(currentLead.id, { status: newStatus as any });
+      // Update local queue state
+      setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: newStatus } : l));
+      toast.success(`Status updated to ${newStatus}`);
+    } catch (err: any) {
+      toast.error("Failed to update status: " + err.message);
+    }
+  };
+
+  const currentStatusColor = leadStages.find(s => s.name === currentLead?.status)?.color || "#6B7280";
 
   function handleAdvance() {
     setShowWrapUp(false);
@@ -759,8 +780,25 @@ export default function DialerPage() {
             <div className="pt-2 border-t mt-1">
               <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Status / Assigned</div>
               <div className="flex items-center gap-2 mt-1.5">
-                <span className="text-xs bg-accent px-2 py-1 rounded-md font-medium">{currentLead?.status || "—"}</span>
-                <span className="text-xs text-muted-foreground truncate">{currentLead?.claimed_by || "—"}</span>
+                <div className="relative flex-1">
+                  <select
+                    value={currentLead?.status || ""}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    className="w-full text-xs font-semibold rounded-md px-2 py-1 border-0 appearance-none focus:ring-2 focus:ring-primary/50 cursor-pointer transition-colors"
+                    style={{ 
+                      backgroundColor: currentStatusColor + '15',
+                      color: currentStatusColor
+                    }}
+                  >
+                    {leadStages.map(s => (
+                      <option key={s.id} value={s.name} style={{ color: s.color }}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                </div>
+                <span className="text-xs text-muted-foreground truncate max-w-[100px]">{currentLead?.claimed_by || "—"}</span>
               </div>
             </div>
           </div>
