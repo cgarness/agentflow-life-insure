@@ -854,30 +854,30 @@ export default function DialerPage() {
         {/* ── RIGHT COLUMN (Original Left) ── */}
         <div className="w-80 shrink-0 flex flex-col gap-3 overflow-hidden">
           {/* Action buttons */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 px-1">
             {callState === "active" || callState === "dialing" ? (
               <button
                 onClick={handleHangUp}
-                className="bg-destructive text-destructive-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+                className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90"
               >
-                <PhoneOff className="w-5 h-5" />
+                <PhoneOff className="w-4.5 h-4.5" />
                 Hang Up
-                <span className="font-mono text-xs">{fmtDuration(telnyxCallDuration)}</span>
+                <span className="font-mono text-[10px]">{fmtDuration(telnyxCallDuration)}</span>
               </button>
             ) : (
               <button
                 onClick={handleCall}
-                className="bg-success text-success-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+                className="bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-success/90"
               >
-                <Phone className="w-5 h-5" />
+                <Phone className="w-4.5 h-4.5" />
                 Call
               </button>
             )}
             <button
               onClick={handleSkip}
-              className="bg-accent border rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              className="bg-accent border border-border rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
             >
-              <SkipForward className="w-5 h-5" />
+              <SkipForward className="w-4.5 h-4.5" />
               Skip
             </button>
           </div>
@@ -898,12 +898,12 @@ export default function DialerPage() {
           </div>
 
           {/* Tab content */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto px-1">
             {leftTab === "dispositions" && (
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 px-1">
                 {/* Disposition Select */}
                 <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2 font-bold">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2 font-bold px-1">
                     Call Result
                   </div>
                   <select
@@ -916,8 +916,8 @@ export default function DialerPage() {
                   >
                     <option value="" disabled>Select a disposition...</option>
                     {dispositions.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
+                      <option key={d.id} value={d.id} style={{ color: d.color }}>
+                        ● {d.name}
                       </option>
                     ))}
                   </select>
