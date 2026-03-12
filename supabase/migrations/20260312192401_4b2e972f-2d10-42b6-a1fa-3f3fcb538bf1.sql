@@ -1,0 +1,1 @@
+ALTER TABLE public.dispositions ADD COLUMN appointment_scheduler boolean NOT NULL DEFAULT false;
