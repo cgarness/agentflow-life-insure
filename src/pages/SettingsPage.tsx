@@ -56,13 +56,13 @@ const sections = [
 
 
 const MASTER_ADMIN_IDX = sections.length - 1; // last entry
-const MASTER_ADMIN_UID = "u1";
+const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
 
 const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [active, setActive] = useState(0);
   const { user } = useAuth();
-  const isMasterAdmin = user?.id === MASTER_ADMIN_UID;
+  const isMasterAdmin = user?.email === MASTER_ADMIN_EMAIL;
 
   useEffect(() => {
     const section = searchParams.get("section");
