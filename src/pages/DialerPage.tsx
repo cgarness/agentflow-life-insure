@@ -737,25 +737,7 @@ export default function DialerPage() {
         <div className="w-72 shrink-0 flex flex-col gap-3">
           <div className="bg-card border rounded-xl p-4 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 mr-1 pr-2 border-r">
-                    <button 
-                      onClick={() => setShowFullViewDrawer(true)}
-                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
-                      title="Full View"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => setShowFullViewDrawer(true)}
-                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
-                      title="Edit Contact"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  </div>
-                  
+                <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-1">
                     <button 
                       onClick={() => {
@@ -771,7 +753,7 @@ export default function DialerPage() {
                       className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
                       title="Previous Lead"
                     >
-                      <ChevronLeft className="w-4 h-4" />
+                      <ChevronLeft className="w-5 h-5" />
                     </button>
                     <button 
                       onClick={() => {
@@ -787,24 +769,40 @@ export default function DialerPage() {
                       className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
                       title="Next Lead"
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => setShowFullViewDrawer(true)}
+                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
+                      title="Full View"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setShowFullViewDrawer(true)}
+                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
+                      title="Edit Contact"
+                    >
+                      <Pencil className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
-              </div>
             </div>
 
             {currentLead && (
               <div className="flex flex-col gap-1 mt-2">
-                <h2 className="text-xl font-bold text-foreground tracking-tight">
+                <h2 className="text-xl font-bold text-foreground tracking-tight text-center">
                   {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
                 </h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative w-max min-w-[120px]">
+                <div className="flex flex-col gap-2">
+                  <div className="relative w-full">
                     <select
                       value={currentLead?.status || ""}
                       onChange={(e) => handleStatusChange(e.target.value)}
-                      className="w-full text-[10px] uppercase tracking-widest font-bold rounded-md pl-2 pr-6 py-0.5 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
+                      className="w-full text-[10px] text-center uppercase tracking-widest font-bold rounded-md px-6 py-1 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
                       style={{ 
                         backgroundColor: currentStatusColor + '15',
                         color: currentStatusColor,
@@ -817,11 +815,11 @@ export default function DialerPage() {
                         </option>
                       ))}
                     </select>
-                    <ChevronDown className="w-2.5 h-2.5 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                    <ChevronDown className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
                   </div>
                   
                   {contactLocalTimeDisplay && (
-                    <div className="inline-flex items-center text-green-500 text-[10px] font-bold">
+                    <div className="inline-flex items-center justify-center text-green-500 text-[10px] font-bold">
                       <Clock className="w-2.5 h-2.5 mr-1" />
                       {contactLocalTimeDisplay}
                     </div>
