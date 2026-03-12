@@ -794,11 +794,23 @@ export default function DialerPage() {
                 { label: "Email", value: currentLead?.email },
                 { label: "State", value: currentLead?.state },
                 { label: "Age", value: currentLead?.age },
+                { label: "DOB", value: currentLead?.date_of_birth },
+                { label: "Health", value: currentLead?.health_status },
+                { label: "Best Time", value: currentLead?.best_time_to_call },
+                { label: "Spouse", value: currentLead?.spouse_info },
+                { label: "Score", value: currentLead?.lead_score },
                 { label: "Source", value: currentLead?.source },
               ].map((f) => (
                 <div key={f.label} className="min-w-0">
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{f.label}</div>
                   <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
+                </div>
+              ))}
+              {/* Optional: Render custom fields if they exist */}
+              {currentLead?.custom_fields && typeof currentLead.custom_fields === 'object' && Object.entries(currentLead.custom_fields).map(([key, val]: [string, any]) => (
+                <div key={key} className="min-w-0">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{key}</div>
+                  <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{String(val) || "—"}</div>
                 </div>
               ))}
             </div>
