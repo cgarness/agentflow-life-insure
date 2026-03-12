@@ -618,7 +618,7 @@ export default function DialerPage() {
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
-      <div className="flex items-center border-b px-4 py-2 gap-4">
+      <div className="flex items-center border-b px-4 pt-1 pb-2 gap-4">
         {/* LEFT */}
         <button 
           onClick={() => {
