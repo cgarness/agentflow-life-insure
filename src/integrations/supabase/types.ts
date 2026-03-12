@@ -727,6 +727,7 @@ export type Database = {
       }
       dispositions: {
         Row: {
+          appointment_scheduler: boolean
           automation_id: string | null
           automation_name: string | null
           automation_trigger: boolean
@@ -743,6 +744,7 @@ export type Database = {
           usage_count: number
         }
         Insert: {
+          appointment_scheduler?: boolean
           automation_id?: string | null
           automation_name?: string | null
           automation_trigger?: boolean
@@ -759,6 +761,7 @@ export type Database = {
           usage_count?: number
         }
         Update: {
+          appointment_scheduler?: boolean
           automation_id?: string | null
           automation_name?: string | null
           automation_trigger?: boolean
