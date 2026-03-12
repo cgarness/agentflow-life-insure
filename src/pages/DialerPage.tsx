@@ -25,6 +25,8 @@ import {
   ChevronRight,
   Users,
   ArrowRight,
+  Check,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -192,6 +194,8 @@ export default function DialerPage() {
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
+  const [isEditingContact, setIsEditingContact] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -343,11 +347,11 @@ export default function DialerPage() {
     handleAdvance();
   }
 
-  const handleSaveAndContinue = async () => {
-    if (!currentLead || !user) return;
-    if (selectedDisp?.requireNotes && noteText.length < selectedDisp.minNoteChars) {
+  const saveCallData = async () => {
+    if (!currentLead || !user) return false;
+    if (selectedDisp?.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0)) {
       setNoteError(true);
-      return;
+      return false;
     }
 
     try {
@@ -380,31 +384,49 @@ export default function DialerPage() {
         console.warn("Master contact record update failed during save", e);
       }
 
-      toast.success("Call saved successfully");
-
-      // Handle Automation Trigger
-      if (selectedDisp?.automationTrigger && selectedDisp.automationName) {
-        toast.info(`Automation Triggered: ${selectedDisp.automationName}`);
-      }
+      return true;
     } catch {
       toast.error("Failed to save call");
+      return false;
     }
+  };
 
-    setSessionStats((s) => ({
-      ...s,
-      calls: s.calls + 1,
-      connected: s.connected + 1,
-      talkSeconds: s.talkSeconds + telnyxCallDuration,
-    }));
+  const handleSaveOnly = async () => {
+    const success = await saveCallData();
+    if (success) {
+      toast.success("Call saved (remaining on contact)");
+      setSessionStats((s) => ({
+        ...s,
+        calls: s.calls + 1,
+        connected: s.connected + 1,
+        talkSeconds: s.talkSeconds + telnyxCallDuration,
+      }));
+      // Update local status
+      if (selectedDisp) {
+        setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
+      }
+    }
+  };
 
-    // Logic for next step popups
-    if (selectedDisp?.appointmentScheduler) {
-      setShowAppointmentModal(true);
-    } else if (selectedDisp?.callbackScheduler) {
-      setSessionStats((s) => ({ ...s, callbacks: s.callbacks + 1 }));
-      setShowCallbackModal(true);
-    } else {
-      handleAdvance();
+  const handleSaveAndNext = async () => {
+    const success = await saveCallData();
+    if (success) {
+      toast.success("Call saved, moving to next");
+      setSessionStats((s) => ({
+        ...s,
+        calls: s.calls + 1,
+        connected: s.connected + 1,
+        talkSeconds: s.talkSeconds + telnyxCallDuration,
+      }));
+      
+      if (selectedDisp?.appointmentScheduler) {
+        setShowAppointmentModal(true);
+      } else if (selectedDisp?.callbackScheduler) {
+        setSessionStats((s) => ({ ...s, callbacks: s.callbacks + 1 }));
+        setShowCallbackModal(true);
+      } else {
+        handleAdvance();
+      }
     }
   };
 
@@ -445,8 +467,75 @@ export default function DialerPage() {
   }
 
   function handleSkip() {
+    setIsEditingContact(false);
     setCurrentLeadIndex((i) => i + 1);
   }
+
+  const startEditing = () => {
+    if (!currentLead) return;
+    setEditForm({
+      first_name: currentLead.first_name || "",
+      last_name: currentLead.last_name || "",
+      phone: currentLead.phone || "",
+      email: currentLead.email || "",
+      state: currentLead.state || "",
+      age: currentLead.age || "",
+      date_of_birth: currentLead.date_of_birth || "",
+      health_status: currentLead.health_status || "",
+      best_time_to_call: currentLead.best_time_to_call || "",
+      spouse_info: currentLead.spouse_info || "",
+      source: currentLead.source || "",
+      ...currentLead.custom_fields
+    });
+    setIsEditingContact(true);
+  };
+
+  const saveInlineEdit = async () => {
+    if (!currentLead) return;
+    try {
+      const masterId = currentLead.lead_id || currentLead.id;
+      const { first_name, last_name, phone, email, state, age, date_of_birth, health_status, best_time_to_call, spouse_info, source, ...customFields } = editForm;
+      
+      const updateData: any = {
+        firstName: first_name,
+        lastName: last_name,
+        phone,
+        email,
+        state,
+        age: age ? parseInt(String(age)) : undefined,
+        dateOfBirth: date_of_birth,
+        healthStatus: health_status,
+        bestTimeToCall: best_time_to_call,
+        spouseInfo: spouse_info,
+        leadSource: source,
+        customFields
+      };
+
+      await leadsSupabaseApi.update(masterId, updateData);
+      
+      // Update local queue
+      setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { 
+        ...l, 
+        first_name, 
+        last_name, 
+        phone, 
+        email, 
+        state, 
+        age: age ? parseInt(String(age)) : l.age, 
+        date_of_birth, 
+        health_status, 
+        best_time_to_call, 
+        spouse_info, 
+        source,
+        custom_fields: customFields
+      } : l));
+      
+      setIsEditingContact(false);
+      toast.success("Contact updated");
+    } catch (err: any) {
+      toast.error("Failed to update contact: " + err.message);
+    }
+  };
 
   async function handleSaveCallback() {
     if (!currentLead || !user || !callbackDate) return;
@@ -785,22 +874,58 @@ export default function DialerPage() {
                     >
                       <Eye className="w-4 h-4" />
                     </button>
-                    <button 
-                      onClick={() => setShowFullViewDrawer(true)}
-                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
-                      title="Edit Contact"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
+                    {isEditingContact ? (
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={saveInlineEdit}
+                          className="p-1 px-1.5 bg-success/10 text-success hover:bg-success/20 rounded transition-colors"
+                          title="Save Edits"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => setIsEditingContact(false)}
+                          className="p-1 px-1.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded transition-colors"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={startEditing}
+                        className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
+                        title="Edit Contact"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
 
               {currentLead && (
                 <div className="flex flex-col gap-1 mt-2">
-                  <h2 className="text-xl font-bold text-foreground tracking-tight text-center">
-                    {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
-                  </h2>
+                  {isEditingContact ? (
+                    <div className="flex gap-2 justify-center px-4">
+                      <input 
+                        value={editForm.first_name || ""}
+                        onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                        className="bg-accent/50 border border-border rounded-lg px-2 py-1.5 text-sm font-bold text-center flex-1 focus:ring-1 focus:ring-primary outline-none"
+                        placeholder="First Name"
+                      />
+                      <input 
+                        value={editForm.last_name || ""}
+                        onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                        className="bg-accent/50 border border-border rounded-lg px-2 py-1.5 text-sm font-bold text-center flex-1 focus:ring-1 focus:ring-primary outline-none"
+                        placeholder="Last Name"
+                      />
+                    </div>
+                  ) : (
+                    <h2 className="text-xl font-bold text-foreground tracking-tight text-center">
+                      {`${currentLead?.first_name ?? ""} ${currentLead?.last_name ?? ""}`.trim()}
+                    </h2>
+                  )}
                   <div className="flex flex-col gap-2">
                     <div className="relative w-full">
                       <select
@@ -837,20 +962,30 @@ export default function DialerPage() {
             <div className="p-4 flex-1 overflow-y-auto">
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: "Phone", value: currentLead?.phone },
-                  { label: "Email", value: currentLead?.email },
-                  { label: "State", value: currentLead?.state },
-                  { label: "Age", value: currentLead?.age },
-                  { label: "DOB", value: currentLead?.date_of_birth },
-                  { label: "Health", value: currentLead?.health_status },
-                  { label: "Best Time", value: currentLead?.best_time_to_call },
-                  { label: "Spouse", value: currentLead?.spouse_info },
-                  { label: "Score", value: currentLead?.lead_score },
-                  { label: "Source", value: currentLead?.source },
+                  { label: "First Name", value: currentLead?.first_name, key: "first_name" },
+                  { label: "Last Name", value: currentLead?.last_name, key: "last_name" },
+                  { label: "Phone", value: currentLead?.phone, key: "phone" },
+                  { label: "Email", value: currentLead?.email, key: "email" },
+                  { label: "State", value: currentLead?.state, key: "state" },
+                  { label: "Age", value: currentLead?.age, key: "age" },
+                  { label: "DOB", value: currentLead?.date_of_birth, key: "date_of_birth" },
+                  { label: "Health", value: currentLead?.health_status, key: "health_status" },
+                  { label: "Best Time", value: currentLead?.best_time_to_call, key: "best_time_to_call" },
+                  { label: "Spouse", value: currentLead?.spouse_info, key: "spouse_info" },
+                  { label: "Source", value: currentLead?.source, key: "source" },
                 ].map((f) => (
                   <div key={f.label} className="min-w-0">
                     <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{f.label}</div>
-                    <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
+                    {isEditingContact ? (
+                      <input 
+                        type="text"
+                        value={editForm[f.key] || ""}
+                        onChange={(e) => setEditForm({ ...editForm, [f.key]: e.target.value })}
+                        className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
+                      />
+                    ) : (
+                      <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
+                    )}
                   </div>
                 ))}
                 
@@ -874,7 +1009,16 @@ export default function DialerPage() {
                     return Object.entries(value as object).map(([ckey, cval]) => (
                       <div key={ckey} className="min-w-0 border-t pt-2 col-span-2">
                         <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{ckey.replace(/_/g, ' ')}</div>
-                        <div className="text-sm font-semibold text-foreground mt-0.5">{String(cval) || "—"}</div>
+                        {isEditingContact ? (
+                          <input 
+                            type="text"
+                            value={String(editForm[ckey] ?? cval)}
+                            onChange={(e) => setEditForm({ ...editForm, [ckey]: e.target.value })}
+                            className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
+                          />
+                        ) : (
+                          <div className="text-sm font-semibold text-foreground mt-0.5">{String(cval) || "—"}</div>
+                        )}
                       </div>
                     ));
                   }
@@ -1123,13 +1267,21 @@ export default function DialerPage() {
                       />
                     </div>
 
-                    <button
-                      onClick={handleSaveAndContinue}
-                      className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2"
-                    >
-                      Save & Continue
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <button
+                        onClick={handleSaveOnly}
+                        className="h-12 rounded-xl bg-accent text-accent-foreground font-bold text-xs shadow-sm hover:bg-accent/80 transition-all flex items-center justify-center"
+                      >
+                        Save Only
+                      </button>
+                      <button
+                        onClick={handleSaveAndNext}
+                        className="h-12 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-1"
+                      >
+                        Save & Next
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 )}
 

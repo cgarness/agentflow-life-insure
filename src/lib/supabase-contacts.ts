@@ -60,6 +60,8 @@ export const leadsSupabaseApi = {
     if (data.bestTimeToCall !== undefined) updateData.best_time_to_call = data.bestTimeToCall;
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+    if (data.spouseInfo !== undefined) updateData.spouse_info = data.spouseInfo;
+    if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
     if (data.lastContactedAt !== undefined) updateData.last_contacted_at = data.lastContactedAt;
     updateData.updated_at = new Date().toISOString();
 
