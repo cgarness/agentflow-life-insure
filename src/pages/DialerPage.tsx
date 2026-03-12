@@ -726,62 +726,67 @@ export default function DialerPage() {
           <div className="bg-card border rounded-xl p-4 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <button 
-                    onClick={() => {
-                      if (currentLeadIndex > 0) {
-                        setCurrentLeadIndex(i => i - 1);
-                        setShowWrapUp(false);
-                        setSelectedDisp(null);
-                        setNoteText("");
-                        setNoteError(false);
-                      }
-                    }}
-                    disabled={currentLeadIndex === 0}
-                    className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
-                    title="Previous Lead"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (currentLeadIndex < leadQueue.length - 1) {
-                        setCurrentLeadIndex(i => i + 1);
-                        setShowWrapUp(false);
-                        setSelectedDisp(null);
-                        setNoteText("");
-                        setNoteError(false);
-                      }
-                    }}
-                    disabled={currentLeadIndex >= leadQueue.length - 1}
-                    className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
-                    title="Next Lead"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Contact Info</span>
-                <div className="flex items-center gap-1.5">
-                  <button 
-                    onClick={() => setShowFullViewDrawer(true)}
-                    className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
-                    title="Full View"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                  <button 
-                    onClick={() => setShowFullViewDrawer(true)}
-                    className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
-                    title="Edit Contact"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 mr-1 pr-2 border-r">
+                    <button 
+                      onClick={() => setShowFullViewDrawer(true)}
+                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
+                      title="Full View"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setShowFullViewDrawer(true)}
+                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
+                      title="Edit Contact"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => {
+                        if (currentLeadIndex > 0) {
+                          setCurrentLeadIndex(i => i - 1);
+                          setShowWrapUp(false);
+                          setSelectedDisp(null);
+                          setNoteText("");
+                          setNoteError(false);
+                        }
+                      }}
+                      disabled={currentLeadIndex === 0}
+                      className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
+                      title="Previous Lead"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (currentLeadIndex < leadQueue.length - 1) {
+                          setCurrentLeadIndex(i => i + 1);
+                          setShowWrapUp(false);
+                          setSelectedDisp(null);
+                          setNoteText("");
+                          setNoteError(false);
+                        }
+                      }}
+                      disabled={currentLeadIndex >= leadQueue.length - 1}
+                      className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
+                      title="Next Lead"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {currentLead && (
+              <h2 className="text-xl font-bold text-foreground mt-2 mb-1 tracking-tight">
+                {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
+              </h2>
+            )}
 
             {contactLocalTimeDisplay && (
               <div className="inline-flex items-center bg-green-500/10 text-green-500 rounded-full px-2 py-0.5 text-[10px] font-bold self-start border border-green-500/20">
@@ -792,12 +797,6 @@ export default function DialerPage() {
 
             <div className="grid grid-cols-2 gap-4">
               {[
-                {
-                  label: "Name",
-                  value: currentLead
-                    ? `${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()
-                    : null,
-                },
                 { label: "Phone", value: currentLead?.phone },
                 { label: "Email", value: currentLead?.email },
                 { label: "State", value: currentLead?.state },
