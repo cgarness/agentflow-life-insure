@@ -319,8 +319,10 @@ export default function DialerPage() {
   async function autoSaveNoAnswer(d: Disposition) {
     if (!currentLead || !user) return;
     try {
+      const masterId = currentLead.lead_id || currentLead.id;
       await saveCall({
-        lead_id: currentLead.id,
+        master_lead_id: masterId,
+        campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
         duration_seconds: telnyxCallDuration,
@@ -344,8 +346,10 @@ export default function DialerPage() {
     }
 
     try {
+      const masterId = currentLead.lead_id || currentLead.id;
       await saveCall({
-        lead_id: currentLead.id,
+        master_lead_id: masterId,
+        campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
         duration_seconds: telnyxCallDuration,
@@ -357,7 +361,7 @@ export default function DialerPage() {
 
       if (noteText.trim()) {
         await saveNote({
-          lead_id: currentLead.id,
+          master_lead_id: masterId,
           agent_id: user.id,
           content: noteText,
         });
@@ -394,16 +398,18 @@ export default function DialerPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!currentLead) return;
     try {
-      // 1. Update the campaign lead status (tracks progress in the dialer)
-      await updateLeadStatus(currentLead.id, newStatus);
+      // Some systems use currentLead.id for campaign lead and lead_id for master contact
+      const campaignLeadId = currentLead.id;
+      const masterId = currentLead.lead_id || currentLead.id;
+
+      // 1. Update the campaign lead status and contact activities
+      await updateLeadStatus(campaignLeadId, masterId, newStatus);
       
-      // 2. Also try to update the master record if possible
-      // Some systems use currentLead.id, others use currentLead.lead_id
-      const masterId = (currentLead as any).lead_id || currentLead.id;
+      // 2. Also ensure the master lead record itself is updated
       try {
         await leadsSupabaseApi.update(masterId, { status: newStatus as any });
       } catch (e) {
-        console.warn("Master contact update failed", e);
+        console.warn("Master contact record update failed", e);
       }
 
       // Update local queue state
@@ -431,8 +437,10 @@ export default function DialerPage() {
   async function handleSaveCallback() {
     if (!currentLead || !user || !callbackDate) return;
     try {
+      const masterId = currentLead.lead_id || currentLead.id;
       await saveAppointment({
-        lead_id: currentLead.id,
+        master_lead_id: masterId,
+        campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
         title: "Callback",
@@ -1200,8 +1208,10 @@ export default function DialerPage() {
         onSave={(data) => {
           addAppointment(data);
           if (currentLead && user && selectedCampaignId) {
+            const masterId = currentLead.lead_id || currentLead.id;
             saveAppointment({
-              lead_id: currentLead.id,
+              master_lead_id: masterId,
+              campaign_lead_id: currentLead.id,
               agent_id: user.id,
               campaign_id: selectedCampaignId,
               title: data.title,

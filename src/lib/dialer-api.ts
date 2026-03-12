@@ -65,7 +65,8 @@ export async function getLeadHistory(leadId: string) {
 }
 
 export async function saveCall(data: {
-  lead_id: string;
+  master_lead_id: string;
+  campaign_lead_id: string;
   agent_id: string;
   campaign_id: string;
   duration_seconds: number;
@@ -75,7 +76,8 @@ export async function saveCall(data: {
   outcome: string;
 }) {
   const { error: callError } = await supabase.from("calls").insert({
-    contact_id: data.lead_id,
+    contact_id: data.master_lead_id,
+    campaign_lead_id: data.campaign_lead_id,
     agent_id: data.agent_id,
     campaign_id: data.campaign_id,
     duration: data.duration_seconds,
@@ -87,7 +89,7 @@ export async function saveCall(data: {
   if (callError) throw new Error(callError.message);
 
   const { error: actError } = await supabase.from("contact_activities").insert({
-    contact_id: data.lead_id,
+    contact_id: data.master_lead_id,
     agent_id: data.agent_id,
     activity_type: "call",
     description: `Call — ${data.disposition} — ${formatDuration(data.duration_seconds)}`,
@@ -96,12 +98,12 @@ export async function saveCall(data: {
 }
 
 export async function saveNote(data: {
-  lead_id: string;
+  master_lead_id: string;
   agent_id: string;
   content: string;
 }) {
   const { error } = await supabase.from("contact_activities").insert({
-    contact_id: data.lead_id,
+    contact_id: data.master_lead_id,
     agent_id: data.agent_id,
     activity_type: "note",
     description: data.content,
@@ -109,19 +111,21 @@ export async function saveNote(data: {
   if (error) throw new Error(error.message);
 }
 
-export async function updateLeadStatus(leadId: string, status: string) {
+export async function updateLeadStatus(campaignLeadId: string, masterLeadId: string, status: string) {
+  // 1. Update campaign-specific status
   const { error: updateError } = await supabase
     .from("campaign_leads")
     .update({ status })
-    .eq("id", leadId);
+    .eq("id", campaignLeadId);
   if (updateError) throw new Error(updateError.message);
 
+  // 2. Log activity on master record
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const { error: actError } = await supabase.from("contact_activities").insert({
-    contact_id: leadId,
+    contact_id: masterLeadId,
     agent_id: user?.id ?? null,
     activity_type: "status",
     description: `Status changed to ${status}`,
@@ -130,7 +134,8 @@ export async function updateLeadStatus(leadId: string, status: string) {
 }
 
 export async function saveAppointment(data: {
-  lead_id: string;
+  master_lead_id: string;
+  campaign_lead_id: string;
   agent_id: string;
   campaign_id: string;
   title: string;
@@ -145,7 +150,7 @@ export async function saveAppointment(data: {
     : null;
 
   const { error: aptError } = await supabase.from("appointments").insert({
-    contact_id: data.lead_id,
+    contact_id: data.master_lead_id,
     user_id: data.agent_id,
     title: data.title,
     start_time: startTime,
@@ -156,7 +161,7 @@ export async function saveAppointment(data: {
   if (aptError) throw new Error(aptError.message);
 
   const { error: actError } = await supabase.from("contact_activities").insert({
-    contact_id: data.lead_id,
+    contact_id: data.master_lead_id,
     agent_id: data.agent_id,
     activity_type: "status",
     description: "Appointment scheduled",
