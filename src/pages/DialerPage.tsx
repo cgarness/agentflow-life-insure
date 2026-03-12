@@ -65,6 +65,9 @@ interface Disposition {
   requireNotes: boolean;
   minNoteChars: number;
   callbackScheduler: boolean;
+  appointmentScheduler: boolean;
+  automationTrigger: boolean;
+  automationName?: string;
 }
 
 interface HistoryItem {
@@ -206,6 +209,9 @@ export default function DialerPage() {
             requireNotes: d.requireNotes,
             minNoteChars: d.minNoteChars,
             callbackScheduler: d.callbackScheduler,
+            appointmentScheduler: d.appointmentScheduler,
+            automationTrigger: d.automationTrigger,
+            automationName: d.automationName,
           })),
         ),
       )
@@ -357,6 +363,11 @@ export default function DialerPage() {
       }
 
       toast.success("Call saved successfully");
+
+      // Handle Automation Trigger
+      if (selectedDisp?.automationTrigger && selectedDisp.automationName) {
+        toast.info(`Automation Triggered: ${selectedDisp.automationName}`);
+      }
     } catch {
       toast.error("Failed to save call");
     }
@@ -368,7 +379,10 @@ export default function DialerPage() {
       talkSeconds: s.talkSeconds + telnyxCallDuration,
     }));
 
-    if (selectedDisp?.callbackScheduler) {
+    // Logic for next step popups
+    if (selectedDisp?.appointmentScheduler) {
+      setShowAppointmentModal(true);
+    } else if (selectedDisp?.callbackScheduler) {
       setSessionStats((s) => ({ ...s, callbacks: s.callbacks + 1 }));
       setShowCallbackModal(true);
     } else {
@@ -1117,7 +1131,7 @@ export default function DialerPage() {
       <Dialog
         open={showCallbackModal}
         onOpenChange={(open) => {
-          if (!open) setShowCallbackModal(false);
+          if (!open) handleAdvance();
         }}
       >
         <DialogContent>
@@ -1159,7 +1173,7 @@ export default function DialerPage() {
       {/* ── APPOINTMENT MODAL ── */}
       <AppointmentModal
         open={showAppointmentModal}
-        onClose={() => setShowAppointmentModal(false)}
+        onClose={() => handleAdvance()}
         onSave={(data) => {
           addAppointment(data);
           if (currentLead && user && selectedCampaignId) {
@@ -1174,6 +1188,7 @@ export default function DialerPage() {
               notes: data.notes,
             }).catch(() => {});
           }
+          handleAdvance();
         }}
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}

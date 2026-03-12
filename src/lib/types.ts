@@ -232,6 +232,7 @@ export interface Disposition {
   requireNotes: boolean;
   minNoteChars: number;
   callbackScheduler: boolean;
+  appointmentScheduler: boolean;
   automationTrigger: boolean;
   automationId?: string;
   automationName?: string;

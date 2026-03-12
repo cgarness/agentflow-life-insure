@@ -39,6 +39,7 @@ interface FormState {
   requireNotes: boolean;
   minNoteChars: number;
   callbackScheduler: boolean;
+  appointmentScheduler: boolean;
   automationTrigger: boolean;
   automationId: string;
   automationName: string;
@@ -50,6 +51,7 @@ const emptyForm: FormState = {
   requireNotes: false,
   minNoteChars: 10,
   callbackScheduler: false,
+  appointmentScheduler: false,
   automationTrigger: false,
   automationId: "",
   automationName: "",
@@ -112,6 +114,7 @@ const DispositionsManager: React.FC = () => {
       requireNotes: d.requireNotes,
       minNoteChars: d.minNoteChars || 10,
       callbackScheduler: d.callbackScheduler,
+      appointmentScheduler: d.appointmentScheduler,
       automationTrigger: d.automationTrigger,
       automationId: d.automationId || "",
       automationName: d.automationName || "",
@@ -146,6 +149,7 @@ const DispositionsManager: React.FC = () => {
           requireNotes: form.requireNotes,
           minNoteChars: form.requireNotes ? form.minNoteChars : 0,
           callbackScheduler: form.callbackScheduler,
+          appointmentScheduler: form.appointmentScheduler,
           automationTrigger: form.automationTrigger,
           automationId: form.automationTrigger ? form.automationId : undefined,
           automationName: form.automationTrigger ? form.automationName : undefined,
@@ -159,6 +163,7 @@ const DispositionsManager: React.FC = () => {
           requireNotes: form.requireNotes,
           minNoteChars: form.requireNotes ? form.minNoteChars : 0,
           callbackScheduler: form.callbackScheduler,
+          appointmentScheduler: form.appointmentScheduler,
           automationTrigger: form.automationTrigger,
           automationId: form.automationTrigger ? form.automationId : undefined,
           automationName: form.automationTrigger ? form.automationName : undefined,
@@ -282,6 +287,11 @@ const DispositionsManager: React.FC = () => {
                 {d.callbackScheduler && (
                   <span className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
                     <Calendar className="w-2.5 h-2.5" /> Callback Scheduler
+                  </span>
+                )}
+                {d.appointmentScheduler && (
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                    <Calendar className="w-2.5 h-2.5" /> Appointment Scheduler
                   </span>
                 )}
                 {d.automationTrigger && d.automationName && (
@@ -488,22 +498,33 @@ const DispositionsManager: React.FC = () => {
             {/* Callback Scheduler */}
             <div className="rounded-lg border p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1 pr-4">
                   <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5" /> Callback Scheduler
                   </p>
-                  <p className="text-xs text-muted-foreground">Opens date/time picker after selecting this disposition.</p>
+                  <p className="text-xs text-muted-foreground">Opens date/time picker for a following call.</p>
                 </div>
                 <Switch
                   checked={form.callbackScheduler}
                   onCheckedChange={v => setForm(f => ({ ...f, callbackScheduler: v }))}
                 />
               </div>
-              {form.callbackScheduler && (
-                <p className="text-xs text-primary/80 bg-primary/5 rounded px-2 py-1.5">
-                  💡 Recommended for Call Back and Follow Up type dispositions.
-                </p>
-              )}
+            </div>
+
+            {/* Appointment Scheduler */}
+            <div className="rounded-lg border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-4">
+                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5" /> Appointment Scheduler
+                  </p>
+                  <p className="text-xs text-muted-foreground">Opens the appointment modal for a new sale/meeting.</p>
+                </div>
+                <Switch
+                  checked={form.appointmentScheduler}
+                  onCheckedChange={v => setForm(f => ({ ...f, appointmentScheduler: v }))}
+                />
+              </div>
             </div>
 
             {/* Automation Trigger */}
