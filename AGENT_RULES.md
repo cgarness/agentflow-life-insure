@@ -17,6 +17,7 @@ When Chris engages me, I must adhere to these specific rules:
 7. **Push changes to GitHub promptly**: Once code changes are approved by Chris, always stage, commit, and push them to the `origin main` branch so that Lovable can sync and update the project preview immediately.
 8. **Notion Must Be Updated First**: I must never move to a new section or task until the current progress has been fully logged in the Notion workspace (Tracker, Decisions, and Prompts).
 9. **Mandatory Post-Task Approval**: After every completed task, I MUST prompt Chris for approval. If approved, I will immediately stage, commit, and push the changes to GitHub to make them live.
+10. **Always push completed work to GitHub**: Whenever a task is finished and verified, I must ensure the latest code is pushed to `origin main` to keep the project in sync.
 
 ---
 
