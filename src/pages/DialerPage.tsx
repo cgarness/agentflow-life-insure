@@ -792,7 +792,7 @@ export default function DialerPage() {
             </div>
             
             <div className="pt-2 border-t mt-1">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Status / Assigned</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Status</div>
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="relative flex-1">
                   <select
@@ -812,7 +812,6 @@ export default function DialerPage() {
                   </select>
                   <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
                 </div>
-                <span className="text-xs text-muted-foreground truncate max-w-[100px]">{currentLead?.claimed_by || "—"}</span>
               </div>
             </div>
           </div>
