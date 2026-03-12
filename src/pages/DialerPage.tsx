@@ -370,6 +370,14 @@ export default function DialerPage() {
         });
       }
 
+      // Also update the lead status in both the campaign and master record
+      await updateLeadStatus(currentLead.id, masterId, selectedDisp?.name || "Called");
+      try {
+        await leadsSupabaseApi.update(masterId, { status: (selectedDisp?.name as any) || "Called" });
+      } catch (e) {
+        console.warn("Master contact record update failed during save", e);
+      }
+
       toast.success("Call saved successfully");
 
       // Handle Automation Trigger

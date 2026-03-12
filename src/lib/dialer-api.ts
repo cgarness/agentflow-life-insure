@@ -112,14 +112,22 @@ export async function saveNote(data: {
 }
 
 export async function updateLeadStatus(campaignLeadId: string, masterLeadId: string, status: string) {
-  // 1. Update campaign-specific status
+  // 1. Map business status to a valid campaign-internal status
+  // Most business status changes mean the lead has been "processed" for this campaign.
+  const validCampaignStatuses = ["Queued", "Locked", "Claimed", "Called", "Skipped", "Completed", "Failed", "DNC"];
+  const campaignStatus = validCampaignStatuses.includes(status) ? status : "Called";
+
+  // 2. Update campaign-specific record
   const { error: updateError } = await supabase
     .from("campaign_leads")
-    .update({ status })
+    .update({ 
+      status: campaignStatus,
+      disposition: status // Save the actual business status as the disposition for the campaign record
+    })
     .eq("id", campaignLeadId);
   if (updateError) throw new Error(updateError.message);
 
-  // 2. Log activity on master record
+  // 3. Log activity on master record
   const {
     data: { user },
   } = await supabase.auth.getUser();
