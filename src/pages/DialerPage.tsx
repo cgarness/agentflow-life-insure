@@ -32,7 +32,7 @@ import {
   saveNote,
   saveAppointment,
 } from "@/lib/dialer-api";
-import { makeCall, hangUp } from "@/lib/telnyx";
+import { useTelnyx } from "@/contexts/TelnyxContext";
 import {
   Dialog,
   DialogContent,
@@ -137,9 +137,15 @@ export default function DialerPage() {
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [leftTab, setLeftTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
-  const [onCall, setOnCall] = useState(false);
-  const [callSeconds, setCallSeconds] = useState(0);
-  const [activeCall, setActiveCall] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Call status from context
+  const { 
+    status: telnyxStatus, 
+    callState, 
+    callDuration: telnyxCallDuration, 
+    makeCall: telnyxMakeCall, 
+    hangUp: telnyxHangUp 
+  } = useTelnyx();
+
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState(false);
@@ -228,12 +234,12 @@ export default function DialerPage() {
       .finally(() => setLoadingHistory(false));
   }, [currentLead]);
 
-  // cleanup call timer on unmount
+  // Trigger wrap-up when call ends
   useEffect(() => {
-    return () => {
-      if (callTimerRef.current) clearInterval(callTimerRef.current);
-    };
-  }, []);
+    if (callState === "ended") {
+      setShowWrapUp(true);
+    }
+  }, [callState]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -256,16 +262,16 @@ export default function DialerPage() {
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (!showWrapUp || onCall) return;
-      const num = parseInt(e.key, 10);
-      if (num >= 1 && num <= 9 && dispositions[num - 1]) {
-        handleSelectDisposition(dispositions[num - 1]);
-      }
+    if (!showWrapUp || callState === "active") return;
+    const num = parseInt(e.key, 10);
+    if (num >= 1 && num <= 9 && dispositions[num - 1]) {
+      handleSelectDisposition(dispositions[num - 1]);
     }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showWrapUp, onCall, dispositions]);
+  }
+  window.addEventListener("keydown", handleKey);
+  return () => window.removeEventListener("keydown", handleKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [showWrapUp, callState, dispositions]);
 
   /* --- call handlers --- */
 
@@ -274,28 +280,15 @@ export default function DialerPage() {
       toast.error("No lead selected");
       return;
     }
-    if (!import.meta.env.VITE_TELNYX_SIP_USERNAME) {
-      toast.warning(
-        "Telnyx credentials not configured — add VITE_TELNYX_SIP_USERNAME and VITE_TELNYX_SIP_PASSWORD to your .env file",
-      );
+    if (telnyxStatus === "error") {
+      toast.error("Dialer error. Please check your settings.");
       return;
     }
-    makeCall(currentLead.phone, "+19097381193")
-      .then((call) => {
-        setActiveCall(call);
-        setOnCall(true);
-        setCallSeconds(0);
-        callTimerRef.current = setInterval(() => setCallSeconds((s) => s + 1), 1000);
-      })
-      .catch((err: Error) => toast.error(err.message));
+    telnyxMakeCall(currentLead.phone);
   }
 
   function handleHangUp() {
-    if (activeCall) hangUp(activeCall);
-    if (callTimerRef.current) clearInterval(callTimerRef.current);
-    setOnCall(false);
-    setActiveCall(null);
-    setShowWrapUp(true);
+    telnyxHangUp();
   }
 
   function handleSelectDisposition(d: Disposition) {
@@ -312,7 +305,7 @@ export default function DialerPage() {
         lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
-        duration_seconds: callSeconds,
+        duration_seconds: telnyxCallDuration,
         disposition: d.name,
         disposition_color: d.color,
         notes: "",
@@ -338,7 +331,7 @@ export default function DialerPage() {
         lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
-        duration_seconds: callSeconds,
+        duration_seconds: telnyxCallDuration,
         disposition: selectedDisp.name,
         disposition_color: selectedDisp.color,
         notes: noteText,
@@ -358,7 +351,7 @@ export default function DialerPage() {
       ...s,
       calls: s.calls + 1,
       connected: s.connected + 1,
-      talkSeconds: s.talkSeconds + callSeconds,
+      talkSeconds: s.talkSeconds + telnyxCallDuration,
     }));
     if (selectedDisp.callbackScheduler) {
       setSessionStats((s) => ({ ...s, callbacks: s.callbacks + 1 }));
@@ -847,14 +840,14 @@ export default function DialerPage() {
         <div className="w-80 shrink-0 flex flex-col gap-3 overflow-hidden">
           {/* Action buttons */}
           <div className="grid grid-cols-2 gap-2">
-            {onCall ? (
+            {callState === "active" || callState === "dialing" ? (
               <button
                 onClick={handleHangUp}
                 className="bg-destructive text-destructive-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
               >
                 <PhoneOff className="w-5 h-5" />
                 Hang Up
-                <span className="font-mono text-xs">{fmtDuration(callSeconds)}</span>
+                <span className="font-mono text-xs">{fmtDuration(telnyxCallDuration)}</span>
               </button>
             ) : (
               <button
