@@ -110,8 +110,6 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     }
   }, [open, editing, defaultDate, defaultTime, prefillContactName]);
 
-  if (!open) return null;
-
   const contactId = editing?.contactId || prefillContactId || selectedContactId || "";
   const [contactInfo, setContactInfo] = useState<{ name: string; phone: string; email: string; state: string; status: string; contactId: string } | null>(null);
 
@@ -135,6 +133,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     };
     fetchLeadInfo();
   }, [contactId]);
+
+  if (!open) return null;
 
   const contactFirstName = contactName.split(" ")[0] || "Contact";
 
