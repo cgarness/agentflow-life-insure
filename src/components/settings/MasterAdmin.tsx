@@ -1,9 +1,28 @@
+/**
+ * MASTER ADMIN PAGE - DATA SOURCE MIGRATION GUIDE
+ *
+ * This page supports both Supabase (real) and mock data during the transition period.
+ *
+ * TO MIGRATE A CATEGORY FROM MOCK TO SUPABASE:
+ * 1. Create the Supabase table (via Claude Code migration)
+ * 2. Change DATA_SOURCES config: 'mock' → 'supabase'
+ * 3. Test that fetching, editing, and deleting work correctly
+ * 4. Remove the mock data import if no longer needed
+ *
+ * Categories still using mock data:
+ * - Custom Fields
+ * - Pipeline Stages
+ * - Lead Sources
+ * - Health Statuses
+ */
+
 import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Pencil, Trash2, Search, ChevronLeft, ChevronRight,
-  ExternalLink, Check, X, AlertTriangle, Database,
+  ExternalLink, Check, X, AlertTriangle, Database, RefreshCw,
 } from "lucide-react";
+import { customFieldsApi, pipelineApi, leadSourcesApi, healthStatusesApi } from "@/lib/mock-api";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -11,6 +30,57 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
+
+// ─── Data Source Configuration ────────────────────────────────────────────────
+// Update DATA_SOURCES as tables migrate from mock to Supabase
+
+const DATA_SOURCES: Record<string, 'supabase' | 'mock'> = {
+  'Dispositions': 'supabase',
+  'Call Scripts': 'supabase',
+  'Custom Fields': 'mock',        // ← Change to 'supabase' when custom_fields table created
+  'Pipeline Stages': 'mock',      // ← Change to 'supabase' when pipeline_stages table created
+  'Lead Sources': 'mock',         // ← Change to 'supabase' when lead_sources table created
+  'Health Statuses': 'mock',      // ← Change to 'supabase' when health_statuses table created
+  'Carriers': 'supabase',
+  'Email/SMS Templates': 'supabase',
+  'Custom Menu Links': 'supabase',
+  'Phone Numbers': 'supabase',
+  'Leads': 'supabase',
+  'Clients': 'supabase',
+  'Recruits': 'supabase',
+  'Appointments': 'supabase',
+  'Calls': 'supabase',
+  'Campaigns': 'supabase',
+  'Campaign Leads': 'supabase',
+  'Import History': 'supabase',
+  'DNC List': 'supabase',
+  'Activity Logs': 'supabase',
+  'Users': 'supabase',
+};
+
+const SUPABASE_TABLES: Record<string, string> = {
+  'Dispositions': 'dispositions',
+  'Call Scripts': 'call_scripts',
+  'Custom Fields': 'custom_fields',
+  'Pipeline Stages': 'pipeline_stages',
+  'Lead Sources': 'lead_sources',
+  'Health Statuses': 'health_statuses',
+  'Carriers': 'carriers',
+  'Email/SMS Templates': 'message_templates',
+  'Custom Menu Links': 'custom_menu_links',
+  'Phone Numbers': 'phone_numbers',
+  'Leads': 'leads',
+  'Clients': 'clients',
+  'Recruits': 'recruits',
+  'Appointments': 'appointments',
+  'Calls': 'calls',
+  'Campaigns': 'campaigns',
+  'Campaign Leads': 'campaign_leads',
+  'Import History': 'import_history',
+  'DNC List': 'dnc_list',
+  'Activity Logs': 'activity_logs',
+  'Users': 'profiles',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -500,6 +570,45 @@ function buildConfig(profiles: { id: string; name: string }[]): Record<string, C
   };
 }
 
+// ─── Mock Data Fetcher ────────────────────────────────────────────────────────
+// Fetches from in-memory mock APIs, normalizing camelCase keys to snake_case
+// so the existing column definitions (e.g. is_positive, sort_order) render correctly.
+
+async function getMockData(category: string): Promise<Row[]> {
+  switch (category) {
+    case 'Custom Fields': {
+      const fields = await customFieldsApi.getAll();
+      // Normalize: appliesTo → applies_to
+      return fields.map(f => ({ ...f, applies_to: f.appliesTo }));
+    }
+    case 'Pipeline Stages': {
+      const [lead, recruit] = await Promise.all([
+        pipelineApi.getLeadStages(),
+        pipelineApi.getRecruitStages(),
+      ]);
+      // Normalize: isPositive → is_positive, pipelineType → pipeline_type, order → sort_order
+      return [...lead, ...recruit].map(s => ({
+        ...s,
+        is_positive: s.isPositive,
+        pipeline_type: s.pipelineType,
+        sort_order: s.order,
+      }));
+    }
+    case 'Lead Sources': {
+      const sources = await leadSourcesApi.getAll();
+      // Normalize: usageCount → usage_count
+      return sources.map(s => ({ ...s, usage_count: s.usageCount }));
+    }
+    case 'Health Statuses': {
+      const statuses = await healthStatusesApi.getAll();
+      // Normalize: order → sort_order
+      return statuses.map(h => ({ ...h, sort_order: h.order }));
+    }
+    default:
+      return [];
+  }
+}
+
 // ─── Color Picker ─────────────────────────────────────────────────────────────
 
 const ColorPicker = memo(({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
@@ -604,6 +713,9 @@ const MasterAdmin: React.FC = () => {
   const [deleteText, setDeleteText] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  // Refresh state (tracks button-initiated refreshes separately from initial loads)
+  const [refreshing, setRefreshing] = useState(false);
+
   const configs = useMemo(() => buildConfig(profiles), [profiles]);
   const config = configs[category];
 
@@ -633,25 +745,35 @@ const MasterAdmin: React.FC = () => {
     setExtraMap({});
 
     try {
-      let q = supabase.from(config.table as "leads").select("*"); // type cast — runtime table name
-      if (config.orderBy) {
-        q = q.order(config.orderBy.col, { ascending: config.orderBy.asc });
-      }
-      const { data, error } = await q;
-      if (error) {
-        toast({ title: `Cannot load ${category}`, description: error.message, variant: "destructive" });
-        setRows([]);
-      } else {
-        setRows(data ?? []);
-      }
+      const source = DATA_SOURCES[category];
 
-      // Load extra map (e.g. campaigns for campaign_leads)
-      if (config.extraTable) {
-        const { data: extraData } = await supabase
-          .from(config.extraTable as "campaigns")
-          .select("id, name");
-        if (extraData) {
-          setExtraMap(Object.fromEntries(extraData.map((r) => [r.id, r.name])));
+      if (source === 'mock') {
+        // Fetch from in-memory mock API
+        const data = await getMockData(category);
+        setRows(data);
+      } else {
+        // Fetch from Supabase
+        const tableName = SUPABASE_TABLES[category] ?? config.table;
+        let q = supabase.from(tableName as "leads").select("*"); // type cast — runtime table name
+        if (config.orderBy) {
+          q = q.order(config.orderBy.col, { ascending: config.orderBy.asc });
+        }
+        const { data, error } = await q;
+        if (error) {
+          toast({ title: `Cannot load ${category}`, description: error.message, variant: "destructive" });
+          setRows([]);
+        } else {
+          setRows(data ?? []);
+        }
+
+        // Load extra map (e.g. campaigns for campaign_leads)
+        if (config.extraTable) {
+          const { data: extraData } = await supabase
+            .from(config.extraTable as "campaigns")
+            .select("id, name");
+          if (extraData) {
+            setExtraMap(Object.fromEntries(extraData.map((r) => [r.id, r.name])));
+          }
         }
       }
     } finally {
@@ -660,6 +782,17 @@ const MasterAdmin: React.FC = () => {
   }, [category, config]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Refresh handler (button-triggered, shows spinner on button) ─────────────
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await loadData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadData, refreshing]);
 
   // ── Search filter ───────────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
@@ -714,11 +847,38 @@ const MasterAdmin: React.FC = () => {
     if (!editTarget || !config) return;
     setEditSaving(true);
     try {
-      const { error } = await supabase
-        .from(config.table as "leads")
-        .update({ ...editForm, updated_at: new Date().toISOString() })
-        .eq("id", editTarget.id);
-      if (error) throw error;
+      const source = DATA_SOURCES[category];
+
+      if (source === 'mock') {
+        // Route to the appropriate mock API
+        switch (category) {
+          case 'Custom Fields':
+            await customFieldsApi.update(editTarget.id, editForm);
+            break;
+          case 'Pipeline Stages':
+            await pipelineApi.updateStage(
+              editTarget.id,
+              (editTarget.pipelineType ?? "lead") as "lead" | "recruit",
+              editForm,
+            );
+            break;
+          case 'Lead Sources':
+            await leadSourcesApi.update(editTarget.id, editForm);
+            break;
+          case 'Health Statuses':
+            await healthStatusesApi.update(editTarget.id, editForm);
+            break;
+        }
+      } else {
+        // Route to Supabase
+        const tableName = SUPABASE_TABLES[category] ?? config.table;
+        const { error } = await supabase
+          .from(tableName as "leads")
+          .update({ ...editForm, updated_at: new Date().toISOString() })
+          .eq("id", editTarget.id);
+        if (error) throw error;
+      }
+
       toast({ title: "Saved successfully" });
       setEditTarget(null);
       loadData();
@@ -748,23 +908,57 @@ const MasterAdmin: React.FC = () => {
     if (deleteText !== "DELETE" || !config) return;
     setDeleting(true);
     try {
-      const { error } = await supabase
-        .from(config.table as "leads")
-        .delete()
-        .in("id", deleteIds);
-      if (error) {
-        const isFk = error.message.toLowerCase().includes("foreign key") || error.code === "23503";
-        toast({
-          title: isFk ? "Cannot delete — this item is referenced by other records" : "Delete failed",
-          description: isFk ? undefined : error.message,
-          variant: "destructive",
-        });
-      } else {
+      const source = DATA_SOURCES[category];
+
+      if (source === 'mock') {
+        // Route each id to the appropriate mock API delete
+        for (const id of deleteIds) {
+          const row = rows.find(r => r.id === id);
+          switch (category) {
+            case 'Custom Fields':
+              await customFieldsApi.delete(id);
+              break;
+            case 'Pipeline Stages':
+              // pipelineType is preserved in the normalized row
+              await pipelineApi.deleteStage(
+                id,
+                (row?.pipelineType ?? "lead") as "lead" | "recruit",
+              );
+              break;
+            case 'Lead Sources':
+              await leadSourcesApi.delete(id);
+              break;
+            case 'Health Statuses':
+              await healthStatusesApi.delete(id);
+              break;
+          }
+        }
         toast({ title: `Deleted ${deleteIds.length} item${deleteIds.length !== 1 ? "s" : ""}` });
         setDeleteIds([]);
         setDeleteText("");
         setSelected(new Set());
         loadData();
+      } else {
+        // Route to Supabase
+        const tableName = SUPABASE_TABLES[category] ?? config.table;
+        const { error } = await supabase
+          .from(tableName as "leads")
+          .delete()
+          .in("id", deleteIds);
+        if (error) {
+          const isFk = error.message.toLowerCase().includes("foreign key") || error.code === "23503";
+          toast({
+            title: isFk ? "Cannot delete — this item is referenced by other records" : "Delete failed",
+            description: isFk ? undefined : error.message,
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: `Deleted ${deleteIds.length} item${deleteIds.length !== 1 ? "s" : ""}` });
+          setDeleteIds([]);
+          setDeleteText("");
+          setSelected(new Set());
+          loadData();
+        }
       }
     } finally {
       setDeleting(false);
@@ -824,6 +1018,18 @@ const MasterAdmin: React.FC = () => {
             className="pl-8 h-9 w-56 text-sm"
           />
         </div>
+
+        {/* Refresh */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={refreshing || loading}
+          className="px-2.5"
+          title="Refresh data"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+        </Button>
       </div>
 
       {/* Row count */}
