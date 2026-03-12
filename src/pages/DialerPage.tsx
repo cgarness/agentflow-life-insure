@@ -664,244 +664,32 @@ export default function DialerPage() {
       </div>
 
       {/* ── COLUMNS ── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── LEFT COLUMN ── */}
-        <div className="w-80 shrink-0 flex flex-col gap-3 overflow-hidden p-3 border-r">
-          {/* FIX 5: Campaign selector removed — campaign is selected on the selection screen */}
-
-          {/* Action buttons */}
-          <div className="grid grid-cols-4 gap-2">
-            {onCall ? (
-              <button
-                onClick={handleHangUp}
-                className="bg-destructive text-destructive-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+      <div className="flex flex-1 overflow-hidden p-3 gap-3">
+        {/* ── NEW LEFT COLUMN (Contact Info) ── */}
+        <div className="w-72 shrink-0 flex flex-col gap-3">
+          <div className="bg-card border rounded-xl p-4 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Contact Info</span>
+              <button 
+                onClick={() => setShowFullViewDrawer(true)}
+                className="p-1.5 text-primary hover:bg-primary/10 rounded-lg transition-colors border border-primary/20"
+                title="Edit Contact"
               >
-                <PhoneOff className="w-5 h-5" />
-                Hang Up
-                <span className="font-mono text-xs">{fmtDuration(callSeconds)}</span>
+                <Pencil className="w-3.5 h-3.5" />
               </button>
-            ) : (
-              <button
-                onClick={handleCall}
-                className="bg-success text-success-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-              >
-                <Phone className="w-5 h-5" />
-                Call
-              </button>
-            )}
-            <button
-              onClick={handleSkip}
-              className="bg-accent border rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-            >
-              <SkipForward className="w-5 h-5" />
-              Skip
-            </button>
-            <button
-              onClick={() => setShowAppointmentModal(true)}
-              className="bg-purple-500 hover:bg-purple-600 text-white rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-            >
-              <CalendarIcon className="w-5 h-5" />
-              Schedule
-            </button>
-            <button
-              onClick={() => setShowFullViewDrawer(true)}
-              className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-              style={{
-                backgroundColor: '#1D4ED81A',
-                color: '#3B82F6',
-                border: '1px solid #3B82F640',
-              }}
-            >
-              <Eye className="w-5 h-5" />
-              Full View
-            </button>
-          </div>
+            </div>
 
-          {/* Tab bar — fixed below action buttons */}
-          <div className="shrink-0 border rounded-lg overflow-hidden flex">
-            {(["dispositions", "queue", "scripts"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setLeftTab(tab)}
-                className={`flex-1 py-2 text-sm font-semibold capitalize ${
-                  leftTab === tab ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab content — only this area scrolls */}
-          <div className="flex-1 overflow-y-auto">
-            {leftTab === "dispositions" && (
-              <div className="flex flex-col gap-3">
-                {/* Disposition grid — always visible */}
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
-                    Select Disposition
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {dispositions.map((d) => {
-                      const isSelected = selectedDisp?.id === d.id;
-                      return (
-                        <button
-                          key={d.id}
-                          onClick={() => handleSelectDisposition(d)}
-                          className={`rounded-lg px-2 py-2 text-left w-full flex items-center gap-2 cursor-pointer ${
-                            isSelected ? "" : "bg-accent border border-border"
-                          }`}
-                          style={
-                            isSelected
-                              ? {
-                                  backgroundColor: d.color + "22",
-                                  border: "1.5px solid " + d.color,
-                                }
-                              : undefined
-                          }
-                        >
-                          <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: d.color }}
-                          />
-                          <span
-                            className="text-xs font-semibold"
-                            style={{ color: isSelected ? d.color : undefined }}
-                          >
-                            {d.name}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Quick Notes section — only when showWrapUp */}
-                {showWrapUp && (
-                  <div>
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1">
-                      Quick Notes
-                    </div>
-                    <textarea
-                      value={noteText}
-                      onChange={(e) => {
-                        setNoteText(e.target.value);
-                        setNoteError(false);
-                      }}
-                      placeholder="Add notes…"
-                      className={`bg-accent border rounded-lg p-2 text-sm text-foreground w-full resize-none h-20 ${
-                        noteError ? "border-destructive" : "border-border"
-                      }`}
-                    />
-                    {selectedDisp?.requireNotes && selectedDisp.minNoteChars > 0 && (
-                      <div className="text-[10px] text-muted-foreground">
-                        {noteText.length} / {selectedDisp.minNoteChars} min
-                      </div>
-                    )}
-                    <button
-                      onClick={handleSaveAndContinue}
-                      className="bg-primary text-primary-foreground w-full rounded-lg py-2 text-sm font-semibold mt-1"
-                    >
-                      Save &amp; Continue
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* FIX 4: Queue tab — maps over leadQueue */}
-            {leftTab === "queue" && (
-              <div className="flex flex-col">
-                {leadQueue.map((lead, i) => (
-                  <div
-                    key={lead.id}
-                    className={`bg-card border rounded-lg p-3 mb-2 ${
-                      i === currentLeadIndex ? "bg-primary/10 border-primary/30" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-foreground">
-                        {lead.first_name} {lead.last_name}
-                      </span>
-                      {i === currentLeadIndex && (
-                        <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
-                          CURRENT
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      {lead.state && (
-                        <span className="bg-accent border rounded px-1.5 py-0.5">{lead.state}</span>
-                      )}
-                      {lead.age && <span>Age {lead.age}</span>}
-                      {lead.source && <span>{lead.source}</span>}
-                    </div>
-                  </div>
-                ))}
-                {leadQueue.length === 0 && (
-                  <p className="text-muted-foreground text-sm text-center py-6">No leads in queue</p>
-                )}
-              </div>
-            )}
-
-            {/* Scripts tab */}
-            {leftTab === "scripts" && (
-              <div className="flex flex-col gap-2">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1 px-1">
-                  Active Scripts
-                </div>
-                {availableScripts.length === 0 ? (
-                  <div className="text-center py-8 bg-accent/30 rounded-xl border border-dashed border-border">
-                    <FileText className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">No active scripts found</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {availableScripts.map((script) => (
-                      <button
-                        key={script.id}
-                        onClick={() => setActiveScriptId(script.id)}
-                        className={cn(
-                          "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
-                          activeScriptId === script.id
-                            ? "bg-primary/10 border-primary/30 ring-1 ring-primary/20"
-                            : "bg-card border-border hover:border-primary/40 hover:bg-accent/50"
-                        )}
-                      >
-                        <div className={cn(
-                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                          activeScriptId === script.id ? "bg-primary/20 text-primary" : "bg-accent text-muted-foreground"
-                        )}>
-                          <FileText className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm text-foreground truncate">{script.name}</div>
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-tight">{script.product_type || "General"}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── CENTER COLUMN ── */}
-        <div className="flex-1 flex flex-col gap-3 overflow-hidden min-h-0 p-3">
-          {/* 1. Contact details header */}
-          <div className="shrink-0 bg-card border rounded-xl p-4">
             {contactLocalTimeDisplay && (
-              <div className="mb-3">
-                <span className="inline-flex items-center bg-green-500 text-white rounded-full px-2 py-0.5 text-xs font-semibold">
-                  {contactLocalTimeDisplay}
-                </span>
+              <div className="inline-flex items-center bg-green-500/10 text-green-500 rounded-full px-2 py-0.5 text-[10px] font-bold self-start border border-green-500/20">
+                <Clock className="w-3 h-3 mr-1" />
+                {contactLocalTimeDisplay}
               </div>
             )}
-            <div className="grid grid-cols-4 gap-4">
+
+            <div className="grid grid-cols-2 gap-4">
               {[
                 {
-                  label: "Full Name",
+                  label: "Name",
                   value: currentLead
                     ? `${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()
                     : null,
@@ -909,33 +697,35 @@ export default function DialerPage() {
                 { label: "Phone", value: currentLead?.phone },
                 { label: "Email", value: currentLead?.email },
                 { label: "State", value: currentLead?.state },
+                { label: "Age", value: currentLead?.age },
+                { label: "Source", value: currentLead?.source },
               ].map((f) => (
-                <div key={f.label}>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">{f.label}</div>
-                  <div className="text-sm font-semibold text-foreground mt-1">{f.value || "—"}</div>
+                <div key={f.label} className="min-w-0">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{f.label}</div>
+                  <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-4 gap-4 mt-3">
-              {[
-                { label: "Age", value: currentLead?.age },
-                { label: "Lead Source", value: currentLead?.source },
-                { label: "Status", value: currentLead?.status },
-                { label: "Assigned", value: currentLead?.claimed_by },
-              ].map((f) => (
-                <div key={f.label}>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">{f.label}</div>
-                  <div className="text-sm font-semibold text-foreground mt-1">{f.value ?? "—"}</div>
-                </div>
-              ))}
+            
+            <div className="pt-2 border-t mt-1">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Status / Assigned</div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-xs bg-accent px-2 py-1 rounded-md font-medium">{currentLead?.status || "—"}</span>
+                <span className="text-xs text-muted-foreground truncate">{currentLead?.claimed_by || "—"}</span>
+              </div>
             </div>
           </div>
+        </div>
 
-          {/* FIX 1: Conversation history card with pinned composer */}
+        {/* ── CENTER COLUMN (Conversation History) ── */}
+        <div className="flex-[1.5] flex flex-col gap-3 overflow-hidden min-h-0">
           <div className="flex flex-col overflow-hidden bg-card border rounded-xl" style={{ flex: 1, minHeight: 0 }}>
             {/* Header — shrink-0 */}
             <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
-              <span className="font-semibold text-sm text-foreground">Conversation History</span>
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-sm text-foreground">Conversation History</span>
+              </div>
               <select className="bg-accent border border-border text-xs text-foreground rounded-lg px-2 py-1 h-7">
                 <option>+19097381193</option>
               </select>
@@ -983,7 +773,7 @@ export default function DialerPage() {
             </div>
           </div>
 
-          {/* SMS composer — shrink-0, pinned to bottom of right column */}
+          {/* SMS composer — shrink-0 */}
           <div className="shrink-0 bg-card border rounded-xl flex flex-col pt-3">
             <div className="px-4">
               {/* Tab switcher */}
@@ -1047,6 +837,224 @@ export default function DialerPage() {
                 <Send className="w-4 h-4" />
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* ── RIGHT COLUMN (Original Left) ── */}
+        <div className="w-80 shrink-0 flex flex-col gap-3 overflow-hidden">
+          {/* Action buttons */}
+          <div className="grid grid-cols-2 gap-2">
+            {onCall ? (
+              <button
+                onClick={handleHangUp}
+                className="bg-destructive text-destructive-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              >
+                <PhoneOff className="w-5 h-5" />
+                Hang Up
+                <span className="font-mono text-xs">{fmtDuration(callSeconds)}</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleCall}
+                className="bg-success text-success-foreground rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              >
+                <Phone className="w-5 h-5" />
+                Call
+              </button>
+            )}
+            <button
+              onClick={handleSkip}
+              className="bg-accent border rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+            >
+              <SkipForward className="w-5 h-5" />
+              Skip
+            </button>
+            <button
+              onClick={() => setShowAppointmentModal(true)}
+              className="bg-purple-500 hover:bg-purple-600 text-white rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+            >
+              <CalendarIcon className="w-5 h-5" />
+              Schedule
+            </button>
+            <button
+              onClick={() => setShowFullViewDrawer(true)}
+              className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
+              style={{
+                backgroundColor: '#1D4ED81A',
+                color: '#3B82F6',
+                border: '1px solid #3B82F640',
+              }}
+            >
+              <Eye className="w-5 h-5" />
+              Full View
+            </button>
+          </div>
+
+          {/* Tab bar */}
+          <div className="shrink-0 border rounded-lg overflow-hidden flex">
+            {(["dispositions", "queue", "scripts"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setLeftTab(tab)}
+                className={`flex-1 py-2 text-sm font-semibold capitalize ${
+                  leftTab === tab ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className="flex-1 overflow-y-auto">
+            {leftTab === "dispositions" && (
+              <div className="flex flex-col gap-3">
+                {/* Disposition grid */}
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
+                    Select Disposition
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {dispositions.map((d) => {
+                      const isSelected = selectedDisp?.id === d.id;
+                      return (
+                        <button
+                          key={d.id}
+                          onClick={() => handleSelectDisposition(d)}
+                          className={`rounded-lg px-2 py-2 text-left w-full flex items-center gap-2 cursor-pointer ${
+                            isSelected ? "" : "bg-accent border border-border"
+                          }`}
+                          style={
+                            isSelected
+                              ? {
+                                  backgroundColor: d.color + "22",
+                                  border: "1.5px solid " + d.color,
+                                }
+                              : undefined
+                          }
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: d.color }}
+                          />
+                          <span
+                            className="text-xs font-semibold"
+                            style={{ color: isSelected ? d.color : undefined }}
+                          >
+                            {d.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Quick Notes section */}
+                {showWrapUp && (
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1">
+                      Quick Notes
+                    </div>
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => {
+                        setNoteText(e.target.value);
+                        setNoteError(false);
+                      }}
+                      placeholder="Add notes…"
+                      className={`bg-accent border rounded-lg p-2 text-sm text-foreground w-full resize-none h-20 ${
+                        noteError ? "border-destructive" : "border-border"
+                      }`}
+                    />
+                    {selectedDisp?.requireNotes && selectedDisp.minNoteChars > 0 && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {noteText.length} / {selectedDisp.minNoteChars} min
+                      </div>
+                    )}
+                    <button
+                      onClick={handleSaveAndContinue}
+                      className="bg-primary text-primary-foreground w-full rounded-lg py-2 text-sm font-semibold mt-1"
+                    >
+                      Save &amp; Continue
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {leftTab === "queue" && (
+              <div className="flex flex-col">
+                {leadQueue.map((lead, i) => (
+                  <div
+                    key={lead.id}
+                    className={`bg-card border rounded-lg p-3 mb-2 ${
+                      i === currentLeadIndex ? "bg-primary/10 border-primary/30" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm text-foreground">
+                        {lead.first_name} {lead.last_name}
+                      </span>
+                      {i === currentLeadIndex && (
+                        <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
+                          CURRENT
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                      {lead.state && (
+                        <span className="bg-accent border rounded px-1.5 py-0.5">{lead.state}</span>
+                      )}
+                      {lead.age && <span>Age {lead.age}</span>}
+                      {lead.source && <span>{lead.source}</span>}
+                    </div>
+                  </div>
+                ))}
+                {leadQueue.length === 0 && (
+                  <p className="text-muted-foreground text-sm text-center py-6">No leads in queue</p>
+                )}
+              </div>
+            )}
+
+            {leftTab === "scripts" && (
+              <div className="flex flex-col gap-2">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1 px-1">
+                  Active Scripts
+                </div>
+                {availableScripts.length === 0 ? (
+                  <div className="text-center py-8 bg-accent/30 rounded-xl border border-dashed border-border">
+                    <FileText className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">No active scripts found</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {availableScripts.map((script) => (
+                      <button
+                        key={script.id}
+                        onClick={() => setActiveScriptId(script.id)}
+                        className={cn(
+                          "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
+                          activeScriptId === script.id
+                            ? "bg-primary/10 border-primary/30 ring-1 ring-primary/20"
+                            : "bg-card border-border hover:border-primary/40 hover:bg-accent/50"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                          activeScriptId === script.id ? "bg-primary/20 text-primary" : "bg-accent text-muted-foreground"
+                        )}>
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm text-foreground truncate">{script.name}</div>
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-tight">{script.product_type || "General"}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
