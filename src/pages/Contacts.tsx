@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
@@ -331,7 +331,11 @@ const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: ()
 const Contacts: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
-  const [tab, setTab] = useState<"Leads" | "Clients" | "Recruits" | "Agents">("Leads");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents") || "Leads";
+  const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents") => {
+    setSearchParams({ tab: newTab });
+  };
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [clients, setClients] = useState<Client[]>([]);

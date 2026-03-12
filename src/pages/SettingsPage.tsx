@@ -27,40 +27,39 @@ import {
 } from "lucide-react";
 
 const sections = [
-  { icon: UserCircle, label: "My Profile" },
-  { icon: Building2, label: "Company Branding" },
-  { icon: Users, label: "User Management" },
-  { icon: Phone, label: "Telnyx & Phone Numbers" },
-  { icon: FileText, label: "Call Scripts" },
-  { icon: List, label: "Dispositions Manager" },
-  { icon: SlidersHorizontal, label: "Contact Management" },
-  { icon: CalendarDays, label: "Calendar Settings" },
-  { icon: Lock, label: "Permissions" },
-  { icon: Zap, label: "Automation Builder" },
-  { icon: Mail, label: "Email & SMS Templates" },
-  { icon: Shield, label: "Carriers" },
-  { icon: Voicemail, label: "Voicemail Drop Manager" },
-  { icon: Mic, label: "Call Recording Library" },
-  { icon: Headphones, label: "Call Monitoring" },
-  { icon: Target, label: "Goal Setting" },
-  { icon: PhoneIncoming, label: "Inbound Call Routing" },
-  { icon: Settings, label: "Predictive Dialer" },
-  { icon: Bot, label: "AI Settings" },
-  { icon: Ban, label: "DNC List Manager" },
-  { icon: Webhook, label: "Zapier & Webhooks" },
-  { icon: Link, label: "Custom Menu Links" },
-  { icon: Clock, label: "Activity Log" },
-  { icon: Radar, label: "Spam Monitoring" },
-  { icon: Database, label: "Master Admin" },
+  { slug: "my-profile", icon: UserCircle, label: "My Profile" },
+  { slug: "company-branding", icon: Building2, label: "Company Branding" },
+  { slug: "user-management", icon: Users, label: "User Management" },
+  { slug: "phone-settings", icon: Phone, label: "Telnyx & Phone Numbers" },
+  { slug: "call-scripts", icon: FileText, label: "Call Scripts" },
+  { slug: "dispositions", icon: List, label: "Dispositions Manager" },
+  { slug: "contact-management", icon: SlidersHorizontal, label: "Contact Management" },
+  { slug: "calendar-settings", icon: CalendarDays, label: "Calendar Settings" },
+  { slug: "permissions", icon: Lock, label: "Permissions" },
+  { slug: "automation", icon: Zap, label: "Automation Builder" },
+  { slug: "templates", icon: Mail, label: "Email & SMS Templates" },
+  { slug: "carriers", icon: Shield, label: "Carriers" },
+  { slug: "voicemail", icon: Voicemail, label: "Voicemail Drop Manager" },
+  { slug: "recordings", icon: Mic, label: "Call Recording Library" },
+  { slug: "monitoring", icon: Headphones, label: "Call Monitoring" },
+  { slug: "goals", icon: Target, label: "Goal Setting" },
+  { slug: "routing", icon: PhoneIncoming, label: "Inbound Call Routing" },
+  { slug: "dialer", icon: Settings, label: "Predictive Dialer" },
+  { slug: "ai", icon: Bot, label: "AI Settings" },
+  { slug: "dnc", icon: Ban, label: "DNC List Manager" },
+  { slug: "webhooks", icon: Webhook, label: "Zapier & Webhooks" },
+  { slug: "menu-links", icon: Link, label: "Custom Menu Links" },
+  { slug: "activity-log", icon: Clock, label: "Activity Log" },
+  { slug: "spam", icon: Radar, label: "Spam Monitoring" },
+  { slug: "master-admin", icon: Database, label: "Master Admin" },
 ];
 
 const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
 const MASTER_ADMIN_UID = "u1";
-const MASTER_ADMIN_IDX = sections.length - 1;
 
 const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [active, setActive] = useState(0);
+  const activeSlug = searchParams.get("section") || "my-profile";
   const { user, profile } = useAuth();
   
   const isMasterAdmin = 
@@ -68,54 +67,37 @@ const SettingsPage: React.FC = () => {
     profile?.email === MASTER_ADMIN_EMAIL || 
     user?.id === MASTER_ADMIN_UID;
 
-  useEffect(() => {
-    const section = searchParams.get("section");
-
-    if (section === "my-profile") {
-      setActive(0);
-      setSearchParams({}, { replace: true });
-      return;
-    }
-
-    if (section === "calendar-settings") {
-      setActive(7);
-      setSearchParams({}, { replace: true });
-    }
-  }, [searchParams, setSearchParams]);
+  const setActive = (slug: string) => {
+    setSearchParams({ section: slug }, { replace: true });
+  };
 
   const renderContent = () => {
-    switch (active) {
-      case 0: // My Profile
+    switch (activeSlug) {
+      case "my-profile":
         return <MyProfile />;
-      case 1: // Company Branding
+      case "company-branding":
         return <CompanyBranding />;
-
-      case 2: // User Management
+      case "user-management":
         return <UserManagement />;
-      case 4: // Call Scripts
+      case "call-scripts":
         return <CallScripts />;
-      case 3: // Telnyx
+      case "phone-settings":
         return <PhoneSettings />;
-
-      case 5: // Dispositions
+      case "dispositions":
         return <DispositionsManager />;
-      case 6: // Contact Management
+      case "contact-management":
         return <ContactManagement />;
-      case 7: // Calendar Settings
+      case "calendar-settings":
         return <CalendarSettings />;
-      case 8: // Permissions
+      case "permissions":
         return <Permissions />;
-
-      case 10: // Email & SMS Templates
+      case "templates":
         return <EmailSMSTemplates />;
-
-      case 11: // Carriers
+      case "carriers":
         return <Carriers />;
-
-      case 15: // Goal Setting
+      case "goals":
         return <GoalSetting />;
-
-      case 14: // Call Monitoring
+      case "monitoring":
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">Call Monitoring <span className="w-2.5 h-2.5 rounded-full bg-success animate-pulse" /></h3>
@@ -142,8 +124,7 @@ const SettingsPage: React.FC = () => {
             </div>
           </div>
         );
-
-      case 18: // AI Settings
+      case "ai":
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">AI Settings</h3>
@@ -159,33 +140,28 @@ const SettingsPage: React.FC = () => {
             </div>
           </div>
         );
-
-      case 19: // DNC List
+      case "dnc":
         return <DNCSettings />;
-
-      case 21: // Custom Menu Links
+      case "menu-links":
         return <CustomMenuLinks />;
-
-      case 22: // Activity Log
+      case "activity-log":
         return <ActivityLog />;
-
-      case 23: // Spam Monitoring
+      case "spam":
         return <SpamMonitoring />;
-      
-      case 24: // Master Admin
+      case "master-admin":
         if (!isMasterAdmin) {
           toast({ title: "Access Denied", description: "This section is restricted to master administrators.", variant: "destructive" });
-          setActive(0);
+          setActive("my-profile");
           return <MyProfile />;
         }
         return <MasterAdmin />;
-
       default: {
-        const Icon = sections[active].icon;
+        const section = sections.find(s => s.slug === activeSlug);
+        const Icon = section?.icon || Settings;
         return (
           <div className="bg-accent/50 rounded-xl p-8 text-center">
             <Icon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <h3 className="font-semibold text-foreground mb-1">{sections[active].label}</h3>
+            <h3 className="font-semibold text-foreground mb-1">{section?.label || "Settings"}</h3>
             <p className="text-sm text-muted-foreground">This settings section is ready for configuration.</p>
           </div>
         );
@@ -203,25 +179,23 @@ const SettingsPage: React.FC = () => {
             {/* ACCOUNT section */}
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium px-3 py-2">Account</p>
             <button
-              onClick={() => setActive(0)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${active === 0 ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
+              onClick={() => setActive("my-profile")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${activeSlug === "my-profile" ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
                 }`}
             >
               <UserCircle className="w-4 h-4 shrink-0" />
               <span className="truncate">My Profile</span>
             </button>
             <div className="border-t border-border my-1" />
-            {sections.slice(1).map((s, idx) => {
-              const i = idx + 1;
-              
+            {sections.slice(1).map((s) => {
               // Hide Master Admin from sidebar if not the authorized user
-              if (i === MASTER_ADMIN_IDX && !isMasterAdmin) return null;
+              if (s.slug === "master-admin" && !isMasterAdmin) return null;
 
               return (
                 <button
-                  key={s.label}
-                  onClick={() => setActive(i)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${active === i ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
+                  key={s.slug}
+                  onClick={() => setActive(s.slug)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm sidebar-transition text-left ${activeSlug === s.slug ? "bg-primary text-primary-foreground font-medium" : "text-foreground hover:bg-accent"
                     }`}
                 >
                   <s.icon className="w-4 h-4 shrink-0" />

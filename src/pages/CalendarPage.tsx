@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -87,7 +88,11 @@ const CalendarPage: React.FC = () => {
   const [newLastName, setNewLastName] = useState("");
 
   // New Design State
-  const [currentView, setCurrentView] = useState<ViewType>("Month");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentView = (searchParams.get("view") as ViewType) || "Month";
+  const setCurrentView = (view: ViewType) => {
+    setSearchParams({ view });
+  };
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const views: { name: ViewType; icon: any }[] = [

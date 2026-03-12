@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { formatDistanceToNow } from "date-fns";
@@ -131,8 +132,13 @@ function mapDialerLeadToContactLead(row: any): Lead {
 
 export default function DialerPage() {
   /* --- state --- */
+  const [searchParams, setSearchParams] = useSearchParams();
   const [campaigns, setCampaigns] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const selectedCampaignId = searchParams.get("campaign");
+  const setSelectedCampaignId = (id: string | null) => {
+    if (id) setSearchParams({ campaign: id });
+    else setSearchParams({});
+  };
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
