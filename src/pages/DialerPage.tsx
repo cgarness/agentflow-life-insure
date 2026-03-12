@@ -197,6 +197,7 @@ export default function DialerPage() {
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
+  const [shouldAdvanceAfterModal, setShouldAdvanceAfterModal] = useState(false);
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -401,6 +402,7 @@ export default function DialerPage() {
   const handleSaveOnly = async () => {
     const success = await saveCallData();
     if (success) {
+      setShouldAdvanceAfterModal(false);
       toast.success("Call saved (remaining on contact)");
       setSessionStats((s) => ({
         ...s,
@@ -412,12 +414,20 @@ export default function DialerPage() {
       if (selectedDisp) {
         setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
       }
+
+      if (selectedDisp?.appointmentScheduler) {
+        setShowAppointmentModal(true);
+      } else if (selectedDisp?.callbackScheduler) {
+        setSessionStats((s) => ({ ...s, callbacks: s.callbacks + 1 }));
+        setShowCallbackModal(true);
+      }
     }
   };
 
   const handleSaveAndNext = async () => {
     const success = await saveCallData();
     if (success) {
+      setShouldAdvanceAfterModal(true);
       toast.success("Call saved, moving to next");
       setSessionStats((s) => ({
         ...s,
@@ -565,7 +575,9 @@ export default function DialerPage() {
     setShowCallbackModal(false);
     setCallbackDate(undefined);
     setCallbackTime("");
-    handleAdvance();
+    if (shouldAdvanceAfterModal) {
+      handleAdvance();
+    }
   }
 
 
@@ -1227,25 +1239,26 @@ export default function DialerPage() {
                       <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-1.5 block">
                         Select Disposition
                       </label>
-                      <div className="relative">
-                        <select
-                          value={selectedDisp?.id || ""}
-                          onChange={(e) => {
-                            const d = dispositions.find((ds) => ds.id === e.target.value);
-                            if (d) handleSelectDisposition(d);
-                          }}
-                          className={`w-full h-10 px-3 rounded-lg bg-card border border-border text-sm appearance-none focus:ring-2 focus:ring-primary/50 cursor-pointer ${
-                            !selectedDisp ? "text-muted-foreground" : "text-foreground font-medium"
-                          }`}
-                        >
-                          <option value="">Select an outcome...</option>
-                          {dispositions.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.name}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      <div className="grid grid-cols-3 gap-2">
+                        {dispositions.map((d) => (
+                          <button
+                            key={d.id}
+                            onClick={() => handleSelectDisposition(d)}
+                            className={cn(
+                              "flex flex-col items-center justify-center p-2 rounded-lg border text-[10px] font-bold uppercase tracking-tight text-center transition-all h-16",
+                              selectedDisp?.id === d.id
+                                ? "ring-2 ring-primary border-primary bg-primary/10 text-primary"
+                                : "border-border bg-card text-muted-foreground hover:bg-accent"
+                            )}
+                            style={selectedDisp?.id === d.id ? {} : { 
+                              backgroundColor: d.color ? `${d.color}15` : undefined,
+                              borderColor: d.color ? `${d.color}30` : undefined,
+                              color: d.color ?? undefined
+                            }}
+                          >
+                            <span className="line-clamp-2">{d.name}</span>
+                          </button>
+                        ))}
                       </div>
                     </div>
 
@@ -1278,13 +1291,15 @@ export default function DialerPage() {
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <button
                         onClick={handleSaveOnly}
-                        className="h-12 rounded-xl bg-accent text-accent-foreground font-bold text-xs shadow-sm hover:bg-accent/80 transition-all flex items-center justify-center"
+                        disabled={!selectedDisp || (selectedDisp.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0))}
+                        className="h-12 rounded-xl bg-accent text-accent-foreground font-bold text-xs shadow-sm hover:bg-accent/80 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Save
                       </button>
                       <button
                         onClick={handleSaveAndNext}
-                        className="h-12 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-1"
+                        disabled={!selectedDisp || (selectedDisp.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0))}
+                        className="h-12 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                       >
                         Save & Next
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -1416,7 +1431,12 @@ export default function DialerPage() {
       {/* ── APPOINTMENT MODAL ── */}
       <AppointmentModal
         open={showAppointmentModal}
-        onClose={() => handleAdvance()}
+        onClose={() => {
+          setShowAppointmentModal(false);
+          if (shouldAdvanceAfterModal) {
+            handleAdvance();
+          }
+        }}
         onSave={(data) => {
           addAppointment(data);
           if (currentLead && user && selectedCampaignId) {
@@ -1433,7 +1453,10 @@ export default function DialerPage() {
               notes: data.notes,
             }).catch(() => {});
           }
-          handleAdvance();
+          setShowAppointmentModal(false);
+          if (shouldAdvanceAfterModal) {
+            handleAdvance();
+          }
         }}
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}
