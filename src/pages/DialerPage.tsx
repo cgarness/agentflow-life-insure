@@ -198,9 +198,6 @@ export default function DialerPage() {
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [shouldAdvanceAfterModal, setShouldAdvanceAfterModal] = useState(false);
-  const [showRequirementModal, setShowRequirementModal] = useState(false);
-  const [requirementNoteText, setRequirementNoteText] = useState("");
-  const [pendingDisposition, setPendingDisposition] = useState<Disposition | null>(null);
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -330,41 +327,10 @@ export default function DialerPage() {
   }
 
   function handleSelectDisposition(d: Disposition) {
-    if (d.requireNotes) {
-      setPendingDisposition(d);
-      setRequirementNoteText(noteText); // prefill with current notes if any
-      setShowRequirementModal(true);
-      return;
-    }
-    
     setSelectedDisp(d);
     if (d.name.toLowerCase().includes("no answer")) {
       autoSaveNoAnswer(d);
     }
-  }
-
-  function confirmRequirement() {
-    if (!pendingDisposition) return;
-    if (requirementNoteText.length < (pendingDisposition.minNoteChars || 0)) {
-      toast.error(`Notes must be at least ${pendingDisposition.minNoteChars} characters`);
-      return;
-    }
-
-    setNoteText(requirementNoteText);
-    setSelectedDisp(pendingDisposition);
-    setShowRequirementModal(false);
-    setPendingDisposition(null);
-    setRequirementNoteText("");
-    
-    if (pendingDisposition.name.toLowerCase().includes("no answer")) {
-      autoSaveNoAnswer(pendingDisposition);
-    }
-  }
-
-  function closeRequirement() {
-    setShowRequirementModal(false);
-    setPendingDisposition(null);
-    setRequirementNoteText("");
   }
 
   async function autoSaveNoAnswer(d: Disposition) {
@@ -1296,31 +1262,50 @@ export default function DialerPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
-                          Call Notes
-                        </label>
-                        {selectedDisp?.requireNotes && (
-                          <span className="text-[9px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full">
-                            Required {selectedDisp.minNoteChars > 0 ? `(${selectedDisp.minNoteChars} chars)` : ""}
-                          </span>
+                    {selectedDisp && (
+                      <div className="flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+                            Call Notes
+                          </label>
+                          {selectedDisp.requireNotes && (
+                            <span className={cn(
+                              "text-[9px] px-1.5 py-0.5 rounded-full font-bold",
+                              noteText.length >= (selectedDisp.minNoteChars || 0)
+                                ? "bg-success/10 text-success"
+                                : "bg-destructive/10 text-destructive animate-pulse"
+                            )}>
+                              {noteText.length >= (selectedDisp.minNoteChars || 0) ? "Requirement Met" : `Required (${selectedDisp.minNoteChars} chars)`}
+                            </span>
+                          )}
+                        </div>
+                        <textarea
+                          value={noteText}
+                          onChange={(e) => {
+                            setNoteText(e.target.value);
+                            if (noteError && e.target.value.length >= (selectedDisp?.minNoteChars || 0)) {
+                              setNoteError(false);
+                            }
+                          }}
+                          placeholder="Type notes about the call..."
+                          className={cn(
+                            "w-full bg-card border rounded-lg p-3 text-sm placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/50 min-h-[140px] resize-none transition-all",
+                            noteError || (selectedDisp.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0))
+                              ? "border-destructive ring-1 ring-destructive/20" 
+                              : "border-border"
+                          )}
+                        />
+                        
+                        {(selectedDisp.appointmentScheduler || selectedDisp.callbackScheduler) && (
+                          <div className="flex items-center gap-1.5 px-3 py-2 bg-primary/5 rounded-lg border border-primary/10 mt-1">
+                            <CalendarIcon className="w-3.5 h-3.5 text-primary" />
+                            <span className="text-[10px] font-medium text-primary">
+                              {selectedDisp.appointmentScheduler ? "Appointment Scheduler" : "Callback Scheduler"} will open after saving
+                            </span>
+                          </div>
                         )}
                       </div>
-                      <textarea
-                        value={noteText}
-                        onChange={(e) => {
-                          setNoteText(e.target.value);
-                          if (noteError && e.target.value.length >= (selectedDisp?.minNoteChars || 0)) {
-                            setNoteError(false);
-                          }
-                        }}
-                        placeholder="Type notes about the call..."
-                        className={`w-full bg-card border rounded-lg p-3 text-sm placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/50 min-h-[140px] resize-none transition-all ${
-                          noteError ? "border-destructive ring-1 ring-destructive" : "border-border"
-                        }`}
-                      />
-                    </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <button
@@ -1423,7 +1408,10 @@ export default function DialerPage() {
       <Dialog
         open={showCallbackModal}
         onOpenChange={(open) => {
-          if (!open) handleAdvance();
+          if (!open) {
+            setShowCallbackModal(false);
+            if (shouldAdvanceAfterModal) handleAdvance();
+          }
         }}
       >
         <DialogContent>
@@ -1445,7 +1433,7 @@ export default function DialerPage() {
                 setShowCallbackModal(false);
                 setCallbackDate(undefined);
                 setCallbackTime("");
-                handleAdvance();
+                if (shouldAdvanceAfterModal) handleAdvance();
               }}
               className="border border-border rounded-lg px-4 py-2 text-sm font-semibold"
             >
@@ -1495,57 +1483,6 @@ export default function DialerPage() {
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}
       />
-
-      {/* ── DISPOSITION REQUIREMENT MODAL ── */}
-      <Dialog open={showRequirementModal} onOpenChange={(open) => !open && closeRequirement()}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div 
-                className="w-3 h-3 rounded-full" 
-                style={{ backgroundColor: pendingDisposition?.color }}
-              />
-              Notes Required for {pendingDisposition?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <textarea
-              autoFocus
-              value={requirementNoteText}
-              onChange={(e) => setRequirementNoteText(e.target.value)}
-              placeholder={`Please enter at least ${pendingDisposition?.minNoteChars || 0} characters...`}
-              className="w-full min-h-[150px] bg-accent/50 border border-border rounded-xl p-4 text-sm focus:ring-2 focus:ring-primary/50 outline-none resize-none transition-all"
-            />
-            {pendingDisposition?.minNoteChars && (
-              <div className="flex justify-end mt-2">
-                <span className={cn(
-                  "text-[10px] font-bold px-2 py-0.5 rounded-full",
-                  requirementNoteText.length >= pendingDisposition.minNoteChars 
-                    ? "bg-success/10 text-success" 
-                    : "bg-destructive/10 text-destructive"
-                )}>
-                  {requirementNoteText.length} / {pendingDisposition.minNoteChars} characters
-                </span>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <button
-              onClick={closeRequirement}
-              className="px-4 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmRequirement}
-              disabled={pendingDisposition?.minNoteChars ? requirementNoteText.length < pendingDisposition.minNoteChars : false}
-              className="bg-primary text-primary-foreground px-6 py-2 rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all disabled:opacity-50 disabled:pointer-events-none"
-            >
-              Confirm Disposition
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <AnimatePresence>
         {activeScriptId && (
