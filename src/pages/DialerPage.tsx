@@ -48,6 +48,10 @@ import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead } from "@/lib/types";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
+import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
+import { supabase } from "@/integrations/supabase/client";
+import { AnimatePresence } from "framer-motion";
+
 /* ─── Types ─── */
 
 interface Disposition {
@@ -161,6 +165,8 @@ export default function DialerPage() {
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { user } = useAuth();
   const { addAppointment } = useCalendar();
+  const [availableScripts, setAvailableScripts] = useState<any[]>([]);
+  const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -188,6 +194,19 @@ export default function DialerPage() {
         ),
       )
       .catch(() => toast.error("Failed to load dispositions"));
+
+    // Fetch active scripts
+    supabase
+      .from("call_scripts")
+      .select("*")
+      .eq("active", true)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Error fetching scripts:", error);
+        } else {
+          setAvailableScripts(data || []);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -827,26 +846,42 @@ export default function DialerPage() {
 
             {/* Scripts tab */}
             {leftTab === "scripts" && (
-              <div className="flex flex-col gap-3">
-                <div className="bg-card border rounded-xl p-4">
-                  <div className="text-primary font-semibold text-sm mb-2">Opening Script</div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    &ldquo;Hi, this is [Your Name] calling from [Company]. I&apos;m reaching out because
-                    you recently inquired about life insurance options. Is now a good time to chat for
-                    just a couple of minutes?&rdquo;
-                  </p>
+              <div className="flex flex-col gap-2">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1 px-1">
+                  Active Scripts
                 </div>
-                <div className="bg-card border rounded-xl p-4">
-                  <div className="font-semibold text-sm mb-2" style={{ color: "#8B5CF6" }}>
-                    Objection Handling
+                {availableScripts.length === 0 ? (
+                  <div className="text-center py-8 bg-accent/30 rounded-xl border border-dashed border-border">
+                    <FileText className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">No active scripts found</p>
                   </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    &ldquo;I completely understand your concern. Many of our clients felt the same way
-                    initially. What I&apos;ve found is that once they saw how affordable and flexible
-                    these plans are, they were glad they took a few minutes to learn more. Can I share a
-                    quick overview?&rdquo;
-                  </p>
-                </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {availableScripts.map((script) => (
+                      <button
+                        key={script.id}
+                        onClick={() => setActiveScriptId(script.id)}
+                        className={cn(
+                          "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
+                          activeScriptId === script.id
+                            ? "bg-primary/10 border-primary/30 ring-1 ring-primary/20"
+                            : "bg-card border-border hover:border-primary/40 hover:bg-accent/50"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                          activeScriptId === script.id ? "bg-primary/20 text-primary" : "bg-accent text-muted-foreground"
+                        )}>
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm text-foreground truncate">{script.name}</div>
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-tight">{script.product_type || "General"}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1081,6 +1116,18 @@ export default function DialerPage() {
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}
       />
+
+      <AnimatePresence>
+        {activeScriptId && (
+          <DraggableScriptPopup
+            name={availableScripts.find((s) => s.id === activeScriptId)?.name || "Script"}
+            content={availableScripts.find((s) => s.id === activeScriptId)?.content || ""}
+            onClose={() => setActiveScriptId(null)}
+            initialX={window.innerWidth - 480}
+            initialY={100}
+          />
+        )}
+      </AnimatePresence>
 
       <ContactModal
         lead={showFullViewDrawer && currentLead ? mapDialerLeadToContactLead(currentLead) : null}
