@@ -18,12 +18,18 @@ export async function getCampaigns() {
 export async function getCampaignLeads(campaignId: string) {
   const { data, error } = await supabase
     .from("campaign_leads")
-    .select("*")
+    .select("*, lead:leads(*)")
     .eq("campaign_id", campaignId)
     .not("status", "in", '("Called","DNC")')
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return data ?? [];
+  
+  // Flatten the join results
+  return (data ?? []).map(row => ({
+    ...row,
+    // Merge master lead data into the row, favoring master record for core fields
+    ...(row.lead || {})
+  }));
 }
 
 export async function getLeadHistory(leadId: string) {

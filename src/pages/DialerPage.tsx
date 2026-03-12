@@ -23,6 +23,8 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  Users,
+  ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -734,9 +736,11 @@ export default function DialerPage() {
       {/* ── COLUMNS ── */}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         {/* ── NEW LEFT COLUMN (Contact Info) ── */}
-        <div className="w-72 shrink-0 flex flex-col gap-3">
-          <div className="bg-card border rounded-xl p-4 flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
+        <div className="w-72 shrink-0 flex flex-col overflow-hidden">
+          <div className="bg-card border rounded-xl flex flex-col overflow-hidden h-full">
+            {/* Header section — shrink-0 */}
+            <div className="p-4 border-b flex flex-col gap-4 bg-card shrink-0">
+              <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-1">
                     <button 
@@ -790,77 +794,107 @@ export default function DialerPage() {
                     </button>
                   </div>
                 </div>
-            </div>
-
-            {currentLead && (
-              <div className="flex flex-col gap-1 mt-2">
-                <h2 className="text-xl font-bold text-foreground tracking-tight text-center">
-                  {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
-                </h2>
-                <div className="flex flex-col gap-2">
-                  <div className="relative w-full">
-                    <select
-                      value={currentLead?.status || ""}
-                      onChange={(e) => handleStatusChange(e.target.value)}
-                      className="w-full text-[10px] text-center uppercase tracking-widest font-bold rounded-md px-6 py-1 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
-                      style={{ 
-                        backgroundColor: currentStatusColor + '15',
-                        color: currentStatusColor,
-                        borderColor: currentStatusColor + '30'
-                      }}
-                    >
-                      {leadStages.map(s => (
-                        <option key={s.id} value={s.name} style={{ color: s.color }}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
-                  </div>
-                  
-                  {contactLocalTimeDisplay && (
-                    <div className="inline-flex items-center justify-center text-green-500 text-[10px] font-bold">
-                      <Clock className="w-2.5 h-2.5 mr-1" />
-                      {contactLocalTimeDisplay}
-                    </div>
-                  )}
-                </div>
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { label: "Phone", value: currentLead?.phone },
-                { label: "Email", value: currentLead?.email },
-                { label: "State", value: currentLead?.state },
-                { label: "Age", value: currentLead?.age },
-                { label: "DOB", value: currentLead?.date_of_birth },
-                { label: "Health", value: currentLead?.health_status },
-                { label: "Best Time", value: currentLead?.best_time_to_call },
-                { label: "Spouse", value: currentLead?.spouse_info },
-                { label: "Score", value: currentLead?.lead_score },
-                { label: "Source", value: currentLead?.source },
-              ].map((f) => (
-                <div key={f.label} className="min-w-0">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{f.label}</div>
-                  <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
+              {currentLead && (
+                <div className="flex flex-col gap-1 mt-2">
+                  <h2 className="text-xl font-bold text-foreground tracking-tight text-center">
+                    {`${currentLead.first_name ?? ""} ${currentLead.last_name ?? ""}`.trim()}
+                  </h2>
+                  <div className="flex flex-col gap-2">
+                    <div className="relative w-full">
+                      <select
+                        value={currentLead?.status || ""}
+                        onChange={(e) => handleStatusChange(e.target.value)}
+                        className="w-full text-[10px] text-center uppercase tracking-widest font-bold rounded-md px-6 py-1 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
+                        style={{ 
+                          backgroundColor: currentStatusColor + '15',
+                          color: currentStatusColor,
+                          borderColor: currentStatusColor + '30'
+                        }}
+                      >
+                        {leadStages.map(s => (
+                          <option key={s.id} value={s.name} style={{ color: s.color }}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                    </div>
+                    
+                    {contactLocalTimeDisplay && (
+                      <div className="inline-flex items-center justify-center text-green-500 text-[10px] font-bold">
+                        <Clock className="w-2.5 h-2.5 mr-1" />
+                        {contactLocalTimeDisplay}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
-              {/* Optional: Render custom fields if they exist */}
-              {currentLead?.custom_fields && typeof currentLead.custom_fields === 'object' && Object.entries(currentLead.custom_fields).map(([key, val]: [string, any]) => (
-                <div key={key} className="min-w-0">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{key}</div>
-                  <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{String(val) || "—"}</div>
-                </div>
-              ))}
+              )}
             </div>
-            
+
+            {/* Scrollable details — flex-1 overflow-y-auto */}
+            <div className="p-4 flex-1 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: "Phone", value: currentLead?.phone },
+                  { label: "Email", value: currentLead?.email },
+                  { label: "State", value: currentLead?.state },
+                  { label: "Age", value: currentLead?.age },
+                  { label: "DOB", value: currentLead?.date_of_birth },
+                  { label: "Health", value: currentLead?.health_status },
+                  { label: "Best Time", value: currentLead?.best_time_to_call },
+                  { label: "Spouse", value: currentLead?.spouse_info },
+                  { label: "Score", value: currentLead?.lead_score },
+                  { label: "Source", value: currentLead?.source },
+                ].map((f) => (
+                  <div key={f.label} className="min-w-0">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{f.label}</div>
+                    <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
+                  </div>
+                ))}
+                
+                {/* Dynamically render ALL other fields found in currentLead */}
+                {currentLead && Object.entries(currentLead).map(([key, value]) => {
+                  // Skip system/internal fields already handled or not meant for display
+                  const skippedKeys = [
+                    'id', 'lead_id', 'campaign_id', 'first_name', 'last_name', 
+                    'phone', 'email', 'state', 'age', 'date_of_birth', 
+                    'health_status', 'best_time_to_call', 'spouse_info', 
+                    'lead_score', 'source', 'status', 'created_at', 'updated_at',
+                    'claimed_by', 'claimed_at', 'locked_by', 'locked_at', 
+                    'call_attempts', 'last_called_at', 'disposition', 'sort_order',
+                    'custom_fields', 'lead'
+                  ];
+                  
+                  if (skippedKeys.includes(key) || value === null || value === undefined) return null;
+                  
+                  // Handle custom_fields object specifically if it exists
+                  if (key === 'custom_fields' && typeof value === 'object') {
+                    return Object.entries(value as object).map(([ckey, cval]) => (
+                      <div key={ckey} className="min-w-0 border-t pt-2 col-span-2">
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{ckey.replace(/_/g, ' ')}</div>
+                        <div className="text-sm font-semibold text-foreground mt-0.5">{String(cval) || "—"}</div>
+                      </div>
+                    ));
+                  }
+
+                  // Handle normal fields
+                  return (
+                    <div key={key} className="min-w-0">
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{key.replace(/_/g, ' ')}</div>
+                      <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{String(value) || "—"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* ── CENTER COLUMN (Conversation History) ── */}
-        <div className="flex-[1.5] flex flex-col gap-3 overflow-hidden min-h-0">
-          <div className="flex flex-col overflow-hidden bg-card border rounded-xl" style={{ flex: 1, minHeight: 0 }}>
+        <div className="flex-[1.5] flex flex-col overflow-hidden min-h-0">
+          <div className="flex flex-col flex-1 overflow-hidden bg-card border rounded-xl">
             {/* Header — shrink-0 */}
             <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="flex items-center gap-2">
@@ -873,7 +907,7 @@ export default function DialerPage() {
             </div>
 
             {/* Scrollable feed — flex-1 overflow-y-auto */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3" style={{ minHeight: 0 }}>
+            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
               {loadingHistory && (
                 <div className="flex justify-center py-6">
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -914,8 +948,8 @@ export default function DialerPage() {
             </div>
           </div>
 
-          {/* SMS composer — shrink-0 */}
-          <div className="shrink-0 bg-card border rounded-xl flex flex-col mt-2">
+          {/* SMS composer — shrink-0, fixed at bottom */}
+          <div className="shrink-0 bg-card border rounded-xl flex flex-col mt-3">
             <div className="px-4 pt-3">
               {/* Tab Fields */}
               {smsTab === "email" ? (
@@ -985,184 +1019,193 @@ export default function DialerPage() {
         </div>
 
         {/* ── RIGHT COLUMN (Original Left) ── */}
-        <div className="w-80 shrink-0 flex flex-col gap-3 overflow-hidden">
-          {/* Action buttons */}
-          <div className="grid grid-cols-2 gap-2 px-1">
-            {callState === "active" || callState === "dialing" ? (
+        <div className="w-80 shrink-0 flex flex-col overflow-hidden">
+          <div className="flex flex-col flex-1 overflow-y-auto pr-1 gap-3 custom-scrollbar">
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-2 shrink-0">
+              {callState === "active" || callState === "dialing" ? (
+                <button
+                  onClick={handleHangUp}
+                  className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90"
+                >
+                  <PhoneOff className="w-4.5 h-4.5" />
+                  Hang Up
+                  <span className="font-mono text-[10px]">{fmtDuration(telnyxCallDuration)}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleCall}
+                  className="bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-success/90"
+                >
+                  <Phone className="w-4.5 h-4.5" />
+                  Call
+                </button>
+              )}
               <button
-                onClick={handleHangUp}
-                className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90"
+                onClick={handleSkip}
+                className="bg-accent text-muted-foreground border border-border rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
               >
-                <PhoneOff className="w-4.5 h-4.5" />
-                Hang Up
-                <span className="font-mono text-[10px]">{fmtDuration(telnyxCallDuration)}</span>
+                <ArrowRight className="w-4.5 h-4.5" />
+                Skip
               </button>
-            ) : (
-              <button
-                onClick={handleCall}
-                className="bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-success/90"
-              >
-                <Phone className="w-4.5 h-4.5" />
-                Call
-              </button>
-            )}
-            <button
-              onClick={handleSkip}
-              className="bg-accent border border-border rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
-            >
-              <SkipForward className="w-4.5 h-4.5" />
-              Skip
-            </button>
-          </div>
+            </div>
 
-          {/* Tab bar */}
-          <div className="shrink-0 border rounded-lg overflow-hidden flex">
-            {(["dispositions", "queue", "scripts"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setLeftTab(tab)}
-                className={`flex-1 py-2 text-sm font-semibold capitalize ${
-                  leftTab === tab ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab content */}
-          <div className="flex-1 overflow-y-auto px-1">
-            {leftTab === "dispositions" && (
-              <div className="flex flex-col gap-4 px-1">
-                {/* Disposition Select */}
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2 font-bold px-1">
-                    Call Result
-                  </div>
-                  <select
-                    value={selectedDisp?.id || ""}
-                    onChange={(e) => {
-                      const d = dispositions.find(disp => disp.id === e.target.value);
-                      if (d) handleSelectDisposition(d);
-                    }}
-                    className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/50 outline-none h-11"
-                  >
-                    <option value="" disabled>Select a disposition...</option>
-                    {dispositions.map((d) => (
-                      <option key={d.id} value={d.id} style={{ color: d.color }}>
-                        ● {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Notes and Save Button */}
-                <div className="flex flex-col gap-2">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1 font-bold">
-                    Call Notes
-                  </div>
-                  <textarea
-                    value={noteText}
-                    onChange={(e) => {
-                      setNoteText(e.target.value);
-                      setNoteError(false);
-                    }}
-                    placeholder="Brief summary of the conversation..."
-                    className={`bg-accent border rounded-lg p-3 text-sm text-foreground w-full resize-none h-32 focus:ring-2 focus:ring-primary/50 outline-none transition-all ${
-                      noteError ? "border-destructive ring-1 ring-destructive" : "border-border"
-                    }`}
-                  />
-                  {selectedDisp?.requireNotes && selectedDisp.minNoteChars > 0 && (
-                    <div className="text-[10px] flex justify-between px-1">
-                      <span className={noteText.length < selectedDisp.minNoteChars ? "text-destructive font-medium" : "text-success font-medium"}>
-                        {noteText.length} / {selectedDisp.minNoteChars} characters min
-                      </span>
-                      {noteError && <span className="text-destructive font-bold">Required</span>}
-                    </div>
-                  )}
+            {/* Tabs for right sidebar */}
+            <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0">
+              <div className="grid grid-cols-3 border-b shrink-0">
+                {(["dispositions", "queue", "scripts"] as const).map((t) => (
                   <button
-                    onClick={handleSaveAndContinue}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground w-full rounded-xl py-3.5 text-sm font-bold mt-2 shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
-                  >
-                    Save Disposition & Continue
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {leftTab === "queue" && (
-              <div className="flex flex-col">
-                {leadQueue.map((lead, i) => (
-                  <div
-                    key={lead.id}
-                    className={`bg-card border rounded-lg p-3 mb-2 ${
-                      i === currentLeadIndex ? "bg-primary/10 border-primary/30" : ""
+                    key={t}
+                    onClick={() => setLeftTab(t)}
+                    className={`py-2.5 text-[10px] uppercase tracking-widest font-bold transition-all ${
+                      leftTab === t
+                        ? "bg-primary/10 text-primary border-b-2 border-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-foreground">
-                        {lead.first_name} {lead.last_name}
-                      </span>
-                      {i === currentLeadIndex && (
-                        <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
-                          CURRENT
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      {lead.state && (
-                        <span className="bg-accent border rounded px-1.5 py-0.5">{lead.state}</span>
-                      )}
-                      {lead.age && <span>Age {lead.age}</span>}
-                      {lead.source && <span>{lead.source}</span>}
-                    </div>
-                  </div>
+                    {t}
+                  </button>
                 ))}
-                {leadQueue.length === 0 && (
-                  <p className="text-muted-foreground text-sm text-center py-6">No leads in queue</p>
-                )}
               </div>
-            )}
 
-            {leftTab === "scripts" && (
-              <div className="flex flex-col gap-2">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-1 px-1">
-                  Active Scripts
-                </div>
-                {availableScripts.length === 0 ? (
-                  <div className="text-center py-8 bg-accent/30 rounded-xl border border-dashed border-border">
-                    <FileText className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">No active scripts found</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {availableScripts.map((script) => (
-                      <button
-                        key={script.id}
-                        onClick={() => setActiveScriptId(script.id)}
-                        className={cn(
-                          "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
-                          activeScriptId === script.id
-                            ? "bg-primary/10 border-primary/30 ring-1 ring-primary/20"
-                            : "bg-card border-border hover:border-primary/40 hover:bg-accent/50"
+              <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-muted/5">
+                {leftTab === "dispositions" && (
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-1.5 block">
+                        Select Disposition
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={selectedDisp?.id || ""}
+                          onChange={(e) => {
+                            const d = dispositions.find((ds) => ds.id === e.target.value);
+                            if (d) handleSelectDisposition(d);
+                          }}
+                          className={`w-full h-10 px-3 rounded-lg bg-card border border-border text-sm appearance-none focus:ring-2 focus:ring-primary/50 cursor-pointer ${
+                            !selectedDisp ? "text-muted-foreground" : "text-foreground font-medium"
+                          }`}
+                        >
+                          <option value="">Select an outcome...</option>
+                          {dispositions.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+                          Call Notes
+                        </label>
+                        {selectedDisp?.requireNotes && (
+                          <span className="text-[9px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full">
+                            Required {selectedDisp.minNoteChars > 0 ? `(${selectedDisp.minNoteChars} chars)` : ""}
+                          </span>
                         )}
-                      >
-                        <div className={cn(
-                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                          activeScriptId === script.id ? "bg-primary/20 text-primary" : "bg-accent text-muted-foreground"
-                        )}>
-                          <FileText className="w-4 h-4" />
+                      </div>
+                      <textarea
+                        value={noteText}
+                        onChange={(e) => {
+                          setNoteText(e.target.value);
+                          if (noteError && e.target.value.length >= (selectedDisp?.minNoteChars || 0)) {
+                            setNoteError(false);
+                          }
+                        }}
+                        placeholder="Type notes about the call..."
+                        className={`w-full bg-card border rounded-lg p-3 text-sm placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/50 min-h-[140px] resize-none transition-all ${
+                          noteError ? "border-destructive ring-1 ring-destructive" : "border-border"
+                        }`}
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleSaveAndContinue}
+                      className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2"
+                    >
+                      Save & Continue
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {leftTab === "queue" && (
+                  <div className="flex flex-col gap-2">
+                    {leadQueue.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
+                        <p className="text-sm text-muted-foreground">Queue is empty</p>
+                      </div>
+                    ) : (
+                      leadQueue.map((lead, idx) => (
+                        <div
+                          key={lead.id}
+                          onClick={() => setCurrentLeadIndex(idx)}
+                          className={`p-3 rounded-lg border flex items-center gap-3 cursor-pointer transition-all ${
+                            idx === currentLeadIndex
+                              ? "bg-primary/10 border-primary ring-1 ring-primary/20"
+                              : idx < currentLeadIndex
+                              ? "opacity-50 grayscale bg-muted/30 border-transparent"
+                              : "bg-card hover:bg-accent/50 border-border"
+                          }`}
+                        >
+                          <div
+                            className={`w-2 h-2 rounded-full shrink-0 ${
+                              idx === currentLeadIndex
+                                ? "bg-primary animate-pulse"
+                                : idx < currentLeadIndex
+                                ? "bg-muted"
+                                : "bg-muted-foreground/30"
+                            }`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-bold text-foreground truncate uppercase tracking-tight">
+                              {lead.first_name} {lead.last_name}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground truncate font-medium">
+                              {lead.phone}
+                            </div>
+                          </div>
+                          {idx === currentLeadIndex && (
+                            <div className="text-[9px] font-black uppercase text-primary tracking-widest">
+                              Now
+                            </div>
+                          )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm text-foreground truncate">{script.name}</div>
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-tight">{script.product_type || "General"}</div>
-                        </div>
-                      </button>
-                    ))}
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {leftTab === "scripts" && (
+                  <div className="flex flex-col gap-2">
+                    {availableScripts.length === 0 ? (
+                      <div className="text-center py-8">
+                        <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
+                        <p className="text-sm text-muted-foreground">No scripts available</p>
+                      </div>
+                    ) : (
+                      availableScripts.map((script) => (
+                        <button
+                          key={script.id}
+                          onClick={() => setActiveScriptId(script.id)}
+                          className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors flex items-center justify-between group"
+                        >
+                          <span className="text-xs font-bold text-foreground uppercase tracking-tight">
+                            {script.name}
+                          </span>
+                          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
