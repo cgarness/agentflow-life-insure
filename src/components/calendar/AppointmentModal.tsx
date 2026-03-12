@@ -57,12 +57,6 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [newEmail, setNewEmail] = useState("");
   const [contactResults, setContactResults] = useState<Array<{ id: string; name: string; phone: string; email: string; state?: string; status?: string }>>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [selectedContactId, setSelectedContactId] = useState("");
-  const [newFirstName, setNewFirstName] = useState("");
-  const [newLastName, setNewLastName] = useState("");
-  const [newPhone, setNewPhone] = useState("");
 
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -205,7 +199,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                   {contactInfo?.name || prefillContactName}
                 </button>
                 {contactInfo && (
-                  <button onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); setMiniCardOpen(false); onClose(); toastSonner.info(`Opening contact record for ${contactInfo.name}`); }}
+                  <button onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); setMiniCardOpen(false); onClose(); toast.info(`Opening contact record for ${contactInfo.name}`); }}
                     className="text-sm hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
                     View Contact →
                   </button>
