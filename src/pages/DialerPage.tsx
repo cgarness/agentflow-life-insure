@@ -41,7 +41,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
+import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
+import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead } from "@/lib/types";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
@@ -139,14 +141,10 @@ export default function DialerPage() {
   const [noteError, setNoteError] = useState(false);
   const [showWrapUp, setShowWrapUp] = useState(false);
   const [showCallbackModal, setShowCallbackModal] = useState(false);
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [showFullViewDrawer, setShowFullViewDrawer] = useState(false);
   const [callbackDate, setCallbackDate] = useState<Date | undefined>(undefined);
   const [callbackTime, setCallbackTime] = useState("");
-  const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
-  const [scheduleTime, setScheduleTime] = useState("");
-  const [scheduleEndTime, setScheduleEndTime] = useState("");
-  const [scheduleNotes, setScheduleNotes] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [sessionStats, setSessionStats] = useState({
@@ -162,6 +160,7 @@ export default function DialerPage() {
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { user } = useAuth();
+  const { addAppointment } = useCalendar();
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -384,29 +383,6 @@ export default function DialerPage() {
     handleAdvance();
   }
 
-  async function handleSaveSchedule() {
-    if (!currentLead || !user || !scheduleDate) return;
-    try {
-      await saveAppointment({
-        lead_id: currentLead.id,
-        agent_id: user.id,
-        campaign_id: selectedCampaignId!,
-        title: "Appointment",
-        date: format(scheduleDate, "yyyy-MM-dd"),
-        time: scheduleTime,
-        end_time: scheduleEndTime,
-        notes: scheduleNotes,
-      });
-      toast.success("Appointment saved");
-    } catch {
-      /* ignore */
-    }
-    setShowScheduleModal(false);
-    setScheduleDate(undefined);
-    setScheduleTime("");
-    setScheduleEndTime("");
-    setScheduleNotes("");
-  }
 
   function handleSendMessage() {
     toast.info(`${smsTab.toUpperCase()} sending coming soon`);
@@ -701,20 +677,13 @@ export default function DialerPage() {
               <SkipForward className="w-5 h-5" />
               Skip
             </button>
-            {/* FIX 6: Schedule button — light purple */}
             <button
-              onClick={() => setShowScheduleModal(true)}
-              className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
-              style={{
-                backgroundColor: '#7C3AED1A',
-                color: '#7C3AED',
-                border: '1px solid #7C3AED40',
-              }}
+              onClick={() => setShowAppointmentModal(true)}
+              className="bg-purple-500 hover:bg-purple-600 text-white rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
             >
               <CalendarIcon className="w-5 h-5" />
               Schedule
             </button>
-            {/* FIX 7: Full View button — blue */}
             <button
               onClick={() => setShowFullViewDrawer(true)}
               className="rounded-xl py-3 flex flex-col items-center gap-1 text-sm font-semibold"
@@ -746,7 +715,6 @@ export default function DialerPage() {
 
           {/* Tab content — only this area scrolls */}
           <div className="flex-1 overflow-y-auto">
-            {/* FIX 4: Dispositions tab — disposition grid + Quick Notes */}
             {leftTab === "dispositions" && (
               <div className="flex flex-col gap-3">
                 {/* Disposition grid — always visible */}
@@ -1091,63 +1059,29 @@ export default function DialerPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── SCHEDULE MODAL ── */}
-      <Dialog
-        open={showScheduleModal}
-        onOpenChange={(open) => {
-          if (!open) setShowScheduleModal(false);
+      {/* ── APPOINTMENT MODAL ── */}
+      <AppointmentModal
+        open={showAppointmentModal}
+        onClose={() => setShowAppointmentModal(false)}
+        onSave={(data) => {
+          addAppointment(data);
+          if (currentLead && user && selectedCampaignId) {
+            saveAppointment({
+              lead_id: currentLead.id,
+              agent_id: user.id,
+              campaign_id: selectedCampaignId,
+              title: data.title,
+              date: format(data.date, "yyyy-MM-dd"),
+              time: data.startTime,
+              end_time: data.endTime,
+              notes: data.notes,
+            }).catch(() => {});
+          }
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Schedule Appointment</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 py-2">
-            <Calendar mode="single" selected={scheduleDate} onSelect={setScheduleDate} />
-            <input
-              value={scheduleTime}
-              onChange={(e) => setScheduleTime(e.target.value)}
-              placeholder="Start time, e.g. 2:30 PM"
-              className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-            />
-            <input
-              value={scheduleEndTime}
-              onChange={(e) => setScheduleEndTime(e.target.value)}
-              placeholder="End time, e.g. 3:00 PM"
-              className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-            />
-            <textarea
-              value={scheduleNotes}
-              onChange={(e) => setScheduleNotes(e.target.value)}
-              placeholder="Notes…"
-              className="bg-accent border border-border rounded-lg p-2 text-sm resize-none h-20"
-            />
-          </div>
-          <DialogFooter>
-            <button
-              onClick={() => {
-                setShowScheduleModal(false);
-                setScheduleDate(undefined);
-                setScheduleTime("");
-                setScheduleEndTime("");
-                setScheduleNotes("");
-              }}
-              className="border border-border rounded-lg px-4 py-2 text-sm font-semibold"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSaveSchedule}
-              disabled={!scheduleDate || !scheduleTime}
-              className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
-            >
-              Save Appointment
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
+        prefillContactId={currentLead?.id}
+      />
 
-      {/* FIX 8: Full View — Sync with Contacts page ContactModal */}
       <ContactModal
         lead={showFullViewDrawer && currentLead ? mapDialerLeadToContactLead(currentLead) : null}
         onClose={() => setShowFullViewDrawer(false)}
