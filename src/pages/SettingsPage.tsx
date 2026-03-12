@@ -23,7 +23,7 @@ import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
   Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
-  Lock, CalendarDays, UserCircle, Radar, Database,
+  Lock, CalendarDays, UserCircle, Radar, Database
 } from "lucide-react";
 
 const sections = [
@@ -54,15 +54,19 @@ const sections = [
   { icon: Database, label: "Master Admin" },
 ];
 
-
-const MASTER_ADMIN_IDX = sections.length - 1; // last entry
+const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
 const MASTER_ADMIN_UID = "u1";
+const MASTER_ADMIN_IDX = sections.length - 1;
 
 const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [active, setActive] = useState(0);
-  const { user } = useAuth();
-  const isMasterAdmin = user?.id === MASTER_ADMIN_UID;
+  const { user, profile } = useAuth();
+  
+  const isMasterAdmin = 
+    user?.email === MASTER_ADMIN_EMAIL || 
+    profile?.email === MASTER_ADMIN_EMAIL || 
+    user?.id === MASTER_ADMIN_UID;
 
   useEffect(() => {
     const section = searchParams.get("section");
@@ -167,12 +171,12 @@ const SettingsPage: React.FC = () => {
 
       case 23: // Spam Monitoring
         return <SpamMonitoring />;
-
-      case 24: // Master Admin (u1 only)
+      
+      case 24: // Master Admin
         if (!isMasterAdmin) {
-          toast({ title: "Access denied", description: "This section is restricted.", variant: "destructive" });
+          toast({ title: "Access Denied", description: "This section is restricted to master administrators.", variant: "destructive" });
           setActive(0);
-          return null;
+          return <MyProfile />;
         }
         return <MasterAdmin />;
 
@@ -209,7 +213,10 @@ const SettingsPage: React.FC = () => {
             <div className="border-t border-border my-1" />
             {sections.slice(1).map((s, idx) => {
               const i = idx + 1;
+              
+              // Hide Master Admin from sidebar if not the authorized user
               if (i === MASTER_ADMIN_IDX && !isMasterAdmin) return null;
+
               return (
                 <button
                   key={s.label}
