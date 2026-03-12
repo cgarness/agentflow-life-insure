@@ -198,6 +198,9 @@ export default function DialerPage() {
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [shouldAdvanceAfterModal, setShouldAdvanceAfterModal] = useState(false);
+  const [showRequirementModal, setShowRequirementModal] = useState(false);
+  const [requirementNoteText, setRequirementNoteText] = useState("");
+  const [pendingDisposition, setPendingDisposition] = useState<Disposition | null>(null);
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -327,10 +330,41 @@ export default function DialerPage() {
   }
 
   function handleSelectDisposition(d: Disposition) {
+    if (d.requireNotes) {
+      setPendingDisposition(d);
+      setRequirementNoteText(noteText); // prefill with current notes if any
+      setShowRequirementModal(true);
+      return;
+    }
+    
     setSelectedDisp(d);
     if (d.name.toLowerCase().includes("no answer")) {
       autoSaveNoAnswer(d);
     }
+  }
+
+  function confirmRequirement() {
+    if (!pendingDisposition) return;
+    if (requirementNoteText.length < (pendingDisposition.minNoteChars || 0)) {
+      toast.error(`Notes must be at least ${pendingDisposition.minNoteChars} characters`);
+      return;
+    }
+
+    setNoteText(requirementNoteText);
+    setSelectedDisp(pendingDisposition);
+    setShowRequirementModal(false);
+    setPendingDisposition(null);
+    setRequirementNoteText("");
+    
+    if (pendingDisposition.name.toLowerCase().includes("no answer")) {
+      autoSaveNoAnswer(pendingDisposition);
+    }
+  }
+
+  function closeRequirement() {
+    setShowRequirementModal(false);
+    setPendingDisposition(null);
+    setRequirementNoteText("");
   }
 
   async function autoSaveNoAnswer(d: Disposition) {
@@ -1461,6 +1495,57 @@ export default function DialerPage() {
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}
       />
+
+      {/* ── DISPOSITION REQUIREMENT MODAL ── */}
+      <Dialog open={showRequirementModal} onOpenChange={(open) => !open && closeRequirement()}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: pendingDisposition?.color }}
+              />
+              Notes Required for {pendingDisposition?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <textarea
+              autoFocus
+              value={requirementNoteText}
+              onChange={(e) => setRequirementNoteText(e.target.value)}
+              placeholder={`Please enter at least ${pendingDisposition?.minNoteChars || 0} characters...`}
+              className="w-full min-h-[150px] bg-accent/50 border border-border rounded-xl p-4 text-sm focus:ring-2 focus:ring-primary/50 outline-none resize-none transition-all"
+            />
+            {pendingDisposition?.minNoteChars && (
+              <div className="flex justify-end mt-2">
+                <span className={cn(
+                  "text-[10px] font-bold px-2 py-0.5 rounded-full",
+                  requirementNoteText.length >= pendingDisposition.minNoteChars 
+                    ? "bg-success/10 text-success" 
+                    : "bg-destructive/10 text-destructive"
+                )}>
+                  {requirementNoteText.length} / {pendingDisposition.minNoteChars} characters
+                </span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              onClick={closeRequirement}
+              className="px-4 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmRequirement}
+              disabled={pendingDisposition?.minNoteChars ? requirementNoteText.length < pendingDisposition.minNoteChars : false}
+              className="bg-primary text-primary-foreground px-6 py-2 rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all disabled:opacity-50 disabled:pointer-events-none"
+            >
+              Confirm Disposition
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AnimatePresence>
         {activeScriptId && (
