@@ -1,27 +1,24 @@
 
 
-## Plan: Add Dev-Only Auth Bypass via Query Parameter
+# Fix Appointment Scheduler & Build Errors
 
-**What**: Allow bypassing authentication in development by adding `?bypass_auth=true` to the URL. This lets the browser automation tool access protected routes without logging in.
+## Problem
+The `Disposition` type includes an `appointmentScheduler` property, and the code references it in multiple places (DialerPage disposition workflow, DispositionsManager settings, supabase-dispositions mapper), but:
 
-**How**: Modify the `ProtectedRoute` component in `src/App.tsx` (lines 36-45) to check for the `bypass_auth=true` query parameter. The bypass will only work in development mode (`import.meta.env.DEV`).
+1. **Build error**: The 6 mock dispositions in `src/lib/mock-data.ts` are missing `appointmentScheduler`, causing TS2741 errors.
+2. **Database missing column**: The `dispositions` table lacks an `appointment_scheduler` boolean column, so the supabase-dispositions mapper reads `undefined` and the appointment scheduler toggle in settings has no effect.
 
-```typescript
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const searchParams = new URLSearchParams(window.location.search);
-  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
-  
-  if (bypassAuth) return <>{children}</>;
-  if (isLoading) return (/* spinner */);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-};
+## Plan
+
+### Step 1: Add `appointment_scheduler` column to the database
+Run a migration to add the missing column:
+```sql
+ALTER TABLE public.dispositions
+ADD COLUMN appointment_scheduler boolean NOT NULL DEFAULT false;
 ```
 
-**Safety**: `import.meta.env.DEV` is `false` in production builds, so the bypass is completely stripped out. No security risk in deployed builds.
+### Step 2: Fix mock data in `src/lib/mock-data.ts`
+Add `appointmentScheduler: false` to all 6 mock disposition objects (lines 134-139).
 
-**Usage**: When asking me to test, I'll navigate to e.g. `/settings?bypass_auth=true`.
-
-**Note**: Profile-dependent features (user name, avatar, etc.) will show empty/null since there's no actual session. But it's sufficient for testing UI and OAuth flows.
+These two changes fix the build errors and make the appointment scheduler feature functional end-to-end (disposition settings toggle → DB persistence → dialer post-call popup).
 
