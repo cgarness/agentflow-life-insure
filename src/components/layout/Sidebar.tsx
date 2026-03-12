@@ -100,7 +100,7 @@ const Sidebar: React.FC = () => {
       </div>
 
       {/* Nav Items */}
-      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto no-scrollbar">
         {menuItems.map((item) => {
           const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
           const linkContent = (
