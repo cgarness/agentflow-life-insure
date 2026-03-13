@@ -196,7 +196,7 @@ export default function DialerPage() {
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  // loadingCampaigns is provided by useQuery below
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
