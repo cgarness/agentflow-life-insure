@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -262,14 +262,22 @@ export default function DialerPage() {
       .catch(() => toast.error("Failed to load leads"));
   }, [selectedCampaignId]);
 
+  const fetchHistory = useCallback(async (leadId: string) => {
+    setLoadingHistory(true);
+    try {
+      const data = await getLeadHistory(leadId);
+      setHistory(data);
+    } catch (err) {
+      toast.error("Failed to load history");
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!currentLead) return;
-    setLoadingHistory(true);
-    getLeadHistory(currentLead.id)
-      .then(setHistory)
-      .catch(() => toast.error("Failed to load history"))
-      .finally(() => setLoadingHistory(false));
-  }, [currentLead]);
+    fetchHistory(currentLead.lead_id || currentLead.id);
+  }, [currentLead, fetchHistory]);
 
   useEffect(() => {
     if (historyEndRef.current) {
@@ -516,6 +524,7 @@ export default function DialerPage() {
       const success = await saveCallData();
       if (success) {
         setShouldAdvanceAfterModal(false);
+        fetchHistory(currentLead.lead_id || currentLead.id);
         toast.success("Call saved successfully", { id: toastId });
         setSessionStats((s) => ({
           ...s,

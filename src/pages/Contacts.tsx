@@ -4,7 +4,7 @@ import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
   Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
-  ArrowUp, ArrowDown, ArrowUpDown, Undo2,
+  ArrowUp, ArrowDown, ArrowUpDown, Undo2, Megaphone
 } from "lucide-react";
 import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
@@ -22,6 +22,7 @@ import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 
 const statusColors: Record<string, string> = {
   "New": "bg-muted text-muted-foreground",
@@ -364,6 +365,7 @@ const Contacts: React.FC = () => {
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
   const [sourcePerfOpen, setSourcePerfOpen] = useState(false);
+  const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
 
   // Column visibility per tab
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE));
@@ -948,6 +950,10 @@ const Contacts: React.FC = () => {
         </div>
       )}
       <button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button>
+      <button onClick={() => setAddToCampaignOpen(true)} className="text-sm text-foreground hover:text-primary flex items-center gap-1.5 transition-colors">
+        <Megaphone className="w-3.5 h-3.5" />
+        Add to Campaign
+      </button>
       {tab === "Leads" && (
         <>
           <TooltipProvider><Tooltip><TooltipTrigger asChild><button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">SMS Blast</button></TooltipTrigger><TooltipContent>Coming soon — configure SMS in Settings</TooltipContent></Tooltip></TooltipProvider>
@@ -1470,6 +1476,51 @@ const Contacts: React.FC = () => {
           onClose={() => setUndoConfirm(null)}
         />
       )}
+
+      {/* Add to Campaign Modal */}
+      <AddToCampaignModal
+        open={addToCampaignOpen}
+        onClose={() => setAddToCampaignOpen(false)}
+        selectedContacts={(() => {
+          if (tab === "Leads") {
+            return leads.filter(l => selectedIds.has(l.id)).map(l => ({
+              id: l.id,
+              firstName: l.firstName,
+              lastName: l.lastName,
+              phone: l.phone,
+              email: l.email,
+              state: l.state,
+              age: l.age
+            }));
+          } else if (tab === "Clients") {
+            return clients.filter(c => selectedClientIds.has(c.id)).map(c => ({
+              id: c.id,
+              firstName: c.firstName,
+              lastName: c.lastName,
+              phone: c.phone,
+              email: c.email,
+              state: "", // Clients might not have state in the interface, default to empty
+              age: undefined
+            }));
+          } else if (tab === "Recruits") {
+            return recruits.filter(r => selectedRecruitIds.has(r.id)).map(r => ({
+              id: r.id,
+              firstName: r.firstName,
+              lastName: r.lastName,
+              phone: r.phone,
+              email: r.email,
+              state: "",
+              age: undefined
+            }));
+          }
+          return [];
+        })()}
+        onSuccess={() => {
+          setSelectedIds(new Set());
+          setSelectedClientIds(new Set());
+          setSelectedRecruitIds(new Set());
+        }}
+      />
     </div>
   );
 };
