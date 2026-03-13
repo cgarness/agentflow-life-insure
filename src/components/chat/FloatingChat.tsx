@@ -10,6 +10,7 @@ interface ChatGroup {
   name: string;
   created_by: string;
   created_at: string;
+  updated_at: string;
   lastMessage?: string;
   lastMessageAt?: string;
   unreadCount?: number;
