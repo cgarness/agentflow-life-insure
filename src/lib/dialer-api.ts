@@ -25,11 +25,15 @@ export async function getCampaignLeads(campaignId: string) {
   if (error) throw new Error(error.message);
   
   // Flatten the join results
-  return (data ?? []).map(row => ({
-    ...row,
-    // Merge master lead data into the row, favoring master record for core fields
-    ...(row.lead || {})
-  }));
+  return (data ?? []).map(row => {
+    const { lead, ...campaignLead } = row;
+    return {
+      ...(lead || {}),
+      ...campaignLead,
+      id: campaignLead.id, // Ensure this is the campaign_lead ID
+      lead_id: lead?.id || campaignLead.lead_id // Ensure this is the master lead ID
+    };
+  });
 }
 
 export async function getLeadHistory(leadId: string) {
