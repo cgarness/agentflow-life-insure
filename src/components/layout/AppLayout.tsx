@@ -22,6 +22,7 @@ const AppLayout: React.FC = () => {
           </div>
         </main>
         <FloatingDialer />
+        <FloatingChat />
         <WinCelebration />
       </div>
     </AgentStatusProvider>
