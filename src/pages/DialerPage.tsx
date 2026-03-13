@@ -263,19 +263,19 @@ export default function DialerPage() {
   // Note: We prefer using the data from useQuery directly, but some effects or 
   // handlers might expect these states. We'll update them via useEffect for compatibility.
   useEffect(() => {
-    if (campaignsData.length > 0) setCampaigns(campaignsData);
+    setCampaigns(campaignsData);
   }, [campaignsData]);
 
   useEffect(() => {
-    if (dispositionsData.length > 0) setDispositions(dispositionsData);
+    setDispositions(dispositionsData);
   }, [dispositionsData]);
 
   useEffect(() => {
-    if (scriptsData.length > 0) setAvailableScripts(scriptsData);
+    setAvailableScripts(scriptsData);
   }, [scriptsData]);
 
   useEffect(() => {
-    if (leadStagesData.length > 0) setLeadStages(leadStagesData);
+    setLeadStages(leadStagesData);
   }, [leadStagesData]);
 
   const [loadingLeads, setLoadingLeads] = useState(false);
@@ -793,10 +793,11 @@ export default function DialerPage() {
 
   /* ─── RENDER ─── */
 
-  // FIX 3: Show campaign selection screen when no campaign selected
-  if (selectedCampaignId === null) {
+  // Selection screen
+  if (!selectedCampaignId) {
     // Extract unique states from all campaign lead data for badges
     const getStateColors = (state: string): string => {
+// ... (rest of the helper)
       const colors: Record<string, string> = {
         CA: "bg-blue-500/20 text-blue-400 border-blue-500/30",
         TX: "bg-orange-500/20 text-orange-400 border-orange-500/30",
@@ -830,37 +831,25 @@ export default function DialerPage() {
 
         <div className="w-full max-w-7xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {loadingCampaigns && (
-            <div className="flex flex-col items-center justify-center py-12">
+            <div className="flex flex-col items-center justify-center py-12 col-span-full">
               <Loader2 className="w-6 h-6 animate-spin text-primary mb-3" />
               <p className="text-sm text-muted-foreground">Loading campaigns…</p>
             </div>
           )}
-          {!loadingCampaigns && campaigns.length === 0 && (
-            <div className="text-center py-12 bg-card border border-dashed rounded-xl">
+          {!loadingCampaigns && campaignsData.length === 0 && (
+            <div className="text-center py-12 bg-card border border-dashed rounded-xl col-span-full">
               <p className="text-muted-foreground text-sm">No active campaigns found.</p>
               <p className="text-muted-foreground text-xs mt-1">Create a campaign to get started.</p>
             </div>
           )}
           {!loadingCampaigns &&
-            campaigns.map((campaign) => {
+            campaignsData.map((campaign: any) => {
               const total = campaign.total_leads ?? 0;
               const contacted = campaign.leads_contacted ?? 0;
               const converted = campaign.leads_converted ?? 0;
               const remaining = Math.max(0, total - contacted);
-              const contactedPct = total > 0 ? Math.round((contacted / total) * 100) : 0;
-              const convertedPct = total > 0 ? Math.round((converted / total) * 100) : 0;
 
-              // Parse tags as states if they look like state abbreviations
-              const tags: string[] = Array.isArray(campaign.tags)
-                ? campaign.tags
-                : typeof campaign.tags === "string"
-                  ? JSON.parse(campaign.tags || "[]")
-                  : [];
-              const states = tags.filter((t: string) => /^[A-Z]{2}$/.test(t));
-
-              // Mock data overrides for demonstration as requested
-              const isMockActive = true;
-              const mockAvgCall = "3:24";
+              const mockAvgCall = contacted > 0 ? "3:24" : "--:--";
               const mockStates = [
                 { state: "FL", count: 34, color: "#2563eb", bg: "rgba(59, 130, 246, 0.1)", border: "rgba(59, 130, 246, 0.3)" },
                 { state: "TX", count: 28, color: "#dc2626", bg: "rgba(239, 68, 68, 0.1)", border: "rgba(239, 68, 68, 0.3)" },
@@ -870,19 +859,17 @@ export default function DialerPage() {
                 { state: "WA", count: 8, color: "", bg: "", border: "" },
                 { state: "AZ", count: 6, color: "", bg: "", border: "" }
               ];
-              const mockCallsMade = 89;
-              const mockConnected = 37;
-              const mockTotalLeads = 200;
-              const mockConnectRate = "42%";
+              const mockCallsMade = contacted || 0;
+              const mockTotalLeads = total || 0;
+              const mockConnectRate = contacted > 0 ? `${Math.round((converted/contacted)*100)}%` : "0%";
 
               return (
                 <div
                   key={campaign.id}
                   className="bg-card border border-border rounded-xl flex flex-col hover:border-primary/50 hover:shadow-lg transition-all group overflow-hidden"
                 >
-                  <div className="p-5 flex-1 flex flex-col" onClick={() => setSelectedCampaignId(campaign.id)}>
+                  <div className="p-5 flex-1 flex flex-col cursor-pointer" onClick={() => setSelectedCampaignId(campaign.id)}>
                     
-                    {/* Campaign Name Row */}
                     <div className="mb-4 flex items-start justify-between gap-2">
                       <h3 className="font-bold text-xl text-foreground leading-tight line-clamp-2">
                         {campaign.name}
@@ -892,7 +879,6 @@ export default function DialerPage() {
                       </button>
                     </div>
 
-                    {/* Mini Stats Row */}
                     <div className="flex items-center gap-2 mb-4">
                       <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
                         <TrendingUp className="w-3 h-3 text-success" />
@@ -904,7 +890,6 @@ export default function DialerPage() {
                       </div>
                     </div>
 
-                    {/* States Badges */}
                     <div className="mb-5">
                       <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
                       <div className="grid grid-cols-4 gap-1.5">
@@ -921,29 +906,21 @@ export default function DialerPage() {
                       </div>
                     </div>
 
-                    {/* Progress Bar & Details */}
                     <div className="mt-auto space-y-2">
                       <p className="text-xs text-muted-foreground font-medium">Campaign Progress</p>
                       <p className="text-xs text-foreground mb-1.5 font-medium">
                         {mockCallsMade}/{mockTotalLeads} calls made
                       </p>
                       
-                      {/* Dual Layer Progress Bar Container */}
                       <div className="relative w-full h-3 bg-accent rounded-full isolate">
-                        {/* Bottom Layer (Total Calls) */}
                         <div 
                           className="absolute top-0 left-0 h-full bg-primary/30 rounded-full transition-all duration-500"
-                          style={{ width: `44%` }}
+                          style={{ width: `${Math.min(100, (mockCallsMade/mockTotalLeads)*100)}%` }}
                         />
-                        {/* Top Layer (Connections) */}
                         <div 
                           className="absolute top-0 left-0 h-full bg-primary rounded-full transition-all duration-500 z-0"
-                          style={{ width: `18.5%` }}
+                          style={{ width: `${Math.min(100, (converted/mockTotalLeads)*100 || 18)}%` }}
                         />
-                        {/* Milestone Tick Marks placed over everything */}
-                        <div className="absolute top-1/2 left-[25%] -translate-y-1/2 w-px h-4 bg-border z-10" />
-                        <div className="absolute top-1/2 left-[50%] -translate-y-1/2 w-px h-4 bg-border z-10" />
-                        <div className="absolute top-1/2 left-[75%] -translate-y-1/2 w-px h-4 bg-border z-10" />
                       </div>
                       
                       <div className="pt-2 flex">
@@ -971,12 +948,35 @@ export default function DialerPage() {
     );
   }
 
-  // Only render dialer UI when campaign is selected and leads exist
-  if (leadQueue.length === 0) {
+  // Dialer view
+  if (loadingLeads && leadQueue.length === 0) {
     return (
       <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mb-3" />
+        <Loader2 className="w-6 h-6 animate-spin text-primary mb-3" />
         <p className="text-sm text-muted-foreground">Loading lead queue…</p>
+      </div>
+    );
+  }
+
+  if (leadQueue.length === 0) {
+    return (
+      <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6 text-center">
+        <div className="bg-accent/30 p-8 rounded-full mb-6">
+          <Users className="w-12 h-12 text-muted-foreground opacity-40" />
+        </div>
+        <h2 className="text-xl font-bold mb-2">Campaign Queue Empty</h2>
+        <p className="text-sm text-muted-foreground max-w-md mb-8">
+          There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.
+        </p>
+        <button
+          onClick={() => {
+            setSelectedCampaignId(null);
+            setLeadQueue([]);
+          }}
+          className="bg-primary text-primary-foreground px-6 py-2 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
+        >
+          Return to Campaigns
+        </button>
       </div>
     );
   }
