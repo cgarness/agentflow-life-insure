@@ -15,13 +15,14 @@ export async function getCampaigns() {
   return data ?? [];
 }
 
-export async function getCampaignLeads(campaignId: string) {
+export async function getCampaignLeads(campaignId: string, limit = 100, offset = 0) {
   const { data, error } = await supabase
     .from("campaign_leads")
     .select("*, lead:leads(*)")
     .eq("campaign_id", campaignId)
     .not("status", "in", '("Called","DNC")')
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .range(offset, offset + limit - 1);
   if (error) throw new Error(error.message);
   
   // Flatten the join results

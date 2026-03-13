@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { formatDistanceToNow } from "date-fns";
@@ -212,55 +213,120 @@ export default function DialerPage() {
 
   /* --- data loading --- */
 
-  useEffect(() => {
-    setLoadingCampaigns(true);
-    getCampaigns()
-      .then(setCampaigns)
-      .catch(() => toast.error("Failed to load campaigns"))
-      .finally(() => setLoadingCampaigns(false));
-    dispositionsSupabaseApi
-      .getAll()
-      .then((ds) =>
-        setDispositions(
-          ds.map((d) => ({
-            id: d.id,
-            name: d.name,
-            color: d.color,
-            requireNotes: d.requireNotes,
-            minNoteChars: d.minNoteChars,
-            callbackScheduler: d.callbackScheduler,
-            appointmentScheduler: d.appointmentScheduler,
-            automationTrigger: d.automationTrigger,
-            automationName: d.automationName,
-          })),
-        ),
-      )
-      .catch(() => toast.error("Failed to load dispositions"));
+  /* --- queries --- */
+  
+  const { data: campaignsData = [], isLoading: loadingCampaigns } = useQuery({
+    queryKey: ["campaigns"],
+    queryFn: getCampaigns,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
 
-    // Fetch active scripts
-    supabase
-      .from("call_scripts")
-      .select("*")
-      .eq("active", true)
-      .then(({ data, error }) => {
-        if (!error && data) setAvailableScripts(data);
-      });
-    
-    // Fetch lead stages
-    pipelineApi.getLeadStages()
-      .then(setLeadStages)
-      .catch((err) => console.error("Error fetching lead stages:", err));
+  const { data: dispositionsData = [] } = useQuery({
+    queryKey: ["dispositions"],
+    queryFn: async () => {
+      const ds = await dispositionsSupabaseApi.getAll();
+      return ds.map((d) => ({
+        id: d.id,
+        name: d.name,
+        color: d.color,
+        requireNotes: d.requireNotes,
+        minNoteChars: d.minNoteChars,
+        callbackScheduler: d.callbackScheduler,
+        appointmentScheduler: d.appointmentScheduler,
+        automationTrigger: d.automationTrigger,
+        automationName: d.automationName,
+      }));
+    },
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+
+  const { data: scriptsData = [] } = useQuery({
+    queryKey: ["scripts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("call_scripts")
+        .select("*")
+        .eq("active", true);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+
+  const { data: leadStagesData = [] } = useQuery({
+    queryKey: ["leadStages"],
+    queryFn: pipelineApi.getLeadStages,
+    staleTime: 1000 * 60 * 60, // 1 hour
+  });
+
+  /* --- effects for syncing query data to state if needed --- */
+  // Note: We prefer using the data from useQuery directly, but some effects or 
+  // handlers might expect these states. We'll update them via useEffect for compatibility.
+  useEffect(() => {
+    if (campaignsData.length > 0) setCampaigns(campaignsData);
+  }, [campaignsData]);
+
+  useEffect(() => {
+    if (dispositionsData.length > 0) setDispositions(dispositionsData);
+  }, [dispositionsData]);
+
+  useEffect(() => {
+    if (scriptsData.length > 0) setAvailableScripts(scriptsData);
+  }, [scriptsData]);
+
+  useEffect(() => {
+    if (leadStagesData.length > 0) setLeadStages(leadStagesData);
+  }, [leadStagesData]);
+
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [hasMoreLeads, setHasMoreLeads] = useState(true);
+  const [currentOffset, setCurrentOffset] = useState(0);
+  const BATCH_SIZE = 50;
+
+  const fetchLeadsBatch = useCallback(async (campaignId: string, offset: number, clear = false) => {
+    setLoadingLeads(true);
+    try {
+      const leads = await getCampaignLeads(campaignId, BATCH_SIZE, offset);
+      if (leads.length < BATCH_SIZE) {
+        setHasMoreLeads(false);
+      } else {
+        setHasMoreLeads(true);
+      }
+      
+      if (clear) {
+        setLeadQueue(leads);
+        setCurrentLeadIndex(0);
+        setCurrentOffset(BATCH_SIZE);
+      } else {
+        setLeadQueue(prev => [...prev, ...leads]);
+        setCurrentOffset(prev => prev + BATCH_SIZE);
+      }
+    } catch (err) {
+      toast.error("Failed to load leads");
+    } finally {
+      setLoadingLeads(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!selectedCampaignId) return;
-    getCampaignLeads(selectedCampaignId)
-      .then((leads) => {
-        setLeadQueue(leads);
-        setCurrentLeadIndex(0);
-      })
-      .catch(() => toast.error("Failed to load leads"));
-  }, [selectedCampaignId]);
+    if (!selectedCampaignId) {
+      setLeadQueue([]);
+      setCurrentLeadIndex(0);
+      setCurrentOffset(0);
+      setHasMoreLeads(true);
+      return;
+    }
+    fetchLeadsBatch(selectedCampaignId, 0, true);
+  }, [selectedCampaignId, fetchLeadsBatch]);
+
+  // Load more leads when we get close to the end of the queue
+  useEffect(() => {
+    if (selectedCampaignId && hasMoreLeads && !loadingLeads && leadQueue.length > 0) {
+      if (currentLeadIndex >= leadQueue.length - 10) {
+        fetchLeadsBatch(selectedCampaignId, currentOffset);
+      }
+    }
+  }, [currentLeadIndex, leadQueue.length, selectedCampaignId, hasMoreLeads, loadingLeads, currentOffset, fetchLeadsBatch]);
 
   const fetchHistory = useCallback(async (leadId: string) => {
     setLoadingHistory(true);
@@ -1588,6 +1654,21 @@ export default function DialerPage() {
                           )}
                         </div>
                       ))
+                    )}
+                    
+                    {loadingLeads && (
+                      <div className="flex items-center justify-center p-4">
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      </div>
+                    )}
+                    
+                    {hasMoreLeads && !loadingLeads && leadQueue.length > 0 && (
+                      <button 
+                        onClick={() => fetchLeadsBatch(selectedCampaignId!, currentOffset)}
+                        className="text-[10px] text-muted-foreground hover:text-primary py-2 uppercase tracking-widest font-bold"
+                      >
+                        Load More
+                      </button>
                     )}
                   </div>
                 )}
