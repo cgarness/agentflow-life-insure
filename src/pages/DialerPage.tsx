@@ -489,41 +489,52 @@ export default function DialerPage() {
   };
 
   const handleSaveOnly = async () => {
-    const success = await saveCallData();
-    if (success) {
-      setShouldAdvanceAfterModal(false);
-      toast.success("Call saved (remaining on contact)");
-      setSessionStats((s) => ({
-        ...s,
-        calls: s.calls + 1,
-        connected: s.connected + 1,
-        talkSeconds: s.talkSeconds + telnyxCallDuration,
-      }));
-      // Update local status
-      if (selectedDisp) {
-        setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
+    const toastId = toast.loading("Saving call data...");
+    try {
+      const success = await saveCallData();
+      if (success) {
+        setShouldAdvanceAfterModal(false);
+        toast.success("Call saved successfully", { id: toastId });
+        setSessionStats((s) => ({
+          ...s,
+          calls: s.calls + 1,
+          connected: s.connected + 1,
+          talkSeconds: s.talkSeconds + telnyxCallDuration,
+        }));
+        
+        // Update local status
+        if (selectedDisp) {
+          setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
+        }
+      } else {
+        toast.dismiss(toastId);
       }
-
-      if (selectedDisp) {
-        setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
-      }
+    } catch (error: any) {
+      toast.error(`Save failed: ${error.message}`, { id: toastId });
     }
   };
 
   const handleSaveAndNext = async () => {
-    const success = await saveCallData();
-    if (success) {
-      setShouldAdvanceAfterModal(true);
-      toast.success("Call saved, moving to next");
-      setSessionStats((s) => ({
-        ...s,
-        calls: s.calls + 1,
-        connected: s.connected + 1,
-        talkSeconds: s.talkSeconds + telnyxCallDuration,
-        callbacks: selectedDisp?.callbackScheduler ? s.callbacks + 1 : s.callbacks,
-      }));
-      
-      handleAdvance();
+    const toastId = toast.loading("Saving and moving next...");
+    try {
+      const success = await saveCallData();
+      if (success) {
+        setShouldAdvanceAfterModal(true);
+        toast.success("Call saved, moving to next contact", { id: toastId });
+        setSessionStats((s) => ({
+          ...s,
+          calls: s.calls + 1,
+          connected: s.connected + 1,
+          talkSeconds: s.talkSeconds + telnyxCallDuration,
+          callbacks: selectedDisp?.callbackScheduler ? s.callbacks + 1 : s.callbacks,
+        }));
+        
+        handleAdvance();
+      } else {
+        toast.dismiss(toastId);
+      }
+    } catch (error: any) {
+      toast.error(`Save failed: ${error.message}`, { id: toastId });
     }
   };
 
@@ -874,7 +885,8 @@ export default function DialerPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
+    <>
+      <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 pt-1 pb-2 gap-4">
         {/* LEFT */}
@@ -1262,40 +1274,39 @@ export default function DialerPage() {
           </div>
         </div>
 
-        {/* ── RIGHT COLUMN (Original Left) ── */}
-        <div className="w-80 shrink-0 flex flex-col overflow-hidden">
-          <div className="flex flex-col flex-1 overflow-y-auto pr-1 gap-3 custom-scrollbar">
-            {/* Action buttons */}
-            <div className="grid grid-cols-2 gap-2 shrink-0">
-              {callState === "active" || callState === "dialing" ? (
-                <button
-                  onClick={handleHangUp}
-                  className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90"
-                >
-                  <PhoneOff className="w-4.5 h-4.5" />
-                  Hang Up
-                  <span className="font-mono text-[10px]">{fmtDuration(telnyxCallDuration)}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={handleCall}
-                  className="bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-success/90"
-                >
-                  <Phone className="w-4.5 h-4.5" />
-                  Call
-                </button>
-              )}
+        {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
+        <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
+          {/* Top Actions: Hang Up / Skip */}
+          <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
+            {callState === "active" || callState === "dialing" ? (
               <button
-                onClick={handleSkip}
-                className="bg-accent text-muted-foreground border border-border rounded-xl py-2 flex flex-col items-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
+                onClick={handleHangUp}
+                className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90 shadow-lg shadow-destructive/20"
               >
-                <ArrowRight className="w-4.5 h-4.5" />
-                Skip
+                <PhoneOff className="w-4 h-4" />
+                <span className="leading-none">Hang Up</span>
+                <span className="font-mono text-[9px] opacity-80">{fmtDuration(telnyxCallDuration)}</span>
               </button>
-            </div>
+            ) : (
+              <button
+                onClick={handleCall}
+                className="bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-success/90 shadow-lg shadow-success/20"
+              >
+                <Phone className="w-4 h-4" />
+                <span className="leading-none">Call</span>
+              </button>
+            )}
+            <button
+              onClick={handleSkip}
+              className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
+            >
+              <ArrowRight className="w-4 h-4" />
+              <span className="leading-none">Skip</span>
+            </button>
+          </div>
 
-            {/* Tabs for right sidebar */}
-            <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0">
+          {/* Main Controls Card with truly fixed footer */}
+          <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 min-w-0">
               <div className="grid grid-cols-3 border-b shrink-0">
                 {(["dispositions", "queue", "scripts"] as const).map((t) => (
                   <button
@@ -1648,6 +1659,18 @@ export default function DialerPage() {
         </div>
       </div>
 
+      <AnimatePresence>
+        {activeScriptId && (
+          <DraggableScriptPopup
+            name={availableScripts.find((s) => s.id === activeScriptId)?.name || "Script"}
+            content={availableScripts.find((s) => s.id === activeScriptId)?.content || ""}
+            onClose={() => setActiveScriptId(null)}
+            initialX={window.innerWidth - 480}
+            initialY={100}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ── CALLBACK MODAL ── */}
       <Dialog
         open={showCallbackModal}
@@ -1728,17 +1751,6 @@ export default function DialerPage() {
         prefillContactId={currentLead?.id}
       />
 
-      <AnimatePresence>
-        {activeScriptId && (
-          <DraggableScriptPopup
-            name={availableScripts.find((s) => s.id === activeScriptId)?.name || "Script"}
-            content={availableScripts.find((s) => s.id === activeScriptId)?.content || ""}
-            onClose={() => setActiveScriptId(null)}
-            initialX={window.innerWidth - 480}
-            initialY={100}
-          />
-        )}
-      </AnimatePresence>
 
       <ContactModal
         lead={showFullViewDrawer && currentLead ? mapDialerLeadToContactLead(currentLead) : null}
@@ -1773,6 +1785,6 @@ export default function DialerPage() {
           }
         }}
       />
-    </div>
+    </>
   );
 }
