@@ -870,10 +870,10 @@ const Contacts: React.FC = () => {
               });
             }}
             onClick={(e) => e.stopPropagation()}
-            className={`text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none bg-transparent pr-5 ${recruitStatusColors[r.status] || "bg-muted text-muted-foreground"}`}
-            style={{ backgroundImage: 'none' }}
+            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
+            style={{ backgroundImage: 'none', backgroundColor: `${getRecruitStatusColor(r.status)}20`, color: getRecruitStatusColor(r.status) }}
           >
-            {recruitStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+            {recruitStatuses.map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
