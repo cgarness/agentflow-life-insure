@@ -781,7 +781,24 @@ const Contacts: React.FC = () => {
       case "phone": return <span className="text-foreground font-mono text-xs">{l.phone}</span>;
       case "email": return <span className="text-muted-foreground">{l.email}</span>;
       case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{l.state}</span>;
-      case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[l.status]}`}>{l.status}</span>;
+      case "status": return (
+        <div className="relative group/status inline-block">
+          <select
+            value={l.status}
+            onChange={(e) => {
+              e.stopPropagation();
+              handleUpdateLead(l.id, { status: e.target.value as LeadStatus });
+              toast.success(`Status changed to ${e.target.value}`);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className={`text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none bg-transparent pr-5 ${statusColors[l.status]}`}
+            style={{ backgroundImage: 'none' }}
+          >
+            {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
+        </div>
+      );
       case "source": return <span className="text-muted-foreground">{l.leadSource}</span>;
       case "score": {
         const sc = l.leadScore;
