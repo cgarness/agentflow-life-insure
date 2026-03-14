@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
+import { pipelineApi } from "@/lib/mock-api";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
@@ -24,29 +25,30 @@ import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 
-const statusColors: Record<string, string> = {
-  "New": "bg-muted text-muted-foreground",
-  "Contacted": "bg-primary/10 text-primary",
-  "Interested": "bg-warning/10 text-warning",
-  "Follow Up": "bg-info/10 text-info",
-  "Hot": "bg-warning/20 text-warning",
-  "Not Interested": "bg-destructive/10 text-destructive",
-  "Closed Won": "bg-success/10 text-success",
-  "Closed Lost": "bg-destructive/20 text-destructive",
+// Fallback status colors (used if pipeline stages haven't loaded)
+const fallbackStatusColors: Record<string, string> = {
+  "New": "#3B82F6",
+  "Contacted": "#A855F7",
+  "Interested": "#EAB308",
+  "Follow Up": "#14B8A6",
+  "Hot": "#F97316",
+  "Not Interested": "#EF4444",
+  "Closed Won": "#22C55E",
+  "Closed Lost": "#EF4444",
+};
+
+const fallbackRecruitColors: Record<string, string> = {
+  "Prospect": "#6B7280",
+  "Contacted": "#A855F7",
+  "Interview": "#EAB308",
+  "Licensed": "#3B82F6",
+  "Active": "#22C55E",
 };
 
 const policyTypeColors: Record<string, string> = {
   "Term": "bg-primary/10 text-primary",
   "Whole Life": "bg-success/10 text-success",
   "IUL": "bg-info/10 text-info",
-};
-
-const recruitStatusColors: Record<string, string> = {
-  "Prospect": "bg-muted text-muted-foreground",
-  "Contacted": "bg-primary/10 text-primary",
-  "Interview": "bg-warning/10 text-warning",
-  "Licensed": "bg-info/10 text-info",
-  "Active": "bg-success/10 text-success",
 };
 
 const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
@@ -342,6 +344,8 @@ const Contacts: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [recruits, setRecruits] = useState<Recruit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
+  const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
@@ -598,7 +602,23 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Fetch import history from Supabase
+  // Fetch pipeline stage colors from settings
+  useEffect(() => {
+    pipelineApi.getLeadStages().then(stages => {
+      const map: Record<string, string> = {};
+      stages.forEach(s => { map[s.name] = s.color; });
+      setLeadStageColors(map);
+    });
+    pipelineApi.getRecruitStages().then(stages => {
+      const map: Record<string, string> = {};
+      stages.forEach(s => { map[s.name] = s.color; });
+      setRecruitStageColors(map);
+    });
+  }, []);
+
+  const getLeadStatusColor = (status: string) => leadStageColors[status] || fallbackStatusColors[status] || "#6B7280";
+  const getRecruitStatusColor = (status: string) => recruitStageColors[status] || fallbackRecruitColors[status] || "#6B7280";
+
   const fetchImportHistory = useCallback(async () => {
     const { data, error } = await supabase
       .from("import_history")
@@ -791,10 +811,10 @@ const Contacts: React.FC = () => {
               toast.success(`Status changed to ${e.target.value}`);
             }}
             onClick={(e) => e.stopPropagation()}
-            className={`text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none bg-transparent pr-5 ${statusColors[l.status]}`}
-            style={{ backgroundImage: 'none' }}
+            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
+            style={{ backgroundImage: 'none', backgroundColor: `${getLeadStatusColor(l.status)}20`, color: getLeadStatusColor(l.status) }}
           >
-            {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+            {allStatuses.map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -850,10 +870,10 @@ const Contacts: React.FC = () => {
               });
             }}
             onClick={(e) => e.stopPropagation()}
-            className={`text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none bg-transparent pr-5 ${recruitStatusColors[r.status] || "bg-muted text-muted-foreground"}`}
-            style={{ backgroundImage: 'none' }}
+            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
+            style={{ backgroundImage: 'none', backgroundColor: `${getRecruitStatusColor(r.status)}20`, color: getRecruitStatusColor(r.status) }}
           >
-            {recruitStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+            {recruitStatuses.map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -1183,7 +1203,7 @@ const Contacts: React.FC = () => {
             return (
               <div key={status} className="min-w-[250px] bg-accent/50 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[status]} `}>{status}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${getLeadStatusColor(status)}20`, color: getLeadStatusColor(status) }}>{status}</span>
                   <span className="text-xs text-muted-foreground">{items.length}</span>
                 </div>
                 {items.map(l => (
@@ -1300,7 +1320,7 @@ const Contacts: React.FC = () => {
                   return (
                     <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
                       <div className="flex items-center justify-between mb-2">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${recruitStatusColors[s] || "bg-muted text-muted-foreground"} `}>{s}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${getRecruitStatusColor(s)}20`, color: getRecruitStatusColor(s) }}>{s}</span>
                         <span className="text-xs text-muted-foreground">{items.length}</span>
                       </div>
                       {items.map(r => (
