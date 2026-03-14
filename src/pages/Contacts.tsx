@@ -1320,7 +1320,7 @@ const Contacts: React.FC = () => {
                   return (
                     <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
                       <div className="flex items-center justify-between mb-2">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${recruitStatusColors[s] || "bg-muted text-muted-foreground"} `}>{s}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${getRecruitStatusColor(s)}20`, color: getRecruitStatusColor(s) }}>{s}</span>
                         <span className="text-xs text-muted-foreground">{items.length}</span>
                       </div>
                       {items.map(r => (
