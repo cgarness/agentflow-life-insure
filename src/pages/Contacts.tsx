@@ -25,29 +25,30 @@ import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 
-const statusColors: Record<string, string> = {
-  "New": "bg-muted text-muted-foreground",
-  "Contacted": "bg-primary/10 text-primary",
-  "Interested": "bg-warning/10 text-warning",
-  "Follow Up": "bg-info/10 text-info",
-  "Hot": "bg-warning/20 text-warning",
-  "Not Interested": "bg-destructive/10 text-destructive",
-  "Closed Won": "bg-success/10 text-success",
-  "Closed Lost": "bg-destructive/20 text-destructive",
+// Fallback status colors (used if pipeline stages haven't loaded)
+const fallbackStatusColors: Record<string, string> = {
+  "New": "#3B82F6",
+  "Contacted": "#A855F7",
+  "Interested": "#EAB308",
+  "Follow Up": "#14B8A6",
+  "Hot": "#F97316",
+  "Not Interested": "#EF4444",
+  "Closed Won": "#22C55E",
+  "Closed Lost": "#EF4444",
+};
+
+const fallbackRecruitColors: Record<string, string> = {
+  "Prospect": "#6B7280",
+  "Contacted": "#A855F7",
+  "Interview": "#EAB308",
+  "Licensed": "#3B82F6",
+  "Active": "#22C55E",
 };
 
 const policyTypeColors: Record<string, string> = {
   "Term": "bg-primary/10 text-primary",
   "Whole Life": "bg-success/10 text-success",
   "IUL": "bg-info/10 text-info",
-};
-
-const recruitStatusColors: Record<string, string> = {
-  "Prospect": "bg-muted text-muted-foreground",
-  "Contacted": "bg-primary/10 text-primary",
-  "Interview": "bg-warning/10 text-warning",
-  "Licensed": "bg-info/10 text-info",
-  "Active": "bg-success/10 text-success",
 };
 
 const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
