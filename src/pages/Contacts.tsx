@@ -344,6 +344,8 @@ const Contacts: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [recruits, setRecruits] = useState<Recruit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
+  const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
