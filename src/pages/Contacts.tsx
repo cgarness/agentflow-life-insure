@@ -602,7 +602,23 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Fetch import history from Supabase
+  // Fetch pipeline stage colors from settings
+  useEffect(() => {
+    pipelineApi.getLeadStages().then(stages => {
+      const map: Record<string, string> = {};
+      stages.forEach(s => { map[s.name] = s.color; });
+      setLeadStageColors(map);
+    });
+    pipelineApi.getRecruitStages().then(stages => {
+      const map: Record<string, string> = {};
+      stages.forEach(s => { map[s.name] = s.color; });
+      setRecruitStageColors(map);
+    });
+  }, []);
+
+  const getLeadStatusColor = (status: string) => leadStageColors[status] || fallbackStatusColors[status] || "#6B7280";
+  const getRecruitStatusColor = (status: string) => recruitStageColors[status] || fallbackRecruitColors[status] || "#6B7280";
+
   const fetchImportHistory = useCallback(async () => {
     const { data, error } = await supabase
       .from("import_history")
