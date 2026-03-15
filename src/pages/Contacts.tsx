@@ -482,6 +482,8 @@ const Contacts: React.FC = () => {
         resizingColRef.current = null;
         setResizingCol(null);
         document.body.style.cursor = 'default';
+        // Persist to Supabase
+        setColumnWidths(prev => { saveColumnWidths(prev); return prev; });
       }
     };
 
