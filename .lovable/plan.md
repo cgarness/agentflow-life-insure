@@ -1,27 +1,25 @@
 
 
-## Plan: Add Dev-Only Auth Bypass via Query Parameter
+## Plan: Consolidate Phone System Settings
 
-**What**: Allow bypassing authentication in development by adding `?bypass_auth=true` to the URL. This lets the browser automation tool access protected routes without logging in.
+### What changes
 
-**How**: Modify the `ProtectedRoute` component in `src/App.tsx` (lines 36-45) to check for the `bypass_auth=true` query parameter. The bypass will only work in development mode (`import.meta.env.DEV`).
+Merge four separate settings sections — **Telnyx & Phone Numbers**, **Voicemail Drop Manager**, **Inbound Call Routing**, and **Predictive Dialer** — into a single **Phone System** tab with internal sub-tabs.
 
-```typescript
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const searchParams = new URLSearchParams(window.location.search);
-  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
-  
-  if (bypassAuth) return <>{children}</>;
-  if (isLoading) return (/* spinner */);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-};
-```
+### Implementation
 
-**Safety**: `import.meta.env.DEV` is `false` in production builds, so the bypass is completely stripped out. No security risk in deployed builds.
+**1. Create `src/components/settings/PhoneSystem.tsx`**
+- A wrapper component with a `Tabs` layout (using the existing radix tabs UI).
+- Four sub-tabs: **Telnyx & Numbers**, **Voicemail Drops**, **Inbound Routing**, **Predictive Dialer**.
+- The first tab renders the existing `<PhoneSettings />` component.
+- The other three tabs render their current inline content (voicemail, routing, dialer currently fall through to the generic placeholder in `renderContent`). They will be given dedicated placeholder sections within this component, ready for future buildout.
 
-**Usage**: When asking me to test, I'll navigate to e.g. `/settings?bypass_auth=true`.
+**2. Update `src/pages/SettingsPage.tsx`**
+- Remove the four individual entries from the `sections` array (`phone-settings`, `voicemail`, `routing`, `dialer`).
+- Add one entry: `{ slug: "phone-system", icon: Phone, label: "Phone System" }`.
+- In `renderContent()`, add `case "phone-system": return <PhoneSystem />;` and remove the old cases.
+- Import the new `PhoneSystem` component.
 
-**Note**: Profile-dependent features (user name, avatar, etc.) will show empty/null since there's no actual session. But it's sufficient for testing UI and OAuth flows.
+### Result
+The sidebar will show a single "Phone System" item. Clicking it shows a tabbed interface with all four sub-sections.
 
