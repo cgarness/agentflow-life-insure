@@ -14,6 +14,7 @@ import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
+import type { Json } from "@/integrations/supabase/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
 import ClientModal from "@/components/contacts/ClientModal";
@@ -379,24 +380,86 @@ const Contacts: React.FC = () => {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
 
-  // Column Resizing State
-  const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>(() => {
-    try {
-      const saved = localStorage.getItem("contactColumnWidths");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  // Column Resizing State — persisted to Supabase user_preferences
+  const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>({});
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizingColRef = useRef<string | null>(null);
   const startXRef = useRef<number>(0);
   const startWidthRef = useRef<number>(0);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Save to localStorage when widths change
+  // Load column widths from Supabase
   useEffect(() => {
-    localStorage.setItem("contactColumnWidths", JSON.stringify(columnWidths));
-  }, [columnWidths]);
+    if (!user?.id) return;
+    supabase
+      .from("user_preferences")
+      .select("preference_value")
+      .eq("user_id", user.id)
+      .eq("preference_key", "contactColumnWidths")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.preference_value && typeof data.preference_value === "object") {
+          setColumnWidths(data.preference_value as Record<string, Record<string, number>>);
+        }
+      });
+  }, [user?.id]);
+
+  // Save column widths to Supabase (debounced)
+  const saveColumnWidths = useCallback((w: Record<string, Record<string, number>>) => {
+    if (!user?.id) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      supabase.from("user_preferences").upsert({
+        user_id: user.id,
+        preference_key: "contactColumnWidths",
+        preference_value: w as unknown as Json,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,preference_key" });
+    }, 500);
+  }, [user?.id]);
+
+  // Load visible columns from Supabase
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("user_preferences")
+      .select("preference_value")
+      .eq("user_id", user.id)
+      .eq("preference_key", "contactVisibleCols")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.preference_value && typeof data.preference_value === "object") {
+          const v = data.preference_value as Record<string, string[]>;
+          if (v.leads) setVisibleCols(new Set(v.leads as ColumnKey[]));
+          if (v.clients) setVisibleClientCols(new Set(v.clients as ClientColumnKey[]));
+          if (v.recruits) setVisibleRecruitCols(new Set(v.recruits as RecruitColumnKey[]));
+          if (v.agents) setVisibleAgentCols(new Set(v.agents as AgentColumnKey[]));
+        }
+      });
+  }, [user?.id]);
+
+  // Save visible columns to Supabase
+  const saveVisibleCols = useCallback(() => {
+    if (!user?.id) return;
+    supabase.from("user_preferences").upsert({
+      user_id: user.id,
+      preference_key: "contactVisibleCols",
+      preference_value: {
+        leads: Array.from(visibleCols),
+        clients: Array.from(visibleClientCols),
+        recruits: Array.from(visibleRecruitCols),
+        agents: Array.from(visibleAgentCols),
+      } as unknown as Json,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,preference_key" });
+  }, [user?.id, visibleCols, visibleClientCols, visibleRecruitCols, visibleAgentCols]);
+
+  // Persist visible cols when they change (skip initial render)
+  const visibleColsInitRef = useRef(false);
+  useEffect(() => {
+    if (!visibleColsInitRef.current) { visibleColsInitRef.current = true; return; }
+    saveVisibleCols();
+  }, [visibleCols, visibleClientCols, visibleRecruitCols, visibleAgentCols]);
 
   // Handle global mouse events for resizing
   useEffect(() => {
@@ -419,6 +482,8 @@ const Contacts: React.FC = () => {
         resizingColRef.current = null;
         setResizingCol(null);
         document.body.style.cursor = 'default';
+        // Persist to Supabase
+        setColumnWidths(prev => { saveColumnWidths(prev); return prev; });
       }
     };
 
