@@ -61,6 +61,7 @@ import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTim
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
 import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence } from "framer-motion";
+import { useBranding } from "@/contexts/BrandingContext";
 
 /* ─── Types ─── */
 
@@ -201,6 +202,7 @@ export default function DialerPage() {
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+  const { formatDate, formatDateTime } = useBranding();
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
@@ -1292,7 +1294,7 @@ export default function DialerPage() {
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
+                        {formatDateTime(new Date(item.created_at))}
                       </div>
                     </div>
                   </div>

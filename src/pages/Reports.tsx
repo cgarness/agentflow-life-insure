@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   DateRange, Grouping, autoGrouping,
@@ -78,6 +79,7 @@ const STATE_NAMES: Record<string, string> = {
 
 const Reports: React.FC = () => {
   const { profile, user } = useAuth();
+  const { formatDate } = useBranding();
   const navigate = useNavigate();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
 
@@ -206,7 +208,7 @@ const Reports: React.FC = () => {
       ["Outbound", String(c.filter(x => x.direction === "outbound").length)],
       ["Inbound", String(c.filter(x => x.direction === "inbound").length)],
       ["Total Leads", String(l.length)],
-      ["Period", `${format(range.start, "MMM dd yyyy")} - ${format(range.end, "MMM dd yyyy")}`],
+      ["Period", `${formatDate(range.start)} - ${formatDate(range.end)}`],
       ...(stateFilter ? [["State Filter", STATE_NAMES[stateFilter] || stateFilter]] : []),
     ];
     downloadCSV("reports-summary", ["Metric", "Value"], rows);
@@ -248,7 +250,7 @@ const Reports: React.FC = () => {
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="text-xs h-8">
                     <CalendarIcon className="w-3.5 h-3.5 mr-1" />
-                    {customStart ? format(customStart, "MMM dd") : "Start"}
+                    {customStart ? formatDate(customStart) : "Start"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -260,7 +262,7 @@ const Reports: React.FC = () => {
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="text-xs h-8">
                     <CalendarIcon className="w-3.5 h-3.5 mr-1" />
-                    {customEnd ? format(customEnd, "MMM dd") : "End"}
+                    {customEnd ? formatDate(customEnd) : "End"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -315,9 +317,9 @@ const Reports: React.FC = () => {
 
       {comparing && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground bg-accent/50 rounded-lg px-3 py-2">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary" /> {format(range.start, "MMM dd")} – {format(range.end, "MMM dd")}</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary" /> {formatDate(range.start)} – {formatDate(range.end)}</span>
           <span>vs</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary/30" /> {format(compRange.start, "MMM dd")} – {format(compRange.end, "MMM dd")}</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary/30" /> {formatDate(compRange.start)} – {formatDate(compRange.end)}</span>
         </div>
       )}
 

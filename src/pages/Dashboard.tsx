@@ -5,7 +5,8 @@ import {
   Clock, ArrowRight, Trophy, Users, Target, CheckCircle2, Minus,
   ExternalLink, RefreshCw, UserPlus, BarChart3, PhoneMissed, Rocket,
 } from "lucide-react";
-import { format, formatDistanceToNow } from "date-fns";
+import { format } from "date-fns";
+import { useBranding } from "@/contexts/BrandingContext";
 import {
   dashboardSupabaseApi,
   ExtendedDashboardStats,
@@ -30,6 +31,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const { formatDate, formatDateTime, formatTime } = useBranding();
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   
@@ -281,7 +283,7 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <RefreshCw className="w-3 h-3" />
-            Last updated {formatDistanceToNow(lastUpdated, { addSuffix: true })}
+            Last updated {formatDateTime(lastUpdated)}
           </div>
         </div>
 
@@ -429,7 +431,7 @@ const Dashboard: React.FC = () => {
                           {followUps.callbacksToday.map((cb) => (
                             <div key={cb.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50">
                               <div className="flex items-center gap-3">
-                                <span className="text-sm font-mono text-primary">{cb.time}</span>
+                                <span className="text-sm font-mono text-primary">{formatTime(new Date(cb.time || ""))}</span>
                                 <span className="text-sm text-foreground">
                                   {cb.firstName} {cb.lastName}
                                 </span>
@@ -509,7 +511,7 @@ const Dashboard: React.FC = () => {
                         onClick={() => navigate("/calendar")}
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-sm font-mono text-primary w-16">{appt.time}</span>
+                          <span className="text-sm font-mono text-primary w-16">{formatTime(new Date(appt.time))}</span>
                           <span className="text-sm text-foreground">{appt.contactName}</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -566,7 +568,7 @@ const Dashboard: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-muted-foreground">
-                            {call.startedAt && formatDistanceToNow(new Date(call.startedAt), { addSuffix: true })}
+                            {call.startedAt && formatDateTime(new Date(call.startedAt))}
                           </span>
                           <Button
                             size="sm"
@@ -632,12 +634,12 @@ const Dashboard: React.FC = () => {
                           )}
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span className="text-xs text-muted-foreground">
-                                {call.startedAt && formatDistanceToNow(new Date(call.startedAt), { addSuffix: true })}
-                              </span>
+                               <span className="text-xs text-muted-foreground">
+                                {call.startedAt && formatDateTime(new Date(call.startedAt))}
+                               </span>
                             </TooltipTrigger>
                             <TooltipContent>
-                              {call.startedAt && format(new Date(call.startedAt), "PPp")}
+                               {call.startedAt && formatDateTime(new Date(call.startedAt))}
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -844,9 +846,7 @@ const Dashboard: React.FC = () => {
                             {win.campaignName && (
                               <Badge variant="outline" className="text-xs">{win.campaignName}</Badge>
                             )}
-                            <span className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(new Date(win.createdAt), { addSuffix: true })}
-                            </span>
+                            <span className="text-xs text-muted-foreground">{formatDateTime(new Date(win.timestamp))}</span>
                           </div>
                         </div>
                       </div>

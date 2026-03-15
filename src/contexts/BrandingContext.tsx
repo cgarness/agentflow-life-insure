@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { format as dateFnsFormat, parseISO, isValid } from 'date-fns';
 
 export interface BrandingState {
     companyName: string;
@@ -33,6 +34,9 @@ interface BrandingContextType {
     branding: BrandingState;
     isLoading: boolean;
     refreshBranding: () => Promise<void>;
+    formatDateTime: (date: string | Date | null | undefined, options?: { hideTime?: boolean; hideDate?: boolean }) => string;
+    formatDate: (date: string | Date | null | undefined) => string;
+    formatTime: (date: string | Date | null | undefined) => string;
 }
 
 const BrandingContext = createContext<BrandingContextType | undefined>(undefined);
@@ -80,8 +84,36 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         refreshBranding();
     }, []);
 
+    const formatDateTime = useCallback((date: string | Date | null | undefined, options?: { hideTime?: boolean; hideDate?: boolean }) => {
+        if (!date) return "";
+        const d = typeof date === 'string' ? parseISO(date) : date;
+        if (!isValid(d)) return typeof date === 'string' ? date : "";
+
+        const dateFormatMap: Record<string, string> = {
+            "MM/DD/YYYY": "MM/dd/yyyy",
+            "DD/MM/YYYY": "dd/MM/yyyy",
+            "YYYY-MM-DD": "yyyy-MM-dd",
+        };
+
+        const dFormat = dateFormatMap[branding.dateFormat] || "MM/dd/yyyy";
+        const tFormat = branding.timeFormat === "12" ? "h:mm a" : "HH:mm";
+
+        if (options?.hideTime) return dateFnsFormat(d, dFormat);
+        if (options?.hideDate) return dateFnsFormat(d, tFormat);
+        
+        return dateFnsFormat(d, `${dFormat} ${tFormat}`);
+    }, [branding.dateFormat, branding.timeFormat]);
+
+    const formatDate = useCallback((date: string | Date | null | undefined) => {
+        return formatDateTime(date, { hideTime: true });
+    }, [formatDateTime]);
+
+    const formatTime = useCallback((date: string | Date | null | undefined) => {
+        return formatDateTime(date, { hideDate: true });
+    }, [formatDateTime]);
+
     return (
-        <BrandingContext.Provider value={{ branding, isLoading, refreshBranding }}>
+        <BrandingContext.Provider value={{ branding, isLoading, refreshBranding, formatDateTime, formatDate, formatTime }}>
             {children}
         </BrandingContext.Provider>
     );

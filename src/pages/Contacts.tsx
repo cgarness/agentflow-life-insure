@@ -25,6 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
+import { useBranding } from "@/contexts/BrandingContext";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -334,6 +335,7 @@ const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: ()
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
   const { user } = useAuth();
+  const { formatDate, formatDateTime } = useBranding();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents") || "Leads";
@@ -898,8 +900,8 @@ const Contacts: React.FC = () => {
       case "health": return <span className="text-muted-foreground text-xs">{l.healthStatus || "—"}</span>;
       case "bestTime": return <span className="text-muted-foreground text-xs">{l.bestTimeToCall || "—"}</span>;
       case "leadSourceAlias": return <span className="text-muted-foreground">{l.leadSource}</span>;
-      case "createdDate": return <span className="text-muted-foreground text-xs">{new Date(l.createdAt).toLocaleDateString()}</span>;
-      case "lastContacted": return <span className="text-muted-foreground text-xs">{l.lastContactedAt ? new Date(l.lastContactedAt).toLocaleDateString() : "Never"}</span>;
+      case "createdDate": return <span className="text-muted-foreground text-xs">{formatDate(l.createdAt)}</span>;
+      case "lastContacted": return <span className="text-muted-foreground text-xs">{l.lastContactedAt ? formatDate(l.lastContactedAt) : "Never"}</span>;
       default: return null;
     }
   };
@@ -912,7 +914,7 @@ const Contacts: React.FC = () => {
       case "carrier": return <span className="text-muted-foreground">{c.carrier}</span>;
       case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
       case "faceAmount": return <span className="text-foreground">{c.faceAmount}</span>;
-      case "issueDate": return <span className="text-muted-foreground">{c.issueDate}</span>;
+      case "issueDate": return <span className="text-muted-foreground">{formatDate(c.issueDate)}</span>;
       case "agent": return <span className="text-foreground">{getAgentName(c.assignedAgentId)}</span>;
       default: return null;
     }
@@ -1477,16 +1479,11 @@ const Contacts: React.FC = () => {
                     </thead>
                     <tbody>
                       {importHistory.map(h => {
-                        const msSince = Date.now() - new Date(h.date).getTime();
+                        const dateObj = new Date(h.date);
+                        const msSince = Date.now() - dateObj.getTime();
                         const hoursSince = msSince / (1000 * 60 * 60);
                         const canUndo = hoursSince < 24;
-                        // Relative time
-                        const minsSince = Math.floor(msSince / 60000);
-                        let relativeTime: string;
-                        if (minsSince < 1) relativeTime = "just now";
-                        else if (minsSince < 60) relativeTime = `${minsSince} minute${minsSince > 1 ? "s" : ""} ago`;
-                        else if (hoursSince < 24) relativeTime = `${Math.floor(hoursSince)} hour${Math.floor(hoursSince) > 1 ? "s" : ""} ago`;
-                        else { const days = Math.floor(hoursSince / 24); relativeTime = `${days} day${days > 1 ? "s" : ""} ago`; }
+                        const formattedTime = formatDateTime(dateObj);
 
                         return (
                           <tr key={h.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors duration-150">
@@ -1495,7 +1492,7 @@ const Contacts: React.FC = () => {
                             <td className="py-2 text-right text-success">{h.imported}</td>
                             <td className="py-2 text-right text-warning">{h.duplicates}</td>
                             <td className="py-2 text-right text-destructive">{h.errors}</td>
-                            <td className="py-2 text-left pl-4 text-muted-foreground">{relativeTime}</td>
+                            <td className="py-2 text-left pl-4 text-muted-foreground">{formattedTime}</td>
                             <td className="py-2 text-right">
                               <TooltipProvider>
                                 <Tooltip>

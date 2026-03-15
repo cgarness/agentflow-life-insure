@@ -12,6 +12,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBranding } from "@/contexts/BrandingContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -117,17 +118,6 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
   Failed: "bg-destructive/10 text-destructive",
 };
 
-function relativeTime(dateStr: string | null): string {
-  if (!dateStr) return "Never";
-  const ms = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
 
 function getAgentDisplayName(a: AgentProfile): string {
   const full = `${a.first_name} ${a.last_name}`.trim();
@@ -456,6 +446,7 @@ const SortableLeadRow: React.FC<{
   onForceRelease: (id: string) => void;
 }> = ({ lead: l, isAdmin, isOpenPool, isDragEnabled, user, agents, selectedLeadIds, actionMenuId, onToggleSelect, onQuickCall, onActionMenu, onRemoveLead, onForceRelease }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: l.id, disabled: !isDragEnabled });
+  const { formatDate } = useBranding();
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -516,7 +507,7 @@ const SortableLeadRow: React.FC<{
         </td>
       )}
       <td className="py-3 px-3 text-center text-foreground">{l.call_attempts}</td>
-      <td className="py-3 px-3 text-muted-foreground">{relativeTime(l.last_called_at)}</td>
+      <td className="py-3 px-3 text-muted-foreground">{l.last_called_at ? formatDate(l.last_called_at) : "Never"}</td>
       <td className="py-3 px-3">
         {l.disposition ? <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{l.disposition}</span> : "—"}
       </td>
@@ -546,6 +537,7 @@ const CampaignDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const { formatDate, formatDateTime } = useBranding();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [leads, setLeads] = useState<CampaignLead[]>([]);
@@ -1047,7 +1039,7 @@ const CampaignDetail: React.FC = () => {
             const contactedByDate: Record<string, number> = {};
             filteredLeads.forEach(l => {
               if (l.last_called_at) {
-                const day = new Date(l.last_called_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                const day = format(new Date(l.last_called_at), "MMM d");
                 contactedByDate[day] = (contactedByDate[day] || 0) + 1;
               }
             });

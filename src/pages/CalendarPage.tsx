@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
+import { format } from "date-fns";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -30,6 +31,7 @@ import { toast } from "@/hooks/use-toast";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { Lead } from "@/lib/types";
+import { useBranding } from "@/contexts/BrandingContext";
 
 
 // Helper functions from original
@@ -67,6 +69,7 @@ const CalendarPage: React.FC = () => {
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [appointmentMetaById, setAppointmentMetaById] = useState<Record<string, AppointmentSyncMeta>>({});
   const [currentDate, setCurrentDate] = useState(new Date());
+  const { formatDate, formatDateTime, formatTime } = useBranding();
   const [loading, setLoading] = useState(true);
 
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -129,7 +132,6 @@ const CalendarPage: React.FC = () => {
     const mapped: CalendarAppointment[] = (data || []).map((appt: any) => {
       const startDate = new Date(appt.start_time);
       const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
-      const formatTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
       nextMeta[appt.id] = {
         externalEventId: appt.external_event_id ?? null,
@@ -389,7 +391,7 @@ const CalendarPage: React.FC = () => {
           d.setDate(d.getDate() - d.getDay() + i);
           return (
             <div key={i} className="bg-muted/10 p-2 text-center">
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase">{format(d, 'EEE')}</div>
               <div className={`text-sm font-bold ${sameDay(d, new Date()) ? "text-primary" : ""}`}>{d.getDate()}</div>
             </div>
           );
@@ -435,8 +437,8 @@ const CalendarPage: React.FC = () => {
       <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col h-full">
         <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
           <div>
-            <h3 className="text-base font-bold">{currentDate.toLocaleDateString('en-US', { weekday: 'long' })}</h3>
-            <p className="text-xs text-muted-foreground">{currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            <h3 className="text-base font-bold">{format(currentDate, 'EEEE')}</h3>
+            <p className="text-xs text-muted-foreground">{formatDate(currentDate)}</p>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto no-scrollbar p-6">
@@ -506,10 +508,10 @@ const CalendarPage: React.FC = () => {
                     <span className="text-sm truncate">{appt.contactName}</span>
                   </div>
                 </td>
-                <td className="px-6 py-4">
-                   <div className="text-sm text-foreground">{new Date(appt.date).toLocaleDateString()}</div>
-                   <div className="text-[10px] text-muted-foreground">{appt.startTime}</div>
-                </td>
+                 <td className="px-6 py-4">
+                    <div className="text-sm text-foreground">{formatDate(new Date(appt.date))}</div>
+                    <div className="text-[10px] text-muted-foreground">{appt.startTime}</div>
+                 </td>
                 <td className="px-6 py-4">
                   <span className="px-2 py-1 rounded-full text-[10px] font-bold uppercase" style={{ backgroundColor: `${APPOINTMENT_STATUS_COLORS[appt.status]}20`, color: APPOINTMENT_STATUS_COLORS[appt.status] }}>{appt.status}</span>
                 </td>
@@ -563,8 +565,8 @@ const CalendarPage: React.FC = () => {
               </div>
               Calendar
             </h1>
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mt-0.5">
-              {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mt-0.5">
+              {format(currentDate, 'MMMM yyyy')}
             </span>
           </div>
         </div>
@@ -613,8 +615,8 @@ const CalendarPage: React.FC = () => {
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
-            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
-              {sameDay(selectedDate, new Date()) ? "Today" : selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+             <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
+              {sameDay(selectedDate, new Date()) ? "Today" : format(selectedDate, 'MMM d')}
             </div>
             {agendaAppts.length === 0 ? (
                <div className="flex flex-col items-center justify-center py-10 text-center px-4 bg-muted/5 rounded-xl border border-dashed border-border">
@@ -637,9 +639,9 @@ const CalendarPage: React.FC = () => {
                   </div>
                   <h4 className="text-sm font-bold text-foreground mb-1 group-hover:text-primary transition-colors">{appt.title}</h4>
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                       <Clock className="w-3 h-3" />
-                      <span>{new Date(appt.date).toLocaleDateString()} at {appt.startTime}</span>
+                      <span>{formatDate(new Date(appt.date))} at {appt.startTime}</span>
                     </div>
                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                       <User className="w-3 h-3" />

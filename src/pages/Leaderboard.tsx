@@ -5,7 +5,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths, formatDistanceToNow } from "date-fns";
+import { startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } from "date-fns";
+import { useBranding } from "@/contexts/BrandingContext";
 import AgentScorecardModal from "@/components/leaderboard/AgentScorecardModal";
 import TVMode from "@/components/leaderboard/TVMode";
 import { Badge as BadgeType, AgentFireStatus, computeBadges, computeFireStatus } from "@/components/leaderboard/useLeaderboardBadges";
@@ -129,6 +130,7 @@ const FireIcon: React.FC<{ fire: AgentFireStatus | undefined; agentName?: string
 
 const Leaderboard: React.FC = () => {
   const { user, profile } = useAuth();
+  const { formatDateTime } = useBranding();
   const navigate = useNavigate();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
 
@@ -562,7 +564,7 @@ const Leaderboard: React.FC = () => {
                             {w.campaign_name && <span className="text-xs bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{w.campaign_name}</span>}
                             {w.policy_type && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{w.policy_type}</span>}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">{formatDistanceToNow(new Date(w.created_at), { addSuffix: true })}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{formatDateTime(new Date(w.created_at))}</p>
                         </div>
                         <span className="text-lg shrink-0">🎉</span>
                       </div>

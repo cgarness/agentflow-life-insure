@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Clock, Download, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { formatDistanceToNow } from "date-fns";
+import { useBranding } from "@/contexts/BrandingContext";
 
 interface ActivityLogItem {
     id: string;
@@ -13,6 +13,7 @@ interface ActivityLogItem {
 }
 
 const ActivityLog: React.FC = () => {
+    const { formatDateTime } = useBranding();
     const [logs, setLogs] = useState<ActivityLogItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -119,7 +120,7 @@ const ActivityLog: React.FC = () => {
                                 </div>
                                 <div className="text-xs text-muted-foreground font-medium shrink-0 ml-4 flex items-center gap-1.5 whitespace-nowrap">
                                     <Clock className="w-3.5 h-3.5" />
-                                    {formatDistanceToNow(log.createdAt, { addSuffix: true })}
+                                    {formatDateTime(log.createdAt)}
                                 </div>
                             </div>
                         ))}

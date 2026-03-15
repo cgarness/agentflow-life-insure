@@ -295,7 +295,7 @@ export const dashboardSupabaseApi = {
       firstName: cb.contact_name?.split(" ")[0] || "",
       lastName: cb.contact_name?.split(" ").slice(1).join(" ") || "",
       phone: "",
-      time: new Date(cb.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+      time: cb.start_time,
       type: "callback" as const,
       aging: 0,
       leadSource: "",
@@ -329,7 +329,7 @@ export const dashboardSupabaseApi = {
     return (data ?? []).map((appt) => ({
       id: appt.id,
       contactName: appt.contact_name || "Unknown",
-      time: new Date(appt.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+      time: appt.start_time,
       type: appt.type,
       status: appt.status,
     }));

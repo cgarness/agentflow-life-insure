@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useBranding } from "@/contexts/BrandingContext";
 
 // Types
 interface Campaign {
@@ -47,17 +48,6 @@ const STATUS_COLORS: Record<string, string> = {
   Archived: "bg-muted text-muted-foreground/60",
 };
 
-function relativeTime(dateStr: string): string {
-  const ms = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
 
 function getAgentDisplayName(a: AgentProfile): string {
   const full = `${a.first_name} ${a.last_name}`.trim();
@@ -467,6 +457,7 @@ const Campaigns: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
   const [duplicateTarget, setDuplicateTarget] = useState<Campaign | null>(null);
+  const { formatDate } = useBranding();
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
 
@@ -610,7 +601,7 @@ const Campaigns: React.FC = () => {
               {/* Lead Health Bar */}
               <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />
               <div className="flex items-center justify-between mt-3">
-                <span className="text-xs text-muted-foreground">{relativeTime(c.created_at)}</span>
+                <span className="text-xs text-muted-foreground">{formatDate(c.created_at)}</span>
                 <div className="flex items-center gap-1.5">
                   <TooltipProvider>
                     <Tooltip>

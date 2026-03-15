@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Phone, MessageSquare, Mail, Search, Play, Loader2, MessageCircle, Plus, ArrowLeft, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { formatDistanceToNow, format } from "date-fns";
+import { useBranding } from "@/contexts/BrandingContext";
 
 interface ConversationSummary {
   phone: string;
@@ -29,6 +29,7 @@ const channelIcons: Record<string, React.ReactNode> = {
 };
 
 const Conversations: React.FC = () => {
+  const { formatDateTime } = useBranding();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [filter, setFilter] = useState("All");
@@ -99,7 +100,7 @@ const Conversations: React.FC = () => {
         contactName: lead?.name || phone,
         leadId: lead?.id || msg.lead_id || null,
         preview: msg.body,
-        time: msg.sent_at ? formatDistanceToNow(new Date(msg.sent_at), { addSuffix: true }) : "",
+        time: msg.sent_at ? formatDateTime(new Date(msg.sent_at)) : "",
         sentAt: msg.sent_at || "",
       };
     });
@@ -367,7 +368,7 @@ const Conversations: React.FC = () => {
                       <div className={`rounded-xl px-4 py-3 max-w-[80%] ${m.direction === "outbound" ? "bg-primary text-primary-foreground" : "bg-accent text-foreground"}`}>
                         <p className="text-sm">{m.body}</p>
                         <p className={`text-xs mt-1 ${m.direction === "outbound" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                          {m.sent_at ? format(new Date(m.sent_at), "MMM d, h:mm a") : ""}
+                          {m.sent_at ? formatDateTime(new Date(m.sent_at)) : ""}
                         </p>
                       </div>
                     </div>
