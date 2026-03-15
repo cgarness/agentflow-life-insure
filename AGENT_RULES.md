@@ -211,9 +211,10 @@ At the end of every BUILD SESSION (not quick questions), automatically update No
 9. ✅ Custom Menu Links — COMPLETE
 10. ✅ Activity Log — COMPLETE
 11. ✅ Telnyx & Phone Numbers (Settings Rework) — COMPLETE
-12. 🔄 Main pages tab by tab (Contacts page functional with live data, Dialer page enhanced with unified composer and robust contact modal)
-13. 🔄 Connect Supabase (All settings and contact tables are now fully live)
-14. ⬜ Go live
+12. ✅ Main pages (Contacts/Dialer functional with live data and unified ContactModal) — COMPLETE
+13. ✅ Connect Supabase (All settings and contact tables are fully live) — COMPLETE
+14. 🔄 Chat System & Real-time communication (FloatingChat implemented)
+15. ⬜ Go live
 
 ---
 
