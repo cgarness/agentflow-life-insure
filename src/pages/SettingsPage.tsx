@@ -6,6 +6,7 @@ import ContactManagement from "@/components/settings/ContactManagement";
 import Permissions from "@/components/settings/Permissions";
 import CompanyBranding from "@/components/settings/CompanyBranding";
 import CallScripts from "@/components/settings/CallScripts";
+import CallManagement from "@/components/settings/CallManagement";
 import CalendarSettings from "@/components/settings/CalendarSettings";
 import MyProfile from "@/components/settings/MyProfile";
 import PhoneSettings from "@/components/settings/PhoneSettings";
