@@ -79,8 +79,8 @@ const SettingsPage: React.FC = () => {
         return <UserManagement />;
       case "call-scripts":
         return <CallScripts />;
-      case "phone-settings":
-        return <PhoneSettings />;
+      case "phone-system":
+        return <PhoneSystem />;
       case "dispositions":
         return <DispositionsManager />;
       case "contact-management":
