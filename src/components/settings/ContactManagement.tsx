@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { pipelineApi, customFieldsApi, leadSourcesApi, healthStatusesApi } from "@/lib/mock-api";
+import {
+  pipelineSupabaseApi as pipelineApi,
+  customFieldsSupabaseApi as customFieldsApi,
+  leadSourcesSupabaseApi as leadSourcesApi,
+  healthStatusesSupabaseApi as healthStatusesApi
+} from "@/lib/supabase-settings";
 import { PipelineStage, CustomField, LeadSource, HealthStatus } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {

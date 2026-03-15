@@ -22,7 +22,6 @@ import {
   Pencil, Trash2, Search, ChevronLeft, ChevronRight,
   ExternalLink, Check, X, AlertTriangle, Database, RefreshCw,
 } from "lucide-react";
-import { customFieldsApi, pipelineApi, leadSourcesApi, healthStatusesApi } from "@/lib/mock-api";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -37,10 +36,10 @@ import { toast } from "@/hooks/use-toast";
 const DATA_SOURCES: Record<string, 'supabase' | 'mock'> = {
   'Dispositions': 'supabase',
   'Call Scripts': 'supabase',
-  'Custom Fields': 'mock',        // ← Change to 'supabase' when custom_fields table created
-  'Pipeline Stages': 'mock',      // ← Change to 'supabase' when pipeline_stages table created
-  'Lead Sources': 'mock',         // ← Change to 'supabase' when lead_sources table created
-  'Health Statuses': 'mock',      // ← Change to 'supabase' when health_statuses table created
+  'Custom Fields': 'supabase',
+  'Pipeline Stages': 'supabase',
+  'Lead Sources': 'supabase',
+  'Health Statuses': 'supabase',
   'Carriers': 'supabase',
   'Email/SMS Templates': 'supabase',
   'Custom Menu Links': 'supabase',
@@ -570,45 +569,6 @@ function buildConfig(profiles: { id: string; name: string }[]): Record<string, C
   };
 }
 
-// ─── Mock Data Fetcher ────────────────────────────────────────────────────────
-// Fetches from in-memory mock APIs, normalizing camelCase keys to snake_case
-// so the existing column definitions (e.g. is_positive, sort_order) render correctly.
-
-async function getMockData(category: string): Promise<Row[]> {
-  switch (category) {
-    case 'Custom Fields': {
-      const fields = await customFieldsApi.getAll();
-      // Normalize: appliesTo → applies_to
-      return fields.map(f => ({ ...f, applies_to: f.appliesTo }));
-    }
-    case 'Pipeline Stages': {
-      const [lead, recruit] = await Promise.all([
-        pipelineApi.getLeadStages(),
-        pipelineApi.getRecruitStages(),
-      ]);
-      // Normalize: isPositive → is_positive, pipelineType → pipeline_type, order → sort_order
-      return [...lead, ...recruit].map(s => ({
-        ...s,
-        is_positive: s.isPositive,
-        pipeline_type: s.pipelineType,
-        sort_order: s.order,
-      }));
-    }
-    case 'Lead Sources': {
-      const sources = await leadSourcesApi.getAll();
-      // Normalize: usageCount → usage_count
-      return sources.map(s => ({ ...s, usage_count: s.usageCount }));
-    }
-    case 'Health Statuses': {
-      const statuses = await healthStatusesApi.getAll();
-      // Normalize: order → sort_order
-      return statuses.map(h => ({ ...h, sort_order: h.order }));
-    }
-    default:
-      return [];
-  }
-}
-
 // ─── Color Picker ─────────────────────────────────────────────────────────────
 
 const ColorPicker = memo(({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
@@ -745,12 +705,8 @@ const MasterAdmin: React.FC = () => {
     setExtraMap({});
 
     try {
-      const source = DATA_SOURCES[category];
-
-      if (source === 'mock') {
-        // Fetch from in-memory mock API
-        const data = await getMockData(category);
-        setRows(data);
+      if (false) {
+        // Mock data block removed
       } else {
         // Fetch from Supabase
         const tableName = SUPABASE_TABLES[category] ?? config.table;
@@ -849,26 +805,8 @@ const MasterAdmin: React.FC = () => {
     try {
       const source = DATA_SOURCES[category];
 
-      if (source === 'mock') {
-        // Route to the appropriate mock API
-        switch (category) {
-          case 'Custom Fields':
-            await customFieldsApi.update(editTarget.id, editForm);
-            break;
-          case 'Pipeline Stages':
-            await pipelineApi.updateStage(
-              editTarget.id,
-              (editTarget.pipelineType ?? "lead") as "lead" | "recruit",
-              editForm,
-            );
-            break;
-          case 'Lead Sources':
-            await leadSourcesApi.update(editTarget.id, editForm);
-            break;
-          case 'Health Statuses':
-            await healthStatusesApi.update(editTarget.id, editForm);
-            break;
-        }
+      if (false) {
+        // Mock data block removed
       } else {
         // Route to Supabase
         const tableName = SUPABASE_TABLES[category] ?? config.table;
@@ -910,34 +848,8 @@ const MasterAdmin: React.FC = () => {
     try {
       const source = DATA_SOURCES[category];
 
-      if (source === 'mock') {
-        // Route each id to the appropriate mock API delete
-        for (const id of deleteIds) {
-          const row = rows.find(r => r.id === id);
-          switch (category) {
-            case 'Custom Fields':
-              await customFieldsApi.delete(id);
-              break;
-            case 'Pipeline Stages':
-              // pipelineType is preserved in the normalized row
-              await pipelineApi.deleteStage(
-                id,
-                (row?.pipelineType ?? "lead") as "lead" | "recruit",
-              );
-              break;
-            case 'Lead Sources':
-              await leadSourcesApi.delete(id);
-              break;
-            case 'Health Statuses':
-              await healthStatusesApi.delete(id);
-              break;
-          }
-        }
-        toast({ title: `Deleted ${deleteIds.length} item${deleteIds.length !== 1 ? "s" : ""}` });
-        setDeleteIds([]);
-        setDeleteText("");
-        setSelected(new Set());
-        loadData();
+      if (false) {
+        // Mock data block removed
       } else {
         // Route to Supabase
         const tableName = SUPABASE_TABLES[category] ?? config.table;

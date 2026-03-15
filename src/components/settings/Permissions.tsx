@@ -1,11 +1,13 @@
-import React, { useState, useCallback } from "react";
+
+import React, { useState, useCallback, useEffect } from "react";
 import {
   Lock, LayoutGrid, SlidersHorizontal, Database, DollarSign,
   ChevronDown, Info, BarChart3, Phone, Users, MessageSquare,
   Calendar, Megaphone, Trophy, FileText, Bot, GraduationCap,
-  Calculator, MessagesSquare, Settings,
+  Calculator, MessagesSquare, Settings, Loader2
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -240,25 +242,60 @@ const Permissions: React.FC = () => {
   // State per role
   const [agentPages, setAgentPages] = useState(() => defaultPages.map((p) => ({ ...p })));
   const [tlPages, setTlPages] = useState(() => defaultPages.map((p) => ({ ...p })));
-
   const [agentFeatures, setAgentFeatures] = useState(() => deepClone(defaultFeatures));
   const [tlFeatures, setTlFeatures] = useState(() => deepClone(defaultFeatures));
-
   const [agentData, setAgentData] = useState(() => deepClone(defaultDataAccess));
   const [tlData, setTlData] = useState(() => deepClone(defaultDataAccess));
-
   const [agentCommission, setAgentCommission] = useState(() => deepClone(defaultCommission));
   const [tlCommission, setTlCommission] = useState(() => deepClone(defaultCommission));
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   // Saved snapshots to track dirty state
-  const [savedAgent, setSavedAgent] = useState(() => JSON.stringify({ p: defaultPages, f: defaultFeatures, d: defaultDataAccess, c: defaultCommission }));
-  const [savedTl, setSavedTl] = useState(() => JSON.stringify({ p: defaultPages.map(p => ({ ...p })), f: deepClone(defaultFeatures), d: deepClone(defaultDataAccess), c: deepClone(defaultCommission) }));
+  const [savedAgent, setSavedAgent] = useState("");
+  const [savedTl, setSavedTl] = useState("");
 
   const currentSnapshot = useCallback(() => {
     if (activeRole === "agent") return JSON.stringify({ p: agentPages, f: agentFeatures, d: agentData, c: agentCommission });
     if (activeRole === "teamLeader") return JSON.stringify({ p: tlPages, f: tlFeatures, d: tlData, c: tlCommission });
     return "";
   }, [activeRole, agentPages, agentFeatures, agentData, agentCommission, tlPages, tlFeatures, tlData, tlCommission]);
+
+  const loadPermissions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await (supabase as any).from("role_permissions").select("*");
+      if (error) throw error;
+
+      data?.forEach((row: any) => {
+        const perms = row.permissions;
+        const snap = JSON.stringify(perms);
+        if (row.role === "Agent") {
+           setSavedAgent(snap);
+           if (perms.p) setAgentPages(perms.p);
+           if (perms.f) setAgentFeatures(perms.f);
+           if (perms.d) setAgentData(perms.d);
+           if (perms.c) setAgentCommission(perms.c);
+        } else if (row.role === "Team Leader") {
+           setSavedTl(snap);
+           if (perms.p) setTlPages(perms.p);
+           if (perms.f) setTlFeatures(perms.f);
+           if (perms.d) setTlData(perms.d);
+           if (perms.c) setTlCommission(perms.c);
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Failed to load permissions", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPermissions();
+  }, [loadPermissions]);
 
   const isDirty = useCallback(() => {
     if (activeRole === "admin") return false;
@@ -303,11 +340,29 @@ const Permissions: React.FC = () => {
   const isAdmin = activeRole === "admin";
   const roleLabel = activeRole === "agent" ? "Agent" : activeRole === "teamLeader" ? "Team Leader" : "Admin";
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaving(true);
     const snap = currentSnapshot();
-    if (activeRole === "agent") setSavedAgent(snap);
-    else setSavedTl(snap);
-    toast.success(`${roleLabel} permissions saved.`);
+    const roleMap = { agent: "Agent", teamLeader: "Team Leader" };
+    try {
+      const { error } = await (supabase as any)
+        .from("role_permissions")
+        .upsert({ 
+          role: roleMap[activeRole as "agent" | "teamLeader"], 
+          permissions: JSON.parse(snap),
+          updated_at: new Date().toISOString()
+        }, { onConflict: "role" });
+      
+      if (error) throw error;
+      
+      if (activeRole === "agent") setSavedAgent(snap);
+      else setSavedTl(snap);
+      toast({ title: `${roleLabel} permissions saved.` });
+    } catch (err) {
+      toast({ title: "Save failed", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleReset = () => {
@@ -331,7 +386,7 @@ const Permissions: React.FC = () => {
           setTlPages(p); setTlFeatures(f); setTlData(d); setTlCommission(c);
           setSavedTl(JSON.stringify({ p, f, d, c }));
         }
-        toast.success(`${roleLabel} permissions reset to defaults.`);
+        toast({ title: `${roleLabel} permissions reset to defaults.` });
       },
     });
   };
@@ -363,6 +418,15 @@ const Permissions: React.FC = () => {
     updated[idx][key] = !updated[idx][key];
     setCommission(updated);
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">Loading permissions...</p>
+      </div>
+    );
+  }
 
   const roles: { key: Role; label: string }[] = [
     { key: "agent", label: "Agent" },
@@ -400,7 +464,7 @@ const Permissions: React.FC = () => {
         <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary">
           <Info className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
           <p className="text-xs text-primary">
-            Permission changes apply to active sessions within 60 seconds. All changes are logged to the Activity Log.
+            Permission changes apply to active sessions when reloaded. All changes are logged to the Activity Log.
           </p>
         </div>
       )}
@@ -418,11 +482,10 @@ const Permissions: React.FC = () => {
 
       {/* Accordion sections */}
       <div className="space-y-3">
-        {/* Section 1 — Page Access */}
         <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role." icon={LayoutGrid}>
           <div className="space-y-1">
             {pages.map((page, idx) => {
-              const val = isAdmin ? true : (page as any)[activeRole]; // eslint-disable-line @typescript-eslint/no-explicit-any
+              const val = isAdmin ? true : (page as any)[activeRole];
               return (
                 <div
                   key={page.name}
@@ -442,15 +505,8 @@ const Permissions: React.FC = () => {
               );
             })}
           </div>
-          <div className="flex items-start gap-2 mt-3">
-            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">
-              Settings is always hidden for Agents and Team Leaders by default. Admins always have full access.
-            </p>
-          </div>
         </AccordionSection>
 
-        {/* Section 2 — Feature Permissions */}
         <AccordionSection title="Feature Permissions" description="Control specific actions available to this role within each section." icon={SlidersHorizontal}>
           <div className="space-y-4">
             {features.map((cat, catIdx) => (
@@ -460,7 +516,7 @@ const Permissions: React.FC = () => {
                 </h4>
                 <div className="space-y-1">
                   {cat.features.map((feat, featIdx) => {
-                    const val = isAdmin ? true : (feat as any)[activeRole]; // eslint-disable-line @typescript-eslint/no-explicit-any
+                    const val = isAdmin ? true : (feat as any)[activeRole];
                     return (
                       <div
                         key={feat.name}
@@ -480,11 +536,10 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        {/* Section 3 — Data Access */}
         <AccordionSection title="Data Access" description="Control how much data this role can see across the platform." icon={Database}>
           <div className="space-y-4">
             {dataAccess.map((item, idx) => {
-              const val = isAdmin ? "all" as DataScope : (item as any)[activeRole] as DataScope; // eslint-disable-line @typescript-eslint/no-explicit-any
+              const val = isAdmin ? "all" as DataScope : (item as any)[activeRole] as DataScope;
               return (
                 <div key={item.label} className="p-3 rounded-lg bg-background">
                   <p className="text-sm font-medium mb-1 text-foreground">{item.label}</p>
@@ -496,11 +551,10 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        {/* Section 4 — Commission Visibility */}
         <AccordionSection title="Commission Visibility" description="Control what commission and earnings information this role can see." icon={DollarSign}>
           <div className="space-y-1">
             {commission.map((item, idx) => {
-              const val = isAdmin ? true : (item as any)[activeRole]; // eslint-disable-line @typescript-eslint/no-explicit-any
+              const val = isAdmin ? true : (item as any)[activeRole];
               return (
                 <div
                   key={item.name}
@@ -523,12 +577,15 @@ const Permissions: React.FC = () => {
         <div className="space-y-2 pt-2">
           <button
             onClick={handleSave}
-            className="w-full py-2.5 rounded-lg text-sm font-medium text-primary-foreground bg-primary transition-colors"
+            disabled={saving || !isDirty()}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium text-primary-foreground bg-primary transition-colors disabled:opacity-50"
           >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
             Save Permissions
           </button>
           <button
             onClick={handleReset}
+            disabled={saving}
             className="w-full py-2.5 rounded-lg text-sm font-medium text-muted-foreground bg-transparent border transition-colors"
           >
             Reset to Defaults

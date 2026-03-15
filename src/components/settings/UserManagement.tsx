@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { usersApi } from "@/lib/mock-api";
+import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
 
 const US_STATES = [

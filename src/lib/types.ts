@@ -32,7 +32,8 @@ export interface OnboardingItem {
 
 export interface UserProfile {
   userId: string;
-  licensedStates: string[];
+  licensedStates: any[]; // Support both string[] and {state, licenseNumber}[]
+  carriers: any[]; // Added to match MyProfile
   residentState?: string;
   commissionLevel: string;
   uplineId?: string;
@@ -42,6 +43,12 @@ export interface UserProfile {
   weeklyAppointmentGoal: number;
   monthlyTalkTimeGoalHours: number;
   onboardingItems: OnboardingItem[];
+  npn: string;
+  timezone: string;
+  winSoundEnabled: boolean;
+  emailNotificationsEnabled: boolean;
+  smsNotificationsEnabled: boolean;
+  pushNotificationsEnabled: boolean;
 }
 
 export interface Lead {

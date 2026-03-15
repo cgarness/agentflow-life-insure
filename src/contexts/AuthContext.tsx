@@ -13,6 +13,22 @@ interface Profile {
   availability_status: string;
   avatar_url: string;
   theme_preference: string;
+  licensed_states: any[];
+  carriers: any[];
+  resident_state: string;
+  commission_level: string;
+  upline_id: string;
+  onboarding_complete: boolean;
+  monthly_call_goal: number;
+  monthly_sales_goal: number;
+  weekly_appointment_goal: number;
+  monthly_talk_time_goal_hours: number;
+  npn: string;
+  timezone: string;
+  win_sound_enabled: boolean;
+  email_notifications_enabled: boolean;
+  sms_notifications_enabled: boolean;
+  push_notifications_enabled: boolean;
   created_at: string;
   updated_at: string;
 }

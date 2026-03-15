@@ -78,6 +78,8 @@ const MyProfile: React.FC = () => {
   const [licensedStates, setLicensedStates] = useState<Array<{ state: string; licenseNumber: string }>>([]);
   const [carrierToAdd, setCarrierToAdd] = useState("");
   const [selectedCarriers, setSelectedCarriers] = useState<Array<{ carrier: string; writingNumber: string }>>([]);
+  const [residentState, setResidentState] = useState(profile?.resident_state ?? "");
+  const [commissionLevel, setCommissionLevel] = useState(profile?.commission_level ?? "0%");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileErrors, setProfileErrors] = useState<{ firstName?: string; lastName?: string }>({});
 
@@ -104,10 +106,10 @@ const MyProfile: React.FC = () => {
   const [prefSaving, setPrefSaving] = useState(false);
 
   // Goals
-  const [dailyCalls, setDailyCalls] = useState(50);
-  const [monthlyPolicies, setMonthlyPolicies] = useState(10);
-  const [weeklyAppts, setWeeklyAppts] = useState(15);
-  const [monthlyTalkTime, setMonthlyTalkTime] = useState(40 * 60);
+  const [dailyCalls, setDailyCalls] = useState(profile?.monthly_call_goal ?? 50);
+  const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthly_sales_goal ?? 10);
+  const [weeklyAppts, setWeeklyAppts] = useState(profile?.weekly_appointment_goal ?? 15);
+  const [monthlyTalkTime, setMonthlyTalkTime] = useState(profile?.monthly_talk_time_goal_hours ?? 40);
   const [goalSaving, setGoalSaving] = useState(false);
   const [goalErrors, setGoalErrors] = useState<Record<string, string>>({});
 
@@ -116,11 +118,25 @@ const MyProfile: React.FC = () => {
 
   useEffect(() => {
     if (profile) {
-      setFirstName(profile.first_name);
-      setLastName(profile.last_name);
-      setPhone(profile.phone ?? "");
-      setAvailability(profile.availability_status);
-      setAvatar(profile.avatar_url ?? "");
+      setFirstName(profile.first_name || "");
+      setLastName(profile.last_name || "");
+      setPhone(profile.phone || "");
+      setAvailability(profile.availability_status || "Available");
+      setAvatar(profile.avatar_url || "");
+      setLicensedStates(profile.licensed_states || []);
+      setSelectedCarriers(profile.carriers || []);
+      setDailyCalls(profile.monthly_call_goal || 0);
+      setMonthlyPolicies(profile.monthly_sales_goal || 0);
+      setWeeklyAppts(profile.weekly_appointment_goal || 0);
+      setMonthlyTalkTime(profile.monthly_talk_time_goal_hours || 0);
+      setResidentState(profile.resident_state || "");
+      setCommissionLevel(profile.commission_level || "0%");
+      setNpn(profile.npn || "");
+      setWinSound(profile.win_sound_enabled ?? true);
+      setEmailNotifs(profile.email_notifications_enabled ?? true);
+      setSmsNotifs(profile.sms_notifications_enabled ?? false);
+      setPushNotifs(profile.push_notifications_enabled ?? true);
+      setTimezone(profile.timezone || "Eastern Time (US & Canada)");
     }
   }, [profile]);
 
@@ -172,9 +188,18 @@ const MyProfile: React.FC = () => {
 
     setProfileSaving(true);
     try {
-      await updateProfile({ first_name: firstName.trim(), last_name: lastName.trim(), phone, availability_status: availability });
+      await updateProfile({ 
+        first_name: firstName.trim(), 
+        last_name: lastName.trim(), 
+        phone, 
+        availability_status: availability, 
+        licensed_states: licensedStates,
+        carriers: selectedCarriers,
+        resident_state: residentState,
+        npn: npn.trim()
+      });
       toast({ title: "Profile updated successfully.", className: "bg-success text-success-foreground" });
-    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
+    } catch (err: any) {
       toast({ title: "Failed to update profile", description: err.message, variant: "destructive" });
     }
     setProfileSaving(false);
@@ -219,9 +244,20 @@ const MyProfile: React.FC = () => {
   // Preferences save
   const handleSavePreferences = async () => {
     setPrefSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
+    try {
+      await updateProfile({ 
+        theme_preference: isDark ? "dark" : "light",
+        win_sound_enabled: winSound,
+        email_notifications_enabled: emailNotifs,
+        sms_notifications_enabled: smsNotifs,
+        push_notifications_enabled: pushNotifs,
+        timezone: timezone
+      });
+      toast({ title: "Preferences saved.", className: "bg-success text-success-foreground" });
+    } catch (err: any) {
+      toast({ title: "Failed to save preferences", description: err.message, variant: "destructive" });
+    }
     setPrefSaving(false);
-    toast({ title: "Preferences saved.", className: "bg-success text-success-foreground" });
   };
 
   // Goals save
@@ -235,9 +271,18 @@ const MyProfile: React.FC = () => {
     if (Object.keys(errors).length > 0) return;
 
     setGoalSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
+    try {
+      await updateProfile({ 
+        monthly_call_goal: dailyCalls,
+        monthly_sales_goal: monthlyPolicies,
+        weekly_appointment_goal: weeklyAppts,
+        monthly_talk_time_goal_hours: monthlyTalkTime
+      });
+      toast({ title: "Goals updated.", className: "bg-success text-success-foreground" });
+    } catch (err: any) {
+      toast({ title: "Failed to save goals", description: err.message, variant: "destructive" });
+    }
     setGoalSaving(false);
-    toast({ title: "Goals updated.", className: "bg-success text-success-foreground" });
   };
 
   const pwStrength = getPasswordStrength(newPw);
@@ -280,6 +325,31 @@ const MyProfile: React.FC = () => {
               <label className="text-sm font-medium text-foreground block mb-1.5">Last Name *</label>
               <Input value={lastName} onChange={(e) => { setLastName(e.target.value.slice(0, 50)); setProfileErrors((p) => ({ ...p, lastName: undefined })); }} />
               {profileErrors.lastName && <p className="text-xs text-destructive mt-1">{profileErrors.lastName}</p>}
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground block mb-1.5">Resident State</label>
+              <select
+                value={residentState}
+                onChange={(e) => setResidentState(e.target.value)}
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Select a state</option>
+                {US_STATES.map((state) => (
+                  <option key={state} value={state}>{state}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground block mb-1.5 flex items-center gap-1.5">
+                Commission Level
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>Contact your admin to change your commission level</TooltipContent>
+                </Tooltip>
+              </label>
+              <Input value={commissionLevel} readOnly className="bg-muted cursor-not-allowed" />
             </div>
             <div>
               <label className="text-sm font-medium text-foreground block mb-1.5 flex items-center gap-1.5">
