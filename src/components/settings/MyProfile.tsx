@@ -73,11 +73,11 @@ const MyProfile: React.FC = () => {
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [availability, setAvailability] = useState(profile?.availability_status ?? "Available");
   const [avatar, setAvatar] = useState(profile?.avatar_url ?? "");
-  const [npn, setNpn] = useState("");
+  const [npn, setNpn] = useState(profile?.npn ?? "");
   const [stateToAdd, setStateToAdd] = useState("");
-  const [licensedStates, setLicensedStates] = useState<Array<{ state: string; licenseNumber: string }>>([]);
+  const [licensedStates, setLicensedStates] = useState<Array<{ state: string; licenseNumber: string }>>(profile?.licensed_states || []);
   const [carrierToAdd, setCarrierToAdd] = useState("");
-  const [selectedCarriers, setSelectedCarriers] = useState<Array<{ carrier: string; writingNumber: string }>>([]);
+  const [selectedCarriers, setSelectedCarriers] = useState<Array<{ carrier: string; writingNumber: string }>>(profile?.carriers || []);
   const [residentState, setResidentState] = useState(profile?.resident_state ?? "");
   const [commissionLevel, setCommissionLevel] = useState(profile?.commission_level ?? "0%");
   const [profileSaving, setProfileSaving] = useState(false);
@@ -215,6 +215,10 @@ const MyProfile: React.FC = () => {
     setLicensedStates((prev) => prev.map((item) => (item.state === state ? { ...item, licenseNumber } : item)));
   };
 
+  const removeLicensedState = (state: string) => {
+    setLicensedStates((prev) => prev.filter((item) => item.state !== state));
+  };
+
   const addCarrier = () => {
     if (!carrierToAdd || selectedCarriers.some((item) => item.carrier === carrierToAdd)) return;
     setSelectedCarriers((prev) => [...prev, { carrier: carrierToAdd, writingNumber: "" }]);
@@ -223,6 +227,10 @@ const MyProfile: React.FC = () => {
 
   const updateCarrierWritingNumber = (carrier: string, writingNumber: string) => {
     setSelectedCarriers((prev) => prev.map((item) => (item.carrier === carrier ? { ...item, writingNumber } : item)));
+  };
+
+  const removeCarrier = (carrier: string) => {
+    setSelectedCarriers((prev) => prev.filter((item) => item.carrier !== carrier));
   };
 
   // Password save
@@ -407,8 +415,11 @@ const MyProfile: React.FC = () => {
               </div>
 
               {licensedStates.map(({ state, licenseNumber }) => (
-                <div key={state}>
-                  <label className="text-sm font-medium text-foreground block mb-1.5">{state} License Number</label>
+                <div key={state} className="space-y-1.5 p-3 border border-border/50 rounded-lg bg-accent/10">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-foreground block">{state} License Number</label>
+                    <button type="button" onClick={() => removeLicensedState(state)} className="text-xs text-destructive hover:underline">Remove</button>
+                  </div>
                   <Input
                     value={licenseNumber}
                     onChange={(e) => updateStateLicenseNumber(state, e.target.value)}
@@ -435,8 +446,11 @@ const MyProfile: React.FC = () => {
               </div>
 
               {selectedCarriers.map(({ carrier, writingNumber }) => (
-                <div key={carrier}>
-                  <label className="text-sm font-medium text-foreground block mb-1.5">{carrier} Agent Writing Number</label>
+                <div key={carrier} className="space-y-1.5 p-3 border border-border/50 rounded-lg bg-accent/10">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-foreground block">{carrier} Agent Writing Number</label>
+                    <button type="button" onClick={() => removeCarrier(carrier)} className="text-xs text-destructive hover:underline">Remove</button>
+                  </div>
                   <Input
                     value={writingNumber}
                     onChange={(e) => updateCarrierWritingNumber(carrier, e.target.value)}
