@@ -95,6 +95,7 @@ export const usersSupabaseApi = {
   async updateProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile> {
     const payload: any = {};
     if (data.licensedStates !== undefined) payload.licensed_states = data.licensedStates;
+    if (data.carriers !== undefined) payload.carriers = data.carriers;
     if (data.residentState !== undefined) payload.resident_state = data.residentState;
     if (data.commissionLevel !== undefined) payload.commission_level = data.commissionLevel;
     if (data.uplineId !== undefined) payload.upline_id = data.uplineId;
