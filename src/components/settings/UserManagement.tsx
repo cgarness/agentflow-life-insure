@@ -418,7 +418,7 @@ const UserProfileModal: React.FC<{
   allUsers: UserWithProfile[];
 }> = ({ user, open, onClose, onSaved, currentUserId, allUsers }) => {
   const { toast } = useToast();
-  const [editMode, setEditMode] = useState(false);
+  const [editMode, setEditMode] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("profile");
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
@@ -431,7 +431,7 @@ const UserProfileModal: React.FC<{
 
   // Agents/Team Leaders for upline dropdown
   const uplineCandidates = useMemo(() =>
-    allUsers.filter(u => u.id !== user?.id && (u.role === "Agent" || u.role === "Team Leader"))
+    allUsers.filter(u => u.id !== user?.id && (u.role === "Agent" || u.role === "Team Leader" || u.role === "Admin"))
   , [allUsers, user]);
 
   useEffect(() => {
@@ -454,7 +454,7 @@ const UserProfileModal: React.FC<{
       });
       setOnboardingItems([...user.profile.onboardingItems]);
       setAvatarUrl(user.avatar);
-      setEditMode(false);
+      setEditMode(true);
       setTab("profile");
       setPerformance(null);
     }
@@ -545,9 +545,8 @@ const UserProfileModal: React.FC<{
   };
 
   const handleResetPassword = async () => {
-    try {
-      const { email } = await usersApi.resetPassword(user.id);
-      toast({ title: "Password reset email sent", description: `Password reset email sent to ${email}` });
+      await usersApi.resetPassword(user.id);
+      toast({ title: "Password reset email sent", description: `Password reset email sent to ${user.email}` });
       setResetPwOpen(false);
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -587,10 +586,7 @@ const UserProfileModal: React.FC<{
                 <p className="text-xs text-muted-foreground mt-1">Last login: {formatDate(user.lastLoginAt)}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-xs text-muted-foreground">Edit Mode</Label>
-              <Switch checked={editMode} onCheckedChange={setEditMode} />
-            </div>
+
           </div>
 
           <Tabs value={tab} onValueChange={setTab} className="mt-4">
@@ -681,7 +677,7 @@ const UserProfileModal: React.FC<{
               </div>
               {editMode && (
                 <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setEditMode(false)}>Cancel</Button>
+                  <Button variant="outline" onClick={onClose}>Cancel</Button>
                   <Button onClick={handleSaveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
                 </div>
               )}

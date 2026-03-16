@@ -157,8 +157,16 @@ export const usersSupabaseApi = {
     return Promise.resolve();
   },
 
-  async generateInviteLink(id: string): Promise<string> {
-    return `${window.location.origin}/signup?invite=${id}`;
+  async generateInviteLink(data: any): Promise<string> {
+    const params = new URLSearchParams();
+    if (typeof data === "string") {
+      params.set("invite", data);
+    } else {
+      // Encode object as base64 to pass pre-fill data
+      const encoded = btoa(JSON.stringify(data));
+      params.set("invite", encoded);
+    }
+    return `${window.location.origin}/signup?${params.toString()}`;
   },
 
   async getPerformance(userId: string) {

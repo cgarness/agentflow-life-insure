@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
 import AnimatedBackground from "@/components/AnimatedBackground";
@@ -15,6 +15,25 @@ const SignupPage: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const inviteData = params.get("invite");
+    if (inviteData) {
+      try {
+        // Try to decode as base64 JSON
+        const decoded = JSON.parse(atob(inviteData));
+        if (decoded.firstName) setFirstName(decoded.firstName);
+        if (decoded.lastName) setLastName(decoded.lastName);
+        if (decoded.email) setEmail(decoded.email);
+      } catch (e) {
+        // If it's just a string ID, we can't do much without fetching, 
+        // but the new system passes encoded objects.
+        console.error("Failed to decode invite data:", e);
+      }
+    }
+  }, [location.search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
