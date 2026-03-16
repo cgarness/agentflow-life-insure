@@ -1261,29 +1261,22 @@ export type Database = {
           commission_level: string | null
           created_at: string
           email: string
+          email_notifications_enabled: boolean | null
           first_name: string
           id: string
           last_name: string
           licensed_states: Json | null
-          monthly_call_goal: number | null
-          monthly_sales_goal: number | null
-          monthly_talk_time_goal_hours: number | null
           npn: string | null
-          onboarding_complete: boolean | null
-          onboarding_items: Json | null
           phone: string | null
+          push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
+          sms_notifications_enabled: boolean | null
           status: string
           theme_preference: string
           timezone: string | null
-          upline_id: string | null
           updated_at: string
-          weekly_appointment_goal: number | null
           win_sound_enabled: boolean | null
-          email_notifications_enabled: boolean | null
-          sms_notifications_enabled: boolean | null
-          push_notifications_enabled: boolean | null
         }
         Insert: {
           availability_status?: string
@@ -1292,29 +1285,22 @@ export type Database = {
           commission_level?: string | null
           created_at?: string
           email?: string
+          email_notifications_enabled?: boolean | null
           first_name?: string
           id: string
           last_name?: string
           licensed_states?: Json | null
-          monthly_call_goal?: number | null
-          monthly_sales_goal?: number | null
-          monthly_talk_time_goal_hours?: number | null
           npn?: string | null
-          onboarding_complete?: boolean | null
-          onboarding_items?: Json | null
           phone?: string | null
+          push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
+          sms_notifications_enabled?: boolean | null
           status?: string
           theme_preference?: string
           timezone?: string | null
-          upline_id?: string | null
           updated_at?: string
-          weekly_appointment_goal?: number | null
           win_sound_enabled?: boolean | null
-          email_notifications_enabled?: boolean | null
-          sms_notifications_enabled?: boolean | null
-          push_notifications_enabled?: boolean | null
         }
         Update: {
           availability_status?: string
@@ -1323,29 +1309,22 @@ export type Database = {
           commission_level?: string | null
           created_at?: string
           email?: string
+          email_notifications_enabled?: boolean | null
           first_name?: string
           id?: string
           last_name?: string
           licensed_states?: Json | null
-          monthly_call_goal?: number | null
-          monthly_sales_goal?: number | null
-          monthly_talk_time_goal_hours?: number | null
           npn?: string | null
-          onboarding_complete?: boolean | null
-          onboarding_items?: Json | null
           phone?: string | null
+          push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
+          sms_notifications_enabled?: boolean | null
           status?: string
           theme_preference?: string
           timezone?: string | null
-          upline_id?: string | null
           updated_at?: string
-          weekly_appointment_goal?: number | null
           win_sound_enabled?: boolean | null
-          email_notifications_enabled?: boolean | null
-          sms_notifications_enabled?: boolean | null
-          push_notifications_enabled?: boolean | null
         }
         Relationships: []
       }

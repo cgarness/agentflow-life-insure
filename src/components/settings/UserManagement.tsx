@@ -545,6 +545,7 @@ const UserProfileModal: React.FC<{
   };
 
   const handleResetPassword = async () => {
+    try {
       await usersApi.resetPassword(user.id);
       toast({ title: "Password reset email sent", description: `Password reset email sent to ${user.email}` });
       setResetPwOpen(false);
