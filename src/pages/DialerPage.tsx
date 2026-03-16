@@ -28,6 +28,9 @@ import {
   ArrowRight,
   Check,
   X,
+  Pause,
+  Play,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,6 +53,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AutoDialer } from "@/lib/auto-dialer";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { useCalendar } from "@/contexts/CalendarContext";
@@ -209,6 +222,24 @@ export default function DialerPage() {
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [shouldAdvanceAfterModal, setShouldAdvanceAfterModal] = useState(false);
+
+  // ── Auto-Dial state ──
+  const [autoDialer, setAutoDialer] = useState<AutoDialer | null>(null);
+  const [autoDialEnabled, setAutoDialEnabled] = useState(true);
+  const [dialDelaySeconds, setDialDelaySeconds] = useState(2);
+  const [isPaused, setIsPaused] = useState(false);
+  const sessionIdRef = useRef<string>(crypto.randomUUID());
+  // Countdown toast
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState(0);
+  const [leadsRemaining, setLeadsRemaining] = useState(0);
+  // DNC warning
+  const [showDncWarning, setShowDncWarning] = useState(false);
+  const [dncLead, setDncLead] = useState<any>(null);
+  const [dncReason, setDncReason] = useState("");
+  // Session end modal
+  const [showSessionEnd, setShowSessionEnd] = useState(false);
+  const [autoDialSessionStats, setAutoDialSessionStats] = useState<any>(null);
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -391,6 +422,76 @@ export default function DialerPage() {
   return () => window.removeEventListener("keydown", handleKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [showWrapUp, callState, dispositions]);
+
+  // ── AutoDialer initialization ──
+  useEffect(() => {
+    const agentId = user?.id;
+    if (!selectedCampaignId || !agentId) return;
+    const dialer = new AutoDialer(sessionIdRef.current, selectedCampaignId, agentId);
+    dialer.startSession();
+    setAutoDialer(dialer);
+    return () => {
+      dialer.pauseAutoDialer();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaignId, user?.id]);
+
+  // ── Auto-dial countdown event ──
+  useEffect(() => {
+    const handleCountdown = (event: Event) => {
+      const { delaySeconds, leadsRemaining: remaining } = (event as CustomEvent).detail;
+      setCountdownSeconds(delaySeconds);
+      setLeadsRemaining(remaining);
+      setShowCountdown(true);
+      const interval = setInterval(() => {
+        setCountdownSeconds((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            setShowCountdown(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    };
+    window.addEventListener("auto-dial-countdown", handleCountdown);
+    return () => window.removeEventListener("auto-dial-countdown", handleCountdown);
+  }, []);
+
+  // ── DNC warning event ──
+  useEffect(() => {
+    const handleDncWarning = (event: Event) => {
+      const { lead, reason } = (event as CustomEvent).detail;
+      setDncLead(lead);
+      setDncReason(reason ?? "");
+      setShowDncWarning(true);
+    };
+    window.addEventListener("dnc-warning", handleDncWarning);
+    return () => window.removeEventListener("dnc-warning", handleDncWarning);
+  }, []);
+
+  // ── Session end event ──
+  useEffect(() => {
+    const handleSessionEnd = (event: Event) => {
+      const { sessionId, totalLeads, leadsDialed } = (event as CustomEvent).detail;
+      setAutoDialSessionStats({ sessionId, totalLeads, leadsDialed });
+      setShowSessionEnd(true);
+    };
+    window.addEventListener("auto-dial-session-end", handleSessionEnd);
+    return () => window.removeEventListener("auto-dial-session-end", handleSessionEnd);
+  }, []);
+
+  // ── Auto-dial call event → trigger TelnyxRTC ──
+  useEffect(() => {
+    const handleAutoDialCall = (event: Event) => {
+      const { lead, callerNumber } = (event as CustomEvent).detail;
+      if (lead?.phone) {
+        telnyxMakeCall(lead.phone);
+      }
+    };
+    window.addEventListener("auto-dial-call", handleAutoDialCall);
+    return () => window.removeEventListener("auto-dial-call", handleAutoDialCall);
+  }, [telnyxMakeCall]);
 
   /* --- call handlers --- */
 
@@ -627,7 +728,12 @@ export default function DialerPage() {
           talkSeconds: s.talkSeconds + telnyxCallDuration,
           callbacks: selectedDisp?.callbackScheduler ? s.callbacks + 1 : s.callbacks,
         }));
-        
+
+        // Trigger auto-dial if enabled
+        if (autoDialer && autoDialEnabled && selectedDisp) {
+          await autoDialer.onCallEnd(selectedDisp);
+        }
+
         handleAdvance();
       } else {
         toast.dismiss(toastId);
@@ -1022,6 +1128,69 @@ export default function DialerPage() {
 
         {/* RIGHT */}
         <div className="flex items-center gap-3 shrink-0">
+          {/* Auto-Dial toggle */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground font-medium">Auto-Dial</label>
+            <Switch
+              checked={autoDialEnabled}
+              onCheckedChange={(checked) => {
+                setAutoDialEnabled(checked);
+                if (autoDialer) {
+                  if (checked) {
+                    autoDialer.resumeAutoDialer();
+                    setIsPaused(false);
+                  } else {
+                    autoDialer.pauseAutoDialer();
+                  }
+                }
+              }}
+            />
+          </div>
+
+          {/* Delay dropdown */}
+          <Select
+            value={dialDelaySeconds.toString()}
+            onValueChange={(value) => {
+              const secs = parseInt(value);
+              setDialDelaySeconds(secs);
+              if (autoDialer) {
+                (autoDialer as any).dialDelaySeconds = secs;
+              }
+            }}
+            disabled={!autoDialEnabled}
+          >
+            <SelectTrigger className="w-16 h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">0s</SelectItem>
+              <SelectItem value="2">2s</SelectItem>
+              <SelectItem value="5">5s</SelectItem>
+              <SelectItem value="10">10s</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Pause/Resume button */}
+          {autoDialEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs px-2 gap-1"
+              onClick={() => {
+                if (isPaused) {
+                  autoDialer?.resumeAutoDialer();
+                  setIsPaused(false);
+                } else {
+                  autoDialer?.pauseAutoDialer();
+                  setIsPaused(true);
+                }
+              }}
+            >
+              {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+              {isPaused ? "Resume" : "Pause"}
+            </Button>
+          )}
+
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-success inline-block" />
             <span className="text-success text-xs font-semibold">Dialer Ready</span>
@@ -1899,6 +2068,120 @@ export default function DialerPage() {
           }
         }}
       />
+
+      {/* ── Countdown Toast ── */}
+      {showCountdown && (
+        <div className="fixed top-4 right-4 bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-lg z-50">
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-slate-300">
+              Next call in{" "}
+              <span className="font-bold text-blue-400">{countdownSeconds}s</span>
+              {leadsRemaining > 0 && (
+                <span className="text-slate-500 ml-2">({leadsRemaining} remaining)</span>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs px-2"
+              onClick={() => {
+                autoDialer?.skipToNext();
+                setShowCountdown(false);
+              }}
+            >
+              Skip ►
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── DNC Warning Modal ── */}
+      <Dialog open={showDncWarning} onOpenChange={setShowDncWarning}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-500" />
+              Do Not Call Warning
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-slate-300">This number is on the DNC list.</p>
+            {dncReason && (
+              <div className="bg-slate-800 rounded p-3">
+                <p className="text-sm text-slate-400">Reason:</p>
+                <p className="text-sm text-slate-200">{dncReason}</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowDncWarning(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                autoDialer?.skipToNext();
+                setShowDncWarning(false);
+              }}
+            >
+              Skip to Next
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                console.log("DNC override:", dncLead);
+                if (dncLead?.phone) {
+                  telnyxMakeCall(dncLead.phone);
+                }
+                setShowDncWarning(false);
+              }}
+            >
+              Dial Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── End-of-Session Modal ── */}
+      <Dialog open={showSessionEnd} onOpenChange={setShowSessionEnd}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-blue-500" />
+              Session Complete
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-800 rounded p-4">
+                <p className="text-sm text-slate-400">Total Leads</p>
+                <p className="text-2xl font-bold text-slate-200">
+                  {autoDialSessionStats?.totalLeads || 0}
+                </p>
+              </div>
+              <div className="bg-slate-800 rounded p-4">
+                <p className="text-sm text-slate-400">Leads Dialed</p>
+                <p className="text-2xl font-bold text-blue-400">
+                  {autoDialSessionStats?.leadsDialed || 0}
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 text-center">
+              Queue is now empty. Great work!
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setShowSessionEnd(false);
+                window.location.href = "/campaigns";
+              }}
+            >
+              End Session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
