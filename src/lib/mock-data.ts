@@ -22,11 +22,13 @@ export const mockUsers: User[] = [
   { id: "u6", email: "pending@agentflow.com", firstName: "New", lastName: "Agent", role: "Agent", status: "Pending", availabilityStatus: "Offline", themePreference: "light", lastLoginAt: null, createdAt: "2025-02-20T00:00:00Z" },
 ];
 
+const profileDefaults = { carriers: [], npn: "", timezone: "Eastern Time (US & Canada)", winSoundEnabled: true, emailNotificationsEnabled: true, smsNotificationsEnabled: false, pushNotificationsEnabled: true };
+
 export const mockProfiles: UserProfile[] = [
-  { userId: "u1", licensedStates: ["FL", "TX", "CA"], residentState: "FL", commissionLevel: "80%", onboardingComplete: true, monthlyCallGoal: 150, monthlySalesGoal: 20, weeklyAppointmentGoal: 25, monthlyTalkTimeGoalHours: 40, onboardingItems: completedOnboarding() },
-  { userId: "u2", licensedStates: ["TX", "NY"], residentState: "TX", commissionLevel: "75%", onboardingComplete: true, monthlyCallGoal: 140, monthlySalesGoal: 18, weeklyAppointmentGoal: 20, monthlyTalkTimeGoalHours: 35, onboardingItems: completedOnboarding() },
-  { userId: "u3", licensedStates: ["CA", "WA", "OR"], residentState: "CA", commissionLevel: "70%", onboardingComplete: true, monthlyCallGoal: 130, monthlySalesGoal: 15, weeklyAppointmentGoal: 18, monthlyTalkTimeGoalHours: 30, onboardingItems: completedOnboarding() },
-  { userId: "u4", licensedStates: ["NY", "NJ", "CT"], residentState: "NY", commissionLevel: "65%", onboardingComplete: true, monthlyCallGoal: 120, monthlySalesGoal: 15, weeklyAppointmentGoal: 15, monthlyTalkTimeGoalHours: 28, onboardingItems: completedOnboarding() },
+  { ...profileDefaults, userId: "u1", licensedStates: ["FL", "TX", "CA"], residentState: "FL", commissionLevel: "80%", onboardingComplete: true, monthlyCallGoal: 150, monthlySalesGoal: 20, weeklyAppointmentGoal: 25, monthlyTalkTimeGoalHours: 40, onboardingItems: completedOnboarding() },
+  { ...profileDefaults, userId: "u2", licensedStates: ["TX", "NY"], residentState: "TX", commissionLevel: "75%", onboardingComplete: true, monthlyCallGoal: 140, monthlySalesGoal: 18, weeklyAppointmentGoal: 20, monthlyTalkTimeGoalHours: 35, onboardingItems: completedOnboarding() },
+  { ...profileDefaults, userId: "u3", licensedStates: ["CA", "WA", "OR"], residentState: "CA", commissionLevel: "70%", onboardingComplete: true, monthlyCallGoal: 130, monthlySalesGoal: 15, weeklyAppointmentGoal: 18, monthlyTalkTimeGoalHours: 30, onboardingItems: completedOnboarding() },
+  { ...profileDefaults, userId: "u4", licensedStates: ["NY", "NJ", "CT"], residentState: "NY", commissionLevel: "65%", onboardingComplete: true, monthlyCallGoal: 120, monthlySalesGoal: 15, weeklyAppointmentGoal: 15, monthlyTalkTimeGoalHours: 28, onboardingItems: completedOnboarding() },
   { userId: "u5", licensedStates: ["OH", "PA"], residentState: "OH", commissionLevel: "60%", onboardingComplete: false, monthlyCallGoal: 100, monthlySalesGoal: 10, weeklyAppointmentGoal: 10, monthlyTalkTimeGoalHours: 20, onboardingItems: [
     { key: "license", label: "License Verified", completed: true, completedAt: "2024-05-01T10:00:00Z" },
     { key: "carriers", label: "Carrier Appointments Set Up", completed: true, completedAt: "2024-05-05T10:00:00Z" },
