@@ -149,6 +149,63 @@ export type Database = {
         }
         Relationships: []
       }
+      area_code_mapping: {
+        Row: {
+          area_code: string
+          city: string | null
+          created_at: string | null
+          id: string
+          state: string
+          timezone: string | null
+        }
+        Insert: {
+          area_code: string
+          city?: string | null
+          created_at?: string | null
+          id?: string
+          state: string
+          timezone?: string | null
+        }
+        Update: {
+          area_code?: string
+          city?: string | null
+          created_at?: string | null
+          id?: string
+          state?: string
+          timezone?: string | null
+        }
+        Relationships: []
+      }
+      business_hours: {
+        Row: {
+          close_time: string | null
+          created_at: string | null
+          day_of_week: number
+          id: string
+          is_open: boolean | null
+          open_time: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          close_time?: string | null
+          created_at?: string | null
+          day_of_week: number
+          id?: string
+          is_open?: boolean | null
+          open_time?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          close_time?: string | null
+          created_at?: string | null
+          day_of_week?: number
+          id?: string
+          is_open?: boolean | null
+          open_time?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       calendar_integrations: {
         Row: {
           access_token: string | null
@@ -230,6 +287,8 @@ export type Database = {
       calls: {
         Row: {
           agent_id: string | null
+          amd_result: string | null
+          caller_id_used: string | null
           campaign_id: string | null
           campaign_lead_id: string | null
           contact_id: string | null
@@ -247,9 +306,14 @@ export type Database = {
           outcome: string | null
           recording_url: string | null
           started_at: string | null
+          status: string | null
+          telnyx_call_id: string | null
+          transcript: Json | null
         }
         Insert: {
           agent_id?: string | null
+          amd_result?: string | null
+          caller_id_used?: string | null
           campaign_id?: string | null
           campaign_lead_id?: string | null
           contact_id?: string | null
@@ -267,9 +331,14 @@ export type Database = {
           outcome?: string | null
           recording_url?: string | null
           started_at?: string | null
+          status?: string | null
+          telnyx_call_id?: string | null
+          transcript?: Json | null
         }
         Update: {
           agent_id?: string | null
+          amd_result?: string | null
+          caller_id_used?: string | null
           campaign_id?: string | null
           campaign_lead_id?: string | null
           contact_id?: string | null
@@ -287,6 +356,9 @@ export type Database = {
           outcome?: string | null
           recording_url?: string | null
           started_at?: string | null
+          status?: string | null
+          telnyx_call_id?: string | null
+          transcript?: Json | null
         }
         Relationships: [
           {
@@ -402,12 +474,14 @@ export type Database = {
       campaigns: {
         Row: {
           assigned_agent_ids: Json | null
+          auto_dial_enabled: boolean | null
           created_at: string | null
           created_by: string | null
           description: string | null
           id: string
           leads_contacted: number | null
           leads_converted: number | null
+          local_presence_enabled: boolean | null
           name: string
           status: string
           tags: Json | null
@@ -417,12 +491,14 @@ export type Database = {
         }
         Insert: {
           assigned_agent_ids?: Json | null
+          auto_dial_enabled?: boolean | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
           id?: string
           leads_contacted?: number | null
           leads_converted?: number | null
+          local_presence_enabled?: boolean | null
           name: string
           status?: string
           tags?: Json | null
@@ -432,12 +508,14 @@ export type Database = {
         }
         Update: {
           assigned_agent_ids?: Json | null
+          auto_dial_enabled?: boolean | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
           id?: string
           leads_contacted?: number | null
           leads_converted?: number | null
+          local_presence_enabled?: boolean | null
           name?: string
           status?: string
           tags?: Json | null
@@ -760,6 +838,7 @@ export type Database = {
       dialer_sessions: {
         Row: {
           agent_id: string | null
+          auto_dial_enabled: boolean | null
           calls_connected: number | null
           calls_made: number | null
           campaign_id: string | null
@@ -774,6 +853,7 @@ export type Database = {
         }
         Insert: {
           agent_id?: string | null
+          auto_dial_enabled?: boolean | null
           calls_connected?: number | null
           calls_made?: number | null
           campaign_id?: string | null
@@ -788,6 +868,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string | null
+          auto_dial_enabled?: boolean | null
           calls_connected?: number | null
           calls_made?: number | null
           campaign_id?: string | null
@@ -1176,10 +1257,15 @@ export type Database = {
         Row: {
           area_code: string | null
           assigned_to: string | null
+          attestation_level: string | null
+          carrier_reputation_data: Json | null
           created_at: string | null
+          daily_call_count: number | null
+          daily_call_limit: number | null
           friendly_name: string | null
           id: string
           is_default: boolean | null
+          limit_reset_at: string | null
           phone_number: string
           spam_checked_at: string | null
           spam_score: number | null
@@ -1190,10 +1276,15 @@ export type Database = {
         Insert: {
           area_code?: string | null
           assigned_to?: string | null
+          attestation_level?: string | null
+          carrier_reputation_data?: Json | null
           created_at?: string | null
+          daily_call_count?: number | null
+          daily_call_limit?: number | null
           friendly_name?: string | null
           id?: string
           is_default?: boolean | null
+          limit_reset_at?: string | null
           phone_number: string
           spam_checked_at?: string | null
           spam_score?: number | null
@@ -1204,10 +1295,15 @@ export type Database = {
         Update: {
           area_code?: string | null
           assigned_to?: string | null
+          attestation_level?: string | null
+          carrier_reputation_data?: Json | null
           created_at?: string | null
+          daily_call_count?: number | null
+          daily_call_limit?: number | null
           friendly_name?: string | null
           id?: string
           is_default?: boolean | null
+          limit_reset_at?: string | null
           phone_number?: string
           spam_checked_at?: string | null
           spam_score?: number | null
@@ -1220,6 +1316,7 @@ export type Database = {
       phone_settings: {
         Row: {
           account_sid: string | null
+          amd_enabled: boolean | null
           api_key: string | null
           api_secret: string | null
           application_sid: string | null
@@ -1227,10 +1324,13 @@ export type Database = {
           created_at: string | null
           id: string
           provider: string
+          recording_enabled: boolean | null
+          transcription_enabled: boolean | null
           updated_at: string | null
         }
         Insert: {
           account_sid?: string | null
+          amd_enabled?: boolean | null
           api_key?: string | null
           api_secret?: string | null
           application_sid?: string | null
@@ -1238,10 +1338,13 @@ export type Database = {
           created_at?: string | null
           id?: string
           provider?: string
+          recording_enabled?: boolean | null
+          transcription_enabled?: boolean | null
           updated_at?: string | null
         }
         Update: {
           account_sid?: string | null
+          amd_enabled?: boolean | null
           api_key?: string | null
           api_secret?: string | null
           application_sid?: string | null
@@ -1249,12 +1352,15 @@ export type Database = {
           created_at?: string | null
           id?: string
           provider?: string
+          recording_enabled?: boolean | null
+          transcription_enabled?: boolean | null
           updated_at?: string | null
         }
         Relationships: []
       }
       profiles: {
         Row: {
+          auto_dial_preference: boolean | null
           availability_status: string
           avatar_url: string | null
           carriers: Json | null
@@ -1266,6 +1372,7 @@ export type Database = {
           id: string
           last_name: string
           licensed_states: Json | null
+          local_presence_enabled: boolean | null
           npn: string | null
           phone: string | null
           push_notifications_enabled: boolean | null
@@ -1279,6 +1386,7 @@ export type Database = {
           win_sound_enabled: boolean | null
         }
         Insert: {
+          auto_dial_preference?: boolean | null
           availability_status?: string
           avatar_url?: string | null
           carriers?: Json | null
@@ -1290,6 +1398,7 @@ export type Database = {
           id: string
           last_name?: string
           licensed_states?: Json | null
+          local_presence_enabled?: boolean | null
           npn?: string | null
           phone?: string | null
           push_notifications_enabled?: boolean | null
@@ -1303,6 +1412,7 @@ export type Database = {
           win_sound_enabled?: boolean | null
         }
         Update: {
+          auto_dial_preference?: boolean | null
           availability_status?: string
           avatar_url?: string | null
           carriers?: Json | null
@@ -1314,6 +1424,7 @@ export type Database = {
           id?: string
           last_name?: string
           licensed_states?: Json | null
+          local_presence_enabled?: boolean | null
           npn?: string | null
           phone?: string | null
           push_notifications_enabled?: boolean | null

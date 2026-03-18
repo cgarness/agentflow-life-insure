@@ -1,363 +1,337 @@
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, ShieldAlert, ShieldCheck, Search, Activity, Cpu, Target, Radar, AlertTriangle, CheckCircle2, Server, Zap, ArrowLeft } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import {
+  RefreshCw, Radar, ChevronRight, Phone, Loader2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
 
-interface ReportData {
-    phoneNumber: string;
-    spamScore: number;
-    attestation: "A" | "B" | "C";
-    status: "Safe" | "Warning" | "Critical";
-    carriers: {
-        name: string;
-        flagged: boolean;
-        reason?: string;
-    }[];
-    lastChecked: string;
-}
+type PhoneNumber = {
+  id: string;
+  phone_number: string;
+  friendly_name: string | null;
+  status: string | null;
+  spam_status: string | null;
+  spam_score: number | null;
+  spam_checked_at: string | null;
+  attestation_level: string | null;
+  carrier_reputation_data: any;
+  daily_call_count: number | null;
+  daily_call_limit: number | null;
+  area_code: string | null;
+  created_at: string | null;
+};
 
-const mockOwnedNumbers = [
-    { phone: "(555) 123-4567", label: "Main Support", lastStatus: "Safe", lastChecked: "2 hours ago" },
-    { phone: "(555) 987-6543", label: "Outbound Sales 1", lastStatus: "Warning", lastChecked: "1 day ago" },
-    { phone: "(555) 555-0099", label: "Outbound Sales 2", lastStatus: "Critical", lastChecked: "5 mins ago" },
-    { phone: "(555) 222-3333", label: "Florida Local", lastStatus: "Safe", lastChecked: "1 week ago" },
-];
+const getSpamBadge = (status: string | null) => {
+  switch (status?.toLowerCase()) {
+    case "clean":
+      return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">Clean</Badge>;
+    case "at_risk":
+    case "at risk":
+      return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20">At Risk</Badge>;
+    case "flagged":
+      return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20">Flagged</Badge>;
+    default:
+      return <Badge variant="outline" className="text-muted-foreground">Unknown</Badge>;
+  }
+};
 
-const mockCheckNumber = async (phone: string): Promise<ReportData> => {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            // Mock random generation based on some logic
-            const isBad = phone.endsWith("99") || phone.includes("555-00");
-            const score = isBad ? Math.floor(Math.random() * 30) + 70 : Math.floor(Math.random() * 25);
-            const attestation = isBad ? "C" : (score > 10 ? "B" : "A");
+const getAttestationBadge = (level: string | null) => {
+  switch (level?.toUpperCase()) {
+    case "A":
+      return <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">🟢 Full (A)</span>;
+    case "B":
+      return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">🟡 Partial (B)</span>;
+    case "C":
+      return <span className="text-xs font-medium text-orange-600 dark:text-orange-400">🟠 Gateway (C)</span>;
+    default:
+      return <span className="text-xs font-medium text-red-600 dark:text-red-400">🔴 None</span>;
+  }
+};
 
-            resolve({
-                phoneNumber: phone,
-                spamScore: score,
-                attestation: attestation as "A" | "B" | "C",
-                status: score > 75 ? "Critical" : (score > 40 ? "Warning" : "Safe"),
-                carriers: [
-                    { name: "AT&T", flagged: score > 60, reason: score > 60 ? "High frequency of short duration calls" : undefined },
-                    { name: "Verizon", flagged: score > 80, reason: score > 80 ? "User spam reports detected" : undefined },
-                    { name: "T-Mobile", flagged: isBad, reason: isBad ? "Scam Likely categorization" : undefined }
-                ],
-                lastChecked: new Date().toISOString()
-            });
-        }, 2800); // 2.8s delay to show off the animation
-    });
+const getHealthBadge = (spamStatus: string | null, callCount: number, callLimit: number) => {
+  const pct = callLimit > 0 ? (callCount / callLimit) * 100 : 0;
+  const isFlagged = spamStatus?.toLowerCase() === "flagged";
+  const isAtRisk = spamStatus?.toLowerCase() === "at_risk" || spamStatus?.toLowerCase() === "at risk";
+
+  if (isFlagged || pct >= 80) {
+    return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">🔴 Critical</Badge>;
+  }
+  if (isAtRisk || pct >= 50) {
+    return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">🟡 Warning</Badge>;
+  }
+  return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">🟢 Healthy</Badge>;
 };
 
 const SpamMonitoring: React.FC = () => {
-    const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
-    const [isScanning, setIsScanning] = useState(false);
-    const [report, setReport] = useState<ReportData | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanningIndex, setScanningIndex] = useState<number | null>(null);
 
-    const handleSelectNumber = async (phone: string) => {
-        setSelectedPhone(phone);
-        setIsScanning(true);
-        setReport(null);
+  const { data: phoneNumbers, refetch, isLoading } = useQuery({
+    queryKey: ["phone-numbers-spam"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("phone_numbers")
+        .select("*")
+        .eq("status", "active")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as PhoneNumber[];
+    },
+  });
 
-        const data = await mockCheckNumber(phone);
+  const toggleRow = (id: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
-        setIsScanning(false);
-        setReport(data);
-    };
+  const handleCheckSpamNow = async () => {
+    if (!phoneNumbers?.length) return;
+    setIsScanning(true);
 
-    const handleBack = () => {
-        setSelectedPhone(null);
-        setReport(null);
-        setIsScanning(false);
-    };
+    for (let i = 0; i < phoneNumbers.length; i++) {
+      setScanningIndex(i);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    setScanningIndex(null);
 
-    const getAttestationColor = (level: string) => {
-        switch (level) {
-            case "A": return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
-            case "B": return "text-amber-500 bg-amber-500/10 border-amber-500/20";
-            case "C": return "text-rose-500 bg-rose-500/10 border-rose-500/20";
-            default: return "text-muted-foreground bg-accent";
-        }
-    };
+    const { error } = await supabase.functions.invoke("spam-check-cron");
+    if (error) {
+      toast.error("Failed to check spam status");
+    } else {
+      toast.success("Spam check completed! Refreshing data...");
+      refetch();
+    }
+    setIsScanning(false);
+  };
 
-    const getScoreColor = (score: number) => {
-        if (score < 30) return "text-emerald-500";
-        if (score < 60) return "text-amber-500";
-        return "text-rose-500";
-    };
+  const cleanCount = phoneNumbers?.filter((p) => p.spam_status?.toLowerCase() === "clean").length ?? 0;
+  const atRiskCount = phoneNumbers?.filter((p) => ["at_risk", "at risk"].includes(p.spam_status?.toLowerCase() ?? "")).length ?? 0;
+  const flaggedCount = phoneNumbers?.filter((p) => p.spam_status?.toLowerCase() === "flagged").length ?? 0;
 
+  // Empty state
+  if (!isLoading && (!phoneNumbers || phoneNumbers.length === 0)) {
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
-                    <Radar className="w-5 h-5 text-primary" />
-                    AI Spam Network Monitoring
-                </h2>
-            </div>
-
-            <div className="bg-card border rounded-xl p-6 relative overflow-hidden min-h-[500px]">
-                {/* Futuristic Background accents */}
-                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-                <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/5 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none" />
-
-                <div className="relative z-10 max-w-4xl mx-auto">
-                    <AnimatePresence mode="wait">
-                        {!selectedPhone ? (
-                            <motion.div
-                                key="table"
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                transition={{ duration: 0.3 }}
-                                className="space-y-6"
-                            >
-                                <div className="space-y-2">
-                                    <h3 className="text-2xl font-bold tracking-tight text-foreground">Owned Numbers</h3>
-                                    <p className="text-muted-foreground text-sm">
-                                        Select a number to run a deep neural scan against global carrier databases.
-                                    </p>
-                                </div>
-
-                                <div className="border rounded-xl overflow-hidden bg-background shadow-sm">
-                                    <table className="w-full text-left text-sm whitespace-nowrap">
-                                        <thead className="bg-accent/50 text-muted-foreground font-medium">
-                                            <tr>
-                                                <th className="px-6 py-4">Phone Number</th>
-                                                <th className="px-6 py-4">Label</th>
-                                                <th className="px-6 py-4">Last Status</th>
-                                                <th className="px-6 py-4">Last Checked</th>
-                                                <th className="px-6 py-4 text-right">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-border">
-                                            {mockOwnedNumbers.map((num) => (
-                                                <tr
-                                                    key={num.phone}
-                                                    onClick={() => handleSelectNumber(num.phone)}
-                                                    className="group hover:bg-accent/50 cursor-pointer transition-colors"
-                                                >
-                                                    <td className="px-6 py-4 font-mono text-foreground font-medium">{num.phone}</td>
-                                                    <td className="px-6 py-4 text-muted-foreground">{num.label}</td>
-                                                    <td className="px-6 py-4">
-                                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${num.lastStatus === "Safe" ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" :
-                                                                num.lastStatus === "Warning" ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" :
-                                                                    "bg-rose-500/10 text-rose-500 border border-rose-500/20"
-                                                            }`}>
-                                                            {num.lastStatus === "Safe" ? <ShieldCheck className="w-3.5 h-3.5" /> :
-                                                                num.lastStatus === "Warning" ? <ShieldAlert className="w-3.5 h-3.5" /> :
-                                                                    <Shield className="w-3.5 h-3.5" />}
-                                                            {num.lastStatus}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-muted-foreground text-xs">{num.lastChecked}</td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <button
-                                                            className="text-primary font-medium text-xs opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-end gap-1"
-                                                        >
-                                                            <Target className="w-3.5 h-3.5" /> Scan
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </motion.div>
-                        ) : (
-                            <motion.div
-                                key="report"
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: 20 }}
-                                transition={{ duration: 0.3 }}
-                                className="space-y-6 max-w-2xl mx-auto"
-                            >
-                                <button
-                                    onClick={handleBack}
-                                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors group px-2 py-1 rounded-md hover:bg-accent -ml-2 w-max"
-                                >
-                                    <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                                    Back to Numbers
-                                </button>
-
-                                <div className="text-center space-y-2">
-                                    <h3 className="text-2xl font-bold tracking-tight text-foreground">Reputation Scan</h3>
-                                    <p className="text-muted-foreground text-sm">
-                                        Target: <span className="font-mono text-primary bg-primary/10 px-2 py-0.5 rounded px-2">{selectedPhone}</span>
-                                    </p>
-                                </div>
-
-                                {/* Scanning Animation */}
-                                {isScanning && (
-                                    <div className="pt-8 pb-4 flex flex-col items-center justify-center space-y-6">
-                                        <div className="relative w-32 h-32">
-                                            <motion.div
-                                                className="absolute inset-0 border-2 border-primary/20 rounded-full"
-                                            />
-                                            <motion.div
-                                                className="absolute inset-0 border-t-2 border-primary rounded-full"
-                                                animate={{ rotate: 360 }}
-                                                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                                            />
-                                            <motion.div
-                                                className="absolute inset-4 border-b-2 border-blue-500 rounded-full"
-                                                animate={{ rotate: -360 }}
-                                                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                                            />
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <Cpu className="w-8 h-8 text-primary animate-pulse" />
-                                            </div>
-
-                                            {/* Radar Sweep Effect */}
-                                            <motion.div
-                                                className="absolute top-1/2 left-1/2 w-16 h-16 origin-top-left bg-gradient-to-br from-primary/30 to-transparent"
-                                                style={{ borderRadius: "100% 0 0 0" }}
-                                                animate={{ rotate: 360 }}
-                                                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2 text-center w-full max-w-xs">
-                                            <div className="flex justify-between text-xs text-muted-foreground font-mono">
-                                                <span>Querying STIR/SHAKEN matrix</span>
-                                                <span className="text-primary animate-pulse">Running...</span>
-                                            </div>
-                                            <div className="h-1 bg-accent rounded-full overflow-hidden">
-                                                <motion.div
-                                                    className="h-full bg-primary"
-                                                    initial={{ width: "0%" }}
-                                                    animate={{ width: "100%" }}
-                                                    transition={{ duration: 2.5, ease: "easeInOut" }}
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Results Display */}
-                                {!isScanning && report && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ duration: 0.5, ease: "easeOut" }}
-                                        className="pt-6 border-t"
-                                    >
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-                                            {/* Status Card */}
-                                            <div className="col-span-1 md:col-span-3 bg-background border rounded-xl p-5 flex items-center justify-between shadow-sm">
-                                                <div className="flex items-center gap-4">
-                                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${report.status === "Safe" ? "bg-emerald-500/10 text-emerald-500" :
-                                                        report.status === "Warning" ? "bg-amber-500/10 text-amber-500" :
-                                                            "bg-rose-500/10 text-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]"
-                                                        }`}>
-                                                        {report.status === "Safe" ? <ShieldCheck className="w-6 h-6" /> :
-                                                            report.status === "Warning" ? <ShieldAlert className="w-6 h-6" /> :
-                                                                <Shield className="w-6 h-6" />}
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm text-muted-foreground font-medium">Network Consensus</p>
-                                                        <h4 className={`text-2xl font-bold tracking-tight ${report.status === "Safe" ? "text-emerald-500" :
-                                                            report.status === "Warning" ? "text-amber-500" : "text-rose-500"
-                                                            }`}>
-                                                            {report.status.toUpperCase()}
-                                                        </h4>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-sm font-mono text-muted-foreground">{report.phoneNumber}</p>
-                                                    <p className="text-xs text-muted-foreground mt-1 text-opacity-70">
-                                                        Scanned at {new Date(report.lastChecked).toLocaleTimeString()}
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            {/* Attestation Score */}
-                                            <div className="bg-background border rounded-xl p-5 space-y-4 shadow-sm">
-                                                <div className="flex items-center justify-between">
-                                                    <h5 className="text-sm font-medium text-foreground">STIR/SHAKEN</h5>
-                                                    <Server className="w-4 h-4 text-muted-foreground" />
-                                                </div>
-                                                <div className="flex flex-col items-center justify-center py-4">
-                                                    <div className={`w-20 h-20 rounded-full border-4 flex items-center justify-center text-3xl font-bold font-mono shadow-sm ${getAttestationColor(report.attestation)}`}>
-                                                        {report.attestation}
-                                                    </div>
-                                                    <p className="text-xs text-center text-muted-foreground mt-4 leading-relaxed">
-                                                        {report.attestation === "A" ? "Full Attestation (Caller is verified)" :
-                                                            report.attestation === "B" ? "Partial Attestation (Call originates from known network)" :
-                                                                "Gateway Attestation (Caller identity unverified)"}
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            {/* Spam Probability */}
-                                            <div className="bg-background border rounded-xl p-5 space-y-4 shadow-sm">
-                                                <div className="flex items-center justify-between">
-                                                    <h5 className="text-sm font-medium text-foreground">Spam Confidence</h5>
-                                                    <Zap className="w-4 h-4 text-muted-foreground" />
-                                                </div>
-                                                <div className="flex flex-col items-center justify-center py-4 space-y-4">
-                                                    <div className="relative w-32 h-16 overflow-hidden flex items-end justify-center">
-                                                        {/* Half circle gauge */}
-                                                        <div className="absolute top-0 w-32 h-32 rounded-full border-8 border-accent"></div>
-                                                        <motion.div
-                                                            className={`absolute top-0 w-32 h-32 rounded-full border-8 border-b-transparent border-r-transparent rotate-45 transform origin-center shadow-sm ${report.spamScore < 30 ? "border-emerald-500" :
-                                                                report.spamScore < 60 ? "border-amber-500" : "border-rose-500"
-                                                                }`}
-                                                            initial={{ rotate: -135 }}
-                                                            animate={{ rotate: -135 + (report.spamScore / 100) * 180 }}
-                                                            transition={{ duration: 1, ease: "easeOut" }}
-                                                        ></motion.div>
-                                                        <div className="absolute bottom-0 text-3xl font-bold tracking-tight bg-background px-2 -mb-2">
-                                                            <span className={getScoreColor(report.spamScore)}>{report.spamScore}</span>
-                                                        </div>
-                                                    </div>
-                                                    <p className="text-xs text-center text-muted-foreground">
-                                                        Machine learning probability based on call patterns.
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            {/* Carrier Flags */}
-                                            <div className="col-span-1 md:col-span-3 lg:col-span-1 bg-background border rounded-xl p-5 space-y-4 shadow-sm">
-                                                <div className="flex items-center justify-between">
-                                                    <h5 className="text-sm font-medium text-foreground">Carrier Filters</h5>
-                                                    <Activity className="w-4 h-4 text-muted-foreground" />
-                                                </div>
-                                                <div className="space-y-3 pt-2">
-                                                    {report.carriers.map((carrier, idx) => (
-                                                        <div key={idx} className="flex items-start justify-between text-sm">
-                                                            <div className="flex items-center gap-2">
-                                                                {carrier.flagged ? (
-                                                                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                                                                ) : (
-                                                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                                                                )}
-                                                                <div>
-                                                                    <p className={`font-medium ${carrier.flagged ? "text-foreground" : "text-muted-foreground"}`}>
-                                                                        {carrier.name}
-                                                                    </p>
-                                                                    {carrier.reason && (
-                                                                        <p className="text-xs text-rose-500/80 mt-0.5 leading-snug">{carrier.reason}</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <span className={`text-xs font-mono font-medium px-2 py-0.5 rounded-full ${carrier.flagged ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
-                                                                }`}>
-                                                                {carrier.flagged ? "Blocked" : "Clear"}
-                                                            </span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            </div>
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-foreground">Spam Monitoring</h3>
+        <div className="flex flex-col items-center justify-center py-16 text-center bg-card border rounded-xl">
+          <Phone className="w-12 h-12 text-muted-foreground mb-4" />
+          <h4 className="text-lg font-semibold text-foreground mb-1">No Phone Numbers Yet</h4>
+          <p className="text-sm text-muted-foreground max-w-sm mb-4">
+            Add phone numbers in Phone Management to start monitoring spam reputation.
+          </p>
+          <Button variant="outline" onClick={() => {
+            const params = new URLSearchParams(window.location.search);
+            params.set("section", "phone-system");
+            window.history.replaceState(null, "", `?${params.toString()}`);
+            window.location.reload();
+          }}>
+            Add Phone Number
+          </Button>
         </div>
+      </div>
     );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Radar className="w-5 h-5 text-primary" /> Spam Monitoring
+          </h3>
+          <p className="text-sm text-muted-foreground">Monitor phone number reputation and carrier blocking rates</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isScanning}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+          <Button size="sm" onClick={handleCheckSpamNow} disabled={isScanning}>
+            {isScanning ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Scanning...</> : "Check Spam Now"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="flex flex-wrap gap-4">
+        {[
+          { label: "Clean", count: cleanCount, color: "bg-emerald-500" },
+          { label: "At Risk", count: atRiskCount, color: "bg-amber-500" },
+          { label: "Flagged", count: flaggedCount, color: "bg-red-500" },
+        ].map((s) => (
+          <div key={s.label} className="flex items-center gap-2 text-sm text-foreground">
+            <span className={`w-2.5 h-2.5 rounded-full ${s.color}`} />
+            <span className="font-medium">{s.count}</span>
+            <span className="text-muted-foreground">{s.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="border rounded-xl overflow-hidden bg-card">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-accent/50 text-muted-foreground">
+              <tr>
+                <th className="w-10 px-3 py-3" />
+                <th className="px-3 py-3 text-left font-medium">Phone Number</th>
+                <th className="px-3 py-3 text-left font-medium">Status</th>
+                <th className="px-3 py-3 text-left font-medium">Score</th>
+                <th className="px-3 py-3 text-left font-medium">Attestation</th>
+                <th className="px-3 py-3 text-left font-medium">Calls Today</th>
+                <th className="px-3 py-3 text-left font-medium">Limit</th>
+                <th className="px-3 py-3 text-left font-medium">Last Checked</th>
+                <th className="px-3 py-3 text-left font-medium">Health</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {phoneNumbers?.map((num, idx) => {
+                const isExpanded = expandedRows.has(num.id);
+                const callCount = num.daily_call_count ?? 0;
+                const callLimit = num.daily_call_limit ?? 100;
+                const callPct = callLimit > 0 ? Math.min((callCount / callLimit) * 100, 100) : 0;
+                const score = num.spam_score ?? 0;
+                const isScanningRow = isScanning && scanningIndex === idx;
+                const carrierData = num.carrier_reputation_data as any;
+
+                return (
+                  <React.Fragment key={num.id}>
+                    <motion.tr
+                      onClick={() => toggleRow(num.id)}
+                      className="cursor-pointer hover:bg-accent/30 transition-colors"
+                      animate={isScanningRow ? { backgroundColor: ["hsl(var(--card))", "hsl(142 76% 36% / 0.15)", "hsl(var(--card))"] } : {}}
+                      transition={isScanningRow ? { duration: 0.6, ease: "easeInOut" } : {}}
+                    >
+                      <td className="px-3 py-3">
+                        <motion.div animate={{ rotate: isExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </motion.div>
+                      </td>
+                      <td className="px-3 py-3 font-mono text-xs text-foreground">{num.phone_number}</td>
+                      <td className="px-3 py-3">{getSpamBadge(num.spam_status)}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium w-6">{score}</span>
+                          <Progress value={score} className="h-1.5 w-16" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">{getAttestationBadge(num.attestation_level)}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs">{callCount}</span>
+                          <Progress value={callPct} className="h-1.5 w-12" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">{callLimit}</td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">
+                        {num.spam_checked_at
+                          ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
+                          : "Never"}
+                      </td>
+                      <td className="px-3 py-3">{getHealthBadge(num.spam_status, callCount, callLimit)}</td>
+                    </motion.tr>
+
+                    {/* Expanded row */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={9} className="p-0">
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.25 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="px-6 py-4 bg-accent/20 border-t">
+                                <CarrierDetails data={carrierData} />
+                              </div>
+                            </motion.div>
+                          </td>
+                        </tr>
+                      )}
+                    </AnimatePresence>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CarrierDetails: React.FC<{ data: any }> = ({ data }) => {
+  if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
+    return (
+      <p className="text-sm text-muted-foreground italic">
+        No carrier data available. Run spam check to get detailed carrier breakdown.
+      </p>
+    );
+  }
+
+  const carriers = data.carriers || data.carrier_results;
+  const networkAnalysis = data.network_analysis;
+
+  return (
+    <div className="space-y-4">
+      <h5 className="text-sm font-semibold text-foreground">Carrier Analysis</h5>
+      {carriers && Array.isArray(carriers) ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {carriers.map((c: any, i: number) => (
+            <div key={i} className="bg-card border rounded-lg p-3 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-foreground capitalize">{c.name || c.carrier || "Unknown"}</span>
+                {c.blocking_rate != null && (
+                  <Badge className={c.blocking_rate > 5
+                    ? "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30"
+                    : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                  }>
+                    {c.blocking_rate}% blocked
+                  </Badge>
+                )}
+              </div>
+              {c.spam_label && <p className="text-xs text-red-500 font-medium">{c.spam_label}</p>}
+              {c.completion_rate != null && (
+                <p className="text-xs text-muted-foreground">Completion: {c.completion_rate}%</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground italic">No carrier breakdown available.</p>
+      )}
+
+      {networkAnalysis && (
+        <div className="pt-2">
+          <h5 className="text-sm font-semibold text-foreground mb-2">Network Analysis</h5>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Total Calls", value: networkAnalysis.total_calls },
+              { label: "Flagged Calls", value: networkAnalysis.flagged_calls },
+              { label: "Avg Answer Rate", value: networkAnalysis.average_answer_rate != null ? `${networkAnalysis.average_answer_rate}%` : "N/A" },
+            ].map((s) => (
+              <div key={s.label} className="bg-card border rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+                <p className="text-lg font-bold text-foreground">{s.value ?? "—"}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default SpamMonitoring;
