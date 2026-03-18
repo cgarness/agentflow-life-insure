@@ -1070,20 +1070,6 @@ export default function DialerPage() {
                       <p className="font-semibold text-foreground">{campaign.name}</p>
                       <p className="text-xs text-muted-foreground">{campaign.type}</p>
                     </div>
-                    {/* GEAR BUTTON — standalone, no shared parent onClick */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        setSettingsCampaignId(campaign.id)
-                        setCallingSettingsOpen(true)
-                      }}
-                      className="relative pointer-events-auto p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
-                      title="Calling Settings"
-                    >
-                      <Settings className="w-4 h-4 pointer-events-none" />
-                    </button>
                   </div>
 
                   {/* Stats row */}
@@ -1138,14 +1124,26 @@ export default function DialerPage() {
                     </div>
                   </div>
 
-                  {/* START DIALING — its own button, no outer onClick wrapper */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCampaignId(campaign.id)}
-                    className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-                  >
-                    Start Dialing
-                  </button>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCampaignId(campaign.id)}
+                      className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                    >
+                      Start Dialing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettingsCampaignId(campaign.id)
+                        setCallingSettingsOpen(true)
+                      }}
+                      className="px-4 py-2 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80 flex items-center gap-1.5"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      Settings
+                    </button>
+                  </div>
                 </div>
               );
             })}
