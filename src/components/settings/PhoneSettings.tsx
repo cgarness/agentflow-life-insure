@@ -94,6 +94,9 @@ const PhoneSettings: React.FC = () => {
   const [purchasing, setPurchasing] = useState(false);
   const [purchaseStep, setPurchaseStep] = useState<1 | 2>(1);
 
+  // Sync from Telnyx
+  const [syncing, setSyncing] = useState(false);
+
   // Confirm dialogs
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
@@ -314,6 +317,21 @@ const PhoneSettings: React.FC = () => {
     toast.success(enabled ? "Local Presence enabled" : "Local Presence disabled");
   };
 
+  // Sync numbers from Telnyx
+  const handleSyncFromTelnyx = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("telnyx-sync-numbers");
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Sync complete — ${data.synced} new number${data.synced !== 1 ? "s" : ""} added`);
+      await fetchData();
+    } catch (e: any) {
+      toast.error("Sync failed — check your Telnyx API key");
+    }
+    setSyncing(false);
+  };
+
   const uniqueAreaCodes = [...new Set(activeNumbers.map(n => n.area_code).filter(Boolean))] as string[];
 
   const renderSpamBadge = (n: PhoneNumber) => {
@@ -419,6 +437,9 @@ const PhoneSettings: React.FC = () => {
               <Badge variant="secondary" className="text-xs">{activeNumbers.length} active</Badge>
             </CardTitle>
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleSyncFromTelnyx} disabled={syncing}>
+                {syncing ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Syncing...</> : <><RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Sync from Telnyx</>}
+              </Button>
               <Button variant="outline" size="sm" onClick={handleBulkSpamCheck} disabled={bulkChecking || activeNumbers.length === 0}>
                 {bulkChecking ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> {bulkProgress}%</> : <><RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Bulk Spam Check</>}
               </Button>
