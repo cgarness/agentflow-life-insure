@@ -420,12 +420,13 @@ export default function DialerPage() {
     }
   }, [history]);
 
-  // Trigger wrap-up when call ends
+  // Trigger wrap-up when call ends (covers remote hangup)
   useEffect(() => {
     if (callState === "ended") {
+      telnyxHangUp();
       setShowWrapUp(true);
     }
-  }, [callState]);
+  }, [callState, telnyxHangUp]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {

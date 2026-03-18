@@ -350,6 +350,13 @@ const FloatingDialer: React.FC = () => {
     setSelectedDispId(null);
   }, [telnyxHangUp]);
 
+  // Auto-end call when remote party disconnects
+  useEffect(() => {
+    if (telnyxCallState === "ended" && onCall) {
+      handleHangUp();
+    }
+  }, [telnyxCallState, onCall, handleHangUp]);
+
   const resetAll = () => {
     setShowDisposition(false);
     setSelectedDispId(null);
