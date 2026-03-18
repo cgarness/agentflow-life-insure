@@ -91,6 +91,8 @@ const FloatingDialer: React.FC = () => {
     hangUp: telnyxHangUp,
     toggleMute: telnyxToggleMute,
     defaultCallerNumber: telnyxDefaultCaller,
+    initializeClient: telnyxInitialize,
+    destroyClient: telnyxDestroy,
   } = useTelnyx();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
@@ -194,14 +196,17 @@ const FloatingDialer: React.FC = () => {
     return () => clearInterval(timer);
   }, [onCall]);
 
-  // Open animation toggle
+  // Open animation toggle + eager Telnyx init / teardown
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => setIsVisible(true), 0);
+      telnyxInitialize();
       return () => clearTimeout(t);
     } else {
       setIsVisible(false);
+      telnyxDestroy();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Fetch active phone numbers for selector
@@ -449,6 +454,23 @@ const FloatingDialer: React.FC = () => {
                 }}
               />
               <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
+              {telnyxStatus === 'connecting' && (
+                <span className="text-[10px] text-muted-foreground">Connecting…</span>
+              )}
+              {telnyxStatus === 'ready' && (
+                <span className="text-[10px] text-muted-foreground">Ready</span>
+              )}
+              {telnyxStatus === 'error' && (
+                <>
+                  <span className="text-[10px] text-destructive">Connection failed —</span>
+                  <button
+                    onClick={() => telnyxInitialize()}
+                    className="text-[10px] text-primary underline underline-offset-2"
+                  >
+                    retry
+                  </button>
+                </>
+              )}
             </div>
             <button
               onClick={() => setOpen(false)}
