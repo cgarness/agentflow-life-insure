@@ -49,6 +49,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
@@ -247,6 +248,7 @@ export default function DialerPage() {
   const [settingsAutoDialEnabled, setSettingsAutoDialEnabled] = useState(true);
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
+  const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
@@ -455,12 +457,13 @@ export default function DialerPage() {
 
   // ── Calling Settings: fetch on open ──
   useEffect(() => {
-    if (!callingSettingsOpen || !selectedCampaignId) return;
+    const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
+    if (!callingSettingsOpen || !effectiveCampaignId) return;
     setCallingSettingsLoading(true);
     supabase
       .from("campaigns")
       .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
-      .eq("id", selectedCampaignId)
+      .eq("id", effectiveCampaignId)
       .single()
       .then(({ data }) => {
         if (data) {
@@ -474,10 +477,11 @@ export default function DialerPage() {
         }
         setCallingSettingsLoading(false);
       });
-  }, [callingSettingsOpen, selectedCampaignId]);
+  }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId]);
 
   const handleSaveCallingSettings = async () => {
-    if (!selectedCampaignId) return;
+    const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
+    if (!effectiveCampaignId) return;
     setCallingSettingsSaving(true);
     const { error } = await supabase
       .from("campaigns")
@@ -489,13 +493,14 @@ export default function DialerPage() {
         auto_dial_enabled: settingsAutoDialEnabled,
         local_presence_enabled: localPresenceEnabled,
       })
-      .eq("id", selectedCampaignId);
+      .eq("id", effectiveCampaignId);
     setCallingSettingsSaving(false);
     if (error) {
       toast.error("Failed to save settings — please try again");
     } else {
       toast.success("Calling settings saved");
       setCallingSettingsOpen(false);
+      setSettingsCampaignId(null);
     }
   };
 
@@ -1061,7 +1066,11 @@ export default function DialerPage() {
                       <h3 className="font-bold text-xl text-foreground leading-tight line-clamp-2">
                         {campaign.name}
                       </h3>
-                      <button className="p-1 text-muted-foreground hover:text-foreground transition-colors shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                        title="Calling Settings"
+                        onClick={e => { e.stopPropagation(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
+                      >
                         <Settings className="w-4 h-4" />
                       </button>
                     </div>
@@ -1254,13 +1263,6 @@ export default function DialerPage() {
           <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
             {selectedCampaign?.name ?? "No Campaign"}
           </span>
-          <button
-            onClick={() => setCallingSettingsOpen(true)}
-            className="ml-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            title="Calling Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
@@ -2242,13 +2244,13 @@ export default function DialerPage() {
       </Dialog>
 
       {/* ── Calling Settings Dialog ── */}
-      <Dialog open={callingSettingsOpen} onOpenChange={setCallingSettingsOpen}>
+      <Dialog open={callingSettingsOpen} onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Calling Settings</DialogTitle>
             <DialogDescription>
               Configure call attempt limits and scheduling for{" "}
-              <span className="font-semibold">{selectedCampaign?.name}</span>.
+              <span className="font-semibold">{(settingsCampaignId ? campaigns.find(c => c.id === settingsCampaignId) : selectedCampaign)?.name}</span>.
             </DialogDescription>
           </DialogHeader>
 
