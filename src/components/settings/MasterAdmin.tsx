@@ -705,31 +705,27 @@ const MasterAdmin: React.FC = () => {
     setExtraMap({});
 
     try {
-      if (false) {
-        // Mock data block removed
+      // Fetch from Supabase
+      const tableName = SUPABASE_TABLES[category] ?? config.table;
+      let q = supabase.from(tableName as "leads").select("*"); // type cast — runtime table name
+      if (config.orderBy) {
+        q = q.order(config.orderBy.col, { ascending: config.orderBy.asc });
+      }
+      const { data, error } = await q;
+      if (error) {
+        toast({ title: `Cannot load ${category}`, description: error.message, variant: "destructive" });
+        setRows([]);
       } else {
-        // Fetch from Supabase
-        const tableName = SUPABASE_TABLES[category] ?? config.table;
-        let q = supabase.from(tableName as "leads").select("*"); // type cast — runtime table name
-        if (config.orderBy) {
-          q = q.order(config.orderBy.col, { ascending: config.orderBy.asc });
-        }
-        const { data, error } = await q;
-        if (error) {
-          toast({ title: `Cannot load ${category}`, description: error.message, variant: "destructive" });
-          setRows([]);
-        } else {
-          setRows(data ?? []);
-        }
+        setRows(data ?? []);
+      }
 
-        // Load extra map (e.g. campaigns for campaign_leads)
-        if (config.extraTable) {
-          const { data: extraData } = await supabase
-            .from(config.extraTable as "campaigns")
-            .select("id, name");
-          if (extraData) {
-            setExtraMap(Object.fromEntries(extraData.map((r) => [r.id, r.name])));
-          }
+      // Load extra map (e.g. campaigns for campaign_leads)
+      if (config.extraTable) {
+        const { data: extraData } = await supabase
+          .from(config.extraTable as "campaigns")
+          .select("id, name");
+        if (extraData) {
+          setExtraMap(Object.fromEntries(extraData.map((r) => [r.id, r.name])));
         }
       }
     } finally {
@@ -803,19 +799,13 @@ const MasterAdmin: React.FC = () => {
     if (!editTarget || !config) return;
     setEditSaving(true);
     try {
-      const source = DATA_SOURCES[category];
-
-      if (false) {
-        // Mock data block removed
-      } else {
-        // Route to Supabase
-        const tableName = SUPABASE_TABLES[category] ?? config.table;
-        const { error } = await supabase
-          .from(tableName as "leads")
-          .update({ ...editForm, updated_at: new Date().toISOString() })
-          .eq("id", editTarget.id);
-        if (error) throw error;
-      }
+      // Route to Supabase
+      const tableName = SUPABASE_TABLES[category] ?? config.table;
+      const { error } = await supabase
+        .from(tableName as "leads")
+        .update({ ...editForm, updated_at: new Date().toISOString() })
+        .eq("id", editTarget.id);
+      if (error) throw error;
 
       toast({ title: "Saved successfully" });
       setEditTarget(null);
@@ -846,17 +836,12 @@ const MasterAdmin: React.FC = () => {
     if (deleteText !== "DELETE" || !config) return;
     setDeleting(true);
     try {
-      const source = DATA_SOURCES[category];
-
-      if (false) {
-        // Mock data block removed
-      } else {
-        // Route to Supabase
-        const tableName = SUPABASE_TABLES[category] ?? config.table;
-        const { error } = await supabase
-          .from(tableName as "leads")
-          .delete()
-          .in("id", deleteIds);
+      // Route to Supabase
+      const tableName = SUPABASE_TABLES[category] ?? config.table;
+      const { error } = await supabase
+        .from(tableName as "leads")
+        .delete()
+        .in("id", deleteIds);
         if (error) {
           const isFk = error.message.toLowerCase().includes("foreign key") || error.code === "23503";
           toast({
@@ -871,7 +856,6 @@ const MasterAdmin: React.FC = () => {
           setSelected(new Set());
           loadData();
         }
-      }
     } finally {
       setDeleting(false);
     }
