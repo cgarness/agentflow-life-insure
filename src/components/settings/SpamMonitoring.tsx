@@ -107,22 +107,33 @@ const SpamMonitoring: React.FC = () => {
     setScanningNumbers([]);
 
     try {
-      // TEMP: calling test-spam-check to verify Edge Function connection
+      console.log("=== EDGE FUNCTION CALL DEBUG (Check All) ===");
+      console.log("Supabase URL:", (supabase as any).supabaseUrl);
+      console.log("Calling function: test-spam-check");
+
       const { data, error } = await supabase.functions.invoke("test-spam-check", {
         body: {},
       });
-      console.log("Test function response:", { data, error });
+
+      console.log("Response data:", data);
+      console.log("Response error:", error);
 
       if (error) {
-        console.error("Full error object:", JSON.stringify(error, null, 2));
+        console.error("Error details:", {
+          message: error.message,
+          status: (error as any).status,
+          statusText: (error as any).statusText,
+          context: (error as any).context,
+          name: error.name,
+        });
         toast.error(`Test failed: ${error.message || JSON.stringify(error)}`);
       } else {
-        console.log("Test succeeded!", data);
+        console.log("Success!", data);
         toast.success(`Test function works! Response: ${data.message}`);
         await refetch();
       }
     } catch (err: any) {
-      console.error("Spam check failed:", err);
+      console.error("Caught exception:", err);
       toast.error(`Failed to check spam status: ${err.message || "Unknown error"}`);
     } finally {
       setIsScanning(false);
@@ -134,25 +145,68 @@ const SpamMonitoring: React.FC = () => {
     setScanningNumbers([phoneId]);
 
     try {
-      // TEMP: calling test-spam-check to verify Edge Function connection
+      console.log("=== EDGE FUNCTION CALL DEBUG ===");
+      console.log("Supabase URL:", (supabase as any).supabaseUrl);
+      console.log("Calling function: test-spam-check");
+      console.log("Phone number:", phoneNumber);
+
       const { data, error } = await supabase.functions.invoke("test-spam-check", {
         body: { phone_number: phoneNumber },
       });
-      console.log("Test function response:", { data, error });
+
+      console.log("Response data:", data);
+      console.log("Response error:", error);
 
       if (error) {
-        console.error("Full error object:", JSON.stringify(error, null, 2));
+        console.error("Error details:", {
+          message: error.message,
+          status: (error as any).status,
+          statusText: (error as any).statusText,
+          context: (error as any).context,
+          name: error.name,
+        });
         toast.error(`Test failed: ${error.message || JSON.stringify(error)}`);
       } else {
-        console.log("Test succeeded!", data);
+        console.log("Success!", data);
         toast.success(`Test function works! Response: ${data.message}`);
         await refetch();
       }
     } catch (err: any) {
-      console.error("Spam check failed:", err);
+      console.error("Caught exception:", err);
       toast.error(`Failed to check ${phoneNumber}: ${err.message || "Unknown error"}`);
     } finally {
       setScanningNumbers([]);
+    }
+  };
+
+  const testDirectFetch = async () => {
+    console.log("=== DIRECT FETCH TEST ===");
+    try {
+      const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuY3Z2c3Zja3hocWdxdmtwcG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njc4ODYsImV4cCI6MjA4ODE0Mzg4Nn0.wlLRugR92OUUpV7_vl8T8EnfPqrAosJ-CfNpKmw0IPE";
+      const response = await fetch(
+        "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/test-spam-check",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${anonKey}`,
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      const responseData = await response.json();
+      console.log("Direct fetch status:", response.status);
+      console.log("Direct fetch response:", responseData);
+
+      if (response.ok) {
+        toast.success(`Direct fetch works! Response: ${responseData.message}`);
+      } else {
+        toast.error(`Direct fetch failed: ${responseData.error || response.statusText}`);
+      }
+    } catch (err: any) {
+      console.error("Direct fetch error:", err);
+      toast.error(`Direct fetch exception: ${err.message}`);
     }
   };
 
@@ -197,6 +251,9 @@ const SpamMonitoring: React.FC = () => {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isScanning}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={testDirectFetch} disabled={isScanning}>
+            Test Direct Fetch
           </Button>
           <Button size="sm" onClick={handleCheckAllSpam} disabled={isScanning}>
             {isScanning ? (
