@@ -236,6 +236,18 @@ export default function DialerPage() {
   const [showSessionEnd, setShowSessionEnd] = useState(false);
   const [autoDialSessionStats, setAutoDialSessionStats] = useState<any>(null);
 
+  // ── Calling Settings Modal state ──
+  const [callingSettingsOpen, setCallingSettingsOpen] = useState(false);
+  const [callingSettingsLoading, setCallingSettingsLoading] = useState(false);
+  const [isUnlimited, setIsUnlimited] = useState(false);
+  const [maxAttemptsValue, setMaxAttemptsValue] = useState(3);
+  const [callingHoursStart, setCallingHoursStart] = useState("09:00");
+  const [callingHoursEnd, setCallingHoursEnd] = useState("21:00");
+  const [retryIntervalHours, setRetryIntervalHours] = useState(24);
+  const [settingsAutoDialEnabled, setSettingsAutoDialEnabled] = useState(true);
+  const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
+  const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
+
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
 
@@ -440,6 +452,52 @@ export default function DialerPage() {
   return () => window.removeEventListener("keydown", handleKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [showWrapUp, callState, dispositions]);
+
+  // ── Calling Settings: fetch on open ──
+  useEffect(() => {
+    if (!callingSettingsOpen || !selectedCampaignId) return;
+    setCallingSettingsLoading(true);
+    supabase
+      .from("campaigns")
+      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
+      .eq("id", selectedCampaignId)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setIsUnlimited(data.max_attempts === null);
+          setMaxAttemptsValue(data.max_attempts ?? 3);
+          setCallingHoursStart((data.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
+          setCallingHoursEnd((data.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
+          setRetryIntervalHours(data.retry_interval_hours ?? 24);
+          setSettingsAutoDialEnabled(data.auto_dial_enabled ?? true);
+          setLocalPresenceEnabled(data.local_presence_enabled ?? true);
+        }
+        setCallingSettingsLoading(false);
+      });
+  }, [callingSettingsOpen, selectedCampaignId]);
+
+  const handleSaveCallingSettings = async () => {
+    if (!selectedCampaignId) return;
+    setCallingSettingsSaving(true);
+    const { error } = await supabase
+      .from("campaigns")
+      .update({
+        max_attempts: isUnlimited ? null : maxAttemptsValue,
+        calling_hours_start: callingHoursStart,
+        calling_hours_end: callingHoursEnd,
+        retry_interval_hours: retryIntervalHours,
+        auto_dial_enabled: settingsAutoDialEnabled,
+        local_presence_enabled: localPresenceEnabled,
+      })
+      .eq("id", selectedCampaignId);
+    setCallingSettingsSaving(false);
+    if (error) {
+      toast.error("Failed to save settings — please try again");
+    } else {
+      toast.success("Calling settings saved");
+      setCallingSettingsOpen(false);
+    }
+  };
 
   // ── AutoDialer initialization ──
   useEffect(() => {
@@ -1196,6 +1254,13 @@ export default function DialerPage() {
           <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
             {selectedCampaign?.name ?? "No Campaign"}
           </span>
+          <button
+            onClick={() => setCallingSettingsOpen(true)}
+            className="ml-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="Calling Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -2171,6 +2236,135 @@ export default function DialerPage() {
               }}
             >
               End Session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Calling Settings Dialog ── */}
+      <Dialog open={callingSettingsOpen} onOpenChange={setCallingSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Calling Settings</DialogTitle>
+            <DialogDescription>
+              Configure call attempt limits and scheduling for{" "}
+              <span className="font-semibold">{selectedCampaign?.name}</span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {callingSettingsLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+            </div>
+          ) : (
+            <div className="space-y-5 py-2">
+              {/* Max Attempts */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Max Call Attempts</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={isUnlimited ? "" : maxAttemptsValue}
+                    disabled={isUnlimited}
+                    onChange={(e) => setMaxAttemptsValue(Number(e.target.value))}
+                    className="w-20 rounded border border-input bg-background px-2 py-1.5 text-sm disabled:opacity-40"
+                    placeholder="3"
+                  />
+                  <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isUnlimited}
+                      onChange={(e) => setIsUnlimited(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    Unlimited
+                  </label>
+                </div>
+              </div>
+
+              {/* Calling Hours */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Calling Hours (local lead time)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={callingHoursStart}
+                    onChange={(e) => setCallingHoursStart(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                  <span className="text-muted-foreground text-sm">to</span>
+                  <input
+                    type="time"
+                    value={callingHoursEnd}
+                    onChange={(e) => setCallingHoursEnd(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Retry Interval */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Retry Interval (hours)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={retryIntervalHours}
+                  onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
+                  className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                />
+              </div>
+
+              {/* Toggles */}
+              <div className="space-y-3">
+                <label className="flex items-center justify-between cursor-pointer select-none">
+                  <span className="text-sm font-medium">Auto-Dial</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settingsAutoDialEnabled}
+                    onClick={() => setSettingsAutoDialEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      settingsAutoDialEnabled ? "bg-primary" : "bg-muted"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                        settingsAutoDialEnabled ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </label>
+                <label className="flex items-center justify-between cursor-pointer select-none">
+                  <span className="text-sm font-medium">Local Presence</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={localPresenceEnabled}
+                    onClick={() => setLocalPresenceEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      localPresenceEnabled ? "bg-primary" : "bg-muted"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                        localPresenceEnabled ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCallingSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCallingSettings} disabled={callingSettingsSaving || callingSettingsLoading}>
+              {callingSettingsSaving ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
