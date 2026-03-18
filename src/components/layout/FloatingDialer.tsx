@@ -410,12 +410,20 @@ const FloatingDialer: React.FC = () => {
     <>
       {open && (
         <div
+          ref={panelRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
-            transition: 'opacity 150ms ease-out, transform 150ms ease-out',
+            transition: isDragging ? 'none' : 'opacity 150ms ease-out, transform 150ms ease-out',
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+            cursor: isDragging ? 'grabbing' : 'default',
+            touchAction: 'none',
           }}
-          className="fixed top-16 right-4 w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          className="fixed w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
