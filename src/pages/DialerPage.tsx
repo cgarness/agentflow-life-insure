@@ -35,7 +35,6 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import {
-  getCampaigns,
   getCampaignLeads,
   getLeadHistory,
   saveCall,
@@ -211,7 +210,6 @@ export default function DialerPage() {
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
-  // loadingCampaigns is provided by useQuery below
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
@@ -257,11 +255,7 @@ export default function DialerPage() {
 
   /* --- queries --- */
   
-  const { data: campaignsData = [], isLoading: loadingCampaigns } = useQuery({
-    queryKey: ["campaigns"],
-    queryFn: getCampaigns,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions"],
@@ -328,8 +322,18 @@ export default function DialerPage() {
   // Note: We prefer using the data from useQuery directly, but some effects or 
   // handlers might expect these states. We'll update them via useEffect for compatibility.
   useEffect(() => {
-    setCampaigns(campaignsData);
-  }, [campaignsData]);
+    const fetchCampaigns = async () => {
+      setCampaignsLoading(true);
+      const { data, error } = await supabase
+        .from('campaigns')
+        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled')
+        .in('status', ['Active', 'Paused'])
+        .order('name', { ascending: true });
+      if (!error && data) setCampaigns(data);
+      setCampaignsLoading(false);
+    };
+    fetchCampaigns();
+  }, []);
 
   useEffect(() => {
     setDispositions(dispositionsData);
@@ -1022,20 +1026,20 @@ export default function DialerPage() {
         </div>
 
         <div className="w-full max-w-7xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {loadingCampaigns && (
-            <div className="flex flex-col items-center justify-center py-12 col-span-full">
-              <Loader2 className="w-6 h-6 animate-spin text-primary mb-3" />
-              <p className="text-sm text-muted-foreground">Loading campaigns…</p>
+          {campaignsLoading && (
+            <div className="flex flex-col gap-4 col-span-full">
+              <div className="h-20 w-full bg-muted animate-pulse rounded-xl" />
+              <div className="h-20 w-full bg-muted animate-pulse rounded-xl" />
+              <div className="h-20 w-full bg-muted animate-pulse rounded-xl" />
             </div>
           )}
-          {!loadingCampaigns && campaignsData.length === 0 && (
-            <div className="text-center py-12 bg-card border border-dashed rounded-xl col-span-full">
-              <p className="text-muted-foreground text-sm">No active campaigns found.</p>
-              <p className="text-muted-foreground text-xs mt-1">Create a campaign to get started.</p>
+          {!campaignsLoading && campaigns.length === 0 && (
+            <div className="flex items-center justify-center py-12 col-span-full">
+              <p className="text-muted-foreground text-sm">No active campaigns</p>
             </div>
           )}
-          {!loadingCampaigns &&
-            campaignsData.map((campaign: any) => {
+          {!campaignsLoading &&
+            campaigns.map((campaign: any) => {
               const total = campaign.total_leads ?? 0;
               const contacted = campaign.leads_contacted ?? 0;
               const converted = campaign.leads_converted ?? 0;
@@ -1120,22 +1124,19 @@ export default function DialerPage() {
                     </div>
                   </div>
 
-                  <div className="flex border-t border-border group-hover:border-transparent">
+                  <div className="flex items-center justify-between mt-3 px-5 pb-5">
                     <button
-                      className="relative z-10 pointer-events-auto p-3.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0 border-r border-border"
-                      title="Calling Settings"
-                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
+                      onClick={() => setSelectedCampaignId(campaign.id)}
+                      className="bg-accent/30 text-accent-foreground py-2.5 px-4 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors rounded-lg flex items-center gap-2 cursor-pointer"
                     >
-                      <Settings className="w-4 h-4" />
+                      <Phone className="w-4 h-4" /> Start Dialing
                     </button>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedCampaignId(campaign.id);
-                      }}
-                      className="flex-1 bg-accent/30 text-accent-foreground py-3.5 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors outline-none flex items-center justify-center gap-2 cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
+                      className="relative z-10 pointer-events-auto p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+                      title="Calling Settings"
                     >
-                      <Phone className="w-4 h-4" /> Start Dialing This List
+                      <Settings className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
