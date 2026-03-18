@@ -428,7 +428,7 @@ const FloatingDialer: React.FC = () => {
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
           {/* Panel Header */}
-          <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
+          <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0" style={{ cursor: 'grab' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span
                 style={{
