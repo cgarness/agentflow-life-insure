@@ -36,7 +36,7 @@ export const mockProfiles: UserProfile[] = [
     { key: "training", label: "Training Completed", completed: false, completedAt: null },
     { key: "first_call", label: "First Call Made", completed: false, completedAt: null },
   ]},
-  { userId: "u6", licensedStates: [], commissionLevel: "50%", onboardingComplete: false, monthlyCallGoal: 80, monthlySalesGoal: 5, weeklyAppointmentGoal: 8, monthlyTalkTimeGoalHours: 15, onboardingItems: defaultOnboarding() },
+  { ...profileDefaults, userId: "u6", licensedStates: [], commissionLevel: "50%", onboardingComplete: false, monthlyCallGoal: 80, monthlySalesGoal: 5, weeklyAppointmentGoal: 8, monthlyTalkTimeGoalHours: 15, onboardingItems: defaultOnboarding() },
 ];
 
 export const mockLeads: Lead[] = [
