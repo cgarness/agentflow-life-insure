@@ -107,16 +107,18 @@ const SpamMonitoring: React.FC = () => {
     setScanningNumbers([]);
 
     try {
-      const { data, error } = await supabase.functions.invoke("spam-check-cron", {
+      // TEMP: calling test-spam-check to verify Edge Function connection
+      const { data, error } = await supabase.functions.invoke("test-spam-check", {
         body: {},
       });
+      console.log("Test function response:", { data, error });
 
       if (error) {
-        console.error("Spam check error:", JSON.stringify(error, null, 2));
-        toast.error(`Failed to check spam status: ${error.message || "Unknown error"}`);
+        console.error("Full error object:", JSON.stringify(error, null, 2));
+        toast.error(`Test failed: ${error.message || JSON.stringify(error)}`);
       } else {
-        console.log("Spam check response:", data);
-        toast.success("Spam check completed! Refreshing data...");
+        console.log("Test succeeded!", data);
+        toast.success(`Test function works! Response: ${data.message}`);
         await refetch();
       }
     } catch (err: any) {
@@ -132,16 +134,18 @@ const SpamMonitoring: React.FC = () => {
     setScanningNumbers([phoneId]);
 
     try {
-      const { data, error } = await supabase.functions.invoke("spam-check-cron", {
+      // TEMP: calling test-spam-check to verify Edge Function connection
+      const { data, error } = await supabase.functions.invoke("test-spam-check", {
         body: { phone_number: phoneNumber },
       });
+      console.log("Test function response:", { data, error });
 
       if (error) {
-        console.error("Spam check error:", JSON.stringify(error, null, 2));
-        toast.error(`Failed to check ${phoneNumber}: ${error.message || "Unknown error"}`);
+        console.error("Full error object:", JSON.stringify(error, null, 2));
+        toast.error(`Test failed: ${error.message || JSON.stringify(error)}`);
       } else {
-        console.log("Spam check response:", data);
-        toast.success(`Checked ${phoneNumber} successfully!`);
+        console.log("Test succeeded!", data);
+        toast.success(`Test function works! Response: ${data.message}`);
         await refetch();
       }
     } catch (err: any) {
