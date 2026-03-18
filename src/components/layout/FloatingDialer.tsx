@@ -458,32 +458,34 @@ const FloatingDialer: React.FC = () => {
             </button>
           </div>
 
-          {/* Calling From Selector */}
-          <div style={{ padding: '4px 12px 8px' }}>
-            <div className="flex items-center gap-2">
-              <span style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Calling from</span>
-              <Select
-                value={selectedPhoneNumber || ''}
-                onValueChange={setSelectedPhoneNumber}
-              >
-                <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
-                  <SelectValue placeholder="Select number" />
-                </SelectTrigger>
-                <SelectContent>
-                  {phoneNumbers.map((phone: any) => (
-                    <SelectItem key={phone.id} value={phone.phone_number}>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">{phone.phone_number}</span>
-                        {phone.is_default && (
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Calling From Selector — hidden during active calls */}
+          {!onCall && (
+            <div style={{ padding: '4px 12px 8px' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground text-[11px] whitespace-nowrap">Calling from</span>
+                <Select
+                  value={selectedPhoneNumber || ''}
+                  onValueChange={setSelectedPhoneNumber}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
+                    <SelectValue placeholder="Select number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {phoneNumbers.map((phone: any) => (
+                      <SelectItem key={phone.id} value={phone.phone_number}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs">{phone.phone_number}</span>
+                          {phone.is_default && (
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Tab Bar */}
           <div className="px-4 pt-3 pb-1 shrink-0">

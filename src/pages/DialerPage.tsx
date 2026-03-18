@@ -1629,30 +1629,33 @@ export default function DialerPage() {
                 <MessageSquare className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-sm text-foreground">Conversation History</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                <Select
-                  value={selectedPhoneNumber || ''}
-                  onValueChange={setSelectedPhoneNumber}
-                  disabled={loadingNumbers}
-                >
-                  <SelectTrigger className="w-[200px] h-7 text-xs">
-                    <SelectValue placeholder="Select number" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {phoneNumbers.map((phone: any) => (
-                      <SelectItem key={phone.id} value={phone.phone_number}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs">{phone.phone_number}</span>
-                          {phone.is_default && (
-                            <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Caller ID selector — hidden during active/dialing calls */}
+              {callState !== "active" && callState !== "dialing" && (
+                <div className="flex items-center gap-2">
+                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Select
+                    value={selectedPhoneNumber || ''}
+                    onValueChange={setSelectedPhoneNumber}
+                    disabled={loadingNumbers}
+                  >
+                    <SelectTrigger className="w-[200px] h-7 text-xs">
+                      <SelectValue placeholder="Select number" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {phoneNumbers.map((phone: any) => (
+                        <SelectItem key={phone.id} value={phone.phone_number}>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs">{phone.phone_number}</span>
+                            {phone.is_default && (
+                              <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
             {/* Scrollable feed — flex-1 overflow-y-auto */}
