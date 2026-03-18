@@ -7,7 +7,6 @@ import { formatDistanceToNow } from "date-fns";
 import {
   Phone,
   PhoneOff,
-  SkipForward,
   Calendar as CalendarIcon,
   Eye,
   Pencil,
@@ -55,13 +54,6 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { AutoDialer } from "@/lib/auto-dialer";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
@@ -226,13 +218,8 @@ export default function DialerPage() {
   // ── Auto-Dial state ──
   const [autoDialer, setAutoDialer] = useState<AutoDialer | null>(null);
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
-  const [dialDelaySeconds, setDialDelaySeconds] = useState(2);
   const [isPaused, setIsPaused] = useState(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
-  // Countdown toast
-  const [showCountdown, setShowCountdown] = useState(false);
-  const [countdownSeconds, setCountdownSeconds] = useState(0);
-  const [leadsRemaining, setLeadsRemaining] = useState(0);
   // DNC warning
   const [showDncWarning, setShowDncWarning] = useState(false);
   const [dncLead, setDncLead] = useState<any>(null);
@@ -436,26 +423,24 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, user?.id]);
 
-  // ── Auto-dial countdown event ──
+  // ── Auto-dial next lead event (auto-dial ON) ──
   useEffect(() => {
-    const handleCountdown = (event: Event) => {
-      const { delaySeconds, leadsRemaining: remaining } = (event as CustomEvent).detail;
-      setCountdownSeconds(delaySeconds);
-      setLeadsRemaining(remaining);
-      setShowCountdown(true);
-      const interval = setInterval(() => {
-        setCountdownSeconds((prev) => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            setShowCountdown(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    const handleNextLead = () => {
+      handleAdvance();
     };
-    window.addEventListener("auto-dial-countdown", handleCountdown);
-    return () => window.removeEventListener("auto-dial-countdown", handleCountdown);
+    window.addEventListener("auto-dial-next-lead", handleNextLead);
+    return () => window.removeEventListener("auto-dial-next-lead", handleNextLead);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Auto-dial lead closed event (auto-dial OFF) ──
+  useEffect(() => {
+    const handleLeadClosed = () => {
+      handleAdvance();
+    };
+    window.addEventListener("auto-dial-lead-closed", handleLeadClosed);
+    return () => window.removeEventListener("auto-dial-lead-closed", handleLeadClosed);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── DNC warning event ──
@@ -715,12 +700,12 @@ export default function DialerPage() {
   };
 
   const handleSaveAndNext = async () => {
-    const toastId = toast.loading("Saving and moving next...");
+    const toastId = toast.loading("Saving...");
     try {
       const success = await saveCallData();
       if (success) {
         setShouldAdvanceAfterModal(true);
-        toast.success("Call saved, moving to next contact", { id: toastId });
+        toast.success("Saved successfully", { id: toastId });
         setSessionStats((s) => ({
           ...s,
           calls: s.calls + 1,
@@ -729,12 +714,13 @@ export default function DialerPage() {
           callbacks: selectedDisp?.callbackScheduler ? s.callbacks + 1 : s.callbacks,
         }));
 
-        // Trigger auto-dial if enabled
-        if (autoDialer && autoDialEnabled && selectedDisp) {
-          await autoDialer.onCallEnd(selectedDisp);
+        // Delegate advance + auto-dial logic to autoDialer
+        if (autoDialer && selectedDisp) {
+          await autoDialer.saveDispositionAndNext(selectedDisp.id, noteText || undefined);
+          // advance happens via auto-dial-next-lead / auto-dial-lead-closed events
+        } else {
+          handleAdvance();
         }
-
-        handleAdvance();
       } else {
         toast.dismiss(toastId);
       }
@@ -1146,29 +1132,6 @@ export default function DialerPage() {
               }}
             />
           </div>
-
-          {/* Delay dropdown */}
-          <Select
-            value={dialDelaySeconds.toString()}
-            onValueChange={(value) => {
-              const secs = parseInt(value);
-              setDialDelaySeconds(secs);
-              if (autoDialer) {
-                (autoDialer as any).dialDelaySeconds = secs;
-              }
-            }}
-            disabled={!autoDialEnabled}
-          >
-            <SelectTrigger className="w-16 h-7 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0">0s</SelectItem>
-              <SelectItem value="2">2s</SelectItem>
-              <SelectItem value="5">5s</SelectItem>
-              <SelectItem value="10">10s</SelectItem>
-            </SelectContent>
-          </Select>
 
           {/* Pause/Resume button */}
           {autoDialEnabled && (
@@ -1932,7 +1895,7 @@ export default function DialerPage() {
                     disabled={!selectedDisp}
                     className="h-11 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Save & Next
+                    Save and Next
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -2068,32 +2031,6 @@ export default function DialerPage() {
           }
         }}
       />
-
-      {/* ── Countdown Toast ── */}
-      {showCountdown && (
-        <div className="fixed top-4 right-4 bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-lg z-50">
-          <div className="flex items-center gap-3">
-            <div className="text-sm text-slate-300">
-              Next call in{" "}
-              <span className="font-bold text-blue-400">{countdownSeconds}s</span>
-              {leadsRemaining > 0 && (
-                <span className="text-slate-500 ml-2">({leadsRemaining} remaining)</span>
-              )}
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs px-2"
-              onClick={() => {
-                autoDialer?.skipToNext();
-                setShowCountdown(false);
-              }}
-            >
-              Skip ►
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* ── DNC Warning Modal ── */}
       <Dialog open={showDncWarning} onOpenChange={setShowDncWarning}>
