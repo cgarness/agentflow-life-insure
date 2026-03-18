@@ -99,42 +99,39 @@ const SpamMonitoring: React.FC = () => {
     if (!phoneNumbers?.length) return;
     setIsScanning(true);
 
-    // Wave animation through rows
-    for (let i = 0; i < phoneNumbers.length; i++) {
-      setScanningNumbers([phoneNumbers[i].id]);
-      await new Promise((r) => setTimeout(r, 300));
-    }
-    setScanningNumbers([]);
-
     try {
-      console.log("=== EDGE FUNCTION CALL DEBUG (Check All) ===");
-      console.log("Supabase URL:", (supabase as any).supabaseUrl);
-      console.log("Calling function: test-spam-check");
+      // Animate wave through rows
+      for (let i = 0; i < phoneNumbers.length; i++) {
+        setScanningNumbers([phoneNumbers[i].id]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
 
-      const { data, error } = await supabase.functions.invoke("test-spam-check", {
-        body: {},
-      });
+      // Call Edge Function with direct fetch
+      const response = await fetch(
+        `${(supabase as any).supabaseUrl}/functions/v1/spam-check-cron`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({}),
+        }
+      );
 
-      console.log("Response data:", data);
-      console.log("Response error:", error);
+      const data = await response.json();
 
-      if (error) {
-        console.error("Error details:", {
-          message: error.message,
-          status: (error as any).status,
-          statusText: (error as any).statusText,
-          context: (error as any).context,
-          name: error.name,
-        });
-        toast.error(`Test failed: ${error.message || JSON.stringify(error)}`);
+      if (!response.ok) {
+        console.error("Spam check failed:", data);
+        toast.error(`Spam check failed: ${data.error || "Unknown error"}`);
       } else {
-        console.log("Success!", data);
-        toast.success(`Test function works! Response: ${data.message}`);
+        console.log("Spam check succeeded:", data);
+        toast.success("Spam check completed! Refreshing data...");
         await refetch();
       }
-    } catch (err: any) {
-      console.error("Caught exception:", err);
-      toast.error(`Failed to check spam status: ${err.message || "Unknown error"}`);
+    } catch (error: any) {
+      console.error("Spam check error:", error);
+      toast.error(`Failed to check spam status: ${error.message}`);
     } finally {
       setIsScanning(false);
       setScanningNumbers([]);
@@ -145,68 +142,33 @@ const SpamMonitoring: React.FC = () => {
     setScanningNumbers([phoneId]);
 
     try {
-      console.log("=== EDGE FUNCTION CALL DEBUG ===");
-      console.log("Supabase URL:", (supabase as any).supabaseUrl);
-      console.log("Calling function: test-spam-check");
-      console.log("Phone number:", phoneNumber);
-
-      const { data, error } = await supabase.functions.invoke("test-spam-check", {
-        body: { phone_number: phoneNumber },
-      });
-
-      console.log("Response data:", data);
-      console.log("Response error:", error);
-
-      if (error) {
-        console.error("Error details:", {
-          message: error.message,
-          status: (error as any).status,
-          statusText: (error as any).statusText,
-          context: (error as any).context,
-          name: error.name,
-        });
-        toast.error(`Test failed: ${error.message || JSON.stringify(error)}`);
-      } else {
-        console.log("Success!", data);
-        toast.success(`Test function works! Response: ${data.message}`);
-        await refetch();
-      }
-    } catch (err: any) {
-      console.error("Caught exception:", err);
-      toast.error(`Failed to check ${phoneNumber}: ${err.message || "Unknown error"}`);
-    } finally {
-      setScanningNumbers([]);
-    }
-  };
-
-  const testDirectFetch = async () => {
-    console.log("=== DIRECT FETCH TEST ===");
-    try {
-      const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuY3Z2c3Zja3hocWdxdmtwcG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njc4ODYsImV4cCI6MjA4ODE0Mzg4Nn0.wlLRugR92OUUpV7_vl8T8EnfPqrAosJ-CfNpKmw0IPE";
       const response = await fetch(
-        "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/test-spam-check",
+        `${(supabase as any).supabaseUrl}/functions/v1/spam-check-cron`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${anonKey}`,
+            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ phone_number: phoneNumber }),
         }
       );
 
-      const responseData = await response.json();
-      console.log("Direct fetch status:", response.status);
-      console.log("Direct fetch response:", responseData);
+      const data = await response.json();
 
-      if (response.ok) {
-        toast.success(`Direct fetch works! Response: ${responseData.message}`);
+      if (!response.ok) {
+        console.error(`Failed to check ${phoneNumber}:`, data);
+        toast.error(`Failed to check ${phoneNumber}: ${data.error || "Unknown error"}`);
       } else {
-        toast.error(`Direct fetch failed: ${responseData.error || response.statusText}`);
+        console.log(`Checked ${phoneNumber} successfully:`, data);
+        toast.success(`Checked ${phoneNumber} successfully!`);
+        await refetch();
       }
-    } catch (err: any) {
-      console.error("Direct fetch error:", err);
-      toast.error(`Direct fetch exception: ${err.message}`);
+    } catch (error: any) {
+      console.error(`Error checking ${phoneNumber}:`, error);
+      toast.error(`Failed to check ${phoneNumber}: ${error.message}`);
+    } finally {
+      setScanningNumbers([]);
     }
   };
 
@@ -252,10 +214,7 @@ const SpamMonitoring: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isScanning}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={testDirectFetch} disabled={isScanning}>
-            Test Direct Fetch
-          </Button>
-          <Button size="sm" onClick={handleCheckAllSpam} disabled={isScanning}>
+<Button size="sm" onClick={handleCheckAllSpam} disabled={isScanning}>
             {isScanning ? (
               <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Scanning...</>
             ) : (
