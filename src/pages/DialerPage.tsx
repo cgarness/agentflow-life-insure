@@ -1012,6 +1012,7 @@ export default function DialerPage() {
     };
 
     return (
+      <>
       <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6">
         {/* Header */}
         <div className="text-center mb-8">
@@ -1149,6 +1150,136 @@ export default function DialerPage() {
             })}
         </div>
       </div>
+
+      {/* ── Calling Settings Dialog ── */}
+      <Dialog open={callingSettingsOpen} onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Calling Settings</DialogTitle>
+            <DialogDescription>
+              Configure call attempt limits and scheduling for{" "}
+              <span className="font-semibold">{campaigns.find(c => c.id === settingsCampaignId)?.name}</span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {callingSettingsLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+            </div>
+          ) : (
+            <div className="space-y-5 py-2">
+              {/* Max Attempts */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Max Call Attempts</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={isUnlimited ? "" : maxAttemptsValue}
+                    disabled={isUnlimited}
+                    onChange={(e) => setMaxAttemptsValue(Number(e.target.value))}
+                    className="w-20 rounded border border-input bg-background px-2 py-1.5 text-sm disabled:opacity-40"
+                    placeholder="3"
+                  />
+                  <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isUnlimited}
+                      onChange={(e) => setIsUnlimited(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    Unlimited
+                  </label>
+                </div>
+              </div>
+
+              {/* Calling Hours */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Calling Hours (local lead time)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={callingHoursStart}
+                    onChange={(e) => setCallingHoursStart(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                  <span className="text-muted-foreground text-sm">to</span>
+                  <input
+                    type="time"
+                    value={callingHoursEnd}
+                    onChange={(e) => setCallingHoursEnd(e.target.value)}
+                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Retry Interval */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Retry Interval (hours)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={retryIntervalHours}
+                  onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
+                  className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                />
+              </div>
+
+              {/* Toggles */}
+              <div className="space-y-3">
+                <label className="flex items-center justify-between cursor-pointer select-none">
+                  <span className="text-sm font-medium">Auto-Dial</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settingsAutoDialEnabled}
+                    onClick={() => setSettingsAutoDialEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      settingsAutoDialEnabled ? "bg-primary" : "bg-muted"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                        settingsAutoDialEnabled ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </label>
+                <label className="flex items-center justify-between cursor-pointer select-none">
+                  <span className="text-sm font-medium">Local Presence</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={localPresenceEnabled}
+                    onClick={() => setLocalPresenceEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      localPresenceEnabled ? "bg-primary" : "bg-muted"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                        localPresenceEnabled ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCallingSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCallingSettings} disabled={callingSettingsSaving || callingSettingsLoading}>
+              {callingSettingsSaving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </>
     );
   }
 
