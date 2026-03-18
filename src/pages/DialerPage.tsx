@@ -1067,7 +1067,7 @@ export default function DialerPage() {
                         {campaign.name}
                       </h3>
                       <button
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                        className="relative z-10 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
                         title="Calling Settings"
                         onClick={e => { e.stopPropagation(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
                       >
