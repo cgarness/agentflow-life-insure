@@ -6,10 +6,19 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useTelnyx } from "@/contexts/TelnyxContext";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
 interface ContactResult {
   id: string;
@@ -83,8 +92,8 @@ const FloatingDialer: React.FC = () => {
   // --- Keypad press state ---
   const [pressedKey, setPressedKey] = useState<string | null>(null);
 
-  // --- Calling from default number ---
-  const [defaultNumber, setDefaultNumber] = useState<string | null>(null);
+  // --- Phone number selector ---
+  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
 
   // --- Keypad state ---
   const [dialedNumber, setDialedNumber] = useState("");
@@ -121,7 +130,7 @@ const FloatingDialer: React.FC = () => {
     return pickCallerId(phone, phoneCache);
   }, [selectedContact?.phone, dialedNumber, phoneCache]);
 
-  const callerNumber = currentCallerId.callerNumber || "+10000000000";
+  const callerNumber = selectedPhoneNumber || currentCallerId.callerNumber || "+10000000000";
 
   // Listen for toggle event from TopBar
   useEffect(() => {
@@ -170,25 +179,26 @@ const FloatingDialer: React.FC = () => {
     }
   }, [open]);
 
-  // Fetch default phone number for "Calling from" badge
-  useEffect(() => {
-    const fetchDefaultNumber = async () => {
-      const { data } = await supabase
+  // Fetch active phone numbers for selector
+  const { data: phoneNumbers = [] } = useQuery({
+    queryKey: ['phone-numbers-active'],
+    queryFn: async () => {
+      const { data, error } = await supabase
         .from('phone_numbers')
-        .select('phone_number')
-        .eq('is_default', true)
-        .maybeSingle();
-      if (data?.phone_number) {
-        const digits = data.phone_number.replace(/\D/g, '');
-        const ten = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits;
-        const formatted = ten.length === 10
-          ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`
-          : data.phone_number;
-        setDefaultNumber(formatted);
-      }
-    };
-    fetchDefaultNumber();
-  }, []);
+        .select('*')
+        .eq('status', 'active')
+        .order('is_default', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    if (phoneNumbers.length > 0 && !selectedPhoneNumber) {
+      const defaultNumber = phoneNumbers.find((p: any) => p.is_default);
+      setSelectedPhoneNumber(defaultNumber?.phone_number || phoneNumbers[0].phone_number);
+    }
+  }, [phoneNumbers, selectedPhoneNumber]);
 
   // Telnyx connection managed by shared TelnyxContext
 
@@ -408,34 +418,31 @@ const FloatingDialer: React.FC = () => {
             </button>
           </div>
 
-          {/* Calling From Badge Row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px 8px' }}>
-            <span style={{ fontSize: '11px', color: '#94a3b8' }}>Calling from</span>
-            <span
-              style={{
-                background: defaultNumber ? '#2563eb' : '#d97706',
-                color: 'white',
-                borderRadius: '9999px',
-                padding: '2px 10px',
-                fontSize: '11px',
-                fontWeight: 500,
-              }}
-            >
-              {defaultNumber || 'No default number set'}
-            </span>
-            {/* TODO: wire to spam monitoring service */}
-            <span
-              style={{
-                background: '#4b5563',
-                color: 'white',
-                borderRadius: '9999px',
-                padding: '2px 10px',
-                fontSize: '11px',
-                fontWeight: 500,
-              }}
-            >
-              Spam Check Pending
-            </span>
+          {/* Calling From Selector */}
+          <div style={{ padding: '4px 12px 8px' }}>
+            <div className="flex items-center gap-2">
+              <span style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap' }}>Calling from</span>
+              <Select
+                value={selectedPhoneNumber || ''}
+                onValueChange={setSelectedPhoneNumber}
+              >
+                <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
+                  <SelectValue placeholder="Select number" />
+                </SelectTrigger>
+                <SelectContent>
+                  {phoneNumbers.map((phone: any) => (
+                    <SelectItem key={phone.id} value={phone.phone_number}>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs">{phone.phone_number}</span>
+                        {phone.is_default && (
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Tab Bar */}

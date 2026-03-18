@@ -67,6 +67,14 @@ import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
 import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
 /* ─── Types ─── */
 
@@ -279,6 +287,29 @@ export default function DialerPage() {
     staleTime: 1000 * 60 * 60, // 1 hour
   });
 
+  // ── Phone number selector ──
+  const { data: phoneNumbers = [], isLoading: loadingNumbers } = useQuery({
+    queryKey: ['phone-numbers-active'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('phone_numbers')
+        .select('*')
+        .eq('status', 'active')
+        .order('is_default', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (phoneNumbers.length > 0 && !selectedPhoneNumber) {
+      const defaultNumber = phoneNumbers.find((p: any) => p.is_default);
+      setSelectedPhoneNumber(defaultNumber?.phone_number || phoneNumbers[0].phone_number);
+    }
+  }, [phoneNumbers, selectedPhoneNumber]);
+
   /* --- effects for syncing query data to state if needed --- */
   // Note: We prefer using the data from useQuery directly, but some effects or 
   // handlers might expect these states. We'll update them via useEffect for compatibility.
@@ -471,12 +502,12 @@ export default function DialerPage() {
     const handleAutoDialCall = (event: Event) => {
       const { lead, callerNumber } = (event as CustomEvent).detail;
       if (lead?.phone) {
-        telnyxMakeCall(lead.phone);
+        telnyxMakeCall(lead.phone, callerNumber || selectedPhoneNumber || undefined);
       }
     };
     window.addEventListener("auto-dial-call", handleAutoDialCall);
     return () => window.removeEventListener("auto-dial-call", handleAutoDialCall);
-  }, [telnyxMakeCall]);
+  }, [telnyxMakeCall, selectedPhoneNumber]);
 
   /* --- call handlers --- */
 
@@ -489,7 +520,11 @@ export default function DialerPage() {
       toast.error("Dialer error. Please check your settings.");
       return;
     }
-    telnyxMakeCall(currentLead.phone);
+    if (!selectedPhoneNumber) {
+      toast.error("Please select a caller ID first");
+      return;
+    }
+    telnyxMakeCall(currentLead.phone, selectedPhoneNumber);
   }
 
   function handleHangUp() {
@@ -1387,9 +1422,30 @@ export default function DialerPage() {
                 <MessageSquare className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-sm text-foreground">Conversation History</span>
               </div>
-              <select className="bg-accent border border-border text-xs text-foreground rounded-lg px-2 py-1 h-7">
-                <option>+19097381193</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                <Select
+                  value={selectedPhoneNumber || ''}
+                  onValueChange={setSelectedPhoneNumber}
+                  disabled={loadingNumbers}
+                >
+                  <SelectTrigger className="w-[200px] h-7 text-xs">
+                    <SelectValue placeholder="Select number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {phoneNumbers.map((phone: any) => (
+                      <SelectItem key={phone.id} value={phone.phone_number}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs">{phone.phone_number}</span>
+                          {phone.is_default && (
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Scrollable feed — flex-1 overflow-y-auto */}
