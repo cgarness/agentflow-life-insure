@@ -1079,10 +1079,10 @@ export default function DialerPage() {
                         setSettingsCampaignId(campaign.id)
                         setCallingSettingsOpen(true)
                       }}
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+                      className="relative pointer-events-auto p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
                       title="Calling Settings"
                     >
-                      <Settings className="w-4 h-4" />
+                      <Settings className="w-4 h-4 pointer-events-none" />
                     </button>
                   </div>
 
