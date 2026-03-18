@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import {
-  RefreshCw, Radar, ChevronRight, Phone, Loader2,
+  RefreshCw, Radar, ChevronRight, Phone, Loader2, Shield,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -44,13 +45,13 @@ const getSpamBadge = (status: string | null) => {
 const getAttestationBadge = (level: string | null) => {
   switch (level?.toUpperCase()) {
     case "A":
-      return <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">🟢 Full (A)</span>;
+      return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">Full (A)</Badge>;
     case "B":
-      return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">🟡 Partial (B)</span>;
+      return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">Partial (B)</Badge>;
     case "C":
-      return <span className="text-xs font-medium text-orange-600 dark:text-orange-400">🟠 Gateway (C)</span>;
+      return <Badge className="bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30">Gateway (C)</Badge>;
     default:
-      return <span className="text-xs font-medium text-red-600 dark:text-red-400">🔴 None</span>;
+      return <Badge variant="destructive">None</Badge>;
   }
 };
 
@@ -60,18 +61,18 @@ const getHealthBadge = (spamStatus: string | null, callCount: number, callLimit:
   const isAtRisk = spamStatus?.toLowerCase() === "at_risk" || spamStatus?.toLowerCase() === "at risk";
 
   if (isFlagged || pct >= 80) {
-    return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">🔴 Critical</Badge>;
+    return <Badge variant="destructive">Critical</Badge>;
   }
   if (isAtRisk || pct >= 50) {
-    return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">🟡 Warning</Badge>;
+    return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">Warning</Badge>;
   }
-  return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">🟢 Healthy</Badge>;
+  return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">Healthy</Badge>;
 };
 
 const SpamMonitoring: React.FC = () => {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
-  const [scanningIndex, setScanningIndex] = useState<number | null>(null);
+  const [scanningNumbers, setScanningNumbers] = useState<string[]>([]);
 
   const { data: phoneNumbers, refetch, isLoading } = useQuery({
     queryKey: ["phone-numbers-spam"],
@@ -94,24 +95,61 @@ const SpamMonitoring: React.FC = () => {
     });
   };
 
-  const handleCheckSpamNow = async () => {
+  const handleCheckAllSpam = async () => {
     if (!phoneNumbers?.length) return;
     setIsScanning(true);
 
+    // Wave animation through rows
     for (let i = 0; i < phoneNumbers.length; i++) {
-      setScanningIndex(i);
+      setScanningNumbers([phoneNumbers[i].id]);
       await new Promise((r) => setTimeout(r, 300));
     }
-    setScanningIndex(null);
+    setScanningNumbers([]);
 
-    const { error } = await supabase.functions.invoke("spam-check-cron");
-    if (error) {
-      toast.error("Failed to check spam status");
-    } else {
-      toast.success("Spam check completed! Refreshing data...");
-      refetch();
+    try {
+      const { data, error } = await supabase.functions.invoke("spam-check-cron", {
+        body: {},
+      });
+
+      if (error) {
+        console.error("Spam check error:", JSON.stringify(error, null, 2));
+        toast.error(`Failed to check spam status: ${error.message || "Unknown error"}`);
+      } else {
+        console.log("Spam check response:", data);
+        toast.success("Spam check completed! Refreshing data...");
+        await refetch();
+      }
+    } catch (err: any) {
+      console.error("Spam check failed:", err);
+      toast.error(`Failed to check spam status: ${err.message || "Unknown error"}`);
+    } finally {
+      setIsScanning(false);
+      setScanningNumbers([]);
     }
-    setIsScanning(false);
+  };
+
+  const handleCheckIndividual = async (phoneId: string, phoneNumber: string) => {
+    setScanningNumbers([phoneId]);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("spam-check-cron", {
+        body: { phone_number: phoneNumber },
+      });
+
+      if (error) {
+        console.error("Spam check error:", JSON.stringify(error, null, 2));
+        toast.error(`Failed to check ${phoneNumber}: ${error.message || "Unknown error"}`);
+      } else {
+        console.log("Spam check response:", data);
+        toast.success(`Checked ${phoneNumber} successfully!`);
+        await refetch();
+      }
+    } catch (err: any) {
+      console.error("Spam check failed:", err);
+      toast.error(`Failed to check ${phoneNumber}: ${err.message || "Unknown error"}`);
+    } finally {
+      setScanningNumbers([]);
+    }
   };
 
   const cleanCount = phoneNumbers?.filter((p) => p.spam_status?.toLowerCase() === "clean").length ?? 0;
@@ -156,8 +194,12 @@ const SpamMonitoring: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isScanning}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
-          <Button size="sm" onClick={handleCheckSpamNow} disabled={isScanning}>
-            {isScanning ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Scanning...</> : "Check Spam Now"}
+          <Button size="sm" onClick={handleCheckAllSpam} disabled={isScanning}>
+            {isScanning ? (
+              <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Scanning...</>
+            ) : (
+              <><Shield className="w-4 h-4 mr-1" /> Check All</>
+            )}
           </Button>
         </div>
       </div>
@@ -192,23 +234,27 @@ const SpamMonitoring: React.FC = () => {
                 <th className="px-3 py-3 text-left font-medium">Limit</th>
                 <th className="px-3 py-3 text-left font-medium">Last Checked</th>
                 <th className="px-3 py-3 text-left font-medium">Health</th>
+                <th className="px-3 py-3 text-left font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {phoneNumbers?.map((num, idx) => {
+              {phoneNumbers?.map((num) => {
                 const isExpanded = expandedRows.has(num.id);
                 const callCount = num.daily_call_count ?? 0;
                 const callLimit = num.daily_call_limit ?? 100;
                 const callPct = callLimit > 0 ? Math.min((callCount / callLimit) * 100, 100) : 0;
                 const score = num.spam_score ?? 0;
-                const isScanningRow = isScanning && scanningIndex === idx;
+                const isScanningRow = scanningNumbers.includes(num.id);
                 const carrierData = num.carrier_reputation_data as any;
 
                 return (
                   <React.Fragment key={num.id}>
                     <motion.tr
                       onClick={() => toggleRow(num.id)}
-                      className="cursor-pointer hover:bg-accent/30 transition-colors"
+                      className={cn(
+                        "cursor-pointer hover:bg-accent/30 transition-colors",
+                        isScanningRow && "bg-green-100 dark:bg-green-950"
+                      )}
                       animate={isScanningRow ? { backgroundColor: ["hsl(var(--card))", "hsl(142 76% 36% / 0.15)", "hsl(var(--card))"] } : {}}
                       transition={isScanningRow ? { duration: 0.6, ease: "easeInOut" } : {}}
                     >
@@ -239,13 +285,29 @@ const SpamMonitoring: React.FC = () => {
                           : "Never"}
                       </td>
                       <td className="px-3 py-3">{getHealthBadge(num.spam_status, callCount, callLimit)}</td>
+                      <td className="px-3 py-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCheckIndividual(num.id, num.phone_number);
+                          }}
+                          disabled={isScanning || isScanningRow}
+                        >
+                          <RefreshCw className={cn(
+                            "h-4 w-4",
+                            isScanningRow && "animate-spin"
+                          )} />
+                        </Button>
+                      </td>
                     </motion.tr>
 
                     {/* Expanded row */}
                     <AnimatePresence>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={9} className="p-0">
+                          <td colSpan={10} className="p-0">
                             <motion.div
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: "auto", opacity: 1 }}
