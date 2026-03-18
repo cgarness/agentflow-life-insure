@@ -74,7 +74,7 @@ export class AutoDialer {
       .select('*')
       .order('is_default', { ascending: false });
 
-    this.phoneNumbers = (phones || []) as PhoneNumber[];
+    this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];
 
     // Load lead queue
     const { data: leads } = await supabase
