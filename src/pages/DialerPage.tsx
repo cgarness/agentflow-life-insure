@@ -1060,19 +1060,12 @@ export default function DialerPage() {
                   key={campaign.id}
                   className="bg-card border border-border rounded-xl flex flex-col hover:border-primary/50 hover:shadow-lg transition-all group overflow-hidden"
                 >
-                  <div className="p-5 flex-1 flex flex-col cursor-pointer" onClick={() => setSelectedCampaignId(campaign.id)}>
-                    
+                  <div className="p-5 flex-1 flex flex-col">
+
                     <div className="mb-4 flex items-start justify-between gap-2">
                       <h3 className="font-bold text-xl text-foreground leading-tight line-clamp-2">
                         {campaign.name}
                       </h3>
-                      <button
-                        className="relative z-10 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-                        title="Calling Settings"
-                        onClick={e => { e.stopPropagation(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
-                      >
-                        <Settings className="w-4 h-4" />
-                      </button>
                     </div>
 
                     <div className="flex items-center gap-2 mb-4">
@@ -1127,15 +1120,24 @@ export default function DialerPage() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedCampaignId(campaign.id);
-                    }}
-                    className="w-full bg-accent/30 text-accent-foreground py-3.5 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors outline-none flex items-center justify-center gap-2 border-t border-border group-hover:border-transparent cursor-pointer"
-                  >
-                    <Phone className="w-4 h-4" /> Start Dialing This List
-                  </button>
+                  <div className="flex border-t border-border group-hover:border-transparent">
+                    <button
+                      className="relative z-10 pointer-events-auto p-3.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0 border-r border-border"
+                      title="Calling Settings"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedCampaignId(campaign.id);
+                      }}
+                      className="flex-1 bg-accent/30 text-accent-foreground py-3.5 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors outline-none flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Phone className="w-4 h-4" /> Start Dialing This List
+                    </button>
+                  </div>
                 </div>
               );
             })}
