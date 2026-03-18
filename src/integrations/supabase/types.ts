@@ -475,6 +475,8 @@ export type Database = {
         Row: {
           assigned_agent_ids: Json | null
           auto_dial_enabled: boolean | null
+          calling_hours_end: string | null
+          calling_hours_start: string | null
           created_at: string | null
           created_by: string | null
           description: string | null
@@ -482,7 +484,9 @@ export type Database = {
           leads_contacted: number | null
           leads_converted: number | null
           local_presence_enabled: boolean | null
+          max_attempts: number | null
           name: string
+          retry_interval_hours: number | null
           status: string
           tags: Json | null
           total_leads: number | null
@@ -492,6 +496,8 @@ export type Database = {
         Insert: {
           assigned_agent_ids?: Json | null
           auto_dial_enabled?: boolean | null
+          calling_hours_end?: string | null
+          calling_hours_start?: string | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
@@ -499,7 +505,9 @@ export type Database = {
           leads_contacted?: number | null
           leads_converted?: number | null
           local_presence_enabled?: boolean | null
+          max_attempts?: number | null
           name: string
+          retry_interval_hours?: number | null
           status?: string
           tags?: Json | null
           total_leads?: number | null
@@ -509,6 +517,8 @@ export type Database = {
         Update: {
           assigned_agent_ids?: Json | null
           auto_dial_enabled?: boolean | null
+          calling_hours_end?: string | null
+          calling_hours_start?: string | null
           created_at?: string | null
           created_by?: string | null
           description?: string | null
@@ -516,7 +526,9 @@ export type Database = {
           leads_contacted?: number | null
           leads_converted?: number | null
           local_presence_enabled?: boolean | null
+          max_attempts?: number | null
           name?: string
+          retry_interval_hours?: number | null
           status?: string
           tags?: Json | null
           total_leads?: number | null
