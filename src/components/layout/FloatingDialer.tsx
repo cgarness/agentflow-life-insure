@@ -57,6 +57,31 @@ function timeAgo(dateStr: string): string {
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+
+  // --- Drag state ---
+  const [position, setPosition] = useState({ x: window.innerWidth - 340 - 16, y: 64 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, select, [role="listbox"], [role="option"], [data-radix-popper-content-wrapper]')) return;
+    setIsDragging(true);
+    dragOffset.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [position]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging) return;
+    const newX = Math.max(0, Math.min(window.innerWidth - 340, e.clientX - dragOffset.current.x));
+    const newY = Math.max(0, Math.min(window.innerHeight - 200, e.clientY - dragOffset.current.y));
+    setPosition({ x: newX, y: newY });
+  }, [isDragging]);
+
+  const handlePointerUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
   const {
     status: telnyxStatus,
     callState: telnyxCallState,
@@ -385,17 +410,25 @@ const FloatingDialer: React.FC = () => {
     <>
       {open && (
         <div
+          ref={panelRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
-            transition: 'opacity 150ms ease-out, transform 150ms ease-out',
+            transition: isDragging ? 'none' : 'opacity 150ms ease-out, transform 150ms ease-out',
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+            cursor: isDragging ? 'grabbing' : 'default',
+            touchAction: 'none',
           }}
-          className="fixed top-16 right-4 w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          className="fixed w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
           {/* Panel Header */}
-          <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
+          <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0" style={{ cursor: 'grab' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span
                 style={{
