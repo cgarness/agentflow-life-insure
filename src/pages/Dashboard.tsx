@@ -846,7 +846,7 @@ const Dashboard: React.FC = () => {
                             {win.campaignName && (
                               <Badge variant="outline" className="text-xs">{win.campaignName}</Badge>
                             )}
-                            <span className="text-xs text-muted-foreground">{formatDateTime(new Date(win.timestamp))}</span>
+                            <span className="text-xs text-muted-foreground">{formatDateTime(new Date(win.createdAt))}</span>
                           </div>
                         </div>
                       </div>

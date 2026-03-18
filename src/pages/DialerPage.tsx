@@ -2057,7 +2057,7 @@ export default function DialerPage() {
             <Button
               variant="outline"
               onClick={() => {
-                autoDialer?.skipToNext();
+                (autoDialer as any)?.skipToNext?.();
                 setShowDncWarning(false);
               }}
             >

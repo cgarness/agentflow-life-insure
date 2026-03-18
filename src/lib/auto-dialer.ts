@@ -74,7 +74,7 @@ export class AutoDialer {
       .select('*')
       .order('is_default', { ascending: false });
 
-    this.phoneNumbers = (phones || []) as PhoneNumber[];
+    this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];
 
     // Load lead queue
     const { data: leads } = await supabase
@@ -177,7 +177,7 @@ export class AutoDialer {
     console.log(`Saving disposition ${dispositionId} for lead ${lead?.id}`);
 
     // Save disposition to database
-    await supabase
+    await (supabase as any)
       .from('call_dispositions')
       .insert({
         lead_id: lead.id,
@@ -185,7 +185,7 @@ export class AutoDialer {
         agent_id: this.agentId,
         notes: notes ?? null,
         created_at: new Date().toISOString()
-      } as any);
+      });
 
     // Mark lead as Called
     await supabase
