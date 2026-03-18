@@ -59,14 +59,13 @@ Deno.serve(async (req) => {
             Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
         );
 
-        // 1. Get API Key - prefer directly passed key, fall back to database
+        // 1. Get API Key - prefer directly passed key, fall back to telnyx_settings table
         let apiKey = directApiKey;
 
         if (!apiKey) {
             const { data: config, error: fetchError } = await supabaseClient
-                .from("phone_settings")
-                .select("*")
-                .eq("id", SINGLETON_ID)
+                .from("telnyx_settings")
+                .select("api_key")
                 .maybeSingle();
 
             if (fetchError) throw fetchError;
@@ -75,18 +74,18 @@ Deno.serve(async (req) => {
 
         if (!apiKey) throw new Error("Telnyx API key not found. Please save your API Key in Settings first.");
 
+        // Normalize phone number to E.164 (strip dashes, spaces)
+        const normalizedNumber = phone_number.replace(/[\s\-\(\)\.]/g, "");
+
         const webhookUrl = "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-webhook";
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const appName = `AgentFlow CRM ${timestamp}`;
 
-        // 2. Order the Phone Number
-        console.log(`Ordering number: ${phone_number}...`);
-        const orderResponse = await telnyxApiCall("POST", "/number_orders", apiKey, {
-            phone_numbers: [{ phone_number }]
+        // 2. Purchase the Phone Number
+        console.log(`Purchasing number: ${normalizedNumber}...`);
+        const orderResponse = await telnyxApiCall("POST", "/phone_numbers", apiKey, {
+            phone_number: normalizedNumber
         });
-
-        // We assume the order completes successfully (usually instant for single local numbers). 
-        // In a robust production environment, you might poll the order status.
 
         // 3. Create Outbound Voice Profile
         console.log(`Creating Outbound Profile: ${appName}...`);
@@ -139,21 +138,29 @@ Deno.serve(async (req) => {
 
         // 6. Update the Phone Number to use our new application
         console.log(`Linking Phone Number to TeXML App...`);
-        await telnyxApiCall("PATCH", `/phone_numbers/${encodeURIComponent(phone_number)}`, apiKey, {
+        await telnyxApiCall("PATCH", `/phone_numbers/${encodeURIComponent(normalizedNumber)}`, apiKey, {
             connection_id: appId
         });
 
         // 7. Store everything in the CRM
         console.log(`Saving to database...`);
+
+        // Check if this is the first number (should be default)
+        const { count: existingCount } = await supabaseClient
+            .from("phone_numbers")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "active");
+
+        const isFirstNumber = (existingCount ?? 0) === 0;
+
         const { error: dbError } = await supabaseClient
             .from("phone_numbers")
             .insert([{
-                phone_number: phone_number,
+                phone_number: normalizedNumber,
                 friendly_name: "Automated Line",
                 status: "active",
-                // In a real multi-agent scenario, you'd store the sipUsername and password on this row 
-                // to pass to the dialer for this specific user. For now, since the dialer relies on the 
-                // singleton 'phone_settings', we'll update the master settings with these new keys.
+                is_default: isFirstNumber,
+                created_at: new Date().toISOString(),
             }]);
 
         if (dbError) {
@@ -174,7 +181,7 @@ Deno.serve(async (req) => {
         return new Response(
             JSON.stringify({
                 success: true,
-                phone_number,
+                phone_number: normalizedNumber,
                 message: "Number purchased and fully configured successfully."
             }),
             {

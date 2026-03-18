@@ -30,9 +30,8 @@ Deno.serve(async (req) => {
             );
 
             const { data: config, error: fetchError } = await supabaseClient
-                .from("phone_settings")
+                .from("telnyx_settings")
                 .select("api_key")
-                .eq("id", SINGLETON_ID)
                 .maybeSingle();
 
             if (fetchError) throw fetchError;
@@ -62,7 +61,19 @@ Deno.serve(async (req) => {
             throw new Error(errData.errors?.[0]?.detail || "Failed to search Telnyx numbers");
         }
 
-        const { data: numbers } = await searchResponse.json();
+        const { data: rawNumbers } = await searchResponse.json();
+
+        // Map to include locality and region for display
+        const numbers = (rawNumbers || []).map((n: any) => ({
+            phone_number: n.phone_number,
+            locality: n.locality || null,
+            region: n.region_information?.[0]?.region_name || n.region || null,
+            region_code: n.region_information?.[0]?.region_type === "state"
+                ? n.region_information?.[0]?.region_name
+                : n.region || null,
+            features: n.features,
+            monthly_cost: n.cost_information?.monthly_cost || n.monthly_cost || null,
+        }));
 
         return new Response(
             JSON.stringify({ numbers }),
