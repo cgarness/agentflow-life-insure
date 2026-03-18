@@ -174,12 +174,14 @@ export default function DialerPage() {
   const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
   const [leftTab, setLeftTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
   // Call status from context
-  const { 
-    status: telnyxStatus, 
-    callState, 
-    callDuration: telnyxCallDuration, 
-    makeCall: telnyxMakeCall, 
-    hangUp: telnyxHangUp 
+  const {
+    status: telnyxStatus,
+    callState,
+    callDuration: telnyxCallDuration,
+    makeCall: telnyxMakeCall,
+    hangUp: telnyxHangUp,
+    initializeClient: telnyxInitialize,
+    destroyClient: telnyxDestroy,
   } = useTelnyx();
 
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
@@ -516,6 +518,8 @@ export default function DialerPage() {
     const dialer = new AutoDialer(sessionIdRef.current, selectedCampaignId, agentId);
     dialer.startSession();
     setAutoDialer(dialer);
+    // Eagerly register TelnyxRTC so the client is ready before the first call
+    telnyxInitialize();
     return () => {
       dialer.pauseAutoDialer();
     };
@@ -1323,8 +1327,9 @@ export default function DialerPage() {
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 pt-1 pb-2 gap-4">
         {/* LEFT */}
-        <button 
+        <button
           onClick={() => {
+            telnyxDestroy();
             setSelectedCampaignId(null);
             setLeadQueue([]);
             setCurrentLeadIndex(0);
@@ -1801,6 +1806,36 @@ export default function DialerPage() {
               <span className="leading-none">Skip</span>
             </button>
           </div>
+
+          {/* Telnyx connection status indicator */}
+          {telnyxStatus !== "idle" && (
+            <div className="flex items-center gap-1.5 mb-2 px-0.5">
+              {telnyxStatus === "connecting" && (
+                <>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#94a3b8', display: 'inline-block', flexShrink: 0 }} />
+                  <span className="text-[10px] text-muted-foreground">Connecting…</span>
+                </>
+              )}
+              {telnyxStatus === "ready" && (
+                <>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
+                  <span className="text-[10px] text-muted-foreground">Ready</span>
+                </>
+              )}
+              {telnyxStatus === "error" && (
+                <>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block', flexShrink: 0 }} />
+                  <span className="text-[10px] text-muted-foreground">Connection failed —</span>
+                  <button
+                    onClick={() => telnyxInitialize()}
+                    className="text-[10px] text-primary underline underline-offset-2"
+                  >
+                    retry
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Main Controls Card with truly fixed footer */}
           <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 min-w-0">

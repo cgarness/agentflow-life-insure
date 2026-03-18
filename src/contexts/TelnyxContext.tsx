@@ -16,10 +16,13 @@ interface TelnyxContextValue {
   isMuted: boolean;
   isOnHold: boolean;
   defaultCallerNumber: string;
+  isReady: boolean;
   makeCall: (destinationNumber: string, callerNumber?: string) => void;
   hangUp: () => void;
   toggleMute: () => void;
   toggleHold: () => void;
+  initializeClient: () => Promise<void>;
+  destroyClient: () => void;
 }
 
 const TelnyxContext = createContext<TelnyxContextValue | null>(null);
@@ -59,12 +62,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, []);
 
-  // Initialize TelnyxRTC
-  useEffect(() => {
-    let client: any;
-    let mounted = true;
+  const initializeClient = useCallback(async () => {
+    // Skip if already connecting or ready
+    if (clientRef.current) return;
 
-    const init = async () => {
+    setStatus("connecting");
+    setErrorMessage(null);
+
+    try {
       // 1. Fetch credentials
       const { data: settings } = await (supabase as any)
         .from("telnyx_settings")
@@ -72,116 +77,115 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .eq("id", TELNYX_SETTINGS_ID)
         .maybeSingle();
 
-      if (!mounted) return;
-
       const creds = settings as any;
       if (!creds || !creds.api_key) {
-        // No credentials configured — stay idle silently
         setStatus("idle");
         return;
       }
 
-      setStatus("connecting");
+      // 2. Fetch SIP credentials via edge function
+      const { data: tokenData, error: tokenError } = await supabase.functions.invoke("telnyx-token", {
+        body: { connection_id: creds.connection_id },
+      });
 
-      // 2. Fetch SIP credentials
+      if (tokenError || !tokenData?.sip_username) {
+        setStatus("error");
+        setErrorMessage(tokenData?.error || tokenError?.message || "Failed to get SIP credentials");
+        return;
+      }
+
+      // 3. Pre-acquire microphone so permission is already granted at call time
       try {
-        const { data: tokenData, error: tokenError } = await supabase.functions.invoke("telnyx-token", {
-          body: { connection_id: creds.connection_id },
-        });
+        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        // Mic denied — still register; makeCall will handle the prompt
+      }
 
-        if (!mounted) return;
+      // 4. Initialize TelnyxRTC with SIP credentials
+      const client = new TelnyxRTC({
+        login: tokenData.sip_username,
+        password: tokenData.sip_password,
+      } as any);
 
-        if (tokenError || !tokenData?.sip_username) {
-          setStatus("error");
-          setErrorMessage(tokenData?.error || tokenError?.message || "Failed to get SIP credentials");
-          return;
+      client.on("telnyx.ready", () => {
+        setStatus("ready");
+        setErrorMessage(null);
+        console.log("TelnyxRTC ready (eager init)");
+      });
+
+      client.on("telnyx.error", (error: any) => {
+        console.error('TelnyxRTC full error:', JSON.stringify(error, null, 2));
+        console.error('TelnyxRTC error message:', error?.message);
+        console.error('TelnyxRTC error code:', error?.code);
+        setStatus('error');
+        setErrorMessage(error?.message || error?.code || 'Connection failed - check browser console');
+      });
+
+      client.on("telnyx.notification", (notification: any) => {
+        if (!notification.call) return;
+        const call = notification.call;
+        callRef.current = call;
+        setCurrentCall(call);
+
+        const state = call.state;
+        if (state === "active") {
+          setCallState("active");
+        } else if (state === "destroy" || state === "hangup") {
+          setCallState("ended");
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => track.stop());
+            mediaStreamRef.current = null;
+          }
+          endResetRef.current = setTimeout(() => {
+            setCallState("idle");
+            setCallDuration(0);
+            setCurrentCall(null);
+            setIsMuted(false);
+            setIsOnHold(false);
+            callRef.current = null;
+          }, 2000);
+        } else if (state === "ringing" || state === "trying") {
+          setCallState("dialing");
         }
+      });
 
-        // 4. Initialize TelnyxRTC with SIP credentials
-        client = new TelnyxRTC({
-          login: tokenData.sip_username,
-          password: tokenData.sip_password,
-        } as any);
+      clientRef.current = client;
+      client.connect();
+    } catch (err: any) {
+      setStatus("error");
+      setErrorMessage(err?.message || "Could not initialize dialer");
+    }
+  }, []);
 
-        client.on("telnyx.ready", () => {
-          if (mounted) {
-            setStatus("ready");
-            setErrorMessage(null);
-            console.log("TelnyxRTC ready (shared context)");
-          }
-        });
-
-        client.on("telnyx.error", (error: any) => {
-          if (mounted) {
-            console.error('TelnyxRTC full error:', JSON.stringify(error, null, 2));
-            console.error('TelnyxRTC error message:', error?.message);
-            console.error('TelnyxRTC error code:', error?.code);
-            setStatus('error');
-            setErrorMessage(error?.message || error?.code || 'Connection failed - check browser console');
-          }
-        });
-
-        client.on("telnyx.notification", (notification: any) => {
-          if (!mounted || !notification.call) return;
-          const call = notification.call;
-          callRef.current = call;
-          setCurrentCall(call);
-
-          const state = call.state;
-          if (state === "active") {
-            setCallState("active");
-          } else if (state === "destroy" || state === "hangup") {
-            setCallState("ended");
-            // Stop timer
-            if (timerRef.current) {
-              clearInterval(timerRef.current);
-              timerRef.current = null;
-            }
-            // Stop microphone stream so red recording dot goes away
-            if (mediaStreamRef.current) {
-              mediaStreamRef.current.getTracks().forEach(track => track.stop());
-              mediaStreamRef.current = null;
-            }
-            // Reset after 2 seconds
-            endResetRef.current = setTimeout(() => {
-              if (mounted) {
-                setCallState("idle");
-                setCallDuration(0);
-                setCurrentCall(null);
-                setIsMuted(false);
-                setIsOnHold(false);
-                callRef.current = null;
-              }
-            }, 2000);
-          } else if (state === "ringing" || state === "trying") {
-            setCallState("dialing");
-          }
-        });
-
-        clientRef.current = client;
-        client.connect();
-      } catch (err: any) {
-        if (mounted) {
-          setStatus("error");
-          setErrorMessage(err?.message || "Could not initialize dialer");
-        }
-      }
-    };
-
-    init();
-
-    return () => {
-      mounted = false;
-      if (client) {
-        try { client.disconnect(); } catch {} // eslint-disable-line no-empty
-      }
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (endResetRef.current) clearTimeout(endResetRef.current);
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
-        mediaStreamRef.current = null;
-      }
-    };
+  const destroyClient = useCallback(() => {
+    if (clientRef.current) {
+      try { (clientRef.current as any).disconnect(); } catch {} // eslint-disable-line no-empty
+      clientRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (endResetRef.current) {
+      clearTimeout(endResetRef.current);
+      endResetRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    callRef.current = null;
+    setStatus("idle");
+    setErrorMessage(null);
+    setCurrentCall(null);
+    setCallState("idle");
+    setCallDuration(0);
+    setIsMuted(false);
+    setIsOnHold(false);
   }, []);
 
   // Call duration timer — start when active, stop otherwise
@@ -260,6 +264,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch {} // eslint-disable-line no-empty
   }, [isOnHold]);
 
+  const isReady = status === "ready";
+
   return (
     <TelnyxContext.Provider
       value={{
@@ -271,10 +277,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isMuted,
         isOnHold,
         defaultCallerNumber,
+        isReady,
         makeCall,
         hangUp,
         toggleMute,
         toggleHold,
+        initializeClient,
+        destroyClient,
       }}
     >
       {children}
