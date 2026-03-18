@@ -289,17 +289,10 @@ const PhoneSettings: React.FC = () => {
       const { data, error } = await supabase.functions.invoke("telnyx-buy-number", { body: { phone_number: selectedNumber, api_key: apiKey } });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      const areaCode = extractAreaCode(selectedNumber);
-      await supabase.from("phone_numbers").insert({
-        phone_number: selectedNumber,
-        status: "active",
-        area_code: areaCode,
-        spam_status: "Unknown",
-      });
       toast.success("Number purchased successfully!");
       setPurchaseOpen(false);
       resetPurchaseModal();
-      fetchData();
+      await fetchData();
     } catch (e: any) {
       toast.error(`Purchase failed — ${e.message}`);
     }
@@ -668,15 +661,27 @@ const PhoneSettings: React.FC = () => {
                 <>
                   <p className="text-xs text-muted-foreground">{searchResults.length} numbers found</p>
                   <div className="max-h-64 overflow-y-auto space-y-1">
-                    {searchResults.map((r: any) => (
-                      <label key={r.phone_number} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${selectedNumber === r.phone_number ? "border-primary bg-primary/5" : "border-border hover:bg-accent/30"}`}>
-                        <div className="flex items-center gap-3">
-                          <input type="radio" name="purchase-number" checked={selectedNumber === r.phone_number} onChange={() => setSelectedNumber(r.phone_number)} className="accent-primary" />
-                          <span className="font-mono text-sm font-medium">{formatPhone(r.phone_number)}</span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">{r.monthly_cost || "$1.00"}/mo</span>
-                      </label>
-                    ))}
+                    {searchResults.map((r: any) => {
+                      const locationParts = [r.locality, r.region_code || r.region].filter(Boolean);
+                      const locationLabel = locationParts.length > 0 ? locationParts.join(", ") : null;
+                      return (
+                        <label key={r.phone_number} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${selectedNumber === r.phone_number ? "border-primary bg-primary/5" : "border-border hover:bg-accent/30"}`}>
+                          <div className="flex items-center gap-3">
+                            <input type="radio" name="purchase-number" checked={selectedNumber === r.phone_number} onChange={() => setSelectedNumber(r.phone_number)} className="accent-primary" />
+                            <div className="flex flex-col">
+                              <span className="font-mono text-sm font-medium">{formatPhone(r.phone_number)}</span>
+                              {locationLabel && (
+                                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  {locationLabel}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{r.monthly_cost || "$1.00"}/mo</span>
+                        </label>
+                      );
+                    })}
                   </div>
                   <div className="flex justify-between">
                     <Button variant="outline" size="sm" onClick={() => { setPurchaseStep(1); setSearchResults([]); setSelectedNumber(null); }}>Back</Button>
