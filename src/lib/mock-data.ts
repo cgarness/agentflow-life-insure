@@ -29,7 +29,7 @@ export const mockProfiles: UserProfile[] = [
   { ...profileDefaults, userId: "u2", licensedStates: ["TX", "NY"], residentState: "TX", commissionLevel: "75%", onboardingComplete: true, monthlyCallGoal: 140, monthlySalesGoal: 18, weeklyAppointmentGoal: 20, monthlyTalkTimeGoalHours: 35, onboardingItems: completedOnboarding() },
   { ...profileDefaults, userId: "u3", licensedStates: ["CA", "WA", "OR"], residentState: "CA", commissionLevel: "70%", onboardingComplete: true, monthlyCallGoal: 130, monthlySalesGoal: 15, weeklyAppointmentGoal: 18, monthlyTalkTimeGoalHours: 30, onboardingItems: completedOnboarding() },
   { ...profileDefaults, userId: "u4", licensedStates: ["NY", "NJ", "CT"], residentState: "NY", commissionLevel: "65%", onboardingComplete: true, monthlyCallGoal: 120, monthlySalesGoal: 15, weeklyAppointmentGoal: 15, monthlyTalkTimeGoalHours: 28, onboardingItems: completedOnboarding() },
-  { userId: "u5", licensedStates: ["OH", "PA"], residentState: "OH", commissionLevel: "60%", onboardingComplete: false, monthlyCallGoal: 100, monthlySalesGoal: 10, weeklyAppointmentGoal: 10, monthlyTalkTimeGoalHours: 20, onboardingItems: [
+  { ...profileDefaults, userId: "u5", licensedStates: ["OH", "PA"], residentState: "OH", commissionLevel: "60%", onboardingComplete: false, monthlyCallGoal: 100, monthlySalesGoal: 10, weeklyAppointmentGoal: 10, monthlyTalkTimeGoalHours: 20, onboardingItems: [
     { key: "license", label: "License Verified", completed: true, completedAt: "2024-05-01T10:00:00Z" },
     { key: "carriers", label: "Carrier Appointments Set Up", completed: true, completedAt: "2024-05-05T10:00:00Z" },
     { key: "telnyx", label: "Telnyx Number Assigned", completed: false, completedAt: null },
