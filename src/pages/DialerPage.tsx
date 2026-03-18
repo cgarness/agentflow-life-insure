@@ -1062,83 +1062,90 @@ export default function DialerPage() {
               return (
                 <div
                   key={campaign.id}
-                  className="bg-card border border-border rounded-xl flex flex-col hover:border-primary/50 hover:shadow-lg transition-all group overflow-hidden"
+                  className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3"
                 >
-                  <div className="p-5 flex-1 flex flex-col">
-
-                    <div className="mb-4 flex items-start justify-between gap-2">
-                      <h3 className="font-bold text-xl text-foreground leading-tight line-clamp-2">
-                        {campaign.name}
-                      </h3>
+                  {/* Campaign info — NO onClick on this wrapper */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-semibold text-foreground">{campaign.name}</p>
+                      <p className="text-xs text-muted-foreground">{campaign.type}</p>
                     </div>
-
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
-                        <TrendingUp className="w-3 h-3 text-success" />
-                        <span className="text-xs font-medium text-foreground">Connect Rate: {mockConnectRate}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
-                        <Clock className="w-3 h-3 text-muted-foreground" />
-                        <span className="text-xs font-medium text-foreground">Avg Call: {mockAvgCall}</span>
-                      </div>
-                    </div>
-
-                    <div className="mb-5">
-                      <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {mockStates.map(s => {
-                          return (
-                            <span 
-                              key={s.state} 
-                              className="flex items-center justify-center text-[10px] px-1 py-0.5 rounded-md font-medium transition-all bg-blue-500/10 text-blue-500 border border-blue-500/20"
-                            >
-                              {s.state} ({s.count})
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="mt-auto space-y-2">
-                      <p className="text-xs text-muted-foreground font-medium">Campaign Progress</p>
-                      <p className="text-xs text-foreground mb-1.5 font-medium">
-                        {mockCallsMade}/{mockTotalLeads} calls made
-                      </p>
-                      
-                      <div className="relative w-full h-3 bg-accent rounded-full isolate">
-                        <div 
-                          className="absolute top-0 left-0 h-full bg-primary/30 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(100, (mockCallsMade/mockTotalLeads)*100)}%` }}
-                        />
-                        <div 
-                          className="absolute top-0 left-0 h-full bg-primary rounded-full transition-all duration-500 z-0"
-                          style={{ width: `${Math.min(100, (converted/mockTotalLeads)*100 || 18)}%` }}
-                        />
-                      </div>
-                      
-                      <div className="pt-2 flex">
-                        <p className="font-mono text-sm font-semibold text-foreground">
-                          {campaign.total_leads ? Math.max(0, campaign.total_leads - mockCallsMade) : remaining} remaining
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3 px-5 pb-5">
+                    {/* GEAR BUTTON — standalone, no shared parent onClick */}
                     <button
-                      onClick={() => setSelectedCampaignId(campaign.id)}
-                      className="bg-accent/30 text-accent-foreground py-2.5 px-4 text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors rounded-lg flex items-center gap-2 cursor-pointer"
-                    >
-                      <Phone className="w-4 h-4" /> Start Dialing
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); setSettingsCampaignId(campaign.id); setCallingSettingsOpen(true); }}
-                      className="relative z-10 pointer-events-auto p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setSettingsCampaignId(campaign.id)
+                        setCallingSettingsOpen(true)
+                      }}
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
                       title="Calling Settings"
                     >
                       <Settings className="w-4 h-4" />
                     </button>
                   </div>
+
+                  {/* Stats row */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
+                      <TrendingUp className="w-3 h-3 text-success" />
+                      <span className="text-xs font-medium text-foreground">Connect Rate: {mockConnectRate}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
+                      <Clock className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-xs font-medium text-foreground">Avg Call: {mockAvgCall}</span>
+                    </div>
+                  </div>
+
+                  {/* States */}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {mockStates.map(s => (
+                        <span
+                          key={s.state}
+                          className="flex items-center justify-center text-[10px] px-1 py-0.5 rounded-md font-medium transition-all bg-blue-500/10 text-blue-500 border border-blue-500/20"
+                        >
+                          {s.state} ({s.count})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Campaign Progress */}
+                  <div className="mt-auto space-y-2">
+                    <p className="text-xs text-muted-foreground font-medium">Campaign Progress</p>
+                    <p className="text-xs text-foreground mb-1.5 font-medium">
+                      {mockCallsMade}/{mockTotalLeads} calls made
+                    </p>
+
+                    <div className="relative w-full h-3 bg-accent rounded-full isolate">
+                      <div
+                        className="absolute top-0 left-0 h-full bg-primary/30 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, (mockCallsMade/mockTotalLeads)*100)}%` }}
+                      />
+                      <div
+                        className="absolute top-0 left-0 h-full bg-primary rounded-full transition-all duration-500 z-0"
+                        style={{ width: `${Math.min(100, (converted/mockTotalLeads)*100 || 18)}%` }}
+                      />
+                    </div>
+
+                    <div className="pt-2 flex">
+                      <p className="font-mono text-sm font-semibold text-foreground">
+                        {campaign.total_leads ? Math.max(0, campaign.total_leads - mockCallsMade) : remaining} remaining
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* START DIALING — its own button, no outer onClick wrapper */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCampaignId(campaign.id)}
+                    className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                  >
+                    Start Dialing
+                  </button>
                 </div>
               );
             })}
