@@ -29,11 +29,9 @@ export class AutoDialer {
   private campaignId: string;
   private agentId: string;
   private autoDialEnabled: boolean;
-  private dialDelaySeconds: number;
   private currentLeadIndex: number;
   private leadQueue: CampaignLead[];
   private phoneNumbers: PhoneNumber[];
-  private dialTimeout: ReturnType<typeof setTimeout> | null;
   private localPresenceEnabled: boolean;
 
   constructor(sessionId: string, campaignId: string, agentId: string) {
@@ -41,11 +39,9 @@ export class AutoDialer {
     this.campaignId = campaignId;
     this.agentId = agentId;
     this.autoDialEnabled = true;
-    this.dialDelaySeconds = 2;
     this.currentLeadIndex = 0;
     this.leadQueue = [];
     this.phoneNumbers = [];
-    this.dialTimeout = null;
     this.localPresenceEnabled = true;
   }
 
@@ -53,13 +49,12 @@ export class AutoDialer {
     // Load session settings
     const { data: session } = await supabase
       .from('dialer_sessions')
-      .select('auto_dial_enabled, dial_delay_seconds')
+      .select('auto_dial_enabled')
       .eq('id', this.sessionId)
       .single();
 
     if (session) {
       this.autoDialEnabled = (session as any).auto_dial_enabled ?? true;
-      this.dialDelaySeconds = (session as any).dial_delay_seconds ?? 2;
     }
 
     // Load campaign settings
@@ -177,11 +172,22 @@ export class AutoDialer {
     }
   }
 
-  async onCallEnd(disposition: Disposition): Promise<void> {
-    console.log(`Call ended with disposition: ${disposition.name}`);
+  async saveDispositionAndNext(dispositionId: string, notes?: string): Promise<void> {
+    const lead = this.leadQueue[this.currentLeadIndex];
+    console.log(`Saving disposition ${dispositionId} for lead ${lead?.id}`);
+
+    // Save disposition to database
+    await supabase
+      .from('call_dispositions')
+      .insert({
+        lead_id: lead.id,
+        disposition_id: dispositionId,
+        agent_id: this.agentId,
+        notes: notes ?? null,
+        created_at: new Date().toISOString()
+      } as any);
 
     // Mark lead as Called
-    const lead = this.leadQueue[this.currentLeadIndex];
     await supabase
       .from('campaign_leads')
       .update({
@@ -190,33 +196,27 @@ export class AutoDialer {
       })
       .eq('id', lead.id);
 
-    if (!this.autoDialEnabled) {
-      console.log('Auto-dial disabled, not advancing');
-      return;
-    }
-
-    // Show countdown toast (emit event for UI)
-    window.dispatchEvent(new CustomEvent('auto-dial-countdown', {
-      detail: {
-        delaySeconds: this.dialDelaySeconds,
-        leadsRemaining: this.leadQueue.length - this.currentLeadIndex - 1
-      }
-    }));
-
-    // Set timeout to dial next
-    this.dialTimeout = setTimeout(() => {
+    if (this.autoDialEnabled) {
+      // Advance to next lead and dial immediately (no countdown)
       this.currentLeadIndex++;
-      this.dialNext();
-    }, this.dialDelaySeconds * 1000);
+      window.dispatchEvent(new CustomEvent('auto-dial-next-lead', {
+        detail: {
+          leadsRemaining: this.leadQueue.length - this.currentLeadIndex
+        }
+      }));
+      await this.dialNext();
+    } else {
+      // Auto-dial is OFF — just close the lead card
+      console.log('Auto-dial disabled, closing lead card');
+      window.dispatchEvent(new CustomEvent('auto-dial-lead-closed', {
+        detail: { leadId: lead.id }
+      }));
+    }
   }
 
   pauseAutoDialer(): void {
     console.log('Auto-dial paused');
     this.autoDialEnabled = false;
-    if (this.dialTimeout) {
-      clearTimeout(this.dialTimeout);
-      this.dialTimeout = null;
-    }
   }
 
   resumeAutoDialer(): void {
@@ -225,21 +225,8 @@ export class AutoDialer {
     this.dialNext();
   }
 
-  skipToNext(): void {
-    console.log('Skipping to next lead');
-    if (this.dialTimeout) {
-      clearTimeout(this.dialTimeout);
-      this.dialTimeout = null;
-    }
-    this.currentLeadIndex++;
-    this.dialNext();
-  }
-
   async endSession(): Promise<void> {
     console.log('Session ending');
-    if (this.dialTimeout) {
-      clearTimeout(this.dialTimeout);
-    }
 
     // Emit event for UI to show end-of-session summary
     window.dispatchEvent(new CustomEvent('auto-dial-session-end', {
