@@ -37,6 +37,8 @@ const getSpamBadge = (status: string | null) => {
       return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20">At Risk</Badge>;
     case "flagged":
       return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20">Flagged</Badge>;
+    case "insufficient data":
+      return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30 hover:bg-slate-500/20">More calls needed</Badge>;
     default:
       return <Badge variant="outline" className="text-muted-foreground">Unknown</Badge>;
   }
@@ -263,7 +265,7 @@ const SpamMonitoring: React.FC = () => {
                 const callCount = num.daily_call_count ?? 0;
                 const callLimit = num.daily_call_limit ?? 100;
                 const callPct = callLimit > 0 ? Math.min((callCount / callLimit) * 100, 100) : 0;
-                const score = num.spam_score ?? 0;
+                const score = num.spam_score;
                 const isScanningRow = scanningNumbers.includes(num.id);
                 const carrierData = num.carrier_reputation_data as any;
 
@@ -287,8 +289,14 @@ const SpamMonitoring: React.FC = () => {
                       <td className="px-3 py-3">{getSpamBadge(num.spam_status)}</td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium w-6">{score}</span>
-                          <Progress value={score} className="h-1.5 w-16" />
+                          {score !== null ? (
+                            <>
+                              <span className="text-xs font-medium w-6">{score}</span>
+                              <Progress value={score} className="h-1.5 w-16" />
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-3">{getAttestationBadge(num.attestation_level)}</td>

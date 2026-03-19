@@ -343,6 +343,13 @@ const PhoneSettings: React.FC = () => {
         return <span className="inline-flex items-center gap-1 text-xs text-warning"><AlertTriangle className="w-3.5 h-3.5" /> At Risk</span>;
       case "Flagged":
         return <span className="inline-flex items-center gap-1 text-xs text-destructive"><ShieldAlert className="w-3.5 h-3.5" /> Spam Flagged</span>;
+      case "Insufficient Data":
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><ShieldQuestion className="w-3.5 h-3.5" /> More calls needed</span>
+            <span className="text-[10px] text-muted-foreground">Make at least 5 calls with this number to generate a spam score</span>
+          </div>
+        );
       default:
         return <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ShieldQuestion className="w-3.5 h-3.5" /> Not Checked</span>;
     }
