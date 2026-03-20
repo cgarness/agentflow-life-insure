@@ -97,6 +97,7 @@ export async function saveCall(data: {
     notes: data.notes,
     outcome: data.outcome,
     direction: "outbound",
+    caller_id_used: data.caller_id_used || null,
   });
   if (callError) throw new Error(callError.message);
 
