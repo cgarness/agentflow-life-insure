@@ -67,14 +67,6 @@ import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
 import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 
 /* ─── Types ─── */
 
@@ -297,28 +289,18 @@ export default function DialerPage() {
     staleTime: 1000 * 60 * 60, // 1 hour
   });
 
-  // ── Phone number selector ──
-  const { data: phoneNumbers = [], isLoading: loadingNumbers } = useQuery({
-    queryKey: ['phone-numbers-active'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('phone_numbers')
-        .select('*')
-        .eq('status', 'active')
-        .order('is_default', { ascending: false });
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
+  // ── Owned phone numbers (loaded once on mount) ──
+  const ownedNumbers = useRef<any[]>([]);
+  const lastUsedCallerId = useRef<string>("");
 
   useEffect(() => {
-    if (phoneNumbers.length > 0 && !selectedPhoneNumber) {
-      const defaultNumber = phoneNumbers.find((p: any) => p.is_default);
-      setSelectedPhoneNumber(defaultNumber?.phone_number || phoneNumbers[0].phone_number);
-    }
-  }, [phoneNumbers, selectedPhoneNumber]);
+    supabase
+      .from('phone_numbers')
+      .select('phone_number, is_default, spam_status, area_code')
+      .then(({ data }) => {
+        if (data) ownedNumbers.current = data;
+      });
+  }, []);
 
   /* --- effects for syncing query data to state if needed --- */
   // Note: We prefer using the data from useQuery directly, but some effects or 
@@ -572,16 +554,95 @@ export default function DialerPage() {
   // ── Auto-dial call event → trigger TelnyxRTC ──
   useEffect(() => {
     const handleAutoDialCall = (event: Event) => {
-      const { lead, callerNumber } = (event as CustomEvent).detail;
+      const { lead } = (event as CustomEvent).detail;
       if (lead?.phone) {
-        telnyxMakeCall(lead.phone, callerNumber || selectedPhoneNumber || undefined);
+        const callerNum = selectCallerId(lead.phone);
+        proceedWithCall(lead.phone, callerNum);
       }
     };
     window.addEventListener("auto-dial-call", handleAutoDialCall);
     return () => window.removeEventListener("auto-dial-call", handleAutoDialCall);
-  }, [telnyxMakeCall, selectedPhoneNumber]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telnyxMakeCall]);
+
+  /* --- caller ID selection --- */
+
+  const selectCallerId = (leadPhone: string): string => {
+    if (!ownedNumbers.current || ownedNumbers.current.length === 0) return '';
+    const digits = leadPhone.replace(/\D/g, '');
+    const leadAreaCode = digits.startsWith('1') ? digits.substring(1, 4) : digits.substring(0, 3);
+    const statusRank = (status: string) => {
+      if (status === 'Clean') return 0;
+      if (status === 'At Risk') return 1;
+      if (status === 'Insufficient Data') return 2;
+      return 3;
+    };
+    const usable = ownedNumbers.current.filter(n => n.spam_status !== 'Flagged');
+    if (usable.length === 0) {
+      return ownedNumbers.current.find(n => n.is_default)?.phone_number || '';
+    }
+    const campaignLocalPresence = selectedCampaign?.local_presence_enabled !== false;
+    if (campaignLocalPresence) {
+      const exactMatch = [...usable]
+        .filter(n => n.area_code === leadAreaCode)
+        .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
+      if (exactMatch) return exactMatch.phone_number;
+    }
+    const cleanest = [...usable]
+      .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
+    if (cleanest) return cleanest.phone_number;
+    return ownedNumbers.current.find(n => n.is_default)?.phone_number || '';
+  };
+
+  const getPreviousCallerId = async (contactId: string): Promise<string | null> => {
+    if (!contactId) return null;
+    try {
+      const { data } = await supabase
+        .from('calls')
+        .select('caller_id_used')
+        .eq('contact_id', contactId)
+        .not('caller_id_used', 'is', null)
+        .gt('duration', 0)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      return data?.caller_id_used || null;
+    } catch {
+      return null;
+    }
+  };
 
   /* --- call handlers --- */
+
+  const [showCallerIdWarning, setShowCallerIdWarning] = useState(false);
+  const [pendingCall, setPendingCall] = useState<{
+    leadPhone: string;
+    contactId: string;
+    proposedNumber: string;
+    previousNumber: string;
+  } | null>(null);
+
+  const proceedWithCall = (leadPhone: string, callerNumber: string) => {
+    lastUsedCallerId.current = callerNumber;
+    telnyxMakeCall(leadPhone, callerNumber || undefined);
+  };
+
+  const initiateCall = async (leadPhone: string, contactId: string) => {
+    const previousNumber = await getPreviousCallerId(contactId);
+    const autoSelectedNumber = selectCallerId(leadPhone);
+    if (previousNumber) {
+      const prevRecord = ownedNumbers.current.find(n => n.phone_number === previousNumber);
+      const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
+      if (!prevIsFlagged) {
+        proceedWithCall(leadPhone, previousNumber);
+      } else {
+        setPendingCall({ leadPhone, contactId, proposedNumber: autoSelectedNumber, previousNumber });
+        setShowCallerIdWarning(true);
+      }
+    } else {
+      proceedWithCall(leadPhone, autoSelectedNumber);
+    }
+  };
 
   function handleCall() {
     if (!currentLead) {
@@ -592,11 +653,8 @@ export default function DialerPage() {
       toast.error("Dialer error. Please check your settings.");
       return;
     }
-    if (!selectedPhoneNumber) {
-      toast.error("Please select a caller ID first");
-      return;
-    }
-    telnyxMakeCall(currentLead.phone, selectedPhoneNumber);
+    const contactId = currentLead.lead_id || currentLead.id || "";
+    initiateCall(currentLead.phone, contactId);
   }
 
   function handleHangUp() {
@@ -647,6 +705,7 @@ export default function DialerPage() {
         disposition_color: d.color,
         notes: "",
         outcome: d.name,
+        caller_id_used: lastUsedCallerId.current || undefined,
       });
     } catch {
       /* ignore */
@@ -754,6 +813,7 @@ export default function DialerPage() {
         disposition_color: selectedDisp?.color || "#6B7280",
         notes: noteText,
         outcome: selectedDisp?.name || "No Outcome",
+        caller_id_used: lastUsedCallerId.current || undefined,
       });
 
       if (noteText.trim()) {
@@ -1130,6 +1190,29 @@ export default function DialerPage() {
                     </div>
                   </div>
 
+                  {/* Local Presence toggle */}
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-xs text-muted-foreground font-medium">Local Presence</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={campaign.local_presence_enabled !== false}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const newVal = !(campaign.local_presence_enabled !== false);
+                        await supabase.from('campaigns').update({ local_presence_enabled: newVal }).eq('id', campaign.id);
+                        setCampaigns(prev => prev.map(c => c.id === campaign.id ? { ...c, local_presence_enabled: newVal } : c));
+                      }}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        campaign.local_presence_enabled !== false ? "bg-primary" : "bg-muted"
+                      }`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                        campaign.local_presence_enabled !== false ? "translate-x-4" : "translate-x-1"
+                      }`} />
+                    </button>
+                  </div>
+
                   <div className="flex gap-2 mt-3">
                     <button
                       type="button"
@@ -1323,6 +1406,44 @@ export default function DialerPage() {
 
   return (
     <>
+      {showCallerIdWarning && pendingCall && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="text-warning text-xl">⚠️</span>
+              <div>
+                <h3 className="font-semibold text-foreground">Caller ID Changed</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  This contact was previously called from{' '}
+                  <span className="font-mono text-foreground">{pendingCall.previousNumber}</span>,
+                  but that number is now <span className="text-destructive font-medium">Flagged</span>.
+                </p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Calling from <span className="font-mono text-foreground">{pendingCall.proposedNumber}</span> instead.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCallerIdWarning(false); setPendingCall(null); }}
+                className="flex-1 py-2 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowCallerIdWarning(false);
+                  if (pendingCall) proceedWithCall(pendingCall.leadPhone, pendingCall.proposedNumber);
+                  setPendingCall(null);
+                }}
+                className="flex-1 py-2 rounded-lg bg-warning text-warning-foreground text-sm font-medium hover:bg-warning/90"
+              >
+                Call Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 pt-1 pb-2 gap-4">
@@ -1634,33 +1755,6 @@ export default function DialerPage() {
                 <MessageSquare className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-sm text-foreground">Conversation History</span>
               </div>
-              {/* Caller ID selector — hidden during active/dialing calls */}
-              {callState !== "active" && callState !== "dialing" && (
-                <div className="flex items-center gap-2">
-                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                  <Select
-                    value={selectedPhoneNumber || ''}
-                    onValueChange={setSelectedPhoneNumber}
-                    disabled={loadingNumbers}
-                  >
-                    <SelectTrigger className="w-[200px] h-7 text-xs">
-                      <SelectValue placeholder="Select number" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {phoneNumbers.map((phone: any) => (
-                        <SelectItem key={phone.id} value={phone.phone_number}>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs">{phone.phone_number}</span>
-                            {phone.is_default && (
-                              <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
             </div>
 
             {/* Scrollable feed — flex-1 overflow-y-auto */}
