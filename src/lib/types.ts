@@ -243,6 +243,7 @@ export interface Disposition {
   automationTrigger: boolean;
   automationId?: string;
   automationName?: string;
+  convertToClient: boolean;
   order: number;
   usageCount: number;
   createdAt: string;

@@ -5,7 +5,8 @@ import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
   Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
-  ArrowUp, ArrowDown, ArrowUpDown, Undo2, Megaphone
+  ArrowUp, ArrowDown, ArrowUpDown, Undo2, Megaphone, Download, UserPlus,
+  GraduationCap, CheckCircle2, ArrowRight
 } from "lucide-react";
 import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
@@ -1094,8 +1095,22 @@ const Contacts: React.FC = () => {
       <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === id ? null : id); }} className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
       {actionMenuId === id && (
         <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
-          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2"><Pencil className="w-3.5 h-3.5" />Edit</button>
-          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2"><Trash2 className="w-3.5 h-3.5" />Delete</button>
+          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Pencil className="w-3.5 h-3.5" />Edit</button>
+          {tab === "Leads" && (
+            <button 
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setActionMenuId(null); 
+                const lead = leads.find(l => l.id === id);
+                if (lead) setSelectedLead(lead);
+                // The actual conversion flow is triggered via the Convert button in ContactModal
+              }} 
+              className="w-full text-left px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 dark:hover:bg-green-900/10 rounded-md flex items-center gap-2 transition-colors"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />Convert
+            </button>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button>
         </div>
       )}
     </div>
@@ -1528,7 +1543,7 @@ const Contacts: React.FC = () => {
       <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} contactType="Lead" />
       <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
       <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} contactType="Recruit" />
-      <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} />
+      <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} onConvert={() => { fetchData(); setSelectedLead(null); }} />
       <ClientModal client={selectedClient} onClose={() => setSelectedClient(null)} onUpdate={async (id, data) => { await clientsSupabaseApi.update(id, data); toast.success("Client updated"); fetchData(); }} onDelete={handleDeleteClient} />
       <RecruitModal recruit={selectedRecruit} onClose={() => setSelectedRecruit(null)} onUpdate={async (id, data) => { await recruitsSupabaseApi.update(id, data); toast.success("Recruit updated"); fetchData(); }} onDelete={handleDeleteRecruit} />
       <AgentModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />

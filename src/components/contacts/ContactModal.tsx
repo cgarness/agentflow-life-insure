@@ -5,10 +5,11 @@ import {
   MessageSquare, ChevronDown, Loader2,
 } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
-import { Lead, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
+import { Lead, LeadStatus, ContactNote, ContactActivity, Client, PolicyType } from "@/lib/types";
 import { mockUsers, mockActivities, mockNotes, calcAging, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
+import { conversionSupabaseApi } from "@/lib/supabase-conversion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -201,6 +202,16 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [smsText, setSmsText] = useState("");
   const [smsSending, setSmsSending] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
+  const [convertStep, setConvertStep] = useState<"form" | "confirm">("form");
+  const [policyForm, setPolicyForm] = useState<Partial<Client>>({
+    policyType: "Term",
+    carrier: "",
+    policyNumber: "",
+    premiumAmount: "",
+    faceAmount: "",
+    issueDate: new Date().toISOString().split("T")[0],
+  });
+  const [converting, setConverting] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
 
   const AGENT_NAME = "Chris Garcia";
@@ -791,17 +802,151 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       </Dialog>
 
       {/* Convert Confirm Dialog */}
-      <Dialog open={confirmConvert} onOpenChange={setConfirmConvert}>
-        <DialogContent>
+      <Dialog open={confirmConvert} onOpenChange={(open) => { setConfirmConvert(open); if (!open) setConvertStep("form"); }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Convert to Client</DialogTitle>
+            <DialogTitle>{convertStep === "form" ? "Enter Policy Info" : "Confirm Conversion"}</DialogTitle>
             <DialogDescription>
-              Convert {lead.firstName} {lead.lastName} to a Client? This will move them to the Clients tab.
+              {convertStep === "form" 
+                ? "Enter the policy and sale details to convert this lead to a client."
+                : `Are you sure you want to convert ${lead.firstName} ${lead.lastName} to a client? This will move them to the Clients tab.`
+              }
             </DialogDescription>
           </DialogHeader>
+
+          {convertStep === "form" ? (
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Policy Type *</label>
+                  <select 
+                    value={policyForm.policyType} 
+                    onChange={e => setPolicyForm(f => ({ ...f, policyType: e.target.value as PolicyType }))}
+                    className={selectCls}
+                  >
+                    {["Term", "Whole Life", "IUL", "Final Expense"].map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Carrier *</label>
+                  <input 
+                    value={policyForm.carrier} 
+                    onChange={e => setPolicyForm(f => ({ ...f, carrier: e.target.value }))}
+                    placeholder="e.g. Mutual of Omaha"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Policy #</label>
+                  <input 
+                    value={policyForm.policyNumber} 
+                    onChange={e => setPolicyForm(f => ({ ...f, policyNumber: e.target.value }))}
+                    placeholder="Optional"
+                    className={inputCls}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Issue Date</label>
+                  <input 
+                    type="date"
+                    value={policyForm.issueDate} 
+                    onChange={e => setPolicyForm(f => ({ ...f, issueDate: e.target.value }))}
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Premium Amount *</label>
+                  <input 
+                    value={policyForm.premiumAmount} 
+                    onChange={e => setPolicyForm(f => ({ ...f, premiumAmount: e.target.value }))}
+                    placeholder="e.g. $150.00"
+                    className={inputCls}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Face Amount *</label>
+                  <input 
+                    value={policyForm.faceAmount} 
+                    onChange={e => setPolicyForm(f => ({ ...f, faceAmount: e.target.value }))}
+                    placeholder="e.g. $500,000"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Beneficiary Name</label>
+                <input 
+                  value={policyForm.beneficiaryName || ""} 
+                  onChange={e => setPolicyForm(f => ({ ...f, beneficiaryName: e.target.value }))}
+                  placeholder="Optional"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Contact:</span>
+                <span className="font-medium">{lead.firstName} {lead.lastName}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Policy:</span>
+                <span className="font-medium">{policyForm.policyType} - {policyForm.carrier}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Premium:</span>
+                <span className="font-medium">{policyForm.premiumAmount}</span>
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmConvert(false)}>Cancel</Button>
-            <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => { logActivity(`Converted to Client by ${AGENT_NAME}`, "convert"); setConfirmConvert(false); onClose(); toast.success("Contact converted to Client"); }}>Confirm</Button>
+            {convertStep === "form" ? (
+              <>
+                <Button variant="outline" onClick={() => { setConfirmConvert(false); setConvertStep("form"); }}>Cancel</Button>
+                <Button 
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground" 
+                  disabled={!policyForm.carrier || !policyForm.premiumAmount || !policyForm.faceAmount}
+                  onClick={() => setConvertStep("confirm")}
+                >
+                  Next
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setConvertStep("form")}>Back</Button>
+                <Button 
+                  className="bg-green-500 hover:bg-green-600 text-white" 
+                  disabled={converting}
+                  onClick={async () => {
+                    setConverting(true);
+                    try {
+                      await conversionSupabaseApi.convertLeadToClient(lead, policyForm);
+                      logActivity(`Converted to Client by ${AGENT_NAME}`, "convert");
+                      setConfirmConvert(false);
+                      setConvertStep("form");
+                      onClose();
+                      toast.success("Contact converted to Client successfully!");
+                      if (onConvert) onConvert(lead);
+                    } catch (err: any) {
+                      toast.error(`Conversion failed: ${err.message}`);
+                    } finally {
+                      setConverting(false);
+                    }
+                  }}
+                >
+                  {converting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                  Confirm Conversion
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -13,6 +13,7 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     automationTrigger: row.automation_trigger,
     automationId: row.automation_id ?? undefined,
     automationName: row.automation_name ?? undefined,
+    convertToClient: row.convert_to_client ?? false,
     order: row.sort_order,
     usageCount: row.usage_count,
     createdAt: row.created_at,
@@ -51,6 +52,7 @@ export const dispositionsSupabaseApi = {
         automation_trigger: input.automationTrigger,
         automation_id: input.automationId ?? null,
         automation_name: input.automationName ?? null,
+        convert_to_client: input.convertToClient ?? false,
         sort_order: (count ?? 0) + 1,
         usage_count: 0,
       })
@@ -81,6 +83,7 @@ export const dispositionsSupabaseApi = {
         ...(input.automationTrigger !== undefined && { automation_trigger: input.automationTrigger }),
         ...(input.automationId !== undefined && { automation_id: input.automationId }),
         ...(input.automationName !== undefined && { automation_name: input.automationName }),
+        ...(input.convertToClient !== undefined && { convert_to_client: input.convertToClient }),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
