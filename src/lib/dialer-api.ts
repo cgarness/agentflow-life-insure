@@ -85,6 +85,7 @@ export async function saveCall(data: {
   disposition_color: string;
   notes: string;
   outcome: string;
+  caller_id_used?: string;
 }) {
   const { error: callError } = await supabase.from("calls").insert({
     contact_id: data.master_lead_id,

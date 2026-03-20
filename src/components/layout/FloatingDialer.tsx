@@ -516,7 +516,7 @@ const FloatingDialer: React.FC = () => {
       // Schedule callback if callback_scheduler is true and date/time filled
       if (disp.callback_scheduler && callbackDate && callbackTime && selectedContact?.id) {
         try {
-          await supabase.from('appointments').insert({
+          await supabase.from('appointments').insert([{
             contact_id: selectedContact.id,
             contact_name: `${selectedContact.first_name} ${selectedContact.last_name}`,
             type: 'Follow Up',
@@ -524,7 +524,7 @@ const FloatingDialer: React.FC = () => {
             start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
             notes: `Callback scheduled from dialer. Disposition: ${disp.name}`,
             created_by: user?.id,
-          });
+          }]);
         } catch {
           // non-blocking
         }

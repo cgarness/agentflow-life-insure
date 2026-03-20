@@ -277,7 +277,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setCallsLoading(true);
       const { data: callHistory } = await supabase
         .from('calls')
-        .select('id, created_at, duration, disposition, direction, recording_url, caller_id_used')
+        .select('id, created_at, duration, disposition_name, direction, recording_url, caller_id_used')
         .eq('contact_id', lead.id)
         .order('created_at', { ascending: false });
       setCalls((callHistory as CallRecord[]) || []);
