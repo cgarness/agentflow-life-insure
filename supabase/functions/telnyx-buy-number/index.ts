@@ -81,11 +81,15 @@ Deno.serve(async (req) => {
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const appName = `AgentFlow CRM ${timestamp}`;
 
+        const VOICE_APP_ID = "2911194903079814357";
+        const MESSAGING_PROFILE_ID = "40019cd5-f007-4511-93c2-216916e1da07";
+
         // 2. Purchase the Phone Number
         console.log(`Purchasing number: ${normalizedNumber}...`);
         const orderResponse = await telnyxApiCall("POST", "/phone_numbers", apiKey, {
             phone_number: normalizedNumber
         });
+        const telnyxPhoneNumberId = orderResponse.data.id;
 
         // 3. Create Outbound Voice Profile
         console.log(`Creating Outbound Profile: ${appName}...`);
@@ -178,11 +182,35 @@ Deno.serve(async (req) => {
                 updated_at: new Date().toISOString()
             });
 
+        const warnings: string[] = [];
+
+        // 8. Assign to Voice API Application
+        console.log(`Assigning number to Voice API Application...`);
+        try {
+            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
+                connection_id: VOICE_APP_ID
+            });
+        } catch (err) {
+            console.error("Voice app assignment failed:", err);
+            warnings.push("Voice app assignment failed — please assign manually in Telnyx portal");
+        }
+
+        // 9. Assign to Messaging Profile
+        console.log(`Assigning number to Messaging Profile...`);
+        try {
+            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
+                messaging_profile_id: MESSAGING_PROFILE_ID
+            });
+        } catch (err) {
+            console.error("Messaging profile assignment failed:", err);
+            warnings.push("Messaging profile assignment failed — please assign manually in Telnyx portal");
+        }
+
         return new Response(
             JSON.stringify({
                 success: true,
                 phone_number: normalizedNumber,
-                message: "Number purchased and fully configured successfully."
+                warnings,
             }),
             {
                 status: 200,
