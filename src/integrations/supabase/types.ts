@@ -301,13 +301,20 @@ export type Database = {
           disposition_name: string | null
           duration: number | null
           ended_at: string | null
+          hangup_details: string | null
           id: string
+          mos: number | null
           notes: string | null
           outcome: string | null
+          pdd_seconds: number | null
+          quality_percentage: number | null
           recording_url: string | null
+          shaken_stir: string | null
+          sip_response_code: number | null
           started_at: string | null
           status: string | null
           telnyx_call_id: string | null
+          telnyx_error_code: string | null
           transcript: Json | null
         }
         Insert: {
@@ -326,13 +333,20 @@ export type Database = {
           disposition_name?: string | null
           duration?: number | null
           ended_at?: string | null
+          hangup_details?: string | null
           id?: string
+          mos?: number | null
           notes?: string | null
           outcome?: string | null
+          pdd_seconds?: number | null
+          quality_percentage?: number | null
           recording_url?: string | null
+          shaken_stir?: string | null
+          sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
           telnyx_call_id?: string | null
+          telnyx_error_code?: string | null
           transcript?: Json | null
         }
         Update: {
@@ -351,13 +365,20 @@ export type Database = {
           disposition_name?: string | null
           duration?: number | null
           ended_at?: string | null
+          hangup_details?: string | null
           id?: string
+          mos?: number | null
           notes?: string | null
           outcome?: string | null
+          pdd_seconds?: number | null
+          quality_percentage?: number | null
           recording_url?: string | null
+          shaken_stir?: string | null
+          sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
           telnyx_call_id?: string | null
+          telnyx_error_code?: string | null
           transcript?: Json | null
         }
         Relationships: [
@@ -1270,57 +1291,96 @@ export type Database = {
           area_code: string | null
           assigned_to: string | null
           attestation_level: string | null
+          avg_mos: number | null
+          avg_quality_percentage: number | null
           carrier_reputation_data: Json | null
           created_at: string | null
+          d51_count: number
           daily_call_count: number | null
           daily_call_limit: number | null
           friendly_name: string | null
           id: string
           is_default: boolean | null
+          last_rejection_at: string | null
           limit_reset_at: string | null
           phone_number: string
+          rejected_calls_30d: number
+          rejected_calls_7d: number
+          rejection_rate_30d: number
+          rejection_rate_7d: number
+          shaken_stir_a_count: number
+          shaken_stir_rate: number
+          shaken_stir_unavailable_count: number
           spam_checked_at: string | null
           spam_score: number | null
           spam_status: string | null
           status: string | null
+          total_calls_30d: number
+          total_calls_7d: number
           updated_at: string | null
         }
         Insert: {
           area_code?: string | null
           assigned_to?: string | null
           attestation_level?: string | null
+          avg_mos?: number | null
+          avg_quality_percentage?: number | null
           carrier_reputation_data?: Json | null
           created_at?: string | null
+          d51_count?: number
           daily_call_count?: number | null
           daily_call_limit?: number | null
           friendly_name?: string | null
           id?: string
           is_default?: boolean | null
+          last_rejection_at?: string | null
           limit_reset_at?: string | null
           phone_number: string
+          rejected_calls_30d?: number
+          rejected_calls_7d?: number
+          rejection_rate_30d?: number
+          rejection_rate_7d?: number
+          shaken_stir_a_count?: number
+          shaken_stir_rate?: number
+          shaken_stir_unavailable_count?: number
           spam_checked_at?: string | null
           spam_score?: number | null
           spam_status?: string | null
           status?: string | null
+          total_calls_30d?: number
+          total_calls_7d?: number
           updated_at?: string | null
         }
         Update: {
           area_code?: string | null
           assigned_to?: string | null
           attestation_level?: string | null
+          avg_mos?: number | null
+          avg_quality_percentage?: number | null
           carrier_reputation_data?: Json | null
           created_at?: string | null
+          d51_count?: number
           daily_call_count?: number | null
           daily_call_limit?: number | null
           friendly_name?: string | null
           id?: string
           is_default?: boolean | null
+          last_rejection_at?: string | null
           limit_reset_at?: string | null
           phone_number?: string
+          rejected_calls_30d?: number
+          rejected_calls_7d?: number
+          rejection_rate_30d?: number
+          rejection_rate_7d?: number
+          shaken_stir_a_count?: number
+          shaken_stir_rate?: number
+          shaken_stir_unavailable_count?: number
           spam_checked_at?: string | null
           spam_score?: number | null
           spam_status?: string | null
           status?: string | null
+          total_calls_30d?: number
+          total_calls_7d?: number
           updated_at?: string | null
         }
         Relationships: []
