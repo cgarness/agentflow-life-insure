@@ -170,6 +170,7 @@ export default function DialerPage() {
     status: telnyxStatus,
     callState,
     callDuration: telnyxCallDuration,
+    currentCall: telnyxCurrentCall,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     initializeClient: telnyxInitialize,
@@ -404,13 +405,62 @@ export default function DialerPage() {
     }
   }, [history]);
 
+  // AMD auto-dispose handler
+  const handleAutoDispose = useCallback(async (disposition: Disposition) => {
+    const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+    if (callControlId) {
+      try {
+        await supabase.from('calls')
+          .update({ disposition: disposition.name })
+          .eq('telnyx_call_id', callControlId);
+      } catch {
+        // non-blocking
+      }
+    }
+    setShowWrapUp(false);
+    setSelectedDisp(null);
+    setNoteText("");
+    setNoteError(false);
+    setCurrentLeadIndex((i) => i + 1);
+  }, [telnyxCurrentCall]);
+
   // Trigger wrap-up when call ends (covers remote hangup)
+  // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
     if (callState === "ended") {
       telnyxHangUp();
       setShowWrapUp(true);
+
+      // Check for AMD machine detection
+      const checkAmd = async () => {
+        const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+        if (!callControlId) return;
+
+        try {
+          const { data: callRecord } = await supabase
+            .from('calls')
+            .select('amd_result')
+            .eq('telnyx_call_id', callControlId)
+            .single();
+
+          if (callRecord?.amd_result === 'machine') {
+            const vmDisposition = dispositions.find(d =>
+              d.name.toLowerCase().includes('voicemail') ||
+              d.name.toLowerCase().includes('no answer')
+            );
+            if (vmDisposition) {
+              setSelectedDisp(vmDisposition);
+              handleAutoDispose(vmDisposition);
+            }
+          }
+        } catch {
+          // non-blocking — proceed with normal wrap-up
+        }
+      };
+
+      checkAmd();
     }
-  }, [callState, telnyxHangUp]);
+  }, [callState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {

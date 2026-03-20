@@ -39,5 +39,8 @@ verify_jwt = false
 [functions.telnyx-sync-numbers]
 verify_jwt = false
 
+[functions.telnyx-webhook]
+verify_jwt = false
+
 [functions.daily-briefing]
 verify_jwt = false

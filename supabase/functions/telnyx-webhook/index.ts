@@ -1,7 +1,8 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+// verify_jwt: false — Telnyx sends unsigned webhooks
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-serve(async (req) => {
+// @ts-ignore
+Deno.serve(async (req: Request) => {
   // CORS headers for preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
@@ -14,45 +15,41 @@ serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client with service role key
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // Parse webhook payload
-    const payload = await req.json();
-    const eventType = payload.data?.event_type;
+    const body = await req.json();
+    const eventType = body?.data?.event_type;
 
     console.log('Telnyx webhook received:', eventType);
 
-    // Handle different event types
     switch (eventType) {
       case 'call.initiated':
-        await handleCallInitiated(supabase, payload.data.payload);
+        await handleCallInitiated(supabase, body.data.payload);
         break;
 
       case 'call.answered':
-        await handleCallAnswered(supabase, payload.data.payload);
+        await handleCallAnswered(supabase, body.data.payload);
         break;
 
       case 'call.hangup':
-        await handleCallHangup(supabase, payload.data.payload);
+        await handleCallHangup(supabase, body.data.payload);
         break;
 
       case 'call.machine.detection.ended':
-        await handleAMDResult(supabase, payload.data.payload);
+        await handleAMDResult(supabase, body.data.payload);
         break;
 
       case 'call.recording.saved':
-        await handleRecordingSaved(supabase, payload.data.payload);
+        await handleRecordingSaved(supabase, body.data.payload);
         break;
 
       default:
         console.log('Unhandled event type:', eventType);
     }
 
-    // Always return 200 OK to Telnyx
     return new Response(JSON.stringify({ received: true }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
@@ -60,7 +57,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Webhook error:', error);
-    // Still return 200 to prevent Telnyx retries
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
@@ -70,25 +66,20 @@ serve(async (req) => {
 
 // Handler: call.initiated
 async function handleCallInitiated(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
-  const toNumber = payload.to;
-  const fromNumber = payload.from;
-  const clientState = payload.client_state; // Contains agent_id
+  console.log('Call initiated:', {
+    callControlId: payload.call_control_id,
+    from: payload.from,
+    to: payload.to,
+    direction: payload.direction,
+  });
 
-  console.log('Call initiated:', { callControlId, toNumber, fromNumber });
-
-  // Create call record with status = 'ringing'
-  const { error } = await supabase
-    .from('calls')
-    .insert({
-      telnyx_call_id: callControlId,
-      contact_phone: toNumber,
-      agent_id: clientState, // agent_id passed via client_state
-      direction: 'outbound',
-      status: 'ringing',
-      caller_id_used: fromNumber,
-      started_at: new Date().toISOString(),
-    });
+  const { error } = await supabase.from('calls').insert({
+    telnyx_call_id: payload.call_control_id,
+    direction: payload.direction,
+    caller_id_used: payload.from,
+    status: 'ringing',
+    created_at: new Date().toISOString(),
+  });
 
   if (error) {
     console.error('Error creating call record:', error);
@@ -97,15 +88,12 @@ async function handleCallInitiated(supabase: any, payload: any) {
 
 // Handler: call.answered
 async function handleCallAnswered(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
+  console.log('Call answered:', payload.call_control_id);
 
-  console.log('Call answered:', callControlId);
-
-  // Update call status to 'connected'
   const { error } = await supabase
     .from('calls')
     .update({ status: 'connected' })
-    .eq('telnyx_call_id', callControlId);
+    .eq('telnyx_call_id', payload.call_control_id);
 
   if (error) {
     console.error('Error updating call to connected:', error);
@@ -114,24 +102,28 @@ async function handleCallAnswered(supabase: any, payload: any) {
 
 // Handler: call.hangup
 async function handleCallHangup(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
-  const hangupCause = payload.hangup_cause;
-  const durationSeconds = payload.duration_seconds || 0;
+  const hangupCause = payload.hangup_cause || '';
+  const duration = payload.end_time && payload.start_time
+    ? Math.round((new Date(payload.end_time).getTime() - new Date(payload.start_time).getTime()) / 1000)
+    : 0;
+  const status = ['call_rejected', 'normal_clearing'].includes(hangupCause) ? 'completed' : 'failed';
 
-  console.log('Call hangup:', { callControlId, hangupCause, durationSeconds });
+  console.log('Call hangup:', {
+    callControlId: payload.call_control_id,
+    hangupCause,
+    duration,
+    status,
+  });
 
-  // Determine final status
-  const finalStatus = hangupCause === 'normal_clearing' ? 'completed' : 'failed';
-
-  // Update call record
   const { error } = await supabase
     .from('calls')
     .update({
-      status: finalStatus,
-      ended_at: new Date().toISOString(),
-      duration: durationSeconds,
+      status,
+      duration,
+      hangup_details: hangupCause,
+      updated_at: new Date().toISOString(),
     })
-    .eq('telnyx_call_id', callControlId);
+    .eq('telnyx_call_id', payload.call_control_id);
 
   if (error) {
     console.error('Error updating call on hangup:', error);
@@ -141,11 +133,10 @@ async function handleCallHangup(supabase: any, payload: any) {
 // Handler: call.machine.detection.ended
 async function handleAMDResult(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
-  const amdResult = payload.result; // 'human' or 'machine'
+  const amdResult = payload.result; // 'human' | 'machine' | 'not_sure'
 
   console.log('AMD result:', { callControlId, amdResult });
 
-  // Update call with AMD result
   const { error } = await supabase
     .from('calls')
     .update({ amd_result: amdResult })
@@ -155,35 +146,40 @@ async function handleAMDResult(supabase: any, payload: any) {
     console.error('Error updating AMD result:', error);
   }
 
-  // If machine detected, auto-disposition as "No Answer - Voicemail"
-  // (This will be enhanced later to trigger auto-hang and advance to next lead)
+  // If machine detected, check if AMD is enabled in phone_settings
   if (amdResult === 'machine') {
-    console.log('Machine detected - will auto-disposition');
-    // Future: Call Telnyx API to hang up the call
-    // Future: Update disposition in database
-    // Future: Emit event to frontend to advance to next lead
+    const { data: settings } = await supabase
+      .from('phone_settings')
+      .select('amd_enabled')
+      .limit(1)
+      .single();
+
+    if (settings?.amd_enabled) {
+      // The frontend handles the actual hang up via the telnyx.notification event
+      // Log that machine was detected — frontend will auto-dispose and advance
+      await supabase
+        .from('calls')
+        .update({ status: 'completed', amd_result: 'machine' })
+        .eq('telnyx_call_id', callControlId);
+    }
   }
 }
 
 // Handler: call.recording.saved
 async function handleRecordingSaved(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
-  const recordingUrl = payload.recording_urls?.mp3;
+  const recordingUrl = payload.recording_urls?.mp3 || payload.recording_urls?.wav || null;
 
   console.log('Recording saved:', { callControlId, recordingUrl });
 
-  if (!recordingUrl) {
-    console.warn('No recording URL in payload');
-    return;
-  }
+  if (recordingUrl) {
+    const { error } = await supabase
+      .from('calls')
+      .update({ recording_url: recordingUrl })
+      .eq('telnyx_call_id', callControlId);
 
-  // Update call with recording URL
-  const { error } = await supabase
-    .from('calls')
-    .update({ recording_url: recordingUrl })
-    .eq('telnyx_call_id', callControlId);
-
-  if (error) {
-    console.error('Error saving recording URL:', error);
+    if (error) {
+      console.error('Error saving recording URL:', error);
+    }
   }
 }
