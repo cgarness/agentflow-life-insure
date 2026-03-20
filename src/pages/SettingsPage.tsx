@@ -30,12 +30,6 @@ import {
   Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
   Lock, CalendarDays, UserCircle, Radar, Database, PlayCircle
 } from "lucide-react";
-import {
-  Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
-  Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
-  Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
-  Lock, CalendarDays, UserCircle, Radar, Database
-} from "lucide-react";
 
 const sections = [
   { slug: "my-profile", icon: UserCircle, label: "My Profile" },
