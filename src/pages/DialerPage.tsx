@@ -205,6 +205,11 @@ export default function DialerPage() {
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [assignedAgentName, setAssignedAgentName] = useState<string | null>(null);
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
@@ -398,6 +403,25 @@ export default function DialerPage() {
     if (!currentLead) return;
     fetchHistory(currentLead.lead_id || currentLead.id);
   }, [currentLead, fetchHistory]);
+
+  useEffect(() => {
+    if (!currentLead?.assigned_agent_id) {
+      setAssignedAgentName(null);
+      return;
+    }
+    supabase
+      .from('profiles')
+      .select('first_name, last_name, full_name')
+      .eq('id', currentLead.assigned_agent_id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setAssignedAgentName(data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim());
+        } else {
+          setAssignedAgentName(null);
+        }
+      });
+  }, [currentLead?.assigned_agent_id]);
 
   useEffect(() => {
     if (historyEndRef.current) {
@@ -719,13 +743,7 @@ export default function DialerPage() {
       // Keep existing noteText if it was typed, but ensure we show notes tab or indicator
     }
     
-    if (d.callbackScheduler) {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      setCallbackDate(tomorrow);
-      setCallbackTime("10:00 AM");
-    }
-    
+      
     if (d.appointmentScheduler) {
       const firstName = currentLead?.first_name || "Contact";
       setAptTitle(`Call with ${firstName}`);
@@ -1079,6 +1097,17 @@ export default function DialerPage() {
     }
   }
 
+
+  const handleOpenTemplates = async () => {
+    setShowTemplatesModal(true);
+    setTemplatesLoading(true);
+    const { data } = await supabase
+      .from('message_templates')
+      .select('id, name, type, content')
+      .order('name');
+    setTemplates(data || []);
+    setTemplatesLoading(false);
+  };
 
   function handleSendMessage() {
     toast.info(`${smsTab.toUpperCase()} sending coming soon`);
@@ -1456,6 +1485,64 @@ export default function DialerPage() {
 
   return (
     <>
+      {showTemplatesModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-md mx-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Message Templates</h3>
+              <button
+                onClick={() => { setShowTemplatesModal(false); setTemplateSearch(''); }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            <input
+              type="text"
+              placeholder="Search templates..."
+              value={templateSearch}
+              onChange={e => setTemplateSearch(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            {templatesLoading ? (
+              <div className="space-y-2">
+                {[1,2,3].map(i => (
+                  <div key={i} className="h-12 rounded-lg bg-accent animate-pulse" />
+                ))}
+              </div>
+            ) : templates.filter(t =>
+                t.name.toLowerCase().includes(templateSearch.toLowerCase())
+              ).length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground text-sm">
+                {templates.length === 0
+                  ? 'No templates found. Add templates in Settings → Email & SMS Templates.'
+                  : 'No templates match your search.'}
+              </div>
+            ) : (
+              <div className="space-y-1 max-h-72 overflow-y-auto">
+                {templates
+                  .filter(t => t.name.toLowerCase().includes(templateSearch.toLowerCase()))
+                  .map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setMessageText(t.content);
+                        setShowTemplatesModal(false);
+                        setTemplateSearch('');
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-accent sidebar-transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-foreground">{t.name}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t.type}</span>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {showCallerIdWarning && pendingCall && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
           <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
@@ -1588,7 +1675,7 @@ export default function DialerPage() {
         <div className="w-72 shrink-0 flex flex-col overflow-hidden">
           <div className="bg-card border rounded-xl flex flex-col overflow-hidden h-full">
             {/* Header section — shrink-0 */}
-            <div className="p-4 border-b flex flex-col gap-4 bg-card shrink-0">
+            <div className="p-4 border-b flex flex-col gap-2 bg-card shrink-0">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-1">
@@ -1686,7 +1773,7 @@ export default function DialerPage() {
                       {`${currentLead?.first_name ?? ""} ${currentLead?.last_name ?? ""}`.trim()}
                     </h2>
                   )}
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 items-center">
                     <div className="relative w-full">
                       <select
                         value={currentLead?.status || ""}
@@ -1748,7 +1835,15 @@ export default function DialerPage() {
                     )}
                   </div>
                 ))}
-                
+
+                {/* Assigned Agent */}
+                <div className="min-w-0">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">Assigned Agent</div>
+                  <div className={cn("text-sm font-semibold mt-0.5 truncate", currentLead?.assigned_agent_id ? "text-foreground" : "text-muted-foreground")}>
+                    {assignedAgentName || (currentLead?.assigned_agent_id ? 'Unknown Agent' : 'Unassigned')}
+                  </div>
+                </div>
+
                 {/* Dynamically render ALL other fields found in currentLead */}
                 {currentLead && Object.entries(currentLead).map(([key, value]) => {
                   // Skip system/internal fields already handled or not meant for display
@@ -1757,9 +1852,9 @@ export default function DialerPage() {
                     'phone', 'email', 'state', 'age', 'date_of_birth', 
                     'health_status', 'best_time_to_call', 'spouse_info', 
                     'lead_score', 'source', 'status', 'created_at', 'updated_at',
-                    'claimed_by', 'claimed_at', 'locked_by', 'locked_at', 
+                    'claimed_by', 'claimed_at', 'locked_by', 'locked_at',
                     'call_attempts', 'last_called_at', 'disposition', 'sort_order',
-                    'custom_fields', 'lead'
+                    'custom_fields', 'lead', 'assigned_agent_id'
                   ];
                   
                   if (skippedKeys.includes(key) || value === null || value === undefined) return null;
@@ -1902,7 +1997,10 @@ export default function DialerPage() {
 
               {/* RIGHT: Templates + Send */}
               <div className="flex items-center gap-2">
-                <button className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent/80 transition-colors">
+                <button
+                  onClick={handleOpenTemplates}
+                  className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent/80 transition-colors"
+                >
                   <FileText className="w-3.5 h-3.5" />
                   Templates
                 </button>
@@ -1950,36 +2048,6 @@ export default function DialerPage() {
               <span className="leading-none">Skip</span>
             </button>
           </div>
-
-          {/* Telnyx connection status indicator */}
-          {telnyxStatus !== "idle" && (
-            <div className="flex items-center gap-1.5 mb-2 px-0.5">
-              {telnyxStatus === "connecting" && (
-                <>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#94a3b8', display: 'inline-block', flexShrink: 0 }} />
-                  <span className="text-[10px] text-muted-foreground">Connecting…</span>
-                </>
-              )}
-              {telnyxStatus === "ready" && (
-                <>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
-                  <span className="text-[10px] text-muted-foreground">Ready</span>
-                </>
-              )}
-              {telnyxStatus === "error" && (
-                <>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block', flexShrink: 0 }} />
-                  <span className="text-[10px] text-muted-foreground">Connection failed —</span>
-                  <button
-                    onClick={() => telnyxInitialize()}
-                    className="text-[10px] text-primary underline underline-offset-2"
-                  >
-                    retry
-                  </button>
-                </>
-              )}
-            </div>
-          )}
 
           {/* Main Controls Card with truly fixed footer */}
           <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 min-w-0">
