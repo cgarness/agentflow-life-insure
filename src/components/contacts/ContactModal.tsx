@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   X, Phone, Mail, Calendar, ArrowRight, Pencil, Trash2,
-  GitMerge, Clock, Pin, Headphones, FileText, RefreshCw,
+  GitMerge, Clock, Pin, FileText, RefreshCw,
   MessageSquare, ChevronDown, Loader2,
 } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
-import { Lead, LeadStatus, ContactNote, ContactActivity, Call } from "@/lib/types";
-import { mockUsers, mockCalls, mockActivities, mockNotes, calcAging, getAgentName } from "@/lib/mock-data";
+import { Lead, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
+import { mockUsers, mockActivities, mockNotes, calcAging, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
@@ -118,14 +118,14 @@ function generateMockActivities(lead: Lead): ContactActivity[] {
   ];
 }
 
-function generateMockCalls(lead: Lead): Call[] {
-  const existing = mockCalls.filter(c => c.contactId === lead.id);
-  if (existing.length > 0) return existing;
-  const agentName = getAgentName(lead.assignedAgentId);
-  return [
-    { id: `gc1-${lead.id}`, contactId: lead.id, contactType: "lead", contactName: `${lead.firstName} ${lead.lastName}`, agentId: lead.assignedAgentId, agentName, direction: "outbound", duration: 222, disposition: "Left Voicemail", createdAt: new Date(Date.now() - 3 * 86400000).toISOString() },
-    { id: `gc2-${lead.id}`, contactId: lead.id, contactType: "lead", contactName: `${lead.firstName} ${lead.lastName}`, agentId: lead.assignedAgentId, agentName, direction: "outbound", duration: 463, disposition: "Interested", notes: "Discussed term options", createdAt: new Date(Date.now() - 86400000).toISOString() },
-  ];
+interface CallRecord {
+  id: string;
+  created_at: string;
+  duration: number | null;
+  disposition: string | null;
+  direction: string | null;
+  recording_url: string | null;
+  caller_id_used: string | null;
 }
 
 function generateMockNotes(lead: Lead): ContactNote[] {
@@ -190,7 +190,8 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [deleteNoteId, setDeleteNoteId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ContactActivity[]>([]);
-  const [calls, setCalls] = useState<Call[]>([]);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -271,7 +272,16 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
 
       setLocalNotes(fetchedNotes);
       setActivities(fetchedActivities);
-      setCalls(generateMockCalls(lead));
+
+      // Fetch real call history from Supabase
+      setCallsLoading(true);
+      const { data: callHistory } = await supabase
+        .from('calls')
+        .select('id, created_at, duration, disposition, direction, recording_url, caller_id_used')
+        .eq('contact_id', lead.id)
+        .order('created_at', { ascending: false });
+      setCalls((callHistory as CallRecord[]) || []);
+      setCallsLoading(false);
       setHistoryItems(generateMockHistory(lead));
       setActiveTab("Overview");
       setEditMode(false);
@@ -397,12 +407,6 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     setDeleteNoteId(null);
     await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" });
     toast.success("Note deleted");
-  };
-
-  const formatDuration = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
   const inputCls = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
@@ -669,39 +673,62 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                 {/* CALLS TAB */}
                 {activeTab === "Calls" && (
                   <div>
-                    {calls.length === 0 ? (
+                    {callsLoading ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="animate-pulse flex items-center gap-4 py-3 border-b border-border">
+                            <div className="h-6 w-20 bg-muted rounded-full" />
+                            <div className="h-4 w-32 bg-muted rounded" />
+                            <div className="h-4 w-16 bg-muted rounded" />
+                            <div className="h-6 w-24 bg-muted rounded-full" />
+                            <div className="flex-1" />
+                            <div className="h-4 w-20 bg-muted rounded" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : calls.length === 0 ? (
                       <div className="text-center py-12">
-                        <Headphones className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">No calls recorded yet</p>
+                        <Phone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm font-medium text-foreground">No calls yet</p>
+                        <p className="text-xs text-muted-foreground mt-1">Calls will appear here after the first call is made.</p>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-muted-foreground border-b">
-                              <th className="text-left py-2 font-medium">Date</th>
-                              <th className="text-left py-2 font-medium">Agent</th>
-                              <th className="text-left py-2 font-medium">Duration</th>
-                              <th className="text-left py-2 font-medium">Disposition</th>
-                              <th className="text-left py-2 font-medium">Notes</th>
-                              <th className="py-2"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {calls.map(c => (
-                              <tr key={c.id} className="border-b last:border-0">
-                                <td className="py-2.5 text-foreground">{new Date(c.createdAt).toLocaleDateString()}</td>
-                                <td className="py-2.5 text-foreground">{c.agentName}</td>
-                                <td className="py-2.5 text-foreground">{formatDuration(c.duration)}</td>
-                                <td className="py-2.5"><span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{c.disposition || "—"}</span></td>
-                                <td className="py-2.5 text-muted-foreground">{c.notes || "—"}</td>
-                                <td className="py-2.5">
-                                  <Tooltip><TooltipTrigger asChild><span><Button size="sm" variant="outline" disabled className="text-xs">Play</Button></span></TooltipTrigger><TooltipContent>Recording available after Telnyx is connected</TooltipContent></Tooltip>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <div className="space-y-0">
+                        {calls.map(c => {
+                          const dur = c.duration && c.duration > 0
+                            ? `${Math.floor(c.duration / 60)}m ${c.duration % 60}s`
+                            : "No answer";
+                          const isInbound = c.direction === "inbound";
+                          return (
+                            <div key={c.id} className="py-3 border-b border-border last:border-0">
+                              <div className="flex items-center gap-3">
+                                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${isInbound ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"}`}>
+                                  {isInbound ? "Inbound" : "Outbound"}
+                                </span>
+                                <span className="text-sm text-foreground">
+                                  {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <span className="text-sm text-muted-foreground">{dur}</span>
+                                {c.disposition ? (
+                                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                    {c.disposition}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">No disposition</span>
+                                )}
+                              </div>
+                              <div className="mt-2">
+                                {c.recording_url ? (
+                                  <audio controls className="w-full h-8" preload="none">
+                                    <source src={c.recording_url} type="audio/mpeg" />
+                                  </audio>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">No recording</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
