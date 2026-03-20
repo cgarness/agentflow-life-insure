@@ -123,6 +123,7 @@ interface CallRecord {
   created_at: string;
   duration: number | null;
   disposition: string | null;
+  disposition_name: string | null;
   direction: string | null;
   recording_url: string | null;
   caller_id_used: string | null;

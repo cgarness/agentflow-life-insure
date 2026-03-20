@@ -517,6 +517,7 @@ const FloatingDialer: React.FC = () => {
       if (disp.callback_scheduler && callbackDate && callbackTime && selectedContact?.id) {
         try {
           await supabase.from('appointments').insert([{
+            title: `Callback: ${selectedContact.first_name} ${selectedContact.last_name}`,
             contact_id: selectedContact.id,
             contact_name: `${selectedContact.first_name} ${selectedContact.last_name}`,
             type: 'Follow Up',
