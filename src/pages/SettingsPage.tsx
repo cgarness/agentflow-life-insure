@@ -18,13 +18,17 @@ import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
 import SpamMonitoring from "@/components/settings/SpamMonitoring";
 import MasterAdmin from "@/components/settings/MasterAdmin";
+import CallRecordingSettings from "@/components/settings/CallRecordingSettings";
+import CallRecordingLibrary from "@/components/settings/CallRecordingLibrary";
+import CallMonitoring from "@/components/settings/CallMonitoring";
+import InboundCallRouting from "@/components/settings/InboundCallRouting";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
   Link, Clock, Upload, Plus, Search, GripVertical, Play, Pause, SlidersHorizontal,
-  Lock, CalendarDays, UserCircle, Radar, Database
+  Lock, CalendarDays, UserCircle, Radar, Database, PlayCircle
 } from "lucide-react";
 
 const sections = [
@@ -32,6 +36,7 @@ const sections = [
   { slug: "company-branding", icon: Building2, label: "Company Branding" },
   { slug: "user-management", icon: Users, label: "User Management" },
   { slug: "phone-system", icon: Phone, label: "Phone System" },
+  { slug: "call-recording", icon: Mic, label: "Call Recording" },
   { slug: "call-scripts", icon: FileText, label: "Call Scripts" },
   { slug: "dispositions", icon: List, label: "Dispositions Manager" },
   { slug: "contact-management", icon: SlidersHorizontal, label: "Contact Management" },
@@ -40,8 +45,9 @@ const sections = [
   { slug: "automation", icon: Zap, label: "Automation Builder" },
   { slug: "templates", icon: Mail, label: "Email & SMS Templates" },
   { slug: "carriers", icon: Shield, label: "Carriers" },
-  { slug: "recordings", icon: Mic, label: "Call Recording Library" },
+  { slug: "recordings", icon: PlayCircle, label: "Recording Library" },
   { slug: "monitoring", icon: Headphones, label: "Call Monitoring" },
+  { slug: "inbound-routing", icon: PhoneIncoming, label: "Inbound Routing" },
   { slug: "goals", icon: Target, label: "Goal Setting" },
   { slug: "ai", icon: Bot, label: "AI Settings" },
   { slug: "dnc", icon: Ban, label: "DNC List Manager" },
@@ -93,35 +99,16 @@ const SettingsPage: React.FC = () => {
         return <EmailSMSTemplates />;
       case "carriers":
         return <Carriers />;
+      case "call-recording":
+        return <CallRecordingSettings />;
+      case "recordings":
+        return <CallRecordingLibrary />;
+      case "inbound-routing":
+        return <InboundCallRouting />;
       case "goals":
         return <GoalSetting />;
       case "monitoring":
-        return (
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">Call Monitoring <span className="w-2.5 h-2.5 rounded-full bg-success animate-pulse" /></h3>
-            <div className="space-y-3">
-              {[
-                { agent: "Sarah J.", contact: "John Martinez", duration: "3:24" },
-                { agent: "Mike T.", contact: "Lisa Park", duration: "1:12" },
-              ].map((c) => (
-                <div key={c.agent} className="bg-card rounded-xl border p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{c.agent.split(" ").map(w => w[0]).join("")}</div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{c.agent} → {c.contact}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{c.duration}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {["Listen", "Whisper", "Barge"].map((a) => (
-                      <button key={a} className="px-3 py-1.5 rounded-lg bg-accent text-foreground text-xs font-medium hover:bg-accent/80 sidebar-transition">{a}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <CallMonitoring />;
       case "ai":
         return (
           <div className="space-y-4">

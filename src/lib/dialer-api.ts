@@ -85,6 +85,7 @@ export async function saveCall(data: {
   disposition_color: string;
   notes: string;
   outcome: string;
+  caller_id_used?: string;
 }) {
   const { error: callError } = await supabase.from("calls").insert({
     contact_id: data.master_lead_id,
@@ -96,6 +97,7 @@ export async function saveCall(data: {
     notes: data.notes,
     outcome: data.outcome,
     direction: "outbound",
+    caller_id_used: data.caller_id_used || null,
   });
   if (callError) throw new Error(callError.message);
 

@@ -123,6 +123,7 @@ interface CallRecord {
   created_at: string;
   duration: number | null;
   disposition: string | null;
+  disposition_name: string | null;
   direction: string | null;
   recording_url: string | null;
   caller_id_used: string | null;
@@ -277,7 +278,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       setCallsLoading(true);
       const { data: callHistory } = await supabase
         .from('calls')
-        .select('id, created_at, duration, disposition, direction, recording_url, caller_id_used')
+        .select('id, created_at, duration, disposition_name, direction, recording_url, caller_id_used')
         .eq('contact_id', lead.id)
         .order('created_at', { ascending: false });
       setCalls((callHistory as CallRecord[]) || []);
@@ -709,9 +710,9 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                                   {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                                 <span className="text-sm text-muted-foreground">{dur}</span>
-                                {c.disposition ? (
+                                {(c.disposition || c.disposition_name) ? (
                                   <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                                    {c.disposition}
+                                    {c.disposition || c.disposition_name}
                                   </span>
                                 ) : (
                                   <span className="text-xs text-muted-foreground">No disposition</span>
