@@ -224,19 +224,38 @@ const FloatingDialer: React.FC = () => {
 
   // Fetch recent calls when Recent tab is selected
   const fetchRecentCalls = useCallback(async () => {
+    if (!user) return;
     setRecentLoading(true);
     setRecentError(false);
     try {
-      // "calls" table doesn't exist in the schema — use empty array as fallback
-      setRecentCalls([]);
-      setRecentError(false);
-    } catch {
+      const { data, error } = await supabase
+        .from("calls")
+        .select("id, contact_name, contact_phone, disposition_name, started_at")
+        .eq("agent_id", user.id)
+        .order("started_at", { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      // Map to RecentCall interface
+      const mapped: RecentCall[] = (data || []).map(c => ({
+        id: c.id,
+        contact_name: c.contact_name,
+        phone: c.contact_phone || "",
+        disposition_name: c.disposition_name,
+        disposition_color: null,
+        created_at: c.started_at || new Date().toISOString()
+      }));
+
+      setRecentCalls(mapped);
+    } catch (err) {
+      console.error("Error fetching recent calls:", err);
       setRecentError(true);
       setRecentCalls([]);
     } finally {
       setRecentLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (activeTab === "recent") {
