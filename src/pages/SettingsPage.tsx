@@ -99,6 +99,12 @@ const SettingsPage: React.FC = () => {
         return <EmailSMSTemplates />;
       case "carriers":
         return <Carriers />;
+      case "call-recording":
+        return <CallRecordingSettings />;
+      case "recordings":
+        return <CallRecordingLibrary />;
+      case "inbound-routing":
+        return <InboundCallRouting />;
       case "goals":
         return <GoalSetting />;
       case "monitoring":
