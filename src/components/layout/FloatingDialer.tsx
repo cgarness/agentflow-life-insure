@@ -411,7 +411,7 @@ const FloatingDialer: React.FC = () => {
     if (callControlId) {
       try {
         await supabase.from('calls')
-          .update({ disposition: disposition.name })
+          .update({ disposition_name: disposition.name })
           .eq('telnyx_call_id', callControlId);
       } catch {
         // non-blocking
