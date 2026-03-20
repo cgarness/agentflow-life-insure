@@ -1,24 +1,13 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Phone, X, Mic, Pause, Voicemail,
-  PhoneOff, Search, Delete, Loader2, RefreshCw,
+  PhoneOff, Search, Delete, Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTelnyx } from "@/contexts/TelnyxContext";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { loadPhoneNumbers, pickCallerId, formatPhoneDisplay, type PhoneNumberCache, type CallerIdResult } from "@/lib/local-presence";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 
 interface ContactResult {
   id: string;
@@ -90,7 +79,6 @@ const FloatingDialer: React.FC = () => {
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     toggleMute: telnyxToggleMute,
-    defaultCallerNumber: telnyxDefaultCaller,
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
   } = useTelnyx();
@@ -119,8 +107,18 @@ const FloatingDialer: React.FC = () => {
   // --- Keypad press state ---
   const [pressedKey, setPressedKey] = useState<string | null>(null);
 
-  // --- Phone number selector ---
-  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
+  // --- Owned phone numbers (loaded once on mount) ---
+  const ownedNumbers = useRef<any[]>([]);
+  const lastUsedCallerId = useRef<string>("");
+
+  // --- Caller ID warning modal state ---
+  const [showCallerIdWarning, setShowCallerIdWarning] = useState(false);
+  const [pendingCall, setPendingCall] = useState<{
+    leadPhone: string;
+    contactId: string | null;
+    proposedNumber: string;
+    previousNumber: string;
+  } | null>(null);
 
   // --- Keypad state ---
   const [dialedNumber, setDialedNumber] = useState("");
@@ -138,26 +136,6 @@ const FloatingDialer: React.FC = () => {
   const clientRef = useRef<Record<string, unknown>>(null);
   const callRef = useRef<Record<string, unknown>>(null);
   const dialerReady = telnyxStatus === "ready";
-
-  // --- Local Presence phone cache ---
-  const [phoneCache, setPhoneCache] = useState<PhoneNumberCache | null>(null);
-  const [activeCallerId, setActiveCallerId] = useState<CallerIdResult | null>(null);
-
-  const refreshPhoneCache = useCallback(async () => {
-    const cache = await loadPhoneNumbers();
-    setPhoneCache(cache);
-  }, []);
-
-  useEffect(() => { refreshPhoneCache(); }, [refreshPhoneCache]);
-
-  // Derive caller ID for current destination
-  const currentCallerId = useMemo<CallerIdResult>(() => {
-    const phone = selectedContact?.phone || dialedNumber;
-    if (!phoneCache || !phone) return { callerNumber: "", matchType: "none", matchedAreaCode: null };
-    return pickCallerId(phone, phoneCache);
-  }, [selectedContact?.phone, dialedNumber, phoneCache]);
-
-  const callerNumber = selectedPhoneNumber || currentCallerId.callerNumber || "+10000000000";
 
   // Listen for toggle event from TopBar
   useEffect(() => {
@@ -209,26 +187,15 @@ const FloatingDialer: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Fetch active phone numbers for selector
-  const { data: phoneNumbers = [] } = useQuery({
-    queryKey: ['phone-numbers-active'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('phone_numbers')
-        .select('*')
-        .eq('status', 'active')
-        .order('is_default', { ascending: false });
-      if (error) throw error;
-      return data;
-    },
-  });
-
+  // Load owned phone numbers once on mount
   useEffect(() => {
-    if (phoneNumbers.length > 0 && !selectedPhoneNumber) {
-      const defaultNumber = phoneNumbers.find((p: any) => p.is_default);
-      setSelectedPhoneNumber(defaultNumber?.phone_number || phoneNumbers[0].phone_number);
-    }
-  }, [phoneNumbers, selectedPhoneNumber]);
+    supabase
+      .from('phone_numbers')
+      .select('phone_number, is_default, spam_status, area_code')
+      .then(({ data }) => {
+        if (data) ownedNumbers.current = data;
+      });
+  }, []);
 
   // Telnyx connection managed by shared TelnyxContext
 
@@ -324,6 +291,49 @@ const FloatingDialer: React.FC = () => {
     setDialedNumber((prev) => prev.slice(0, -1));
   };
 
+  // --- Caller ID selection ---
+  const selectCallerId = (leadPhone: string): string => {
+    if (!ownedNumbers.current || ownedNumbers.current.length === 0) return '';
+    const digits = leadPhone.replace(/\D/g, '');
+    const leadAreaCode = digits.startsWith('1') ? digits.substring(1, 4) : digits.substring(0, 3);
+    const statusRank = (status: string) => {
+      if (status === 'Clean') return 0;
+      if (status === 'At Risk') return 1;
+      if (status === 'Insufficient Data') return 2;
+      return 3;
+    };
+    const usable = ownedNumbers.current.filter(n => n.spam_status !== 'Flagged');
+    if (usable.length === 0) {
+      return ownedNumbers.current.find(n => n.is_default)?.phone_number || '';
+    }
+    const exactMatch = [...usable]
+      .filter(n => n.area_code === leadAreaCode)
+      .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
+    if (exactMatch) return exactMatch.phone_number;
+    const cleanest = [...usable]
+      .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
+    if (cleanest) return cleanest.phone_number;
+    return ownedNumbers.current.find(n => n.is_default)?.phone_number || '';
+  };
+
+  const getPreviousCallerId = async (contactId: string): Promise<string | null> => {
+    if (!contactId) return null;
+    try {
+      const { data } = await supabase
+        .from('calls')
+        .select('caller_id_used')
+        .eq('contact_id', contactId)
+        .not('caller_id_used', 'is', null)
+        .gt('duration', 0)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      return data?.caller_id_used || null;
+    } catch {
+      return null;
+    }
+  };
+
   // --- Call ---
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -331,21 +341,42 @@ const FloatingDialer: React.FC = () => {
     return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const startCall = (destinationNumber: string) => {
-    setActiveCallerId(currentCallerId);
-    telnyxMakeCall(destinationNumber, callerNumber);
+  const proceedWithCall = (destinationNumber: string, callerNumber: string) => {
+    lastUsedCallerId.current = callerNumber;
+    telnyxMakeCall(destinationNumber, callerNumber || undefined);
     setOnCall(true);
     setCallSeconds(0);
   };
 
+  const initiateCall = async (destinationNumber: string, contactId: string | null) => {
+    const autoSelectedNumber = selectCallerId(destinationNumber);
+    if (!contactId) {
+      proceedWithCall(destinationNumber, autoSelectedNumber);
+      return;
+    }
+    const previousNumber = await getPreviousCallerId(contactId);
+    if (previousNumber) {
+      const prevRecord = ownedNumbers.current.find(n => n.phone_number === previousNumber);
+      const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
+      if (!prevIsFlagged) {
+        proceedWithCall(destinationNumber, previousNumber);
+      } else {
+        setPendingCall({ leadPhone: destinationNumber, contactId, proposedNumber: autoSelectedNumber, previousNumber });
+        setShowCallerIdWarning(true);
+      }
+    } else {
+      proceedWithCall(destinationNumber, autoSelectedNumber);
+    }
+  };
+
   const handleCallFromContact = () => {
     if (!selectedContact) return;
-    startCall(selectedContact.phone);
+    initiateCall(selectedContact.phone, selectedContact.id || null);
   };
 
   const handleCallFromKeypad = () => {
     if (dialedNumber.length < 10) return;
-    startCall(dialedNumber);
+    initiateCall(dialedNumber, null);
   };
 
   const handleHangUp = useCallback(() => {
@@ -374,16 +405,30 @@ const FloatingDialer: React.FC = () => {
     setOpen(false);
   };
 
-  const handleSaveDisposition = () => {
+  const handleSaveDisposition = async () => {
     const disp = dispositions.find((d) => d.id === selectedDispId);
     if (disp) {
-      console.log("Disposition saved:", { id: disp.id, name: disp.name });
-      
+      // Log the call with caller_id_used
+      if (user) {
+        try {
+          await supabase.from('calls').insert({
+            contact_id: selectedContact?.id || null,
+            agent_id: user.id,
+            disposition: disp.name,
+            caller_id_used: lastUsedCallerId.current || null,
+            duration: telnyxCallDuration || callSeconds,
+            created_at: new Date().toISOString(),
+          });
+        } catch {
+          // non-blocking
+        }
+      }
+
       // Trigger win celebration if this is a sale disposition
       if (isSaleDisposition(disp.name) && user && profile) {
         const agentName = `${profile.first_name} ${profile.last_name}`;
-        const contactName = selectedContact 
-          ? `${selectedContact.first_name} ${selectedContact.last_name}` 
+        const contactName = selectedContact
+          ? `${selectedContact.first_name} ${selectedContact.last_name}`
           : dialedNumber;
         triggerWin({
           agentId: user.id,
@@ -420,6 +465,44 @@ const FloatingDialer: React.FC = () => {
 
   return (
     <>
+      {showCallerIdWarning && pendingCall && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="text-warning text-xl">⚠️</span>
+              <div>
+                <h3 className="font-semibold text-foreground">Caller ID Changed</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  This contact was previously called from{' '}
+                  <span className="font-mono text-foreground">{pendingCall.previousNumber}</span>,
+                  but that number is now <span className="text-destructive font-medium">Flagged</span>.
+                </p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Calling from <span className="font-mono text-foreground">{pendingCall.proposedNumber}</span> instead.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCallerIdWarning(false); setPendingCall(null); }}
+                className="flex-1 py-2 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowCallerIdWarning(false);
+                  if (pendingCall) proceedWithCall(pendingCall.leadPhone, pendingCall.proposedNumber);
+                  setPendingCall(null);
+                }}
+                className="flex-1 py-2 rounded-lg bg-warning text-warning-foreground text-sm font-medium hover:bg-warning/90"
+              >
+                Call Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {open && (
         <div
           ref={panelRef}
@@ -479,35 +562,6 @@ const FloatingDialer: React.FC = () => {
               <X className="w-4 h-4" />
             </button>
           </div>
-
-          {/* Calling From Selector — hidden during active calls */}
-          {!onCall && (
-            <div style={{ padding: '4px 12px 8px' }}>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-[11px] whitespace-nowrap">Calling from</span>
-                <Select
-                  value={selectedPhoneNumber || ''}
-                  onValueChange={setSelectedPhoneNumber}
-                >
-                  <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
-                    <SelectValue placeholder="Select number" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {phoneNumbers.map((phone: any) => (
-                      <SelectItem key={phone.id} value={phone.phone_number}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs">{phone.phone_number}</span>
-                          {phone.is_default && (
-                            <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
 
           {/* Tab Bar */}
           <div className="px-4 pt-3 pb-1 shrink-0">
@@ -610,9 +664,9 @@ const FloatingDialer: React.FC = () => {
                       View Full Contact &rarr;
                     </button>
                   )}
-                  {activeCallerId && (
+                  {lastUsedCallerId.current && (
                     <p className="text-xs text-muted-foreground">
-                      Calling from: {formatPhoneDisplay(activeCallerId.callerNumber)}
+                      Calling from: {lastUsedCallerId.current}
                     </p>
                   )}
                   <p className="text-3xl font-mono text-foreground">
@@ -761,30 +815,6 @@ const FloatingDialer: React.FC = () => {
                         <p className="text-xs text-muted-foreground">
                           {selectedContact.phone}
                         </p>
-                        {/* Caller ID */}
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {currentCallerId.matchType === "local" ? (
-                            <>
-                              <span className="text-[10px] text-muted-foreground">From: {formatPhoneDisplay(currentCallerId.callerNumber)}</span>
-                              <span className="bg-green-500/10 text-green-600 px-1 py-0.5 rounded text-[9px] font-medium">Local ({currentCallerId.matchedAreaCode})</span>
-                            </>
-                          ) : currentCallerId.matchType === "default" ? (
-                            <>
-                              <span className="text-[10px] text-muted-foreground">From: {formatPhoneDisplay(currentCallerId.callerNumber)}</span>
-                              <span className="bg-muted text-muted-foreground px-1 py-0.5 rounded text-[9px] font-medium">Default</span>
-                            </>
-                          ) : (
-                            <span className="text-[10px] text-destructive">No caller ID</span>
-                          )}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button onClick={refreshPhoneCache} className="text-muted-foreground hover:text-foreground p-0.5">
-                                <RefreshCw className="w-2.5 h-2.5" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Refresh phone numbers</TooltipContent>
-                          </Tooltip>
-                        </div>
                       </div>
                       <button
                         onClick={handleCallFromContact}
