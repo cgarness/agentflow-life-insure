@@ -128,6 +128,31 @@ async function handleCallHangup(supabase: any, payload: any) {
   if (error) {
     console.error('Error updating call on hangup:', error);
   }
+
+  // Look up the call record to get contact_id, duration, disposition
+  const { data: callRecord } = await supabase
+    .from('calls')
+    .select('contact_id, duration, disposition, direction, caller_id_used')
+    .eq('telnyx_call_id', payload.call_control_id)
+    .single();
+
+  if (callRecord?.contact_id) {
+    const durationFormatted = callRecord.duration
+      ? `${Math.floor(callRecord.duration / 60)}m ${callRecord.duration % 60}s`
+      : 'No answer';
+    const directionLabel = callRecord.direction === 'inbound' ? 'Inbound' : 'Outbound';
+    const dispositionLabel = callRecord.disposition
+      ? ` — ${callRecord.disposition}`
+      : '';
+
+    await supabase.from('contact_activities').insert({
+      contact_id: callRecord.contact_id,
+      contact_type: 'lead',
+      type: 'call',
+      description: `${directionLabel} call — ${durationFormatted}${dispositionLabel}`,
+      created_at: new Date().toISOString()
+    });
+  }
 }
 
 // Handler: call.machine.detection.ended
