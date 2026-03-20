@@ -20,6 +20,11 @@ interface DispositionRow {
   id: string;
   name: string;
   color: string;
+  require_notes: boolean;
+  min_note_chars: number;
+  callback_scheduler: boolean;
+  automation_trigger: boolean;
+  automation_id: string | null;
 }
 
 interface RecentCall {
@@ -76,6 +81,7 @@ const FloatingDialer: React.FC = () => {
     callState: telnyxCallState,
     callDuration: telnyxCallDuration,
     isMuted: telnyxIsMuted,
+    currentCall: telnyxCurrentCall,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     toggleMute: telnyxToggleMute,
@@ -131,6 +137,12 @@ const FloatingDialer: React.FC = () => {
   const [showDisposition, setShowDisposition] = useState(false);
   const [dispositions, setDispositions] = useState<DispositionRow[]>([]);
   const [selectedDispId, setSelectedDispId] = useState<string | null>(null);
+  const [callNotes, setCallNotes] = useState('');
+  const [callbackDate, setCallbackDate] = useState('');
+  const [callbackTime, setCallbackTime] = useState('');
+
+  // Derived selected disposition object
+  const selectedDisp = dispositions.find((d) => d.id === selectedDispId) ?? null;
 
   // --- Telnyx (from shared context) ---
   const clientRef = useRef<Record<string, unknown>>(null);
@@ -203,7 +215,7 @@ const FloatingDialer: React.FC = () => {
   useEffect(() => {
     supabase
       .from("dispositions")
-      .select("id, name, color")
+      .select("id, name, color, require_notes, min_note_chars, callback_scheduler, automation_trigger, automation_id")
       .order("sort_order")
       .then(({ data }) => {
         if (data) setDispositions(data);
@@ -393,9 +405,66 @@ const FloatingDialer: React.FC = () => {
     }
   }, [telnyxCallState, onCall, handleHangUp]);
 
+  // AMD auto-dispose: when call ends, check if it was machine-detected
+  const handleAutoDispose = useCallback(async (disposition: DispositionRow) => {
+    const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+    if (callControlId) {
+      try {
+        await supabase.from('calls')
+          .update({ disposition: disposition.name })
+          .eq('telnyx_call_id', callControlId);
+      } catch {
+        // non-blocking
+      }
+    }
+    setOnCall(false);
+    setShowDisposition(false);
+    setSelectedDispId(null);
+    setCallNotes('');
+    setCallbackDate('');
+    setCallbackTime('');
+  }, [telnyxCurrentCall]);
+
+  useEffect(() => {
+    if (telnyxCallState !== "ended" || onCall) return;
+    // Only run AMD check when entering disposition state
+    if (!showDisposition) return;
+
+    const checkAmd = async () => {
+      const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+      if (!callControlId) return;
+
+      try {
+        const { data: callRecord } = await supabase
+          .from('calls')
+          .select('amd_result')
+          .eq('telnyx_call_id', callControlId)
+          .single();
+
+        if (callRecord?.amd_result === 'machine') {
+          const vmDisposition = dispositions.find(d =>
+            d.name.toLowerCase().includes('voicemail') ||
+            d.name.toLowerCase().includes('no answer')
+          );
+          if (vmDisposition) {
+            setSelectedDispId(vmDisposition.id);
+            handleAutoDispose(vmDisposition);
+          }
+        }
+      } catch {
+        // non-blocking
+      }
+    };
+
+    checkAmd();
+  }, [telnyxCallState, onCall, showDisposition, telnyxCurrentCall, dispositions, handleAutoDispose]);
+
   const resetAll = () => {
     setShowDisposition(false);
     setSelectedDispId(null);
+    setCallNotes('');
+    setCallbackDate('');
+    setCallbackTime('');
     setSelectedContact(null);
     setSearchTerm("");
     setSearchResults([]);
@@ -422,6 +491,48 @@ const FloatingDialer: React.FC = () => {
         } catch {
           // non-blocking
         }
+      }
+
+      // Save call notes if require_notes is true
+      if (disp.require_notes && callNotes.trim() && selectedContact?.id && user) {
+        try {
+          const { data: latestCall } = await supabase
+            .from('calls')
+            .select('id')
+            .eq('contact_id', selectedContact.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          if (latestCall) {
+            await supabase.from('calls')
+              .update({ notes: callNotes.trim() })
+              .eq('id', latestCall.id);
+          }
+        } catch {
+          // non-blocking
+        }
+      }
+
+      // Schedule callback if callback_scheduler is true and date/time filled
+      if (disp.callback_scheduler && callbackDate && callbackTime && selectedContact?.id) {
+        try {
+          await supabase.from('appointments').insert({
+            contact_id: selectedContact.id,
+            contact_name: `${selectedContact.first_name} ${selectedContact.last_name}`,
+            type: 'Follow Up',
+            status: 'Scheduled',
+            start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
+            notes: `Callback scheduled from dialer. Disposition: ${disp.name}`,
+            created_by: user?.id,
+          });
+        } catch {
+          // non-blocking
+        }
+      }
+
+      // Log automation trigger for future build
+      if (disp.automation_trigger && disp.automation_id) {
+        console.log('Automation triggered:', disp.automation_id);
       }
 
       // Trigger win celebration if this is a sale disposition
@@ -733,9 +844,56 @@ const FloatingDialer: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  {/* Conditional: Call Notes */}
+                  {selectedDisp?.require_notes && (
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">
+                        Call Notes {selectedDisp?.min_note_chars ? `(min ${selectedDisp.min_note_chars} chars)` : '(required)'}
+                      </label>
+                      <textarea
+                        value={callNotes}
+                        onChange={e => setCallNotes(e.target.value)}
+                        placeholder="Add notes about this call..."
+                        className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                        rows={3}
+                      />
+                      {selectedDisp?.min_note_chars > 0 && (
+                        <p className={`text-xs ${callNotes.length >= selectedDisp.min_note_chars ? 'text-success' : 'text-muted-foreground'}`}>
+                          {callNotes.length} / {selectedDisp.min_note_chars} characters
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Conditional: Callback Scheduler */}
+                  {selectedDisp?.callback_scheduler && (
+                    <div className="space-y-2">
+                      <label className="text-xs text-muted-foreground">Schedule Callback</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={callbackDate}
+                          onChange={e => setCallbackDate(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        />
+                        <input
+                          type="time"
+                          value={callbackTime}
+                          onChange={e => setCallbackTime(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <button
                     onClick={handleSaveDisposition}
-                    disabled={!selectedDispId}
+                    disabled={
+                      !selectedDispId ||
+                      (selectedDisp?.require_notes === true && callNotes.trim().length === 0) ||
+                      (selectedDisp?.require_notes === true && selectedDisp?.min_note_chars > 0 && callNotes.length < selectedDisp.min_note_chars)
+                    }
                     className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50"
                   >
                     Save &amp; Close
