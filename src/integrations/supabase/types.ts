@@ -301,6 +301,7 @@ export type Database = {
           disposition_name: string | null
           duration: number | null
           ended_at: string | null
+          flagged_for_coaching: boolean | null
           hangup_details: string | null
           id: string
           mos: number | null
@@ -333,6 +334,7 @@ export type Database = {
           disposition_name?: string | null
           duration?: number | null
           ended_at?: string | null
+          flagged_for_coaching?: boolean | null
           hangup_details?: string | null
           id?: string
           mos?: number | null
@@ -365,6 +367,7 @@ export type Database = {
           disposition_name?: string | null
           duration?: number | null
           ended_at?: string | null
+          flagged_for_coaching?: boolean | null
           hangup_details?: string | null
           id?: string
           mos?: number | null
@@ -1065,6 +1068,36 @@ export type Database = {
         }
         Relationships: []
       }
+      inbound_routing_settings: {
+        Row: {
+          after_hours_sms: string | null
+          after_hours_sms_enabled: boolean
+          auto_create_lead: boolean
+          created_at: string | null
+          id: string
+          routing_mode: string
+          updated_at: string | null
+        }
+        Insert: {
+          after_hours_sms?: string | null
+          after_hours_sms_enabled?: boolean
+          auto_create_lead?: boolean
+          created_at?: string | null
+          id?: string
+          routing_mode?: string
+          updated_at?: string | null
+        }
+        Update: {
+          after_hours_sms?: string | null
+          after_hours_sms_enabled?: boolean
+          auto_create_lead?: boolean
+          created_at?: string | null
+          id?: string
+          routing_mode?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       lead_source_costs: {
         Row: {
           cost: number | null
@@ -1397,6 +1430,7 @@ export type Database = {
           id: string
           provider: string
           recording_enabled: boolean | null
+          recording_retention_days: number | null
           transcription_enabled: boolean | null
           updated_at: string | null
         }
@@ -1411,6 +1445,7 @@ export type Database = {
           id?: string
           provider?: string
           recording_enabled?: boolean | null
+          recording_retention_days?: number | null
           transcription_enabled?: boolean | null
           updated_at?: string | null
         }
@@ -1425,6 +1460,7 @@ export type Database = {
           id?: string
           provider?: string
           recording_enabled?: boolean | null
+          recording_retention_days?: number | null
           transcription_enabled?: boolean | null
           updated_at?: string | null
         }
