@@ -1,6 +1,5 @@
 
 import React, { useState, useCallback, useEffect } from "react";
-import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import {
   Lock, LayoutGrid, SlidersHorizontal, Database, DollarSign,
   ChevronDown, Info, BarChart3, Phone, Users, MessageSquare,
@@ -237,7 +236,6 @@ const DataScopePills: React.FC<{ value: DataScope; onChange: (v: DataScope) => v
 };
 
 const Permissions: React.FC = () => {
-  const { registerDirty } = useUnsavedChanges();
   const [activeRole, setActiveRole] = useState<Role>("agent");
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; desc: string; onConfirm: () => void }>({ open: false, title: "", desc: "", onConfirm: () => {} });
   const [pendingRole, setPendingRole] = useState<Role | null>(null);
@@ -305,18 +303,6 @@ const Permissions: React.FC = () => {
     const snap = currentSnapshot();
     return snap !== (activeRole === "agent" ? savedAgent : savedTl);
   }, [activeRole, currentSnapshot, savedAgent, savedTl]);
-
-  const isDirtyAny = useCallback(() => {
-    const agentSnap = JSON.stringify({ p: agentPages, f: agentFeatures, d: agentData, c: agentCommission });
-    const tlSnap = JSON.stringify({ p: tlPages, f: tlFeatures, d: tlData, c: tlCommission });
-    return (savedAgent !== "" && agentSnap !== savedAgent) || (savedTl !== "" && tlSnap !== savedTl);
-  }, [agentPages, agentFeatures, agentData, agentCommission, tlPages, tlFeatures, tlData, tlCommission, savedAgent, savedTl]);
-
-  useEffect(() => {
-    const dirty = isDirtyAny();
-    registerDirty("permissions", dirty);
-    return () => registerDirty("permissions", false);
-  }, [isDirtyAny, registerDirty]);
 
   const switchRole = (role: Role) => {
     if (role === activeRole) return;
