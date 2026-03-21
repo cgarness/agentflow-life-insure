@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
   Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Mail,
-  MessageSquare, Tag, UserPlus, GripVertical, CalendarIcon,
+  MessageSquare, Tag, UserPlus, GripVertical, CalendarIcon, FileText,
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -813,7 +813,7 @@ const CampaignDetail: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex border-b border-border">
-        {["Leads", "Stats", "Settings"].map(t => (
+        {["Leads", "Stats", "Settings", "Import History"].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2.5 text-sm font-medium transition-colors ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>{t}</button>
         ))}
       </div>
@@ -1198,6 +1198,63 @@ const CampaignDetail: React.FC = () => {
             {settingsSaving && <Loader2 className="w-4 h-4 animate-spin" />}
             Save Changes
           </button>
+        </div>
+      )}
+
+      {/* IMPORT HISTORY TAB */}
+      {tab === "Import History" && (
+        <div className="bg-card rounded-xl border p-6 space-y-4">
+          {(() => {
+            const mockImportHistory = [
+              { date: "Mar 15, 2026", addedBy: "Chris Garcia", leadsAdded: 47, source: "CSV Import" },
+              { date: "Mar 10, 2026", addedBy: "Chris Garcia", leadsAdded: 30, source: "Manual Selection from Contacts" },
+              { date: "Feb 28, 2026", addedBy: "Sarah Johnson", leadsAdded: 23, source: "CSV Import" },
+            ];
+
+            if (loading) {
+              return (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                </div>
+              );
+            }
+
+            if (mockImportHistory.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                  <FileText className="w-10 h-10 mb-3 opacity-50" />
+                  <p className="text-sm font-medium">No import history yet for this campaign.</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-accent/50 text-muted-foreground">
+                      <th className="text-left py-3 px-3 font-medium">Date Added</th>
+                      <th className="text-left py-3 px-3 font-medium">Added By</th>
+                      <th className="text-left py-3 px-3 font-medium">Leads Added</th>
+                      <th className="text-left py-3 px-3 font-medium">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mockImportHistory.map((row, idx) => (
+                      <tr key={idx} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
+                        <td className="py-3 px-3 text-foreground">{row.date}</td>
+                        <td className="py-3 px-3 text-foreground">{row.addedBy}</td>
+                        <td className="py-3 px-3 text-foreground">{row.leadsAdded} leads</td>
+                        <td className="py-3 px-3">
+                          <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{row.source}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
 
