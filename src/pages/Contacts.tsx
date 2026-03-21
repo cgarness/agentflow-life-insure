@@ -463,6 +463,37 @@ const Contacts: React.FC = () => {
     }
   }, [user?.id]);
 
+  // Load sort preferences from Supabase on mount
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("user_preferences")
+      .select("preference_value")
+      .eq("user_id", user.id)
+      .eq("preference_key", "contactSortPrefs")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.preference_value && typeof data.preference_value === "object") {
+          const v = data.preference_value as { sortCol?: string | null; sortDir?: "asc" | "desc" };
+          if (v.sortCol !== undefined) setSortCol(v.sortCol);
+          if (v.sortDir !== undefined) setSortDir(v.sortDir);
+        }
+        sortPrefsLoaded.current = true;
+      });
+  }, [user?.id]);
+
+  // Save sort preferences to Supabase whenever they change (skip initial render)
+  useEffect(() => {
+    if (!sortPrefsLoaded.current) return;
+    if (!user?.id) return;
+    supabase.from("user_preferences").upsert({
+      user_id: user.id,
+      preference_key: "contactSortPrefs",
+      preference_value: { sortCol, sortDir } as unknown as Json,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,preference_key" });
+  }, [sortCol, sortDir, user?.id]);
+
   // Handle global mouse events for resizing
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -518,6 +549,7 @@ const Contacts: React.FC = () => {
   // Sorting — shared across tabs, reset on tab change
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const sortPrefsLoaded = useRef(false);
 
   // Action menus
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
