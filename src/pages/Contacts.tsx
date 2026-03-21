@@ -442,9 +442,9 @@ const Contacts: React.FC = () => {
   }, [user?.id]);
 
   // Save visible columns to Supabase
-  const saveVisibleCols = useCallback((leadsCols: Set<ColumnKey>, clientsCols: Set<ClientColumnKey>, recruitsCols: Set<RecruitColumnKey>, agentsCols: Set<AgentColumnKey>) => {
+  const saveVisibleCols = useCallback(async (leadsCols: Set<ColumnKey>, clientsCols: Set<ClientColumnKey>, recruitsCols: Set<RecruitColumnKey>, agentsCols: Set<AgentColumnKey>) => {
     if (!user?.id) return;
-    supabase.from("user_preferences").upsert({
+    const payload = {
       user_id: user.id,
       preference_key: "contactVisibleCols",
       preference_value: {
@@ -454,7 +454,13 @@ const Contacts: React.FC = () => {
         agents: Array.from(agentsCols),
       } as unknown as Json,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id,preference_key" });
+    };
+    const { error } = await supabase.from("user_preferences").upsert(payload, { onConflict: "user_id,preference_key" });
+    if (error) {
+      console.error("Failed to save column preferences:", error);
+    } else {
+      console.log("Column preferences saved successfully");
+    }
   }, [user?.id]);
 
   // Handle global mouse events for resizing
