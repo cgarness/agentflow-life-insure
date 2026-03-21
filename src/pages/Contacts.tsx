@@ -192,6 +192,7 @@ const ContactDetailModal: React.FC<{
   const [editForm, setEditForm] = useState<Partial<Lead>>({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls" | "Conversations">("Overview");
   const [convFilter, setConvFilter] = useState<"All" | "Calls" | "SMS" | "Email">("All");
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
@@ -203,16 +204,17 @@ const ContactDetailModal: React.FC<{
     setHasUnsavedChanges(false);
     setEditMode(false);
     setErrors({});
+    setActiveTab("Overview");
     setConvFilter("All");
     setComposeText("");
   }, [lead]);
 
   useEffect(() => {
-    if (lead) {
+    if (lead && activeTab === "Conversations") {
       const t = setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "auto" }), 50);
       return () => clearTimeout(t);
     }
-  }, [lead, convFilter]);
+  }, [lead, convFilter, activeTab]);
 
   if (!lead) return null;
 
@@ -519,26 +521,48 @@ const ContactDetailModal: React.FC<{
             </div>
           </div>
 
-          {/* RIGHT — Conversations */}
+          {/* RIGHT — Tab Panel */}
           <div className="flex-1 flex flex-col min-h-0">
-            {/* Header */}
-            <div className="px-6 pt-4 pb-3 border-b border-border shrink-0 flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">Conversations</h3>
-              <div className="flex gap-1">
-                {(["All", "Calls", "SMS", "Email"] as const).map(f => (
+            {/* Tab bar */}
+            <div className="px-6 pt-3 border-b border-border shrink-0">
+              <div className="flex gap-0">
+                {(["Overview", "Notes", "History", "Calls", "Conversations"] as const).map(t => (
                   <button
-                    key={f}
-                    onClick={() => setConvFilter(f)}
-                    className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${convFilter === f ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`}
+                    key={t}
+                    onClick={() => setActiveTab(t)}
+                    className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                   >
-                    {f}
+                    {t}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Thread — scrollable */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* Placeholder content for non-Conversations tabs */}
+            {activeTab !== "Conversations" && (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-sm text-muted-foreground">{activeTab} — coming soon</p>
+              </div>
+            )}
+
+            {/* Conversations tab content */}
+            {activeTab === "Conversations" && (
+              <>
+                {/* Filter buttons */}
+                <div className="px-4 pt-3 pb-2 shrink-0 flex gap-1">
+                  {(["All", "Calls", "SMS", "Email"] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setConvFilter(f)}
+                      className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${convFilter === f ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Thread — scrollable */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {filteredThread.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-sm text-muted-foreground">No conversations yet.</p>
@@ -620,6 +644,8 @@ const ContactDetailModal: React.FC<{
                 </button>
               </div>
             </div>
+              </>
+            )}
           </div>
         </div>
       </div>
