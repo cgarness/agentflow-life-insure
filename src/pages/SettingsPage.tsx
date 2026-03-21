@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import UserManagement from "@/components/settings/UserManagement";
 import DispositionsManager from "@/components/settings/DispositionsManager";
@@ -23,7 +23,12 @@ import CallRecordingLibrary from "@/components/settings/CallRecordingLibrary";
 import CallMonitoring from "@/components/settings/CallMonitoring";
 import InboundCallRouting from "@/components/settings/InboundCallRouting";
 import { useAuth } from "@/contexts/AuthContext";
+import { UnsavedChangesProvider, useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { toast } from "@/hooks/use-toast";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, Voicemail,
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, Webhook,
@@ -61,18 +66,36 @@ const sections = [
 const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
 const MASTER_ADMIN_UID = "u1";
 
-const SettingsPage: React.FC = () => {
+const SettingsInner: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSlug = searchParams.get("section") || "my-profile";
   const { user, profile } = useAuth();
-  
-  const isMasterAdmin = 
-    user?.email === MASTER_ADMIN_EMAIL || 
-    profile?.email === MASTER_ADMIN_EMAIL || 
+  const { isAnyDirty, clearAll } = useUnsavedChanges();
+  const [pendingSlug, setPendingSlug] = useState<string | null>(null);
+
+  const isMasterAdmin =
+    user?.email === MASTER_ADMIN_EMAIL ||
+    profile?.email === MASTER_ADMIN_EMAIL ||
     user?.id === MASTER_ADMIN_UID;
 
   const setActive = (slug: string) => {
-    setSearchParams({ section: slug }, { replace: true });
+    if (isAnyDirty()) {
+      setPendingSlug(slug);
+    } else {
+      setSearchParams({ section: slug }, { replace: true });
+    }
+  };
+
+  const confirmNavigation = () => {
+    if (pendingSlug) {
+      clearAll();
+      setSearchParams({ section: pendingSlug }, { replace: true });
+      setPendingSlug(null);
+    }
+  };
+
+  const cancelNavigation = () => {
+    setPendingSlug(null);
   };
 
   const renderContent = () => {
@@ -196,8 +219,31 @@ const SettingsPage: React.FC = () => {
           {renderContent()}
         </div>
       </div>
+
+      <AlertDialog open={!!pendingSlug} onOpenChange={(open) => { if (!open) cancelNavigation(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes in this section. If you leave now, your changes will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelNavigation}>Stay</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmNavigation} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Leave Without Saving
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
+
+const SettingsPage: React.FC = () => (
+  <UnsavedChangesProvider>
+    <SettingsInner />
+  </UnsavedChangesProvider>
+);
 
 export default SettingsPage;
