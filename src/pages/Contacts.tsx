@@ -442,27 +442,20 @@ const Contacts: React.FC = () => {
   }, [user?.id]);
 
   // Save visible columns to Supabase
-  const saveVisibleCols = useCallback(() => {
+  const saveVisibleCols = useCallback((leadsCols: Set<ColumnKey>, clientsCols: Set<ClientColumnKey>, recruitsCols: Set<RecruitColumnKey>, agentsCols: Set<AgentColumnKey>) => {
     if (!user?.id) return;
     supabase.from("user_preferences").upsert({
       user_id: user.id,
       preference_key: "contactVisibleCols",
       preference_value: {
-        leads: Array.from(visibleCols),
-        clients: Array.from(visibleClientCols),
-        recruits: Array.from(visibleRecruitCols),
-        agents: Array.from(visibleAgentCols),
+        leads: Array.from(leadsCols),
+        clients: Array.from(clientsCols),
+        recruits: Array.from(recruitsCols),
+        agents: Array.from(agentsCols),
       } as unknown as Json,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,preference_key" });
-  }, [user?.id, visibleCols, visibleClientCols, visibleRecruitCols, visibleAgentCols]);
-
-  // Persist visible cols when they change (skip initial render)
-  const visibleColsInitRef = useRef(false);
-  useEffect(() => {
-    if (!visibleColsInitRef.current) { visibleColsInitRef.current = true; return; }
-    saveVisibleCols();
-  }, [visibleCols, visibleClientCols, visibleRecruitCols, visibleAgentCols]);
+  }, [user?.id]);
 
   // Handle global mouse events for resizing
   useEffect(() => {
