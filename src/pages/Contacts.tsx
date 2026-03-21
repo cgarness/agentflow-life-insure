@@ -442,27 +442,20 @@ const Contacts: React.FC = () => {
   }, [user?.id]);
 
   // Save visible columns to Supabase
-  const saveVisibleCols = useCallback(() => {
+  const saveVisibleCols = useCallback((leadsCols: Set<ColumnKey>, clientsCols: Set<ClientColumnKey>, recruitsCols: Set<RecruitColumnKey>, agentsCols: Set<AgentColumnKey>) => {
     if (!user?.id) return;
     supabase.from("user_preferences").upsert({
       user_id: user.id,
       preference_key: "contactVisibleCols",
       preference_value: {
-        leads: Array.from(visibleCols),
-        clients: Array.from(visibleClientCols),
-        recruits: Array.from(visibleRecruitCols),
-        agents: Array.from(visibleAgentCols),
+        leads: Array.from(leadsCols),
+        clients: Array.from(clientsCols),
+        recruits: Array.from(recruitsCols),
+        agents: Array.from(agentsCols),
       } as unknown as Json,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,preference_key" });
-  }, [user?.id, visibleCols, visibleClientCols, visibleRecruitCols, visibleAgentCols]);
-
-  // Persist visible cols when they change (skip initial render)
-  const visibleColsInitRef = useRef(false);
-  useEffect(() => {
-    if (!visibleColsInitRef.current) { visibleColsInitRef.current = true; return; }
-    saveVisibleCols();
-  }, [visibleCols, visibleClientCols, visibleRecruitCols, visibleAgentCols]);
+  }, [user?.id]);
 
   // Handle global mouse events for resizing
   useEffect(() => {
@@ -1007,10 +1000,15 @@ const Contacts: React.FC = () => {
     );
   };
 
+  // Pending column visibility state for the dropdown (so changes only apply on Save)
+  const [pendingVisible, setPendingVisible] = useState<Set<string> | null>(null);
+
   // Generic columns toggle dropdown
-  const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<string>) => void, defaults: Set<string>) => (
+  const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<string>) => void, defaults: Set<string>) => {
+    const displaySet = pendingVisible ?? visible;
+    return (
     <div className="relative" ref={columnsRef}>
-      <button onClick={() => setColumnsOpen(!columnsOpen)} className="h-9 px-3 rounded-md bg-background border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150">
+      <button onClick={() => { setColumnsOpen(!columnsOpen); setPendingVisible(columnsOpen ? null : new Set(visible)); }} className="h-9 px-3 rounded-md bg-background border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150">
         <Columns3 className="w-4 h-4" />Columns
       </button>
       {columnsOpen && (
@@ -1021,13 +1019,13 @@ const Contacts: React.FC = () => {
               <label key={col.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={visible.has(col.key)}
+                  checked={displaySet.has(col.key)}
                   disabled={col.locked}
                   onChange={() => {
                     if (col.locked) return;
-                    const next = new Set(visible);
+                    const next = new Set(displaySet);
                     if (next.has(col.key)) next.delete(col.key); else next.add(col.key);
-                    setVisible(next);
+                    setPendingVisible(next);
                   }}
                   className="rounded"
                 />
@@ -1038,11 +1036,37 @@ const Contacts: React.FC = () => {
               </label>
             ))}
           </div>
-          <button onClick={() => setVisible(new Set(defaults))} className="text-xs text-primary hover:underline mt-2">Reset to default</button>
+          <div className="flex items-center justify-between mt-3">
+            <button onClick={() => {
+              setVisible(new Set(defaults));
+              setPendingVisible(null);
+              setColumnsOpen(false);
+              saveVisibleCols(
+                tab === "Leads" ? defaults as unknown as Set<ColumnKey> : visibleCols,
+                tab === "Clients" ? defaults as unknown as Set<ClientColumnKey> : visibleClientCols,
+                tab === "Recruits" ? defaults as unknown as Set<RecruitColumnKey> : visibleRecruitCols,
+                tab === "Agents" ? defaults as unknown as Set<AgentColumnKey> : visibleAgentCols,
+              );
+            }} className="text-xs text-primary hover:underline">Reset to default</button>
+            <button onClick={() => {
+              if (pendingVisible) {
+                setVisible(pendingVisible);
+                // Build the save payload using the pending value for the current tab
+                const newLeads = tab === "Leads" ? pendingVisible as unknown as Set<ColumnKey> : visibleCols;
+                const newClients = tab === "Clients" ? pendingVisible as unknown as Set<ClientColumnKey> : visibleClientCols;
+                const newRecruits = tab === "Recruits" ? pendingVisible as unknown as Set<RecruitColumnKey> : visibleRecruitCols;
+                const newAgents = tab === "Agents" ? pendingVisible as unknown as Set<AgentColumnKey> : visibleAgentCols;
+                saveVisibleCols(newLeads, newClients, newRecruits, newAgents);
+              }
+              setPendingVisible(null);
+              setColumnsOpen(false);
+            }} className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">Save</button>
+          </div>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   // Generic bulk actions toolbar
   const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void; onDelete: () => void }) => (
