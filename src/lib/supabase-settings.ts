@@ -58,8 +58,8 @@ export const pipelineSupabaseApi = {
     if (data.name !== undefined) payload.name = data.name;
     if (data.color !== undefined) payload.color = data.color;
     if (data.isPositive !== undefined) payload.is_positive = data.isPositive;
-    if (data.isDefault !== undefined) payload.is_default = data.isDefault;
-    if (data.convertToClient !== undefined) payload.convert_to_client = data.convertToClient;
+    if (typeof data.isDefault === 'boolean') payload.is_default = data.isDefault;
+    if (typeof data.convertToClient === 'boolean') payload.convert_to_client = data.convertToClient;
     if (data.order !== undefined) payload.sort_order = data.order;
 
     const { data: result, error } = await (supabase as any)
