@@ -5,6 +5,8 @@ import {
   leadSourcesSupabaseApi as leadSourcesApi,
   healthStatusesSupabaseApi as healthStatusesApi
 } from "@/lib/supabase-settings";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { PipelineStage, CustomField, LeadSource, HealthStatus } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -1421,6 +1423,7 @@ const ALL_COLUMNS = [
 const SORT_OPTIONS = ["Name", "Phone", "Status", "Lead Source", "Lead Score", "Age", "Last Contacted", "Created Date"];
 
 const DisplaySettingsTab: React.FC = () => {
+  const { user } = useAuth();
   const [columns, setColumns] = useState(() => ALL_COLUMNS.map((c, i) => ({ ...c, checked: c.defaultChecked, order: i })));
   const [sortBy, setSortBy] = useState("Created Date");
   const [sortDesc, setSortDesc] = useState(true);
@@ -1431,9 +1434,28 @@ const DisplaySettingsTab: React.FC = () => {
   const [defaultTab, setDefaultTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [agingErrors, setAgingErrors] = useState<Record<string, string>>({});
+  const [loadingPrefs, setLoadingPrefs] = useState(true);
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) { setLoadingPrefs(false); return; }
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("user_preferences")
+          .select("contact_columns")
+          .eq("user_id", user.id)
+          .single();
+        if (data?.contact_columns) {
+          setColumns(data.contact_columns as typeof columns);
+        }
+      } finally {
+        setLoadingPrefs(false);
+      }
+    })();
+  }, [user?.id]);
 
   const checkedColumns = columns.filter(c => c.checked).sort((a, b) => a.order - b.order);
   const previewText = checkedColumns.map(c => c.name).join(", ");
@@ -1472,6 +1494,11 @@ const DisplaySettingsTab: React.FC = () => {
     setTimeout(() => {
       setSaving(false);
       toast({ title: "Display settings saved" });
+      if (user?.id) {
+        supabase
+          .from("user_preferences")
+          .upsert({ user_id: user.id, contact_columns: columns }, { onConflict: "user_id" });
+      }
     }, 400);
   };
 
@@ -1645,7 +1672,7 @@ const DisplaySettingsTab: React.FC = () => {
         </div>
       </div>
 
-      <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Display Settings"}</Button>
+      <Button onClick={handleSave} disabled={saving || loadingPrefs} className="w-full">{saving ? "Saving..." : "Save Display Settings"}</Button>
     </div>
   );
 };
