@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -30,6 +30,9 @@ import {
   Pause,
   Play,
   AlertTriangle,
+  SlidersHorizontal,
+  ListFilter,
+  SortAsc,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -248,6 +251,41 @@ export default function DialerPage() {
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
 
+  // ── Queue sort / filter / preview ──
+  type QueueSortKey = 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
+  type QueuePreviewField = 'age' | 'state' | 'score' | 'source' | 'attempts' | 'status' | 'best_time' | 'health';
+  interface QueueFilterState {
+    status: string;
+    state: string;
+    leadSource: string;
+    minAttempts: number;
+    maxAttempts: number;
+    minScore: number;
+    maxScore: number;
+  }
+
+  const QUEUE_SORT_KEY = 'agentflow_queue_sort';
+  const QUEUE_FILTER_KEY = 'agentflow_queue_filter';
+  const QUEUE_PREVIEW_KEY = 'agentflow_queue_preview';
+
+  const [queueSort, setQueueSort] = useState<QueueSortKey>(() => {
+    return (localStorage.getItem(QUEUE_SORT_KEY) as QueueSortKey) || 'default';
+  });
+  const [queueFilter, setQueueFilter] = useState<QueueFilterState>(() => {
+    try {
+      const saved = localStorage.getItem(QUEUE_FILTER_KEY);
+      return saved ? JSON.parse(saved) : { status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 };
+    } catch { return { status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 }; }
+  });
+  const [queuePreviewFields, setQueuePreviewFields] = useState<[QueuePreviewField, QueuePreviewField]>(() => {
+    try {
+      const saved = localStorage.getItem(QUEUE_PREVIEW_KEY);
+      return saved ? JSON.parse(saved) : ['state', 'attempts'];
+    } catch { return ['state', 'attempts']; }
+  });
+  const [showQueueFilters, setShowQueueFilters] = useState(false);
+  const [showQueueFieldPicker, setShowQueueFieldPicker] = useState(false);
+
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
 
@@ -386,6 +424,77 @@ export default function DialerPage() {
       }
     }
   }, [currentLeadIndex, leadQueue.length, selectedCampaignId, hasMoreLeads, loadingLeads, currentOffset, fetchLeadsBatch]);
+
+  // Persist queue preferences to localStorage
+  useEffect(() => { localStorage.setItem(QUEUE_SORT_KEY, queueSort); }, [queueSort]);
+  useEffect(() => { localStorage.setItem(QUEUE_FILTER_KEY, JSON.stringify(queueFilter)); }, [queueFilter]);
+  useEffect(() => { localStorage.setItem(QUEUE_PREVIEW_KEY, JSON.stringify(queuePreviewFields)); }, [queuePreviewFields]);
+
+  // Sorted + filtered view of the lead queue (display only — underlying queue order unchanged)
+  const displayQueue = useMemo(() => {
+    let q = leadQueue.map((lead, originalIndex) => ({ lead, originalIndex }));
+
+    // Apply filters
+    if (queueFilter.status) q = q.filter(({ lead }) => lead.status === queueFilter.status);
+    if (queueFilter.state) q = q.filter(({ lead }) => (lead.state || '').toLowerCase() === queueFilter.state.toLowerCase());
+    if (queueFilter.leadSource) q = q.filter(({ lead }) => (lead.source || '').toLowerCase() === queueFilter.leadSource.toLowerCase());
+    q = q.filter(({ lead }) => {
+      const attempts = lead.call_attempts || 0;
+      const score = lead.lead_score ?? 5;
+      return attempts >= queueFilter.minAttempts && attempts <= queueFilter.maxAttempts
+        && score >= queueFilter.minScore && score <= queueFilter.maxScore;
+    });
+
+    // Apply sort
+    switch (queueSort) {
+      case 'age_oldest':
+        q.sort((a, b) => new Date(a.lead.created_at || 0).getTime() - new Date(b.lead.created_at || 0).getTime());
+        break;
+      case 'attempts_fewest':
+        q.sort((a, b) => (a.lead.call_attempts || 0) - (b.lead.call_attempts || 0));
+        break;
+      case 'timezone':
+        q.sort((a, b) => (a.lead.state || '').localeCompare(b.lead.state || ''));
+        break;
+      case 'score_high':
+        q.sort((a, b) => (b.lead.lead_score ?? 5) - (a.lead.lead_score ?? 5));
+        break;
+      case 'name_az':
+        q.sort((a, b) => (a.lead.first_name || '').localeCompare(b.lead.first_name || ''));
+        break;
+    }
+
+    return q;
+  }, [leadQueue, queueSort, queueFilter]);
+
+  // Unique values for filter dropdowns (derived from current queue)
+  const uniqueStatuses = useMemo(() => [...new Set(leadQueue.map(l => l.status).filter(Boolean))], [leadQueue]);
+  const uniqueStates = useMemo(() => [...new Set(leadQueue.map(l => l.state).filter(Boolean))].sort(), [leadQueue]);
+  const uniqueSources = useMemo(() => [...new Set(leadQueue.map(l => l.source).filter(Boolean))].sort(), [leadQueue]);
+
+  // Helper: render a preview field value for a lead card
+  function renderQueuePreviewValue(lead: any, field: string): string {
+    switch (field) {
+      case 'age': {
+        if (!lead.created_at) return '—';
+        const days = Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000);
+        return days === 0 ? 'Today' : `${days}d old`;
+      }
+      case 'state': return lead.state || '—';
+      case 'score': return lead.lead_score != null ? `Score ${lead.lead_score}` : '—';
+      case 'source': return lead.source || lead.lead_source || '—';
+      case 'attempts': return `${lead.call_attempts || 0} attempt${(lead.call_attempts || 0) !== 1 ? 's' : ''}`;
+      case 'status': return lead.status || '—';
+      case 'best_time': return lead.best_time_to_call || '—';
+      case 'health': return lead.health_status || '—';
+      default: return '—';
+    }
+  }
+
+  const PREVIEW_FIELD_LABELS: Record<string, string> = {
+    age: 'Age', state: 'State', score: 'Score', source: 'Source',
+    attempts: 'Attempts', status: 'Status', best_time: 'Best Time', health: 'Health',
+  };
 
   const fetchHistory = useCallback(async (leadId: string) => {
     setLoadingHistory(true);
@@ -2259,58 +2368,258 @@ export default function DialerPage() {
 
                 {leftTab === "queue" && (
                   <div className="flex flex-col gap-2">
+                    {/* Queue toolbar: sort, filter, field picker */}
+                    {leadQueue.length > 0 && (
+                      <div className="flex items-center gap-1 mb-1">
+                        {/* Sort dropdown */}
+                        <div className="relative flex-1">
+                          <SortAsc className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                          <select
+                            value={queueSort}
+                            onChange={(e) => setQueueSort(e.target.value as typeof queueSort)}
+                            className="w-full pl-6 pr-2 py-1 text-[10px] font-bold uppercase tracking-wide bg-muted/30 border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                          >
+                            <option value="default">Default</option>
+                            <option value="age_oldest">Oldest First</option>
+                            <option value="attempts_fewest">Fewest Attempts</option>
+                            <option value="timezone">State / Timezone</option>
+                            <option value="score_high">Score High→Low</option>
+                            <option value="name_az">Name A→Z</option>
+                          </select>
+                        </div>
+                        {/* Filter toggle */}
+                        <button
+                          onClick={() => { setShowQueueFilters(v => !v); setShowQueueFieldPicker(false); }}
+                          className={cn(
+                            "p-1.5 rounded-lg border transition-colors",
+                            showQueueFilters
+                              ? "bg-primary/10 border-primary text-primary"
+                              : "bg-muted/30 border-border text-muted-foreground hover:text-foreground"
+                          )}
+                          title="Filter queue"
+                        >
+                          <ListFilter className="w-3.5 h-3.5" />
+                        </button>
+                        {/* Field picker toggle */}
+                        <button
+                          onClick={() => { setShowQueueFieldPicker(v => !v); setShowQueueFilters(false); }}
+                          className={cn(
+                            "p-1.5 rounded-lg border transition-colors",
+                            showQueueFieldPicker
+                              ? "bg-primary/10 border-primary text-primary"
+                              : "bg-muted/30 border-border text-muted-foreground hover:text-foreground"
+                          )}
+                          title="Customize card fields"
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Filter panel */}
+                    {showQueueFilters && (
+                      <div className="bg-muted/20 border border-border rounded-lg p-3 flex flex-col gap-2 mb-1">
+                        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Filters</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Status</label>
+                            <select
+                              value={queueFilter.status}
+                              onChange={(e) => setQueueFilter(f => ({ ...f, status: e.target.value }))}
+                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              <option value="">All</option>
+                              {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">State</label>
+                            <select
+                              value={queueFilter.state}
+                              onChange={(e) => setQueueFilter(f => ({ ...f, state: e.target.value }))}
+                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              <option value="">All</option>
+                              {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Lead Source</label>
+                            <select
+                              value={queueFilter.leadSource}
+                              onChange={(e) => setQueueFilter(f => ({ ...f, leadSource: e.target.value }))}
+                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              <option value="">All</option>
+                              {uniqueSources.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Max Attempts</label>
+                            <select
+                              value={queueFilter.maxAttempts}
+                              onChange={(e) => setQueueFilter(f => ({ ...f, maxAttempts: Number(e.target.value) }))}
+                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              <option value={99}>Any</option>
+                              <option value={0}>0 (Never Called)</option>
+                              <option value={1}>≤ 1</option>
+                              <option value={2}>≤ 2</option>
+                              <option value={3}>≤ 3</option>
+                              <option value={5}>≤ 5</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Min Score</label>
+                            <select
+                              value={queueFilter.minScore}
+                              onChange={(e) => setQueueFilter(f => ({ ...f, minScore: Number(e.target.value) }))}
+                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              {[0,1,2,3,4,5,6,7,8,9].map(n => <option key={n} value={n}>{n}+</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Max Score</label>
+                            <select
+                              value={queueFilter.maxScore}
+                              onChange={(e) => setQueueFilter(f => ({ ...f, maxScore: Number(e.target.value) }))}
+                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>≤{n}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 })}
+                          className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground hover:text-destructive mt-1 text-left"
+                        >
+                          Clear Filters
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Field picker panel */}
+                    {showQueueFieldPicker && (
+                      <div className="bg-muted/20 border border-border rounded-lg p-3 mb-1">
+                        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">Card Preview Fields (pick 2)</div>
+                        <div className="grid grid-cols-2 gap-1">
+                          {(Object.keys(PREVIEW_FIELD_LABELS) as QueuePreviewField[]).map((field) => {
+                            const isSelected = queuePreviewFields.includes(field);
+                            const slotIndex = queuePreviewFields.indexOf(field);
+                            return (
+                              <button
+                                key={field}
+                                onClick={() => {
+                                  setQueuePreviewFields(prev => {
+                                    if (isSelected) {
+                                      // Remove it, fill the other slot stays
+                                      const other = prev.find(f => f !== field) || 'state';
+                                      return [other, other] as [QueuePreviewField, QueuePreviewField];
+                                    }
+                                    // Replace the least-recently selected slot (slot 1 first)
+                                    return [prev[0], field] as [QueuePreviewField, QueuePreviewField];
+                                  });
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-tight transition-all",
+                                  isSelected
+                                    ? "bg-primary/10 border-primary text-primary"
+                                    : "bg-card border-border text-muted-foreground hover:bg-accent"
+                                )}
+                              >
+                                {isSelected && (
+                                  <span className="w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[8px] flex items-center justify-center font-black shrink-0">
+                                    {slotIndex + 1}
+                                  </span>
+                                )}
+                                {PREVIEW_FIELD_LABELS[field]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Queue count / filter notice */}
+                    {(queueSort !== 'default' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10) && (
+                      <div className="text-[9px] text-muted-foreground font-medium px-1">
+                        Showing {displayQueue.length} of {leadQueue.length} leads
+                      </div>
+                    )}
+
                     {leadQueue.length === 0 ? (
                       <div className="text-center py-8">
                         <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
                         <p className="text-sm text-muted-foreground">Queue is empty</p>
                       </div>
+                    ) : displayQueue.length === 0 ? (
+                      <div className="text-center py-6">
+                        <ListFilter className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-20" />
+                        <p className="text-xs text-muted-foreground">No leads match filters</p>
+                      </div>
                     ) : (
-                      leadQueue.map((lead, idx) => (
-                        <div
-                          key={lead.id}
-                          onClick={() => setCurrentLeadIndex(idx)}
-                          className={`p-3 rounded-lg border flex items-center gap-3 cursor-pointer transition-all ${
-                            idx === currentLeadIndex
-                              ? "bg-primary/10 border-primary ring-1 ring-primary/20"
-                              : idx < currentLeadIndex
-                              ? "opacity-50 grayscale bg-muted/30 border-transparent"
-                              : "bg-card hover:bg-accent/50 border-border"
-                          }`}
-                        >
+                      displayQueue.map(({ lead, originalIndex }) => {
+                        const isCurrent = originalIndex === currentLeadIndex;
+                        const isPast = originalIndex < currentLeadIndex;
+                        return (
                           <div
-                            className={`w-2 h-2 rounded-full shrink-0 ${
-                              idx === currentLeadIndex
-                                ? "bg-primary animate-pulse"
-                                : idx < currentLeadIndex
-                                ? "bg-muted"
-                                : "bg-muted-foreground/30"
+                            key={lead.id}
+                            onClick={() => setCurrentLeadIndex(originalIndex)}
+                            className={`p-3 rounded-lg border flex items-center gap-3 cursor-pointer transition-all ${
+                              isCurrent
+                                ? "bg-primary/10 border-primary ring-1 ring-primary/20"
+                                : isPast
+                                ? "opacity-50 grayscale bg-muted/30 border-transparent"
+                                : "bg-card hover:bg-accent/50 border-border"
                             }`}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-bold text-foreground truncate uppercase tracking-tight">
-                              {lead.first_name} {lead.last_name}
+                          >
+                            <div
+                              className={`w-2 h-2 rounded-full shrink-0 ${
+                                isCurrent
+                                  ? "bg-primary animate-pulse"
+                                  : isPast
+                                  ? "bg-muted"
+                                  : "bg-muted-foreground/30"
+                              }`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold text-foreground truncate uppercase tracking-tight">
+                                {lead.first_name} {lead.last_name}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground truncate font-medium">
+                                {lead.phone}
+                              </div>
+                              {/* Preview fields */}
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {queuePreviewFields.map((field, fi) => {
+                                  const val = renderQueuePreviewValue(lead, field);
+                                  return val !== '—' ? (
+                                    <span key={fi} className="text-[9px] text-muted-foreground/70 truncate">
+                                      {val}
+                                    </span>
+                                  ) : null;
+                                })}
+                              </div>
                             </div>
-                            <div className="text-[10px] text-muted-foreground truncate font-medium">
-                              {lead.phone}
-                            </div>
+                            {isCurrent && (
+                              <div className="text-[9px] font-black uppercase text-primary tracking-widest shrink-0">
+                                Now
+                              </div>
+                            )}
                           </div>
-                          {idx === currentLeadIndex && (
-                            <div className="text-[9px] font-black uppercase text-primary tracking-widest">
-                              Now
-                            </div>
-                          )}
-                        </div>
-                      ))
+                        );
+                      })
                     )}
-                    
+
                     {loadingLeads && (
                       <div className="flex items-center justify-center p-4">
                         <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       </div>
                     )}
-                    
+
                     {hasMoreLeads && !loadingLeads && leadQueue.length > 0 && (
-                      <button 
+                      <button
                         onClick={() => fetchLeadsBatch(selectedCampaignId!, currentOffset)}
                         className="text-[10px] text-muted-foreground hover:text-primary py-2 uppercase tracking-widest font-bold"
                       >
