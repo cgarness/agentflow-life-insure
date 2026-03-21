@@ -95,6 +95,17 @@ interface LeadRow {
   status: string;
 }
 
+interface ImportHistoryRecord {
+  id: string;
+  file_name: string;
+  total_records: number;
+  imported: number;
+  duplicates: number;
+  errors: number;
+  agent_id: string | null;
+  created_at: string | null;
+}
+
 const TYPE_COLORS: Record<string, string> = {
   "Open Pool": "bg-orange-500/10 text-orange-500",
   Personal: "bg-primary/10 text-primary",
@@ -567,6 +578,12 @@ const CampaignDetail: React.FC = () => {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
 
+  // Import history
+  const [importHistory, setImportHistory] = useState<ImportHistoryRecord[]>([]);
+  const [importHistoryLoading, setImportHistoryLoading] = useState(false);
+  const [importHistoryError, setImportHistoryError] = useState(false);
+  const [importHistoryProfiles, setImportHistoryProfiles] = useState<Record<string, string>>({});
+
   const isAdmin = profile?.role?.toLowerCase() === "admin";
 
   // DnD sensors
@@ -601,7 +618,49 @@ const CampaignDetail: React.FC = () => {
     setAgentsLoading(false);
   }, []);
 
+  const fetchImportHistory = useCallback(async () => {
+    if (!user?.id) return;
+    setImportHistoryLoading(true);
+    setImportHistoryError(false);
+
+    // TODO: Add campaign_id column to import_history table and filter by campaign here
+    const { data, error } = await supabase
+      .from("import_history")
+      .select("id, file_name, total_records, imported, duplicates, errors, agent_id, created_at")
+      .eq("agent_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setImportHistoryError(true);
+      setImportHistoryLoading(false);
+      return;
+    }
+
+    const records = (data as ImportHistoryRecord[]) || [];
+    setImportHistory(records);
+
+    // Batch-fetch profiles for "Imported by" display
+    const agentIds = [...new Set(records.map(r => r.agent_id).filter(Boolean) as string[])];
+    if (agentIds.length > 0) {
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, email")
+        .in("id", agentIds);
+      if (profileData) {
+        const map: Record<string, string> = {};
+        (profileData as { id: string; first_name: string; last_name: string; email: string }[]).forEach(p => {
+          const name = `${p.first_name} ${p.last_name}`.trim();
+          map[p.id] = name || p.email || "Unknown";
+        });
+        setImportHistoryProfiles(map);
+      }
+    }
+
+    setImportHistoryLoading(false);
+  }, [user?.id]);
+
   useEffect(() => { fetchCampaign(); fetchLeads(); fetchAgents(); }, [fetchCampaign, fetchLeads, fetchAgents]);
+  useEffect(() => { if (tab === "Import History") fetchImportHistory(); }, [tab, fetchImportHistory]);
 
   const existingLeadIds = useMemo(() => new Set(leads.map(l => l.lead_id).filter(Boolean) as string[]), [leads]);
 
@@ -647,7 +706,7 @@ const CampaignDetail: React.FC = () => {
     if (!id) return;
     await supabase.from("campaign_leads").delete().eq("campaign_id", id);
     await supabase.from("campaigns").delete().eq("id", id);
-    toast.success("Campaign deleted", { duration: 3000, position: "bottom-right" });
+    toast.success("Campaign deleted.", { duration: 3000, position: "bottom-right" });
     navigate("/campaigns");
   };
 
@@ -1227,70 +1286,97 @@ const CampaignDetail: React.FC = () => {
             {settingsSaving && <Loader2 className="w-4 h-4 animate-spin" />}
             Save Changes
           </button>
+
+          {isAdmin && (
+            <div className="pt-6 mt-6 border-t border-border">
+              <h4 className="text-sm font-semibold text-foreground mb-1">Danger Zone</h4>
+              <p className="text-xs text-muted-foreground mb-3">Permanently delete this campaign and all its data. This cannot be undone.</p>
+              <button
+                onClick={() => setDeleteConfirm(true)}
+                className="h-9 px-4 rounded-lg border border-destructive text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Campaign
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* IMPORT HISTORY TAB */}
       {tab === "Import History" && (
         <div className="bg-card rounded-xl border p-6 space-y-4">
-          {(() => {
-            const mockImportHistory = [
-              { date: "Mar 15, 2026", addedBy: "Chris Garcia", leadsAdded: 47, source: "CSV Import" },
-              { date: "Mar 10, 2026", addedBy: "Chris Garcia", leadsAdded: 30, source: "Manual Selection from Contacts" },
-              { date: "Feb 28, 2026", addedBy: "Sarah Johnson", leadsAdded: 23, source: "CSV Import" },
-            ];
-
-            if (loading) {
-              return (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                </div>
-              );
-            }
-
-            if (mockImportHistory.length === 0) {
-              return (
-                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                  <FileText className="w-10 h-10 mb-3 opacity-50" />
-                  <p className="text-sm font-medium">No import history yet for this campaign.</p>
-                </div>
-              );
-            }
-
-            return (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-accent/50 text-muted-foreground">
-                      <th className="text-left py-3 px-3 font-medium">Date Added</th>
-                      <th className="text-left py-3 px-3 font-medium">Added By</th>
-                      <th className="text-left py-3 px-3 font-medium">Leads Added</th>
-                      <th className="text-left py-3 px-3 font-medium">Source</th>
+          {importHistoryLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+            </div>
+          ) : importHistoryError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+              <p className="text-sm">Could not load import history.</p>
+              <button
+                onClick={fetchImportHistory}
+                className="text-sm px-4 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          ) : importHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <FileText className="w-10 h-10 mb-3 opacity-50" />
+              <p className="text-sm font-medium">No imports yet for this campaign.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-accent/50 text-muted-foreground">
+                    <th className="text-left py-3 px-3 font-medium">Date &amp; Time</th>
+                    <th className="text-left py-3 px-3 font-medium">File Name</th>
+                    <th className="text-left py-3 px-3 font-medium">Records Imported</th>
+                    <th className="text-left py-3 px-3 font-medium">Duplicates Skipped</th>
+                    <th className="text-left py-3 px-3 font-medium">Errors</th>
+                    <th className="text-left py-3 px-3 font-medium">Imported By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importHistory.map(row => (
+                    <tr key={row.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
+                      <td className="py-3 px-3 text-foreground whitespace-nowrap">
+                        {row.created_at
+                          ? format(new Date(row.created_at), "MMM d, yyyy 'at' h:mm a")
+                          : "—"}
+                      </td>
+                      <td className="py-3 px-3 text-foreground">{row.file_name || "—"}</td>
+                      <td className="py-3 px-3 text-foreground">{row.imported}</td>
+                      <td className="py-3 px-3 text-foreground">{row.duplicates}</td>
+                      <td className="py-3 px-3 text-foreground">{row.errors}</td>
+                      <td className="py-3 px-3 text-foreground">
+                        {row.agent_id ? (importHistoryProfiles[row.agent_id] || "—") : "—"}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {mockImportHistory.map((row, idx) => (
-                      <tr key={idx} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                        <td className="py-3 px-3 text-foreground">{row.date}</td>
-                        <td className="py-3 px-3 text-foreground">{row.addedBy}</td>
-                        <td className="py-3 px-3 text-foreground">{row.leadsAdded} leads</td>
-                        <td className="py-3 px-3">
-                          <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{row.source}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {/* Modals */}
       <AddLeadsModal open={addLeadsOpen} onClose={() => setAddLeadsOpen(false)} campaignId={id!} existingLeadIds={existingLeadIds} onAdded={() => { fetchLeads(); fetchCampaign(); }} />
       <ImportCSVModal open={importCSVOpen} onClose={() => setImportCSVOpen(false)} campaignId={id!} onImported={() => { fetchLeads(); fetchCampaign(); }} />
-      <ConfirmDialog open={deleteConfirm} title="Delete Campaign?" message="Are you sure you want to delete this campaign? This will also remove all leads assigned to it. This cannot be undone." onConfirm={handleDelete} onClose={() => setDeleteConfirm(false)} />
+      <ConfirmDialog
+        open={deleteConfirm}
+        title="Delete Campaign"
+        message={
+          campaign.leads_contacted > 0
+            ? "This campaign has activity. Deleting it will permanently remove all campaign data and cannot be undone."
+            : `This will permanently delete ${campaign.name}. This cannot be undone.`
+        }
+        confirmLabel="Delete Campaign"
+        onConfirm={handleDelete}
+        onClose={() => setDeleteConfirm(false)}
+      />
       <ConfirmDialog open={!!removeLeadId} title="Remove Lead?" message="Remove this lead from the campaign? The lead itself won't be deleted." confirmLabel="Remove" onConfirm={handleRemoveLead} onClose={() => setRemoveLeadId(null)} />
       <ConfirmDialog open={bulkRemoveConfirm} title="Remove Selected Leads?" message={`Remove ${selectedLeadIds.size} leads from this campaign?`} confirmLabel="Remove" onConfirm={handleBulkRemove} onClose={() => setBulkRemoveConfirm(false)} />
     </div>
