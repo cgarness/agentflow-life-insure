@@ -5,11 +5,12 @@ import {
   MessageSquare, ChevronDown, Loader2,
 } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
-import { Lead, LeadStatus, ContactNote, ContactActivity, Client, PolicyType } from "@/lib/types";
+import { Lead, LeadStatus, ContactNote, ContactActivity, Client, PolicyType, PipelineStage } from "@/lib/types";
 import { mockUsers, mockActivities, mockNotes, calcAging, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { conversionSupabaseApi } from "@/lib/supabase-conversion";
+import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -212,6 +213,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     issueDate: new Date().toISOString().split("T")[0],
   });
   const [converting, setConverting] = useState(false);
+  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
 
   const AGENT_NAME = "Chris Garcia";
@@ -277,13 +279,15 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
       if (!lead) return;
       setEditForm({ ...lead });
 
-      const [fetchedNotes, fetchedActivities] = await Promise.all([
+      const [fetchedNotes, fetchedActivities, fetchedStages] = await Promise.all([
         notesSupabaseApi.getByContact(lead.id),
-        activitiesSupabaseApi.getByContact(lead.id)
+        activitiesSupabaseApi.getByContact(lead.id),
+        pipelineSupabaseApi.getLeadStages()
       ]);
 
       setLocalNotes(fetchedNotes);
       setActivities(fetchedActivities);
+      setPipelineStages(fetchedStages);
 
       // Fetch real call history from Supabase
       setCallsLoading(true);
@@ -327,11 +331,19 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
 
   const agents = mockUsers.filter(u => u.status === "Active");
 
-  const handleStatusChange = async (newStatus: LeadStatus) => {
+  const handleStatusChange = async (newStatus: string) => {
     setStatusDropdownOpen(false);
-    setLocalStatus(newStatus);
-    setEditForm(f => ({ ...f, status: newStatus }));
-    await onUpdate(lead.id, { status: newStatus });
+    setLocalStatus(newStatus as LeadStatus);
+    setEditForm(f => ({ ...f, status: newStatus as LeadStatus }));
+    
+    // Check if this status is a conversion stage
+    const stage = pipelineStages.find(s => s.name === newStatus);
+    if (stage?.convertToClient) {
+      setConfirmConvert(true);
+      setConvertStep("form");
+    }
+
+    await onUpdate(lead.id, { status: newStatus as LeadStatus });
     await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" });
     toast.success(`Status updated to ${newStatus}`);
   };
@@ -486,13 +498,13 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                 </button>
                 {statusDropdownOpen && (
                   <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
-                    {allStatuses.map(s => (
+                    {(pipelineStages.length > 0 ? pipelineStages.map(s => s.name) : allStatuses).map(s => (
                       <button
                         key={s}
                         onClick={() => handleStatusChange(s)}
                         className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localStatus === s ? "font-semibold" : ""}`}
                       >
-                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s]}`} />
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor[s] || "bg-gray-400"}`} />
                         {s}
                       </button>
                     ))}

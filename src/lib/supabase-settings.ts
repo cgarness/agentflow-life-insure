@@ -11,6 +11,7 @@ function rowToStage(row: any): PipelineStage {
     color: row.color,
     isPositive: row.is_positive,
     isDefault: row.is_default,
+    convertToClient: row.convert_to_client || false,
     order: row.sort_order,
     pipelineType: row.pipeline_type as "lead" | "recruit",
   };
@@ -43,6 +44,7 @@ export const pipelineSupabaseApi = {
         color: data.color,
         is_positive: data.isPositive,
         is_default: data.isDefault,
+        convert_to_client: data.convertToClient,
         sort_order: data.order,
         pipeline_type: data.pipelineType,
       })
@@ -57,6 +59,7 @@ export const pipelineSupabaseApi = {
     if (data.color !== undefined) payload.color = data.color;
     if (data.isPositive !== undefined) payload.is_positive = data.isPositive;
     if (data.isDefault !== undefined) payload.is_default = data.isDefault;
+    if (data.convertToClient !== undefined) payload.convert_to_client = data.convertToClient;
     if (data.order !== undefined) payload.sort_order = data.order;
 
     const { data: result, error } = await (supabase as any)

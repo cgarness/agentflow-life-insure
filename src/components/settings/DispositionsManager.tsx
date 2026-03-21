@@ -44,7 +44,6 @@ interface FormState {
   automationTrigger: boolean;
   automationId: string;
   automationName: string;
-  convertToClient: boolean;
 }
 
 const emptyForm: FormState = {
@@ -57,7 +56,6 @@ const emptyForm: FormState = {
   automationTrigger: false,
   automationId: "",
   automationName: "",
-  convertToClient: false,
 };
 
 const DispositionsManager: React.FC = () => {
@@ -121,7 +119,6 @@ const DispositionsManager: React.FC = () => {
       automationTrigger: d.automationTrigger,
       automationId: d.automationId || "",
       automationName: d.automationName || "",
-      convertToClient: d.convertToClient,
     });
     setShowModal(true);
   };
@@ -139,24 +136,10 @@ const DispositionsManager: React.FC = () => {
       toast({ title: "Please select an automation", variant: "destructive" });
       return;
     }
-    if (form.requireNotes && form.minNoteChars < 1) {
-      toast({ title: "Minimum characters must be at least 1", variant: "destructive" });
-      return;
-    }
 
     setSaving(true);
     try {
       if (editingId) {
-        // If this one is being set to true, we need to handle other ones if needed.
-        // Actually, the API doesn't handle the "only one" logic yet, so we'll do it here or in the API.
-        // To be safe and simple, if this one is true, we update all others to false.
-        if (form.convertToClient) {
-          const others = dispositions.filter(d => d.id !== editingId && d.convertToClient);
-          for (const other of others) {
-            await dispositionsApi.update(other.id, { convertToClient: false });
-          }
-        }
-
         await dispositionsApi.update(editingId, {
           name: form.name,
           color: form.color,
@@ -167,17 +150,9 @@ const DispositionsManager: React.FC = () => {
           automationTrigger: form.automationTrigger,
           automationId: form.automationTrigger ? form.automationId : undefined,
           automationName: form.automationTrigger ? form.automationName : undefined,
-          convertToClient: form.convertToClient,
         });
         toast({ title: "Disposition updated" });
       } else {
-        if (form.convertToClient) {
-          const others = dispositions.filter(d => d.convertToClient);
-          for (const other of others) {
-            await dispositionsApi.update(other.id, { convertToClient: false });
-          }
-        }
-
         await dispositionsApi.create({
           name: form.name,
           color: form.color,
@@ -189,7 +164,6 @@ const DispositionsManager: React.FC = () => {
           automationTrigger: form.automationTrigger,
           automationId: form.automationTrigger ? form.automationId : undefined,
           automationName: form.automationTrigger ? form.automationName : undefined,
-          convertToClient: form.convertToClient,
           order: dispositions.length + 1,
         });
         toast({ title: "Disposition created" });
@@ -320,11 +294,6 @@ const DispositionsManager: React.FC = () => {
                 {d.automationTrigger && d.automationName && (
                   <span className="text-[10px] bg-yellow-500/10 text-yellow-700 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
                     <Zap className="w-2.5 h-2.5" /> {d.automationName}
-                  </span>
-                )}
-                {d.convertToClient && (
-                  <span className="text-[10px] bg-green-500/10 text-green-700 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
-                    <Check className="w-2.5 h-2.5" /> Convert to Client
                   </span>
                 )}
               </div>
@@ -586,21 +555,6 @@ const DispositionsManager: React.FC = () => {
               )}
             </div>
 
-            {/* Convert to Client Toggle */}
-            <div className="rounded-lg border p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex-1 pr-4">
-                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" /> Convert to Client
-                  </p>
-                  <p className="text-xs text-muted-foreground">Automatically trigger the conversion form for leads when this disposition is selected.</p>
-                </div>
-                <Switch
-                  checked={form.convertToClient}
-                  onCheckedChange={v => setForm(f => ({ ...f, convertToClient: v }))}
-                />
-              </div>
-            </div>
           </div>
 
           <DialogFooter className="gap-2">

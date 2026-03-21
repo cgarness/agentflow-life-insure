@@ -41,8 +41,9 @@ interface StageFormState {
   name: string;
   color: string;
   isPositive: boolean;
+  convertToClient: boolean;
 }
-const emptyStageForm: StageFormState = { name: "", color: "#3B82F6", isPositive: false };
+const emptyStageForm: StageFormState = { name: "", color: "#3B82F6", isPositive: false, convertToClient: false };
 
 const StageList: React.FC<{
   title: string;
@@ -69,7 +70,7 @@ const StageList: React.FC<{
   const openAdd = () => { setEditingId(null); setForm(emptyStageForm); setShowModal(true); };
   const openEdit = (s: PipelineStage) => {
     setEditingId(s.id);
-    setForm({ name: s.name, color: s.color, isPositive: s.isPositive });
+    setForm({ name: s.name, color: s.color, isPositive: s.isPositive, convertToClient: s.convertToClient });
     setShowModal(true);
   };
 
@@ -78,15 +79,38 @@ const StageList: React.FC<{
     setSaving(true);
     try {
       if (editingId) {
+        // Handle "only one conversion stage" logic for leads
+        if (pipelineType === "lead" && form.convertToClient) {
+          const matched = items.find(s => s.convertToClient && s.id !== editingId);
+          if (matched) {
+            await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false });
+          }
+        }
+
         await pipelineApi.updateStage(editingId, pipelineType, {
-          name: form.name, color: form.color,
+          name: form.name, 
+          color: form.color,
           isPositive: editingId === lockedPositiveId ? true : form.isPositive,
+          convertToClient: pipelineType === "lead" ? form.convertToClient : false,
         });
         toast({ title: `${pipelineType === "lead" ? "Lead" : "Recruit"} stage updated` });
       } else {
+        // Handle "only one conversion stage" logic for leads
+        if (pipelineType === "lead" && form.convertToClient) {
+          const matched = items.find(s => s.convertToClient);
+          if (matched) {
+            await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false });
+          }
+        }
+
         await pipelineApi.createStage({
-          name: form.name, color: form.color, isPositive: form.isPositive,
-          isDefault: false, order: items.length + 1, pipelineType,
+          name: form.name, 
+          color: form.color, 
+          isPositive: form.isPositive,
+          convertToClient: pipelineType === "lead" ? form.convertToClient : false,
+          isDefault: false, 
+          order: items.length + 1, 
+          pipelineType,
         });
         toast({ title: `${pipelineType === "lead" ? "Lead" : "Recruit"} stage created` });
       }
@@ -162,7 +186,7 @@ const StageList: React.FC<{
             <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: s.color }} />
             <span className="flex-1 text-sm font-medium text-foreground">{s.name}</span>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -176,7 +200,7 @@ const StageList: React.FC<{
                             onReload();
                           } catch { } // eslint-disable-line no-empty
                         }}
-                        className="data-[state=checked]:bg-green-500"
+                        className="data-[state=checked]:bg-green-500 shrink-0"
                       />
                       <span className="text-[10px] text-muted-foreground whitespace-nowrap">Positive</span>
                     </div>
@@ -184,6 +208,26 @@ const StageList: React.FC<{
                   {s.id === lockedPositiveId && <TooltipContent><p>This stage is always a positive outcome</p></TooltipContent>}
                 </Tooltip>
               </TooltipProvider>
+
+              {pipelineType === "lead" && (
+                <div className="flex items-center gap-1.5 border-l pl-3">
+                  <Switch
+                    checked={s.convertToClient}
+                    onCheckedChange={async (checked) => {
+                      if (checked) {
+                        const matched = items.find(st => st.convertToClient && st.id !== s.id);
+                        if (matched) {
+                          await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false });
+                        }
+                      }
+                      await pipelineApi.updateStage(s.id, pipelineType, { convertToClient: checked });
+                      onReload();
+                    }}
+                    className="data-[state=checked]:bg-blue-500 shrink-0"
+                  />
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Convert</span>
+                </div>
+              )}
             </div>
 
             {s.isDefault && <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium">Default</span>}
@@ -263,6 +307,19 @@ const StageList: React.FC<{
                 onCheckedChange={v => setForm(f => ({ ...f, isPositive: v }))}
               />
             </div>
+
+            {pipelineType === "lead" && (
+              <div className="flex items-center justify-between border-t pt-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Convert to Client</p>
+                  <p className="text-xs text-muted-foreground">Automatically trigger the conversion form when this stage is reached</p>
+                </div>
+                <Switch
+                  checked={form.convertToClient}
+                  onCheckedChange={v => setForm(f => ({ ...f, convertToClient: v }))}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>

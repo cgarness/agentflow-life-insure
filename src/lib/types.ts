@@ -243,7 +243,6 @@ export interface Disposition {
   automationTrigger: boolean;
   automationId?: string;
   automationName?: string;
-  convertToClient: boolean;
   order: number;
   usageCount: number;
   createdAt: string;
@@ -256,6 +255,7 @@ export interface PipelineStage {
   color: string;
   isPositive: boolean;
   isDefault: boolean;
+  convertToClient: boolean;
   order: number;
   pipelineType: "lead" | "recruit";
 }
