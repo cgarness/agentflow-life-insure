@@ -1445,11 +1445,12 @@ const DisplaySettingsTab: React.FC = () => {
       try {
         const { data } = await supabase
           .from("user_preferences")
-          .select("contact_columns")
+          .select("preference_value")
           .eq("user_id", user.id)
+          .eq("preference_key", "contact_columns")
           .single();
-        if (data?.contact_columns) {
-          setColumns(data.contact_columns as typeof columns);
+        if (data?.preference_value) {
+          setColumns(data.preference_value as typeof columns);
         }
       } finally {
         setLoadingPrefs(false);
@@ -1497,7 +1498,10 @@ const DisplaySettingsTab: React.FC = () => {
       if (user?.id) {
         supabase
           .from("user_preferences")
-          .upsert({ user_id: user.id, contact_columns: columns }, { onConflict: "user_id" });
+          .upsert(
+            { user_id: user.id, preference_key: "contact_columns", preference_value: columns },
+            { onConflict: "user_id,preference_key" }
+          );
       }
     }, 400);
   };
