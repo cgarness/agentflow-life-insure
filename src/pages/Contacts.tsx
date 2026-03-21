@@ -463,6 +463,11 @@ const Contacts: React.FC = () => {
     }
   }, [user?.id]);
 
+  // Sorting — shared across tabs, reset on tab change
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const sortPrefsLoaded = useRef(false);
+
   // Load sort preferences from Supabase on mount
   useEffect(() => {
     if (!user?.id) return;
@@ -545,11 +550,6 @@ const Contacts: React.FC = () => {
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-
-  // Sorting — shared across tabs, reset on tab change
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const sortPrefsLoaded = useRef(false);
 
   // Action menus
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
