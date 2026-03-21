@@ -1445,11 +1445,12 @@ const DisplaySettingsTab: React.FC = () => {
       try {
         const { data } = await supabase
           .from("user_preferences")
-          .select("contact_columns")
+          .select("preference_value")
           .eq("user_id", user.id)
+          .eq("preference_key", "contact_columns")
           .single();
-        if (data?.contact_columns) {
-          setColumns(data.contact_columns as typeof columns);
+        if (data?.preference_value) {
+          setColumns(data.preference_value as typeof columns);
         }
       } finally {
         setLoadingPrefs(false);
@@ -1485,21 +1486,29 @@ const DisplaySettingsTab: React.FC = () => {
     return Object.keys(errors).length === 0;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validateAging()) {
       toast({ title: "Please fix the errors before saving", variant: "destructive" });
       return;
     }
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      toast({ title: "Display settings saved" });
+    try {
       if (user?.id) {
-        supabase
+        const { error } = await supabase
           .from("user_preferences")
-          .upsert({ user_id: user.id, contact_columns: columns }, { onConflict: "user_id" });
+          .upsert(
+            { user_id: user.id, preference_key: "contact_columns", preference_value: columns },
+            { onConflict: "user_id,preference_key" }
+          );
+        if (error) throw error;
       }
-    }, 400);
+      toast({ title: "Display settings saved" });
+    } catch (err) {
+      console.error("Failed to save display settings:", err);
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const RadioTile = ({ value, current, onChange, label }: { value: string; current: string; onChange: (v: string) => void; label: string }) => (
