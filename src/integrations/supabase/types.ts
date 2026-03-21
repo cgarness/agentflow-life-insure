@@ -681,15 +681,21 @@ export type Database = {
           beneficiary_relationship: string | null
           carrier: string | null
           created_at: string
+          custom_fields: Json | null
+          effective_date: string | null
           email: string
+          face_amount: number | null
           first_name: string
           id: string
+          issue_date: string | null
           last_name: string
+          lead_id: string | null
           notes: string | null
           phone: string
           policy_number: string | null
           policy_type: string
           premium: number | null
+          premium_amount: number | null
           updated_at: string
         }
         Insert: {
@@ -699,15 +705,21 @@ export type Database = {
           beneficiary_relationship?: string | null
           carrier?: string | null
           created_at?: string
+          custom_fields?: Json | null
+          effective_date?: string | null
           email?: string
+          face_amount?: number | null
           first_name?: string
           id?: string
+          issue_date?: string | null
           last_name?: string
+          lead_id?: string | null
           notes?: string | null
           phone?: string
           policy_number?: string | null
           policy_type?: string
           premium?: number | null
+          premium_amount?: number | null
           updated_at?: string
         }
         Update: {
@@ -717,18 +729,32 @@ export type Database = {
           beneficiary_relationship?: string | null
           carrier?: string | null
           created_at?: string
+          custom_fields?: Json | null
+          effective_date?: string | null
           email?: string
+          face_amount?: number | null
           first_name?: string
           id?: string
+          issue_date?: string | null
           last_name?: string
+          lead_id?: string | null
           notes?: string | null
           phone?: string
           policy_number?: string | null
           policy_type?: string
           premium?: number | null
+          premium_amount?: number | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       company_settings: {
         Row: {
@@ -1463,6 +1489,45 @@ export type Database = {
           recording_retention_days?: number | null
           transcription_enabled?: boolean | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_stages: {
+        Row: {
+          color: string
+          convert_to_client: boolean
+          created_at: string
+          id: string
+          is_default: boolean
+          is_positive: boolean
+          name: string
+          pipeline_type: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          convert_to_client?: boolean
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          is_positive?: boolean
+          name: string
+          pipeline_type?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          convert_to_client?: boolean
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          is_positive?: boolean
+          name?: string
+          pipeline_type?: string
+          sort_order?: number
+          updated_at?: string
         }
         Relationships: []
       }
