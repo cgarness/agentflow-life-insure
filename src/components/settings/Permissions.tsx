@@ -87,6 +87,7 @@ const defaultFeatures: FeatureCategory[] = [
       { name: "Delete Campaigns", description: "Remove campaigns permanently", agent: false, teamLeader: false },
       { name: "Upload Campaign Leads", description: "Add leads to Open Pool campaigns", agent: false, teamLeader: true },
       { name: "View All Campaigns", description: "See campaigns created by other agents", agent: false, teamLeader: true },
+      { name: "View Campaign Import History", description: "See the log of when and how leads were added to a campaign", agent: false, teamLeader: true },
     ],
   },
   {
