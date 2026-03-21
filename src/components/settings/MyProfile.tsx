@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "next-themes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import {
   Eye, EyeOff, Lock, Loader2, Upload, User,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -65,6 +66,7 @@ function getPasswordStrength(pw: string) {
 const MyProfile: React.FC = () => {
   const { user, profile, updateProfile } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { registerDirty } = useUnsavedChanges();
 
   // Profile Info
   const [firstName, setFirstName] = useState(profile?.first_name ?? "");
@@ -82,6 +84,34 @@ const MyProfile: React.FC = () => {
   const [commissionLevel, setCommissionLevel] = useState(profile?.commission_level ?? "0%");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileErrors, setProfileErrors] = useState<{ firstName?: string; lastName?: string }>({});
+
+  // Track saved profile values for dirty detection
+  const [savedProfile, setSavedProfile] = useState({
+    firstName: profile?.first_name ?? "",
+    lastName: profile?.last_name ?? "",
+    phone: profile?.phone ?? "",
+    availability: profile?.availability_status ?? "Available",
+    npn: profile?.npn ?? "",
+    residentState: profile?.resident_state ?? "",
+    licensedStates: JSON.stringify(profile?.licensed_states || []),
+    selectedCarriers: JSON.stringify(profile?.carriers || []),
+  });
+
+  const isProfileDirty = useMemo(() => (
+    firstName !== savedProfile.firstName ||
+    lastName !== savedProfile.lastName ||
+    phone !== savedProfile.phone ||
+    availability !== savedProfile.availability ||
+    npn !== savedProfile.npn ||
+    residentState !== savedProfile.residentState ||
+    JSON.stringify(licensedStates) !== savedProfile.licensedStates ||
+    JSON.stringify(selectedCarriers) !== savedProfile.selectedCarriers
+  ), [firstName, lastName, phone, availability, npn, residentState, licensedStates, selectedCarriers, savedProfile]);
+
+  useEffect(() => {
+    registerDirty("my-profile", isProfileDirty);
+    return () => registerDirty("my-profile", false);
+  }, [isProfileDirty, registerDirty]);
 
   // Avatar crop modal
   const [cropModalOpen, setCropModalOpen] = useState(false);
@@ -137,6 +167,16 @@ const MyProfile: React.FC = () => {
       setSmsNotifs(profile.sms_notifications_enabled ?? false);
       setPushNotifs(profile.push_notifications_enabled ?? true);
       setTimezone(profile.timezone || "Eastern Time (US & Canada)");
+      setSavedProfile({
+        firstName: profile.first_name || "",
+        lastName: profile.last_name || "",
+        phone: profile.phone || "",
+        availability: profile.availability_status || "Available",
+        npn: profile.npn || "",
+        residentState: profile.resident_state || "",
+        licensedStates: JSON.stringify(profile.licensed_states || []),
+        selectedCarriers: JSON.stringify(profile.carriers || []),
+      });
     }
   }, [profile]);
 
@@ -188,15 +228,25 @@ const MyProfile: React.FC = () => {
 
     setProfileSaving(true);
     try {
-      await updateProfile({ 
-        first_name: firstName.trim(), 
-        last_name: lastName.trim(), 
-        phone, 
-        availability_status: availability, 
+      await updateProfile({
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        phone,
+        availability_status: availability,
         licensed_states: licensedStates,
         carriers: selectedCarriers,
         resident_state: residentState,
         npn: npn.trim()
+      });
+      setSavedProfile({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phone,
+        availability,
+        npn: npn.trim(),
+        residentState,
+        licensedStates: JSON.stringify(licensedStates),
+        selectedCarriers: JSON.stringify(selectedCarriers),
       });
       toast({ title: "Profile updated successfully.", className: "bg-success text-success-foreground" });
     } catch (err: any) {

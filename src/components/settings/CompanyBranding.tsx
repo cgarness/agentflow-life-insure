@@ -3,6 +3,7 @@ import { Upload, X, Image, Globe, Clock, Palette, Phone, Building2, Loader2 } fr
 import { toast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
+import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 
 interface BrandingState {
   companyName: string;
@@ -93,8 +94,14 @@ const CompanyBranding: React.FC = () => {
   const [hexError, setHexError] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
+  const { registerDirty } = useUnsavedChanges();
 
   const isDirty = JSON.stringify(state) !== JSON.stringify(saved);
+
+  useEffect(() => {
+    registerDirty("company-branding", isDirty);
+    return () => registerDirty("company-branding", false);
+  }, [isDirty, registerDirty]);
 
   const update = useCallback((patch: Partial<BrandingState>) => {
     setState(prev => ({ ...prev, ...patch }));
