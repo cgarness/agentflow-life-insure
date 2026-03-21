@@ -81,6 +81,7 @@ interface AgentProfile {
   last_name: string;
   email: string;
   role: string;
+  upline_id?: string | null;
 }
 
 interface LeadRow {
@@ -595,7 +596,7 @@ const CampaignDetail: React.FC = () => {
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
-    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role");
+    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role, upline_id");
     if (data) { setAgents((data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")); }
     setAgentsLoading(false);
   }, []);
@@ -605,11 +606,33 @@ const CampaignDetail: React.FC = () => {
   const existingLeadIds = useMemo(() => new Set(leads.map(l => l.lead_id).filter(Boolean) as string[]), [leads]);
 
   const filteredLeads = useMemo(() => {
-    if (leadFilter !== "All") {
-      return leads.filter(l => l.status === leadFilter);
+    const role = profile?.role?.toLowerCase();
+    const currentUserId = user?.id;
+
+    // Always show only claimed leads — leads with no assigned agent are never shown
+    let visibleLeads = leads.filter(l => l.claimed_by != null);
+
+    if (role === "agent") {
+      // Agent: only their own claimed leads
+      visibleLeads = visibleLeads.filter(l => l.claimed_by === currentUserId);
+    } else if (role === "team leader" || role === "team_leader") {
+      // Team Leader: own leads + leads claimed by direct reports (upline_id === currentUserId)
+      // TODO: Replace upline_id check with a proper team membership query once team
+      //       relationships are wired (e.g. via a teams/team_members table).
+      const teamMemberIds = new Set(
+        agents.filter(a => a.upline_id === currentUserId).map(a => a.id)
+      );
+      visibleLeads = visibleLeads.filter(
+        l => l.claimed_by === currentUserId || teamMemberIds.has(l.claimed_by!)
+      );
     }
-    return leads;
-  }, [leads, leadFilter]);
+    // Admin: all claimed leads, no additional filtering
+
+    if (leadFilter !== "All") {
+      return visibleLeads.filter(l => l.status === leadFilter);
+    }
+    return visibleLeads;
+  }, [leads, leadFilter, profile, user, agents]);
 
   // Status actions
   const updateStatus = async (newStatus: string) => {
@@ -887,7 +910,13 @@ const CampaignDetail: React.FC = () => {
           ) : filteredLeads.length === 0 ? (
             <div className="bg-card rounded-xl border p-8 text-center">
               <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads to get started.</p>
+              <p className="text-muted-foreground text-sm">
+                {profile?.role?.toLowerCase() === "agent"
+                  ? "You haven't claimed any leads in this campaign yet. Join the Dialer to get started."
+                  : (profile?.role?.toLowerCase() === "team leader" || profile?.role?.toLowerCase() === "team_leader")
+                  ? "No leads have been claimed in this campaign by you or your team yet."
+                  : "This campaign has no leads yet."}
+              </p>
             </div>
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
