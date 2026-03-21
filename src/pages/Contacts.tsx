@@ -17,7 +17,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
 import type { Json } from "@/integrations/supabase/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
-import ContactModal from "@/components/contacts/ContactModal";
 import ClientModal from "@/components/contacts/ClientModal";
 import RecruitModal from "@/components/contacts/RecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
