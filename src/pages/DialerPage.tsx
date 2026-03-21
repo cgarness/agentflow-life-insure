@@ -520,12 +520,12 @@ export default function DialerPage() {
     }
     supabase
       .from('profiles')
-      .select('first_name, last_name, full_name')
+      .select('first_name, last_name')
       .eq('id', currentLead.assigned_agent_id)
       .single()
       .then(({ data }) => {
         if (data) {
-          setAssignedAgentName(data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim());
+          setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
         } else {
           setAssignedAgentName(null);
         }

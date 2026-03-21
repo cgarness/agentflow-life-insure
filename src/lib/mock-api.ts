@@ -491,22 +491,22 @@ export const dispositionsApi = {
 
 // ---- PIPELINE STAGES ----
 let leadStages: PipelineStage[] = [
-  { id: "ls1", name: "New", color: "#3B82F6", isPositive: false, isDefault: true, order: 1, pipelineType: "lead" },
-  { id: "ls2", name: "Contacted", color: "#A855F7", isPositive: false, isDefault: true, order: 2, pipelineType: "lead" },
-  { id: "ls3", name: "Interested", color: "#EAB308", isPositive: false, isDefault: true, order: 3, pipelineType: "lead" },
-  { id: "ls4", name: "Hot", color: "#F97316", isPositive: false, isDefault: true, order: 4, pipelineType: "lead" },
-  { id: "ls5", name: "Follow Up", color: "#14B8A6", isPositive: false, isDefault: true, order: 5, pipelineType: "lead" },
-  { id: "ls6", name: "Closed Won", color: "#22C55E", isPositive: true, isDefault: true, order: 6, pipelineType: "lead" },
-  { id: "ls7", name: "Closed Lost", color: "#EF4444", isPositive: false, isDefault: true, order: 7, pipelineType: "lead" },
+  { id: "ls1", name: "New", color: "#3B82F6", isPositive: false, isDefault: true, convertToClient: false, order: 1, pipelineType: "lead" },
+  { id: "ls2", name: "Contacted", color: "#A855F7", isPositive: false, isDefault: true, convertToClient: false, order: 2, pipelineType: "lead" },
+  { id: "ls3", name: "Interested", color: "#EAB308", isPositive: false, isDefault: true, convertToClient: false, order: 3, pipelineType: "lead" },
+  { id: "ls4", name: "Hot", color: "#F97316", isPositive: false, isDefault: true, convertToClient: false, order: 4, pipelineType: "lead" },
+  { id: "ls5", name: "Follow Up", color: "#14B8A6", isPositive: false, isDefault: true, convertToClient: false, order: 5, pipelineType: "lead" },
+  { id: "ls6", name: "Closed Won", color: "#22C55E", isPositive: true, isDefault: true, convertToClient: true, order: 6, pipelineType: "lead" },
+  { id: "ls7", name: "Closed Lost", color: "#EF4444", isPositive: false, isDefault: true, convertToClient: false, order: 7, pipelineType: "lead" },
 ];
 
 let recruitStages: PipelineStage[] = [
-  { id: "rs1", name: "Interested in Joining", color: "#3B82F6", isPositive: false, isDefault: true, order: 1, pipelineType: "recruit" },
-  { id: "rs2", name: "Contacted", color: "#A855F7", isPositive: false, isDefault: true, order: 2, pipelineType: "recruit" },
-  { id: "rs3", name: "In Interview Process", color: "#EAB308", isPositive: false, isDefault: true, order: 3, pipelineType: "recruit" },
-  { id: "rs4", name: "Pending Licensing", color: "#F97316", isPositive: false, isDefault: true, order: 4, pipelineType: "recruit" },
-  { id: "rs5", name: "Licensed & Onboarding", color: "#22C55E", isPositive: true, isDefault: true, order: 5, pipelineType: "recruit" },
-  { id: "rs6", name: "Not Interested", color: "#EF4444", isPositive: false, isDefault: true, order: 6, pipelineType: "recruit" },
+  { id: "rs1", name: "Interested in Joining", color: "#3B82F6", isPositive: false, isDefault: true, convertToClient: false, order: 1, pipelineType: "recruit" },
+  { id: "rs2", name: "Contacted", color: "#A855F7", isPositive: false, isDefault: true, convertToClient: false, order: 2, pipelineType: "recruit" },
+  { id: "rs3", name: "In Interview Process", color: "#EAB308", isPositive: false, isDefault: true, convertToClient: false, order: 3, pipelineType: "recruit" },
+  { id: "rs4", name: "Pending Licensing", color: "#F97316", isPositive: false, isDefault: true, convertToClient: false, order: 4, pipelineType: "recruit" },
+  { id: "rs5", name: "Licensed & Onboarding", color: "#22C55E", isPositive: true, isDefault: true, convertToClient: false, order: 5, pipelineType: "recruit" },
+  { id: "rs6", name: "Not Interested", color: "#EF4444", isPositive: false, isDefault: true, convertToClient: false, order: 6, pipelineType: "recruit" },
 ];
 
 export const pipelineApi = {
