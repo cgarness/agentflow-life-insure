@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { X, Phone, Mail, Calendar, Pencil, Trash2, GitMerge, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare, Loader2 } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { X, Phone, Mail, Calendar, Pencil, Trash2, GitMerge, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare, Loader2, Play, Save, Clipboard, AlertTriangle } from "lucide-react";
 import { Client, ContactNote, ContactActivity, Call } from "@/lib/types";
 import { mockUsers, mockCalls, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
@@ -103,6 +103,14 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   const [smsText, setSmsText] = useState("");
   const [smsSending, setSmsSending] = useState(false);
   const AGENT_NAME = "Chris Garcia";
+  const [rightTab, setRightTab] = useState<"Activity" | "Conversations">("Activity");
+  const [convoLoading, setConvoLoading] = useState(false);
+  const [convoItems, setConvoItems] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [convoFilter, setConvoFilter] = useState<"All" | "Calls" | "SMS" | "Email">("All");
+  const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
+  const [composeText, setComposeText] = useState("");
+  const threadRef = useRef<HTMLDivElement>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const logActivity = (description: string, type: string) => {
     const entry: ContactActivity = { id: `act-${Date.now()}`, contactId: client?.id ?? "", contactType: "client", type, description, agentId: "u1", agentName: AGENT_NAME, createdAt: new Date().toISOString() };
@@ -173,12 +181,31 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
     loadData();
   }, [client]);
 
+  useEffect(() => {
+    if (rightTab !== "Conversations" || !client?.id) return;
+    setConvoLoading(true);
+    supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, started_at").eq("contact_id", client.id).eq("contact_type", "client").order("started_at", { ascending: true })
+    .then(callsRes => {
+      const calls = (callsRes.data || []).map(c => ({ ...c, _type: "call", _ts: new Date((c as any).started_at).getTime() })); // eslint-disable-line @typescript-eslint/no-explicit-any
+      setConvoItems(calls.sort((a, b) => a._ts - b._ts));
+      setConvoLoading(false);
+    });
+  }, [rightTab, client?.id]);
+
+  const filtered = convoFilter === "All" ? convoItems : convoItems.filter(i => i._type === convoFilter.toLowerCase());
+
+  useEffect(() => {
+    if (rightTab === "Conversations" && threadRef.current) {
+      threadRef.current.scrollTop = threadRef.current.scrollHeight;
+    }
+  }, [rightTab, filtered.length]);
+
   if (!client) return null;
   const agents = mockUsers.filter(u => u.status === "Active");
-  const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Client updated"); };
-  const handleCancel = () => { setEditForm({ ...client }); setEditMode(false); setHasChanges(false); };
-  const tryClose = () => { if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
+  const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); setHasUnsavedChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Client updated"); };
+  const handleCancel = () => { setEditForm({ ...client }); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); };
+  const tryClose = () => { if (hasUnsavedChanges) { if (!window.confirm("You have unsaved changes. Close anyway?")) return; onClose(); return; } if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
   const handleAddNote = async () => {
     if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; }
     setNoteError("");
@@ -205,9 +232,9 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   const fmt = (s: number) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toString().padStart(2, "0")}`; };
   const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
-  const renderField = (label: string, key: string, type: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
+  const renderField = (label: string, key: string, type: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[], copyable?: boolean) => {
     const val = (editForm as any)[key] ?? ""; // eslint-disable-line @typescript-eslint/no-explicit-any
-    return (<div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{val || "—"}</div>}</div>);
+    return (<div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : copyable && val ? (<div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center"><div className="flex items-center justify-between group w-full"><span className="text-foreground font-medium">{val}</span><button onClick={() => { navigator.clipboard.writeText(val); toast.success("Copied to clipboard"); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"><Clipboard className="w-3.5 h-3.5" /></button></div></div>) : <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{val || "—"}</div>}</div>);
   };
 
   return (<TooltipProvider>
@@ -252,9 +279,25 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
             <div className="flex-1 overflow-y-auto p-6">
               {/* OVERVIEW */}
               {activeTab === "Overview" && <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contact Info</span>
+                  {!editMode
+                    ? <button onClick={() => setEditMode(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Pencil className="w-3 h-3" /> Edit</button>
+                    : <div className="flex items-center gap-2">
+                        <button onClick={() => { setEditMode(false); setHasUnsavedChanges(false); setEditForm({ ...client }); }} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+                        <button onClick={handleSave} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"><Save className="w-3 h-3" /> Save</button>
+                      </div>
+                  }
+                </div>
+                {editMode && hasUnsavedChanges && (
+                  <div className="mb-3 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>You have unsaved changes.</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   {renderField("First Name", "firstName")}{renderField("Last Name", "lastName")}
-                  {renderField("Phone", "phone")}{renderField("Email", "email", "email")}
+                  {renderField("Phone", "phone", "text", undefined, true)}{renderField("Email", "email", "email", undefined, true)}
                   {renderField("Policy Type", "policyType", "select", ["Term", "Whole Life", "IUL", "Final Expense"])}
                   {renderField("Carrier", "carrier")}{renderField("Policy Number", "policyNumber")}
                   {renderField("Face Amount", "faceAmount")}{renderField("Premium Amount", "premiumAmount")}
@@ -267,7 +310,6 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
                   </div>
                 </div>
                 <div>{renderField("Notes", "notes", "textarea")}</div>
-                {editMode && <div className="flex gap-2 pt-2"><Button onClick={handleSave}>Save Changes</Button><Button variant="outline" onClick={handleCancel}>Cancel</Button></div>}
               </div>}
 
               {/* NOTES */}
@@ -297,14 +339,96 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
             </div>
           </div>
 
-          {/* RIGHT */}
+          {/* RIGHT — ACTIVITY / CONVERSATIONS */}
           <div className="w-[35%] flex flex-col min-h-0">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0"><h3 className="text-sm font-semibold text-foreground">Activity Timeline</h3><button className="text-muted-foreground hover:text-foreground"><RefreshCw className="w-4 h-4" /></button></div>
-            <p className="text-xs text-muted-foreground px-4 pt-2">Last updated {timeAgo(lastUpdated)}</p>
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-              {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => <div key={a.id} className={`flex items-start gap-2 ${i === 0 ? "animate-fade-in" : ""}`}><div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${activityDotColor(a.type)}`} /><div><p className="text-xs text-foreground leading-tight">{a.description}</p><p className="text-[11px] text-muted-foreground">{timeAgo(a.createdAt)}</p></div></div>)}
-              {activities.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No activity yet</p>}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+              <div className="flex bg-accent rounded-lg p-1 gap-1">
+                <button onClick={() => setRightTab("Activity")} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${rightTab === "Activity" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Activity</button>
+                <button onClick={() => setRightTab("Conversations")} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${rightTab === "Conversations" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Conversations</button>
+              </div>
             </div>
+            {rightTab === "Activity" && (
+              <>
+                <p className="text-xs text-muted-foreground px-4 pt-2">Last updated {timeAgo(lastUpdated)}</p>
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                  {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => <div key={a.id} className={`flex items-start gap-2 ${i === 0 ? "animate-fade-in" : ""}`}><div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${activityDotColor(a.type)}`} /><div><p className="text-xs text-foreground leading-tight">{a.description}</p><p className="text-[11px] text-muted-foreground">{timeAgo(a.createdAt)}</p></div></div>)}
+                  {activities.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No activity yet</p>}
+                </div>
+              </>
+            )}
+            {rightTab === "Conversations" && (
+              <>
+                <div className="flex gap-2 px-4 py-2 flex-shrink-0">
+                  {["All", "Calls", "SMS", "Email"].map(f => (
+                    <button key={f} onClick={() => setConvoFilter(f as any)} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${convoFilter === f ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>{f}</button>
+                  ))}
+                </div>
+                <div ref={threadRef} className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-2">
+                  {convoLoading && (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  {!convoLoading && filtered.length === 0 && (
+                    <div className="flex items-center justify-center py-8">
+                      <p className="text-sm text-muted-foreground">No conversations yet</p>
+                    </div>
+                  )}
+                  {!convoLoading && filtered.map(item => {
+                    if (item._type === "call") {
+                      return (
+                        <div key={item.id} className="bg-accent/50 rounded-xl px-4 py-3 text-sm">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Phone className="w-4 h-4 text-primary" />
+                            <span className="font-medium text-foreground">{item.direction === "outbound" ? "Outbound" : "Inbound"} Call</span>
+                            {item.duration > 0 && <span className="text-muted-foreground">· {Math.floor(item.duration/60)}:{String(item.duration%60).padStart(2,'0')}</span>}
+                            {item.disposition_name && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{item.disposition_name}</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{new Date(item.started_at).toLocaleString()}</p>
+                          {item.recording_url && <button className="flex items-center gap-1 mt-1 text-xs text-primary hover:underline"><Play className="w-3 h-3" /> Play Recording</button>}
+                        </div>
+                      );
+                    }
+                    if (item._type === "sms") {
+                      return (
+                        <div key={item.id} className={`flex ${item.direction === "outbound" ? "justify-end" : "justify-start"}`}>
+                          <div className={`rounded-xl px-4 py-3 max-w-[80%] text-sm ${item.direction === "outbound" ? "text-white rounded-br-sm" : "bg-accent text-foreground rounded-bl-sm"}`} style={item.direction === "outbound" ? { backgroundColor: "#16a34a" } : undefined}>
+                            <p>{item.body}</p>
+                            <p className="text-xs mt-1 opacity-70">{new Date(item.sent_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item._type === "email") {
+                      return (
+                        <div key={item.id} className={`flex ${item.direction === "outbound" ? "justify-end" : "justify-start"}`}>
+                          <div className={`rounded-xl px-4 py-3 max-w-[80%] text-sm ${item.direction === "outbound" ? "text-white rounded-br-sm" : "bg-accent text-foreground rounded-bl-sm"}`} style={item.direction === "outbound" ? { backgroundColor: "#0d9488" } : undefined}>
+                            <div className="flex items-center gap-1 mb-1 opacity-80"><Mail className="w-3 h-3" /><span className="text-xs font-medium">Email</span></div>
+                            <p>{item.body}</p>
+                            <p className="text-xs mt-1 opacity-70">{new Date(item.sent_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+                <div className="border-t border-border p-3 flex-shrink-0">
+                  <div className="flex gap-1 mb-2">
+                    {["SMS", "Email"].map(t => (
+                      <button key={t} onClick={() => setComposeTab(t as any)} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${composeTab === t ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>{t}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <input value={composeText} onChange={e => setComposeText(e.target.value)} placeholder="Type a message..." className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                    <button onClick={() => toast.success("Templates coming soon")} className="p-2 rounded-lg border border-border bg-card hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                      <FileText className="w-4 h-4" />
+                    </button>
+                    <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Send</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
