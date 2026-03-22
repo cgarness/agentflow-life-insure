@@ -2013,7 +2013,7 @@ export default function DialerPage() {
                   <option value="">Auto-Select</option>
                   {(ownedNumbers.current || []).map(n => (
                     <option key={n.phone_number} value={n.phone_number}>
-                      {n.phone_number} {n.is_default ? '(Default)' : ''}
+                      {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number} {n.is_default ? '(Default)' : ''}
                     </option>
                   ))}
                 </select>
