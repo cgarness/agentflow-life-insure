@@ -235,6 +235,7 @@ export default function DialerPage() {
 
   // ── Auto-Dial state ──
   const [autoDialer, setAutoDialer] = useState<AutoDialer | null>(null);
+  const [manualCallerId, setManualCallerId] = useState<string | null>(null);
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
@@ -787,6 +788,7 @@ export default function DialerPage() {
   /* --- caller ID selection --- */
 
   const selectCallerId = (leadPhone: string): string => {
+    if (manualCallerId) return manualCallerId;
     if (!ownedNumbers.current || ownedNumbers.current.length === 0) return '';
     const digits = leadPhone.replace(/\D/g, '');
     const leadAreaCode = digits.startsWith('1') ? digits.substring(1, 4) : digits.substring(0, 3);
@@ -1999,6 +2001,22 @@ export default function DialerPage() {
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-sm text-foreground">Conversation History</span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">From:</span>
+                <select
+                  value={manualCallerId || ""}
+                  onChange={(e) => setManualCallerId(e.target.value || null)}
+                  className="bg-accent/50 border border-border rounded px-2 py-1 text-[10px] font-bold text-foreground focus:ring-1 focus:ring-primary outline-none cursor-pointer hover:bg-accent/80 transition-all"
+                >
+                  <option value="">Auto-Select</option>
+                  {(ownedNumbers.current || []).map(n => (
+                    <option key={n.phone_number} value={n.phone_number}>
+                      {n.phone_number} {n.is_default ? '(Default)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
