@@ -108,7 +108,7 @@ const AGENT_REMINDER_SOUND_KEY = "agent_reminder_sound";
 
 const CalendarSettings: React.FC = () => {
   const { user } = useAuth();
-  const { setDirty } = useUnsavedChanges();
+  const { registerDirty } = useUnsavedChanges();
   // Card 1 - Default View
   const [defaultView, setDefaultView] = useState("Month");
   // Card 2 - First Day
@@ -469,34 +469,32 @@ const CalendarSettings: React.FC = () => {
     if (!user?.id) return;
     setAgentRemindersSaving(true);
     try {
-      const { error: timeError } = await supabase
+      const { error } = await supabase
         .from("user_preferences")
-        .upsert({
-          user_id: user.id,
-          preference_key: AGENT_REMINDER_TIME_KEY,
-          preference_value: agentReminderTime as any,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,preference_key" });
+        .upsert([
+          {
+            user_id: user.id,
+            preference_key: AGENT_REMINDER_TIME_KEY,
+            preference_value: agentReminderTime as any,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            user_id: user.id,
+            preference_key: AGENT_REMINDER_SOUND_KEY,
+            preference_value: agentReminderSound as any,
+            updated_at: new Date().toISOString(),
+          }
+        ], { onConflict: "user_id,preference_key" });
 
-      if (timeError) throw timeError;
-
-      const { error: soundError } = await supabase
-        .from("user_preferences")
-        .upsert({
-          user_id: user.id,
-          preference_key: AGENT_REMINDER_SOUND_KEY,
-          preference_value: agentReminderSound as any,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,preference_key" });
-
-      if (soundError) throw soundError;
+      if (error) throw error;
 
       setAgentRemindersDirty(false);
-      setDirty("calendar-settings", false);
+      registerDirty("calendar-settings", false);
       toast({ title: "Reminder settings saved", className: "bg-[#22C55E] text-white border-0" });
     } catch (err) {
       console.error("Error saving agent reminders:", err);
-      toast({ title: "Failed to save settings", variant: "destructive" });
+      const message = err instanceof Error ? err.message : "Please try again.";
+      toast({ title: "Unable to save settings", description: message, variant: "destructive" });
     } finally {
       setAgentRemindersSaving(false);
     }
@@ -931,7 +929,7 @@ const CalendarSettings: React.FC = () => {
                 onValueChange={v => {
                   setAgentReminderTime(Number(v));
                   setAgentRemindersDirty(true);
-                  setDirty("calendar-settings", true);
+                  registerDirty("calendar-settings", true);
                 }}
               >
                 <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
@@ -955,7 +953,7 @@ const CalendarSettings: React.FC = () => {
                 onCheckedChange={v => {
                   setAgentReminderSound(v);
                   setAgentRemindersDirty(true);
-                  setDirty("calendar-settings", true);
+                  registerDirty("calendar-settings", true);
                 }} 
               />
             </div>
