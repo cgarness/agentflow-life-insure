@@ -93,6 +93,9 @@ const ReminderPopup: React.FC = () => {
     appointments.forEach(appt => {
       if (!appt.start_time) return;
       
+      // Only remind for appointments belonging to the current user
+      if (appt.user_id !== user?.id) return;
+      
       const startTime = new Date(appt.start_time).getTime();
       const leadTimeMs = leadTimeMinutes * 60 * 1000;
       const triggerTime = startTime - leadTimeMs;

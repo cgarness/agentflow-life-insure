@@ -29,6 +29,7 @@ import {
 } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { Lead } from "@/lib/types";
@@ -66,7 +67,7 @@ type AppointmentSyncMeta = {
 };
 
 const CalendarPage: React.FC = () => {
-  // --- Contexts ---
+  const { user } = useAuth();
   const { 
     appointments, 
     loading, 
@@ -191,6 +192,7 @@ const CalendarPage: React.FC = () => {
     }
 
     const localPayload = {
+      user_id: user?.id,
       title: data.title,
       contact_name: data.contactName,
       contact_id: contactId || null,
@@ -200,6 +202,7 @@ const CalendarPage: React.FC = () => {
       notes: data.notes,
       status: data.status,
       sync_source: "internal",
+      created_by: user?.id,
     };
 
     if (modalEditing) {

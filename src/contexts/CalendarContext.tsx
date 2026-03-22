@@ -19,6 +19,7 @@ export interface CalendarAppointment {
   notes: string;
   start_time?: string; // Original ISO string from DB
   end_time?: string;   // Original ISO string from DB
+  user_id?: string;
 }
 
 const VALID_TYPES: CalAppointmentType[] = [
@@ -113,6 +114,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       notes: appt.notes || "",
       start_time: appt.start_time,
       end_time: appt.end_time,
+      user_id: appt.user_id,
     };
   }, []);
 
@@ -127,7 +129,6 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const { data, error } = await supabase
       .from('appointments')
       .select('*')
-      .eq('user_id', user.id)
       .gte('start_time', startRange)
       .lte('start_time', endRange)
       .order('start_time', { ascending: true });
@@ -154,7 +155,6 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           event: '*',
           schema: 'public',
           table: 'appointments',
-          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
