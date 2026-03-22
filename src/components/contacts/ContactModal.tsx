@@ -168,6 +168,22 @@ const activityDotColor = (type: string) => {
   }
 };
 
+const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
+  if (!value && value !== 0) return <span className="text-muted-foreground">—</span>;
+  const display = String(value);
+  return (
+    <div className="flex items-center justify-between group w-full">
+      <span className="text-foreground font-medium">{display}</span>
+      <button
+        onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+      >
+        <Clipboard className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};
+
 interface ContactModalProps {
   lead: Lead | null;
   onClose: () => void;
@@ -496,20 +512,8 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
             )}
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : copyable && val ? (
-          <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">
-            <div className="flex items-center justify-between group w-full">
-              <span className="text-foreground font-medium">{val}</span>
-              <button
-                onClick={() => { navigator.clipboard.writeText(val); toast.success("Copied to clipboard"); }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-              >
-                <Clipboard className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
         ) : (
-          <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{val || "—"}</div>
+          <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center"><CopyField value={val} /></div>
         )}
       </div>
     );
