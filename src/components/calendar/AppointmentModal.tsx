@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, Phone, MessageSquare, Mail, Plus } from "lucide-react";
+import { X, Phone, MessageSquare, Mail, Plus, Clock } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 import { mockUsers } from "@/lib/mock-data";
 import { toast as toastSonner } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import ContactMiniCard from "./ContactMiniCard";
 
 
@@ -38,6 +41,66 @@ const minutesToTime = (min: number): string => {
   const p = h >= 12 ? "PM" : "AM";
   const hour = h % 12 || 12;
   return `${hour}:${minutes.toString().padStart(2, "0")} ${p}`;
+};
+
+const TimeSelect: React.FC<{
+  value: string;
+  onChange: (val: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
+  className?: string;
+  error?: boolean;
+}> = ({ value, onChange, onBlur, placeholder, className, error }) => {
+  const [open, setOpen] = React.useState(false);
+  
+  const times = React.useMemo(() => {
+    const res: string[] = [];
+    for (let i = 0; i < 96; i++) {
+       const h = Math.floor(i / 4);
+       const m = (i % 4) * 15;
+       const hr = h % 12 || 12;
+       const ampm = h < 12 ? "AM" : "PM";
+       res.push(`${hr}:${m.toString().padStart(2, "0")} ${ampm}`);
+    }
+    return res;
+  }, []);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <div className="relative">
+          <Input 
+            value={value}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            onBlur={onBlur}
+            placeholder={placeholder}
+            className={`${className} pr-10 ${error ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+            onFocus={() => setOpen(true)}
+          />
+          <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[180px] p-0" align="start">
+        <ScrollArea className="h-64">
+           <div className="p-1">
+             {times.map(t => (
+               <button
+                 key={t}
+                 type="button"
+                 className="w-full text-left px-2 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                 onClick={() => {
+                   onChange(t);
+                   setOpen(false);
+                 }}
+               >
+                 {t}
+               </button>
+             ))}
+           </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
 };
 
 const agents = mockUsers.filter(u => u.status === "Active");
@@ -441,41 +504,29 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-muted-foreground block mb-1">Start Time *</label>
-              <input 
-                list="appointment-times"
+              <TimeSelect 
                 value={startTime} 
-                onChange={e => setStartTime(e.target.value.toUpperCase())} 
+                onChange={setStartTime} 
                 placeholder="10:00 AM"
-                className={`${inputCls} ${errors.startTime ? "border-red-500" : ""}`} 
+                error={!!errors.startTime}
               />
               {errors.startTime && <p className="text-xs text-red-500 mt-0.5">{errors.startTime}</p>}
             </div>
             <div>
               <label className="text-sm font-medium text-muted-foreground block mb-1">End Time *</label>
-              <input 
-                list="appointment-times"
+              <TimeSelect 
                 value={endTime} 
-                onChange={e => {
-                  setEndTime(e.target.value.toUpperCase());
+                onChange={val => {
+                  setEndTime(val);
                   setUserInteractedWithEnd(true);
                 }} 
                 placeholder="10:30 AM"
-                className={`${inputCls} ${errors.endTime ? "border-red-500" : ""}`} 
+                error={!!errors.endTime}
               />
               {errors.endTime && <p className="text-xs text-red-500 mt-0.5">{errors.endTime}</p>}
             </div>
           </div>
 
-          <datalist id="appointment-times">
-            {Array.from({ length: 96 }).map((_, i) => {
-              const h = Math.floor(i / 4);
-              const m = (i % 4) * 15;
-              const hr = h % 12 || 12;
-              const ampm = h < 12 ? "AM" : "PM";
-              const t = `${hr}:${m.toString().padStart(2, "0")} ${ampm}`;
-              return <option key={t} value={t} />;
-            })}
-          </datalist>
           {/* Agent */}
           <div>
             <label className="text-sm font-medium text-muted-foreground block mb-1">Agent</label>
