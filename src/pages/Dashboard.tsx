@@ -1,864 +1,519 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Phone, ShieldCheck, Calendar, Megaphone, TrendingUp, TrendingDown,
-  Clock, ArrowRight, Trophy, Users, Target, CheckCircle2, Minus,
-  ExternalLink, RefreshCw, UserPlus, BarChart3, PhoneMissed, Rocket,
+  Pencil,
+  GripVertical,
+  Eye,
+  EyeOff,
+  Phone,
+  Calendar,
+  Target,
+  Trophy,
+  PhoneMissed,
+  Gift,
+  Plus,
 } from "lucide-react";
-import { format } from "date-fns";
-import { useBranding } from "@/contexts/BrandingContext";
-import {
-  dashboardSupabaseApi,
-  ExtendedDashboardStats,
-  FollowUpItem,
-  TodayAppointment,
-  RecentCall,
-  CampaignPerformance,
-  GoalProgress,
-  OnboardingStatus,
-  WinFeedEntry,
-  MissedCall,
-} from "@/lib/supabase-dashboard";
-import { LeaderboardEntry } from "@/lib/types";
-import { useAuth } from "@/contexts/AuthContext";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+import StatCards from "@/components/dashboard/StatCards";
+import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
+import WinCelebration from "@/components/dashboard/WinCelebration";
+import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
+import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
+import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
+import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
+import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget";
+import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWidget";
+
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+const DEFAULT_WIDGET_ORDER = [
+  "callbacks",
+  "appointments",
+  "goal_progress",
+  "leaderboard",
+  "missed_calls",
+  "anniversaries",
+];
+
+const WIDGET_LABELS: Record<string, string> = {
+  callbacks: "Callbacks",
+  appointments: "Appointments",
+  goal_progress: "Goal Progress",
+  leaderboard: "Leaderboard",
+  missed_calls: "Missed Calls",
+  anniversaries: "Anniversaries",
+};
+
+const WIDGET_ICONS: Record<string, React.ElementType> = {
+  callbacks: Phone,
+  appointments: Calendar,
+  goal_progress: Target,
+  leaderboard: Trophy,
+  missed_calls: PhoneMissed,
+  anniversaries: Gift,
+};
+
+// Sortable widget wrapper for edit mode
+const SortableWidget: React.FC<{
+  id: string;
+  editMode: boolean;
+  onToggleHide: (id: string) => void;
+  children: React.ReactNode;
+}> = ({ id, editMode, onToggleHide, children }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const Icon = WIDGET_ICONS[id] || Target;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="bg-card rounded-xl border border-border shadow-sm"
+    >
+      {/* Widget header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          {editMode && (
+            <button
+              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="w-4 h-4" />
+            </button>
+          )}
+          <Icon className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-foreground">
+            {WIDGET_LABELS[id]}
+          </h3>
+        </div>
+        {editMode && (
+          <button
+            onClick={() => onToggleHide(id)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <EyeOff className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+      {/* Widget content */}
+      <div className="p-5">{children}</div>
+    </div>
+  );
+};
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
-  const { formatDate, formatDateTime, formatTime } = useBranding();
-  const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  
-  // Data states
-  const [stats, setStats] = useState<ExtendedDashboardStats | null>(null);
-  const [followUps, setFollowUps] = useState<{
-    callbacksToday: FollowUpItem[];
-    staleLeads: number;
-    hotLeadsStale: number;
-  } | null>(null);
-  const [todayAppointments, setTodayAppointments] = useState<TodayAppointment[]>([]);
-  const [recentCalls, setRecentCalls] = useState<RecentCall[]>([]);
-  const [campaigns, setCampaigns] = useState<CampaignPerformance[]>([]);
-  const [goals, setGoals] = useState<GoalProgress[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null);
-  const [winFeed, setWinFeed] = useState<WinFeedEntry[]>([]);
-  const [missedCalls, setMissedCalls] = useState<MissedCall[]>([]);
-
-  // Win Feed auto-refresh timer
-  const winFeedTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const isAdmin = profile?.role === "admin" || profile?.role === "Admin" || profile?.role === "Team Leader";
   const userId = user?.id || "";
+  const role = profile?.role || "Agent";
+  const firstName = profile?.first_name || "Agent";
 
-  const loadData = useCallback(async () => {
+  // Admin toggle
+  const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("team");
+
+  // Edit mode
+  const [editMode, setEditMode] = useState(false);
+  const [widgetOrder, setWidgetOrder] = useState<string[]>(DEFAULT_WIDGET_ORDER);
+  const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
+
+  // Daily briefing
+  const [showBriefing, setShowBriefing] = useState(false);
+
+  // Widget refs for scrolling
+  const widgetRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Load widget preferences
+  useEffect(() => {
     if (!userId) return;
-    
-    try {
-      const [
-        statsData,
-        followUpsData,
-        appointmentsData,
-        callsData,
-        campaignsData,
-        goalsData,
-        leaderboardData,
-        onboardingData,
-        winFeedData,
-        missedCallsData,
-      ] = await Promise.all([
-        dashboardSupabaseApi.getStats(userId, isAdmin),
-        dashboardSupabaseApi.getFollowUps(userId, isAdmin),
-        dashboardSupabaseApi.getTodayAppointments(userId, isAdmin),
-        dashboardSupabaseApi.getRecentCalls(userId, isAdmin),
-        dashboardSupabaseApi.getCampaignPerformance(),
-        dashboardSupabaseApi.getGoalProgress(userId),
-        dashboardSupabaseApi.getLeaderboard(),
-        dashboardSupabaseApi.getOnboardingStatus(userId),
-        dashboardSupabaseApi.getWinFeed(),
-        dashboardSupabaseApi.getMissedCalls(userId, isAdmin),
-      ]);
-      
-      setStats(statsData);
-      setFollowUps(followUpsData);
-      setTodayAppointments(appointmentsData);
-      setRecentCalls(callsData);
-      setCampaigns(campaignsData);
-      setGoals(goalsData);
-      setLeaderboard(leaderboardData);
-      setOnboarding(onboardingData);
-      setWinFeed(winFeedData);
-      setMissedCalls(missedCallsData);
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error("Dashboard load error:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId, isAdmin]);
+    const loadPrefs = async () => {
+      try {
+        const { data: orderPref } = await supabase
+          .from("user_preferences")
+          .select("preference_value")
+          .eq("user_id", userId)
+          .eq("preference_key", "dashboard_widget_order")
+          .single();
 
-  // Win Feed refresh (every 30 seconds)
-  const refreshWinFeed = useCallback(async () => {
-    const data = await dashboardSupabaseApi.getWinFeed();
-    setWinFeed(data);
+        const { data: hiddenPref } = await supabase
+          .from("user_preferences")
+          .select("preference_value")
+          .eq("user_id", userId)
+          .eq("preference_key", "dashboard_hidden_widgets")
+          .single();
+
+        if (orderPref?.preference_value) {
+          const val = orderPref.preference_value;
+          if (Array.isArray(val)) setWidgetOrder(val as string[]);
+        }
+        if (hiddenPref?.preference_value) {
+          const val = hiddenPref.preference_value;
+          if (Array.isArray(val)) setHiddenWidgets(val as string[]);
+        }
+      } catch {
+        // use defaults
+      }
+    };
+    loadPrefs();
+  }, [userId]);
+
+  // Daily briefing check
+  useEffect(() => {
+    if (!userId) return;
+    const today = new Date().toISOString().split("T")[0];
+    const storageKey = `agentflow_briefing_${userId}_${today}`;
+    const isDismissed = localStorage.getItem(storageKey) === "dismissed";
+    if (!isDismissed) setShowBriefing(true);
+  }, [userId]);
+
+  // Unsaved changes guard
+  useEffect(() => {
+    if (!editMode) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [editMode]);
+
+  const dismissBriefing = useCallback(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const storageKey = `agentflow_briefing_${userId}_${today}`;
+    localStorage.setItem(storageKey, "dismissed");
+    setShowBriefing(false);
+  }, [userId]);
+
+  const closeBriefing = useCallback(() => {
+    setShowBriefing(false);
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // Auto-refresh every 60 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadData();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [loadData]);
-
-  // Win Feed refresh every 30 seconds
-  useEffect(() => {
-    winFeedTimerRef.current = setInterval(refreshWinFeed, 30000);
-    return () => {
-      if (winFeedTimerRef.current) clearInterval(winFeedTimerRef.current);
-    };
-  }, [refreshWinFeed]);
-
-  // Greeting based on time
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const firstName = profile?.first_name || "Agent";
-  const todayFormatted = format(new Date(), "EEEE, MMMM d, yyyy");
-
-  // Format phone number
-  const formatPhone = (phone: string) => {
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length === 10) {
-      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  const scrollToWidget = useCallback((widgetId: string) => {
+    const el = widgetRefs.current[widgetId];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-    if (digits.length === 11 && digits[0] === "1") {
-      return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }, []);
+
+  const visibleWidgets = widgetOrder.filter(
+    (k) => !hiddenWidgets.includes(k)
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = widgetOrder.indexOf(active.id as string);
+      const newIndex = widgetOrder.indexOf(over.id as string);
+      setWidgetOrder(arrayMove(widgetOrder, oldIndex, newIndex));
     }
-    return phone;
   };
 
-  // Format duration
-  const formatDuration = (seconds: number) => {
-    if (seconds === 0) return "No Answer";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  // Trigger FloatingDialer call
-  const triggerQuickCall = (contactName: string, phone: string, contactId?: string) => {
-    window.dispatchEvent(new CustomEvent("quick-call", {
-      detail: { name: contactName, phone, contactId },
-    }));
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <Skeleton className="h-8 w-48 mb-2" />
-            <Skeleton className="h-5 w-64" />
-          </div>
-          <Skeleton className="h-4 w-32" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-64 rounded-xl" />)}
-        </div>
-      </div>
+  const toggleHideWidget = (id: string) => {
+    setHiddenWidgets((prev) =>
+      prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
     );
-  }
+  };
 
-  // Check if new user - show onboarding
-  const showOnboarding = onboarding?.isNewUser;
-  const onboardingComplete = onboarding && onboarding.hasLeads && onboarding.hasCalls && onboarding.hasCampaigns && onboarding.hasAppointments;
-
-  // Stat cards configuration
-  const statCards = [
-    {
-      label: "Calls Today",
-      value: stats?.totalCallsToday ?? 0,
-      trend: stats?.callsTrend || "",
-      trendPositive: stats?.callsTrendPositive,
-      icon: Phone,
-      color: "text-primary",
-      bg: "bg-primary/10",
-    },
-    {
-      label: "Policies Sold This Month",
-      value: stats?.policiesSoldThisMonth ?? 0,
-      trend: stats?.policiesTrend || "",
-      trendPositive: stats?.policiesTrendPositive,
-      icon: ShieldCheck,
-      color: "text-success",
-      bg: "bg-success/10",
-    },
-    {
-      label: "Appointments Scheduled",
-      value: stats?.appointmentsThisWeek ?? 0,
-      trend: stats?.appointmentsTrend || "",
-      trendPositive: stats?.appointmentsTrendPositive,
-      icon: Calendar,
-      color: "text-warning",
-      bg: "bg-warning/10",
-    },
-    {
-      label: "Active Campaigns",
-      value: stats?.activeCampaigns ?? 0,
-      trend: "",
-      trendPositive: null,
-      icon: Megaphone,
-      color: "text-accent-foreground",
-      bg: "bg-accent",
-    },
-  ];
-
-  // Follow up count
-  const followUpCount = (followUps?.callbacksToday.length ?? 0) + (followUps?.staleLeads ?? 0) + (followUps?.hotLeadsStale ?? 0);
-  const allCaughtUp = followUpCount === 0;
-
-  // Appointment type colors
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "Sales Call": return "bg-primary/10 text-primary";
-      case "Follow Up": return "bg-warning/10 text-warning";
-      case "Policy Review": return "bg-success/10 text-success";
-      default: return "bg-muted text-muted-foreground";
+  const restoreWidget = (id: string) => {
+    setHiddenWidgets((prev) => prev.filter((k) => k !== id));
+    if (!widgetOrder.includes(id)) {
+      setWidgetOrder((prev) => [...prev, id]);
     }
   };
 
-  // Status badge colors
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Scheduled": return "bg-primary/10 text-primary";
-      case "Completed": return "bg-success/10 text-success";
-      case "Cancelled": return "bg-destructive/10 text-destructive";
-      case "No Show": return "bg-warning/10 text-warning";
-      default: return "bg-muted text-muted-foreground";
+  const saveLayout = async () => {
+    try {
+      await supabase.from("user_preferences").upsert(
+        {
+          user_id: userId,
+          preference_key: "dashboard_widget_order",
+          preference_value: widgetOrder as unknown as Record<string, unknown>,
+        },
+        { onConflict: "user_id,preference_key" }
+      );
+      await supabase.from("user_preferences").upsert(
+        {
+          user_id: userId,
+          preference_key: "dashboard_hidden_widgets",
+          preference_value: hiddenWidgets as unknown as Record<string, unknown>,
+        },
+        { onConflict: "user_id,preference_key" }
+      );
+      toast.success("Dashboard layout saved");
+      setEditMode(false);
+    } catch {
+      toast.error("Failed to save layout");
     }
   };
 
-  // Goal progress color
-  const getGoalColor = (current: number, target: number) => {
-    const pct = (current / target) * 100;
-    if (pct >= 80) return "bg-success";
-    if (pct >= 50) return "bg-warning";
-    return "bg-destructive";
-  };
-
-  // Rank styling
-  const getRankStyle = (rank: number) => {
-    switch (rank) {
-      case 1: return "text-warning";
-      case 2: return "text-muted-foreground";
-      case 3: return "text-orange-600";
-      default: return "text-muted-foreground";
+  const resetLayout = async () => {
+    try {
+      await supabase
+        .from("user_preferences")
+        .delete()
+        .eq("user_id", userId)
+        .eq("preference_key", "dashboard_widget_order");
+      await supabase
+        .from("user_preferences")
+        .delete()
+        .eq("user_id", userId)
+        .eq("preference_key", "dashboard_hidden_widgets");
+      setWidgetOrder(DEFAULT_WIDGET_ORDER);
+      setHiddenWidgets([]);
+      setEditMode(false);
+      toast.success("Layout reset to default");
+    } catch {
+      toast.error("Failed to reset layout");
     }
   };
+
+  const renderWidget = (key: string) => {
+    switch (key) {
+      case "callbacks":
+        return (
+          <CallbacksWidget
+            userId={userId}
+            role={role}
+            adminToggle={adminViewMode}
+          />
+        );
+      case "appointments":
+        return (
+          <AppointmentsWidget
+            userId={userId}
+            role={role}
+            adminToggle={adminViewMode}
+          />
+        );
+      case "goal_progress":
+        return <GoalProgressWidget userId={userId} />;
+      case "leaderboard":
+        return <LeaderboardWidget userId={userId} />;
+      case "missed_calls":
+        return (
+          <MissedCallsWidget
+            userId={userId}
+            role={role}
+            adminToggle={adminViewMode}
+          />
+        );
+      case "anniversaries":
+        return (
+          <AnniversariesWidget
+            userId={userId}
+            role={role}
+            adminToggle={adminViewMode}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  const hiddenWidgetKeys = hiddenWidgets.filter((k) =>
+    DEFAULT_WIDGET_ORDER.includes(k)
+  );
 
   return (
-    <TooltipProvider>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-            <p className="text-muted-foreground">
-              {greeting}, {firstName}!
-            </p>
-            <p className="text-sm text-muted-foreground">{todayFormatted}</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <RefreshCw className="w-3 h-3" />
-            Last updated {formatDateTime(lastUpdated)}
-          </div>
-        </div>
-
-        {/* New User Onboarding */}
-        {showOnboarding && !onboardingComplete && (
-          <Card className="border-primary/20 bg-primary/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Target className="w-5 h-5 text-primary" />
-                Welcome to AgentFlow, {firstName}!
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                Complete these steps to get started:
-              </p>
-              <div className="space-y-3">
-                <div
-                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => navigate("/contacts")}
-                >
-                  {onboarding?.hasLeads ? (
-                    <CheckCircle2 className="w-5 h-5 text-success" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
-                  )}
-                  <span className={onboarding?.hasLeads ? "line-through text-muted-foreground" : ""}>
-                    Import your first leads
-                  </span>
-                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                </div>
-                <div
-                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => navigate("/dialer")}
-                >
-                  {onboarding?.hasCalls ? (
-                    <CheckCircle2 className="w-5 h-5 text-success" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
-                  )}
-                  <span className={onboarding?.hasCalls ? "line-through text-muted-foreground" : ""}>
-                    Set up your dialer
-                  </span>
-                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                </div>
-                <div
-                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => navigate("/campaigns")}
-                >
-                  {onboarding?.hasCampaigns ? (
-                    <CheckCircle2 className="w-5 h-5 text-success" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
-                  )}
-                  <span className={onboarding?.hasCampaigns ? "line-through text-muted-foreground" : ""}>
-                    Create a campaign
-                  </span>
-                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                </div>
-                <div
-                  className="flex items-center gap-3 p-3 rounded-lg bg-card border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => navigate("/calendar")}
-                >
-                  {onboarding?.hasAppointments ? (
-                    <CheckCircle2 className="w-5 h-5 text-success" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
-                  )}
-                  <span className={onboarding?.hasAppointments ? "line-through text-muted-foreground" : ""}>
-                    Schedule an appointment
-                  </span>
-                  <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {statCards.map((stat) => (
-            <Card key={stat.label} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">{stat.value}</p>
-                    {stat.trend ? (
-                      <div className="flex items-center gap-1 mt-1">
-                        {stat.trendPositive === true && <TrendingUp className="w-3 h-3 text-success" />}
-                        {stat.trendPositive === false && <TrendingDown className="w-3 h-3 text-destructive" />}
-                        <span className={`text-xs ${
-                          stat.trendPositive === true ? "text-success" :
-                          stat.trendPositive === false ? "text-destructive" :
-                          "text-muted-foreground"
-                        }`}>
-                          {stat.trend}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 mt-1">
-                        <Minus className="w-3 h-3 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
-                  <div className={`w-9 h-9 rounded-lg ${stat.bg} flex items-center justify-center ${stat.color}`}>
-                    <stat.icon className="w-4 h-4" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-
-
-        {/* Widgets Grid */}
-        {!showOnboarding && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Widget 1: Follow Up Queue */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    Follow Ups Due
-                  </CardTitle>
-                  <Badge variant="secondary">{followUpCount}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {allCaughtUp ? (
-                  <div className="text-center py-6">
-                    <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">You're all caught up! No follow ups due.</p>
-                  </div>
-                ) : (
-                  <>
-                    {followUps && followUps.callbacksToday.length > 0 && (
-                      <div>
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase mb-2">
-                          Callbacks Today ({followUps.callbacksToday.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {followUps.callbacksToday.map((cb) => (
-                            <div key={cb.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50">
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm font-mono text-primary">{formatTime(new Date(cb.time || ""))}</span>
-                                <span className="text-sm text-foreground">
-                                  {cb.firstName} {cb.lastName}
-                                </span>
-                              </div>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2"
-                                onClick={() => triggerQuickCall(`${cb.firstName} ${cb.lastName}`, cb.phone, cb.id)}
-                              >
-                                <Phone className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {followUps && followUps.staleLeads > 0 && (
-                      <div className="flex items-center justify-between py-2">
-                        <div>
-                          <p className="text-sm text-foreground">Leads Not Contacted 7+ Days</p>
-                          <p className="text-xs text-muted-foreground">{followUps.staleLeads} leads need attention</p>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => navigate("/contacts")}>
-                          View All
-                          <ExternalLink className="w-3 h-3 ml-1" />
-                        </Button>
-                      </div>
-                    )}
-
-                    {followUps && followUps.hotLeadsStale > 0 && (
-                      <div className="flex items-center justify-between py-2">
-                        <div>
-                          <p className="text-sm text-foreground">Hot Leads Not Called 3+ Days</p>
-                          <p className="text-xs text-destructive">{followUps.hotLeadsStale} high-priority leads</p>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => navigate("/contacts")}>
-                          View All
-                          <ExternalLink className="w-3 h-3 ml-1" />
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 2: Today's Appointments */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-warning" />
-                    Today's Schedule
-                  </CardTitle>
-                  <Badge variant="secondary">{todayAppointments.length}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {todayAppointments.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Calendar className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-3">
-                      No appointments today. Schedule one from the Calendar.
-                    </p>
-                    <Button size="sm" variant="outline" onClick={() => navigate("/calendar")}>
-                      View Calendar
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {todayAppointments.map((appt) => (
-                      <div
-                        key={appt.id}
-                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
-                        onClick={() => navigate("/calendar")}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-mono text-primary w-16">{formatTime(new Date(appt.time))}</span>
-                          <span className="text-sm text-foreground">{appt.contactName}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${getTypeColor(appt.type)}`}>
-                            {appt.type}
-                          </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(appt.status)}`}>
-                            {appt.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full mt-2"
-                      onClick={() => navigate("/calendar")}
-                    >
-                      View Calendar
-                      <ArrowRight className="w-3 h-3 ml-1" />
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 3: Missed Calls */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <PhoneMissed className="w-4 h-4 text-destructive" />
-                    Missed Calls
-                  </CardTitle>
-                  <Badge variant="secondary">{missedCalls.length}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {missedCalls.length === 0 ? (
-                  <div className="text-center py-6">
-                    <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No missed calls today</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {missedCalls.map((call) => (
-                      <div
-                        key={call.id}
-                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground truncate">{call.contactName}</p>
-                          <p className="text-xs text-muted-foreground">{formatPhone(call.contactPhone)}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-muted-foreground">
-                            {call.startedAt && formatDateTime(new Date(call.startedAt))}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2"
-                            onClick={() => triggerQuickCall(call.contactName, call.contactPhone, call.contactId || undefined)}
-                          >
-                            Call Back
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 4: Recent Calls */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-primary" />
-                  Recent Calls
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {recentCalls.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Phone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-3">
-                      No calls yet. Head to the Dialer to get started.
-                    </p>
-                    <Button size="sm" onClick={() => navigate("/dialer")}>
-                      Go to Dialer
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {recentCalls.slice(0, 5).map((call) => (
-                      <div
-                        key={call.id}
-                        className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
-                        onClick={() => call.contactId && navigate(`/contacts?contact=${call.contactId}`)}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground truncate">{call.contactName}</p>
-                          <p className="text-xs text-muted-foreground">{formatPhone(call.contactPhone)}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-muted-foreground">
-                            {formatDuration(call.duration)}
-                          </span>
-                          {call.dispositionName && (
-                            <span
-                              className="text-xs px-2 py-0.5 rounded-full"
-                              style={{
-                                backgroundColor: `${call.dispositionColor}20`,
-                                color: call.dispositionColor,
-                              }}
-                            >
-                              {call.dispositionName}
-                            </span>
-                          )}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                               <span className="text-xs text-muted-foreground">
-                                {call.startedAt && formatDateTime(new Date(call.startedAt))}
-                               </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                               {call.startedAt && formatDateTime(new Date(call.startedAt))}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 5: Campaign Performance */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Megaphone className="w-4 h-4 text-accent-foreground" />
-                  Active Campaigns
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {campaigns.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Megaphone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-3">
-                      No active campaigns. Create one to start reaching leads.
-                    </p>
-                    <Button size="sm" onClick={() => navigate("/campaigns")}>
-                      Go to Campaigns
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {campaigns.map((campaign) => {
-                      const progress = campaign.totalLeads > 0
-                        ? Math.round((campaign.leadsContacted / campaign.totalLeads) * 100)
-                        : 0;
-                      return (
-                        <div
-                          key={campaign.id}
-                          className="p-3 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
-                          onClick={() => navigate(`/campaigns/${campaign.id}`)}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-foreground">{campaign.name}</span>
-                            <Badge variant="outline" className="text-xs">{campaign.type}</Badge>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1">
-                              <Progress value={progress} className="h-2" />
-                            </div>
-                            <span className="text-xs text-muted-foreground w-12 text-right">{progress}%</span>
-                          </div>
-                          <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                            <span>{campaign.leadsContacted}/{campaign.totalLeads} contacted</span>
-                            <span className="text-success">{campaign.leadsConverted} converted</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 6: Goal Progress */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Target className="w-4 h-4 text-primary" />
-                  My Goals
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {goals.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Target className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      No goals configured yet. Ask your admin to set goals in Settings → Goal Setting.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {goals.map((goal, idx) => {
-                      const pct = goal.target > 0 ? Math.round((goal.current / goal.target) * 100) : 0;
-                      return (
-                        <div key={`${goal.metric}-${idx}`}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm text-foreground">{goal.label}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {goal.current}/{goal.target}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${getGoalColor(goal.current, goal.target)}`}
-                                style={{ width: `${Math.min(pct, 100)}%` }}
-                              />
-                            </div>
-                            <span className={`text-xs font-medium w-10 text-right ${
-                              pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"
-                            }`}>
-                              {pct}%
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 7: Leaderboard */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-warning" />
-                  Top Performers This Month
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {leaderboard.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Trophy className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      No sales this month yet. Get dialing!
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {leaderboard.map((entry) => {
-                      const isCurrentUser = entry.userId === userId;
-                      return (
-                        <div
-                          key={entry.userId}
-                          className={`flex items-center gap-3 py-2 px-3 rounded-lg ${
-                            isCurrentUser ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
-                          }`}
-                        >
-                          <span className={`text-lg font-bold w-6 ${getRankStyle(entry.rank)}`}>
-                            {entry.rank}
-                          </span>
-                          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
-                            {entry.avatar}
-                          </div>
-                          <div className="flex-1">
-                            <span className="text-sm font-medium text-foreground">{entry.name}</span>
-                            {isCurrentUser && (
-                              <Badge variant="secondary" className="ml-2 text-xs">You</Badge>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <span className="text-sm font-semibold text-foreground">{entry.policies}</span>
-                            <span className="text-xs text-muted-foreground ml-1">sold</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full mt-2"
-                      onClick={() => navigate("/leaderboard")}
-                    >
-                      View Full Leaderboard
-                      <ArrowRight className="w-3 h-3 ml-1" />
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Widget 8: Win Feed */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-warning" />
-                  Recent Wins
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {winFeed.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Rocket className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      No wins yet this month. Let's change that!
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-[350px] overflow-y-auto">
-                    {winFeed.map((win) => (
-                      <div
-                        key={win.id}
-                        className="flex items-start gap-3 py-2 px-3 rounded-lg bg-muted/50 border-l-2 border-warning"
-                      >
-                        <Trophy className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground">
-                            <span className="font-semibold">{win.agentName}</span>
-                            {" "}sold a policy to{" "}
-                            <span className="font-medium">{win.contactName}</span>
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            {win.campaignName && (
-                              <Badge variant="outline" className="text-xs">{win.campaignName}</Badge>
-                            )}
-                            <span className="text-xs text-muted-foreground">{formatDateTime(new Date(win.createdAt))}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setEditMode(!editMode)}
+        >
+          <Pencil className="h-4 w-4 mr-2" />
+          {editMode ? "Cancel" : "Edit Dashboard"}
+        </Button>
       </div>
-    </TooltipProvider>
+
+      {/* Win Celebration */}
+      {userId && <WinCelebration userId={userId} />}
+
+      {/* Daily Briefing */}
+      {showBriefing && userId && (
+        <DailyBriefingModal
+          userId={userId}
+          firstName={firstName}
+          role={role}
+          onClose={closeBriefing}
+          onDismiss={dismissBriefing}
+          onScrollTo={scrollToWidget}
+        />
+      )}
+
+      {/* Stat Cards */}
+      {userId && (
+        <StatCards
+          role={role}
+          userId={userId}
+          adminToggle={adminViewMode}
+        />
+      )}
+
+      {/* Admin Toggle Pill */}
+      {role === "Admin" && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Viewing:</span>
+          <button
+            onClick={() =>
+              setAdminViewMode(adminViewMode === "team" ? "my" : "team")
+            }
+            className="px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors"
+          >
+            {adminViewMode === "team"
+              ? "Team Totals | Switch to My Stats"
+              : "My Stats | Switch to Team Totals"}
+          </button>
+        </div>
+      )}
+
+      {/* Edit Mode Header */}
+      {editMode && (
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium px-2 py-1 rounded bg-yellow-100 text-yellow-800">
+            Editing Layout
+          </span>
+          <Button size="sm" onClick={saveLayout}>
+            Save Layout
+          </Button>
+          <Button variant="outline" size="sm" onClick={resetLayout}>
+            Reset to Default
+          </Button>
+        </div>
+      )}
+
+      {/* Widget Grid */}
+      {editMode ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={visibleWidgets}
+            strategy={rectSortingStrategy}
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {visibleWidgets.map((key) => (
+                <div
+                  key={key}
+                  ref={(el) => {
+                    widgetRefs.current[key] = el;
+                  }}
+                >
+                  <SortableWidget
+                    id={key}
+                    editMode={editMode}
+                    onToggleHide={toggleHideWidget}
+                  >
+                    {renderWidget(key)}
+                  </SortableWidget>
+                </div>
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {visibleWidgets.map((key) => {
+            const Icon = WIDGET_ICONS[key] || Target;
+            return (
+              <div
+                key={key}
+                ref={(el) => {
+                  widgetRefs.current[key] = el;
+                }}
+                className="bg-card rounded-xl border border-border shadow-sm"
+              >
+                <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
+                  <Icon className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {WIDGET_LABELS[key]}
+                  </h3>
+                </div>
+                <div className="p-5">{renderWidget(key)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Hidden Widgets (edit mode only) */}
+      {editMode && hiddenWidgetKeys.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+            Hidden Widgets
+          </h3>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            {hiddenWidgetKeys.map((key) => {
+              const Icon = WIDGET_ICONS[key] || Target;
+              return (
+                <div
+                  key={key}
+                  className="bg-card rounded-lg border border-border p-3 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm text-foreground">
+                      {WIDGET_LABELS[key]}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => restoreWidget(key)}
+                    className="text-primary hover:text-primary/80"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
