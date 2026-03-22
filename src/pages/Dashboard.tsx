@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
 import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
@@ -73,6 +74,15 @@ const WIDGET_ICONS: Record<string, React.ElementType> = {
   anniversaries: Gift,
 };
 
+const WIDGET_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  callbacks: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20" },
+  appointments: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20" },
+  goal_progress: { bg: "bg-emerald-500/10", text: "text-emerald-500", border: "border-emerald-500/20" },
+  leaderboard: { bg: "bg-amber-500/10", text: "text-amber-500", border: "border-amber-500/20" },
+  missed_calls: { bg: "bg-red-500/10", text: "text-red-500", border: "border-red-500/20" },
+  anniversaries: { bg: "bg-pink-500/10", text: "text-pink-500", border: "border-pink-500/20" },
+};
+
 // Sortable widget wrapper for edit mode
 const SortableWidget: React.FC<{
   id: string;
@@ -96,15 +106,16 @@ const SortableWidget: React.FC<{
   };
 
   const Icon = WIDGET_ICONS[id] || Target;
+  const colors = WIDGET_COLORS[id] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border" };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="bg-card rounded-xl border border-border shadow-sm"
+      className={`bg-card rounded-xl border shadow-sm ${colors.border}`}
     >
       {/* Widget header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+      <div className={`flex items-center justify-between px-5 py-3 border-b ${colors.border} ${colors.bg} rounded-t-xl`}>
         <div className="flex items-center gap-2">
           {editMode && (
             <button
@@ -115,8 +126,10 @@ const SortableWidget: React.FC<{
               <GripVertical className="w-4 h-4" />
             </button>
           )}
-          <Icon className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">
+          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${colors.bg}`}>
+            <Icon className={`w-3.5 h-3.5 ${colors.text}`} />
+          </div>
+          <h3 className={`text-sm font-semibold ${colors.text}`}>
             {WIDGET_LABELS[id]}
           </h3>
         </div>
@@ -264,19 +277,19 @@ const Dashboard: React.FC = () => {
   const saveLayout = async () => {
     try {
       await supabase.from("user_preferences").upsert(
-        {
+        [{
           user_id: userId,
           preference_key: "dashboard_widget_order",
-          preference_value: widgetOrder as unknown as Record<string, unknown>,
-        },
+          preference_value: widgetOrder as unknown as Json,
+        }],
         { onConflict: "user_id,preference_key" }
       );
       await supabase.from("user_preferences").upsert(
-        {
+        [{
           user_id: userId,
           preference_key: "dashboard_hidden_widgets",
-          preference_value: hiddenWidgets as unknown as Record<string, unknown>,
-        },
+          preference_value: hiddenWidgets as unknown as Json,
+        }],
         { onConflict: "user_id,preference_key" }
       );
       toast.success("Dashboard layout saved");

@@ -81,7 +81,6 @@ interface AgentProfile {
   last_name: string;
   email: string;
   role: string;
-  upline_id?: string | null;
 }
 
 interface LeadRow {
@@ -613,7 +612,7 @@ const CampaignDetail: React.FC = () => {
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
-    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role, upline_id");
+    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role");
     if (data) { setAgents((data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")); }
     setAgentsLoading(false);
   }, []);
@@ -679,7 +678,7 @@ const CampaignDetail: React.FC = () => {
       // TODO: Replace upline_id check with a proper team membership query once team
       //       relationships are wired (e.g. via a teams/team_members table).
       const teamMemberIds = new Set(
-        agents.filter(a => a.upline_id === currentUserId).map(a => a.id)
+        agents.filter(a => (a as any).upline_id === currentUserId).map(a => a.id)
       );
       visibleLeads = visibleLeads.filter(
         l => l.claimed_by === currentUserId || teamMemberIds.has(l.claimed_by!)
