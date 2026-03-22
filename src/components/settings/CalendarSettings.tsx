@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 
 // Types
 interface AppointmentType {
@@ -63,6 +64,16 @@ const REMINDER_OPTIONS = [
   "15 Minutes Before","30 Minutes Before","1 Hour Before","2 Hours Before","24 Hours Before","48 Hours Before",
 ];
 
+const AGENT_REMINDER_TIME_OPTIONS = [
+  { label: "At time of event", value: 0 },
+  { label: "1 minute before", value: 1 },
+  { label: "2 minutes before", value: 2 },
+  { label: "5 minutes before", value: 5 },
+  { label: "10 minutes before", value: 10 },
+  { label: "15 minutes before", value: 15 },
+  { label: "30 minutes before", value: 30 },
+];
+
 const DEFAULT_APPOINTMENT_TYPES: AppointmentType[] = [
   { id: "1", name: "Sales Call", color: "#3B82F6", duration: 30, locked: true },
   { id: "2", name: "Follow Up", color: "#F97316", duration: 20, locked: true },
@@ -92,9 +103,12 @@ const timeToMinutes = (t: string) => {
 };
 
 const GOOGLE_SYNC_PREFERENCE_KEY = "calendar_google_sync_settings";
+const AGENT_REMINDER_TIME_KEY = "agent_reminder_time";
+const AGENT_REMINDER_SOUND_KEY = "agent_reminder_sound";
 
 const CalendarSettings: React.FC = () => {
   const { user } = useAuth();
+  const { setDirty } = useUnsavedChanges();
   // Card 1 - Default View
   const [defaultView, setDefaultView] = useState("Month");
   // Card 2 - First Day
@@ -139,6 +153,12 @@ const CalendarSettings: React.FC = () => {
   const [googleCalendarsLoading, setGoogleCalendarsLoading] = useState(false);
   const [googleCalendarsError, setGoogleCalendarsError] = useState<string | null>(null);
   const [googleSyncSaving, setGoogleSyncSaving] = useState(false);
+
+  // Card 9 - Agent Reminders
+  const [agentReminderTime, setAgentReminderTime] = useState(10);
+  const [agentReminderSound, setAgentReminderSound] = useState(true);
+  const [agentRemindersDirty, setAgentRemindersDirty] = useState(false);
+  const [agentRemindersSaving, setAgentRemindersSaving] = useState(false);
 
   const invokeAuthedFunction = useCallback(async (name: string, body: Record<string, unknown> = {}) => {
     const { data, error } = await supabase.functions.invoke(name, { body });
@@ -269,6 +289,34 @@ const CalendarSettings: React.FC = () => {
 
     loadGoogleSyncSettings();
   }, [loadGoogleCalendars, user?.id]);
+
+  useEffect(() => {
+    const loadAgentReminderSettings = async () => {
+      if (!user?.id) return;
+
+      try {
+        const { data, error } = await supabase
+          .from("user_preferences")
+          .select("preference_key, preference_value")
+          .eq("user_id", user.id)
+          .in("preference_key", [AGENT_REMINDER_TIME_KEY, AGENT_REMINDER_SOUND_KEY]);
+
+        if (error) throw error;
+
+        data?.forEach(pref => {
+          if (pref.preference_key === AGENT_REMINDER_TIME_KEY) {
+            setAgentReminderTime(Number(pref.preference_value));
+          } else if (pref.preference_key === AGENT_REMINDER_SOUND_KEY) {
+            setAgentReminderSound(pref.preference_value === true || pref.preference_value === "true");
+          }
+        });
+      } catch (err) {
+        console.error("Error loading agent reminder settings:", err);
+      }
+    };
+
+    loadAgentReminderSettings();
+  }, [user?.id]);
 
   const handleGoogleConnectToggle = async () => {
     if (!user?.id) {
@@ -415,6 +463,43 @@ const CalendarSettings: React.FC = () => {
       setWorkingHoursDirty(false);
       toast({ title: "Working hours saved", className: "bg-[#22C55E] text-white border-0" });
     }, 800);
+  };
+
+  const handleAgentRemindersSave = async () => {
+    if (!user?.id) return;
+    setAgentRemindersSaving(true);
+    try {
+      const { error: timeError } = await supabase
+        .from("user_preferences")
+        .upsert({
+          user_id: user.id,
+          preference_key: AGENT_REMINDER_TIME_KEY,
+          preference_value: agentReminderTime as any,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,preference_key" });
+
+      if (timeError) throw timeError;
+
+      const { error: soundError } = await supabase
+        .from("user_preferences")
+        .upsert({
+          user_id: user.id,
+          preference_key: AGENT_REMINDER_SOUND_KEY,
+          preference_value: agentReminderSound as any,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id,preference_key" });
+
+      if (soundError) throw soundError;
+
+      setAgentRemindersDirty(false);
+      setDirty("calendar-settings", false);
+      toast({ title: "Reminder settings saved", className: "bg-[#22C55E] text-white border-0" });
+    } catch (err) {
+      console.error("Error saving agent reminders:", err);
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    } finally {
+      setAgentRemindersSaving(false);
+    }
   };
 
   const agentError = maxAgent < 1 || maxAgent > 50;
@@ -823,6 +908,68 @@ const CalendarSettings: React.FC = () => {
               {workingHoursSaving ? (
                 <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
               ) : "Save"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Card 9 — Personal Appointment Reminders */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Personal Appointment Reminders</CardTitle>
+          <CardDescription>Configure popups and alerts for your upcoming appointments and callbacks</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Reminder Lead Time</Label>
+                <p className="text-xs text-muted-foreground">How many minutes before an appointment should we show the popup?</p>
+              </div>
+              <Select 
+                value={String(agentReminderTime)} 
+                onValueChange={v => {
+                  setAgentReminderTime(Number(v));
+                  setAgentRemindersDirty(true);
+                  setDirty("calendar-settings", true);
+                }}
+              >
+                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {AGENT_REMINDER_TIME_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <Separator />
+            
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Enable Sound Notification</Label>
+                <p className="text-xs text-muted-foreground">Play a chime when the reminder popup appears</p>
+              </div>
+              <Switch 
+                checked={agentReminderSound} 
+                onCheckedChange={v => {
+                  setAgentReminderSound(v);
+                  setAgentRemindersDirty(true);
+                  setDirty("calendar-settings", true);
+                }} 
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end">
+            <Button
+              onClick={handleAgentRemindersSave}
+              disabled={!agentRemindersDirty || agentRemindersSaving}
+              className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white"
+            >
+              {agentRemindersSaving ? (
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
+              ) : "Save Settings"}
             </Button>
           </div>
         </CardContent>

@@ -19,12 +19,13 @@ import {
   Rows3,
   List as ListIcon
 } from "lucide-react";
-import { 
-  CalendarAppointment, 
+import {
+  CalendarAppointment,
   CalAppointmentStatus, 
   CalAppointmentType, 
   APPOINTMENT_TYPE_COLORS, 
-  APPOINTMENT_STATUS_COLORS 
+  APPOINTMENT_STATUS_COLORS,
+  useCalendar
 } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -65,12 +66,20 @@ type AppointmentSyncMeta = {
 };
 
 const CalendarPage: React.FC = () => {
-  // --- Original State & Logic ---
-  const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
+  // --- Contexts ---
+  const { 
+    appointments, 
+    loading, 
+    addAppointment, 
+    updateAppointment, 
+    deleteAppointment,
+    fetchAppointments 
+  } = useCalendar();
+
+  // --- Design State ---
   const [appointmentMetaById, setAppointmentMetaById] = useState<Record<string, AppointmentSyncMeta>>({});
   const [currentDate, setCurrentDate] = useState(new Date());
   const { formatDate, formatDateTime, formatTime } = useBranding();
-  const [loading, setLoading] = useState(true);
 
   const [googleConnected, setGoogleConnected] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -106,58 +115,7 @@ const CalendarPage: React.FC = () => {
   ];
 
   // Logic Implementations
-  const fetchAppointments = useCallback(async () => {
-    setLoading(true);
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    // Fetch a broader range: Start of month - 15 days to End of month + 15 days
-    const startRange = new Date(year, month, 1 - 15).toISOString();
-    const endRange = new Date(year, month + 1, 15, 23, 59, 59).toISOString();
-    
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('*')
-      .gte('start_time', startRange)
-      .lte('start_time', endRange)
-      .order('start_time', { ascending: true });
-
-
-    if (error) {
-      console.error('Error fetching appointments:', error);
-      setLoading(false);
-      return;
-    }
-
-    const nextMeta: Record<string, AppointmentSyncMeta> = {};
-    const mapped: CalendarAppointment[] = (data || []).map((appt: any) => {
-      const startDate = new Date(appt.start_time);
-      const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
-
-      nextMeta[appt.id] = {
-        externalEventId: appt.external_event_id ?? null,
-        syncSource: appt.sync_source ?? "internal",
-        externalProvider: appt.external_provider ?? null,
-      };
-
-      return {
-        id: appt.id,
-        title: appt.title,
-        type: VALID_TYPES.includes(appt.type) ? appt.type : "Other",
-        status: VALID_STATUSES.includes(appt.status) ? appt.status : "Scheduled",
-        date: new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()),
-        startTime: formatTime(startDate),
-        endTime: formatTime(endDate),
-        contactName: appt.contact_name || "",
-        contactId: appt.contact_id || "",
-        agent: "",
-        notes: appt.notes || "",
-      } as CalendarAppointment;
-    });
-
-    setAppointments(mapped);
-    setAppointmentMetaById(nextMeta);
-    setLoading(false);
-  }, [currentDate]);
+  // Removed local fetchAppointments - now covered by CalendarContext
 
   const checkGoogleStatus = useCallback(async () => {
     try {
@@ -172,7 +130,7 @@ const CalendarPage: React.FC = () => {
   useEffect(() => {
     fetchAppointments();
     checkGoogleStatus();
-  }, [fetchAppointments, checkGoogleStatus]);
+  }, [fetchAppointments]);
 
   const handleSyncNow = async () => {
     setSyncing(true);
@@ -246,45 +204,58 @@ const CalendarPage: React.FC = () => {
 
     if (modalEditing) {
       const existingMeta = appointmentMetaById[modalEditing.id];
-      const { error } = await supabase.from("appointments").update(localPayload).eq("id", modalEditing.id);
-      if (error) { toast({ title: "Failed to update appointment", variant: "destructive" }); return; }
-      toast({ title: "Appointment updated" });
-      await fetchAppointments();
+      try {
+        await updateAppointment(modalEditing.id, localPayload);
+        toast({ title: "Appointment updated" });
+        await syncAppointmentToGoogle({
+          action: "update",
+          appointmentId: modalEditing.id,
+          title: data.title,
+          notes: data.notes,
+          startTime: startDate.toISOString(),
+          endTime: endDate.toISOString(),
+          attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
+          externalEventId: existingMeta?.externalEventId,
+        });
+      } catch (error) {
+        toast({ title: "Failed to update appointment", variant: "destructive" });
+      }
+      return;
+    }
+
+    try {
+      // For create, we need the ID for Google sync.
+      // Context's addAppointment inserts but doesn't return the ID right now.
+      // I'll update CalendarContext to return the ID or I'll just keep the local insert here for now.
+      // Actually, let's update CalendarContext.tsx's addAppointment to return the data.
+      
+      const { data: inserted, error } = await supabase.from('appointments').insert([localPayload]).select('id').single();
+      if (error || !inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
+      toast({ title: "Appointment scheduled" });
+      
       await syncAppointmentToGoogle({
-        action: "update",
-        appointmentId: modalEditing.id,
+        action: "create",
+        appointmentId: inserted.id,
         title: data.title,
         notes: data.notes,
         startTime: startDate.toISOString(),
         endTime: endDate.toISOString(),
         attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
-        externalEventId: existingMeta?.externalEventId,
       });
-      return;
+    } catch (error) {
+       console.error("Save error", error);
     }
-
-    const { data: inserted, error } = await supabase.from('appointments').insert([localPayload]).select('id').single();
-    if (error || !inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
-    toast({ title: "Appointment scheduled" });
-    await fetchAppointments();
-    await syncAppointmentToGoogle({
-      action: "create",
-      appointmentId: inserted.id,
-      title: data.title,
-      notes: data.notes,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-      attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
-    });
   };
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     const externalEventId = appointmentMetaById[appointmentId]?.externalEventId;
-    const { error } = await supabase.from('appointments').delete().eq('id', appointmentId);
-    if (error) { toast({ title: "Failed to delete appointment", variant: "destructive" }); return; }
-    toast({ title: "Appointment deleted" });
-    await fetchAppointments();
-    await syncAppointmentToGoogle({ action: "delete", appointmentId, externalEventId });
+    try {
+      await deleteAppointment(appointmentId);
+      toast({ title: "Appointment deleted" });
+      await syncAppointmentToGoogle({ action: "delete", appointmentId, externalEventId });
+    } catch (error) {
+      toast({ title: "Failed to delete appointment", variant: "destructive" });
+    }
   };
 
   const searchContacts = async (query: string) => {

@@ -5,6 +5,7 @@ import TopBar from "./TopBar";
 import FloatingDialer from "./FloatingDialer";
 import FloatingChat from "@/components/chat/FloatingChat";
 import WinCelebration from "@/components/WinCelebration";
+import ReminderPopup from "./ReminderPopup";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { AgentStatusProvider } from "@/contexts/AgentStatusContext";
 
@@ -24,6 +25,7 @@ const AppLayout: React.FC = () => {
         <FloatingDialer />
         <FloatingChat />
         <WinCelebration />
+        <ReminderPopup />
       </div>
     </AgentStatusProvider>
   );
