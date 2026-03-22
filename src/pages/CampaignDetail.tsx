@@ -613,7 +613,7 @@ const CampaignDetail: React.FC = () => {
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
-    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role, upline_id");
+    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role");
     if (data) { setAgents((data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")); }
     setAgentsLoading(false);
   }, []);
