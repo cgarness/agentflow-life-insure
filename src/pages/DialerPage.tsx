@@ -377,7 +377,7 @@ export default function DialerPage() {
   useEffect(() => {
     supabase
       .from('phone_numbers')
-      .select('phone_number, is_default, spam_status, area_code')
+      .select('phone_number, is_default, spam_status, area_code, friendly_name')
       .then(({ data }) => {
         if (data) ownedNumbers.current = data;
       });
