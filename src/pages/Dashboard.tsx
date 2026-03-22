@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
 import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";

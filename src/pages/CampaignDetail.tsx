@@ -678,7 +678,7 @@ const CampaignDetail: React.FC = () => {
       // TODO: Replace upline_id check with a proper team membership query once team
       //       relationships are wired (e.g. via a teams/team_members table).
       const teamMemberIds = new Set(
-        agents.filter(a => a.upline_id === currentUserId).map(a => a.id)
+        agents.filter(a => (a as any).upline_id === currentUserId).map(a => a.id)
       );
       visibleLeads = visibleLeads.filter(
         l => l.claimed_by === currentUserId || teamMemberIds.has(l.claimed_by!)
