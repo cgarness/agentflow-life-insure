@@ -137,6 +137,8 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
               : "neutral"
           : null,
       icon: Phone,
+      color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
     },
     {
       label: "Policies Sold This Month",
@@ -150,6 +152,8 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
               : "neutral"
           : null,
       icon: ShieldCheck,
+      color: "text-emerald-500",
+      bgColor: "bg-emerald-500/10",
     },
     {
       label: "Appointments Today",
@@ -161,12 +165,16 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
             : "down"
           : null,
       icon: Calendar,
+      color: "text-violet-500",
+      bgColor: "bg-violet-500/10",
     },
     {
       label: "Conversion Rate",
       value: data ? `${conversionRate}%` : null,
       trend: data && data.callsThisMonth === 0 ? null : null,
       icon: TrendingUp,
+      color: "text-amber-500",
+      bgColor: "bg-amber-500/10",
     },
   ];
 
