@@ -264,19 +264,19 @@ const Dashboard: React.FC = () => {
   const saveLayout = async () => {
     try {
       await supabase.from("user_preferences").upsert(
-        {
+        [{
           user_id: userId,
           preference_key: "dashboard_widget_order",
-          preference_value: widgetOrder as unknown as Record<string, unknown>,
-        },
+          preference_value: widgetOrder as unknown as Json,
+        }],
         { onConflict: "user_id,preference_key" }
       );
       await supabase.from("user_preferences").upsert(
-        {
+        [{
           user_id: userId,
           preference_key: "dashboard_hidden_widgets",
-          preference_value: hiddenWidgets as unknown as Record<string, unknown>,
-        },
+          preference_value: hiddenWidgets as unknown as Json,
+        }],
         { onConflict: "user_id,preference_key" }
       );
       toast.success("Dashboard layout saved");
