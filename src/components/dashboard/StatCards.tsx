@@ -212,7 +212,9 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
                 <p className="text-xs mt-1 text-muted-foreground">—</p>
               )}
             </div>
-            <card.icon className="h-5 w-5 text-muted-foreground" />
+            <div className={`p-2 rounded-lg ${card.bgColor}`}>
+              <card.icon className={`h-5 w-5 ${card.color}`} />
+            </div>
           </div>
         </div>
       ))}
