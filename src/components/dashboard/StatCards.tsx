@@ -183,7 +183,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
       {cards.map((card) => (
         <div
           key={card.label}
-          className="bg-card rounded-xl border border-border shadow-sm p-5"
+          className="bg-card rounded-xl border border-border shadow-sm p-5 transition-all duration-200 hover:shadow-md hover:-translate-y-1 hover:border-primary/20"
         >
           <div className="flex items-start justify-between">
             <div>
