@@ -11,16 +11,34 @@ import ContactMiniCard from "./ContactMiniCard";
 const TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Other"];
 const STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
 
-const TIMES: string[] = [];
-for (let h = 0; h < 24; h++) {
-  for (let m = 0; m < 60; m += 15) {
-    const hr = h % 12 || 12;
-    const ampm = h < 12 ? "AM" : "PM";
-    TIMES.push(`${hr}:${m.toString().padStart(2, "0")} ${ampm}`);
-  }
-}
+const TYPE_DURATIONS: Record<string, number> = {
+  "Sales Call": 30,
+  "Follow Up": 20,
+  "Recruit Interview": 45,
+  "Policy Review": 60,
+  "Policy Anniversary": 60,
+  "Other": 30,
+};
 
+const timeToMinutes = (t: string): number => {
+  const match = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) return 0;
+  let h = parseInt(match[1]);
+  const m = parseInt(match[2]);
+  const p = match[3].toUpperCase();
+  if (p === "PM" && h !== 12) h += 12;
+  if (p === "AM" && h === 12) h = 0;
+  return h * 60 + m;
+};
 
+const minutesToTime = (min: number): string => {
+  const m = min % 1440; // wrap around day
+  let h = Math.floor(m / 60);
+  const minutes = m % 60;
+  const p = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${minutes.toString().padStart(2, "0")} ${p}`;
+};
 
 const agents = mockUsers.filter(u => u.status === "Active");
 
@@ -47,6 +65,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("10:00 AM");
   const [endTime, setEndTime] = useState("10:30 AM");
+  const [userInteractedWithEnd, setUserInteractedWithEnd] = useState(false);
   const [agent, setAgent] = useState("Chris Garcia");
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -134,6 +153,15 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     fetchLeadInfo();
   }, [contactId]);
 
+  // Auto-populate end time based on duration
+  useEffect(() => {
+    if (editing || userInteractedWithEnd) return;
+    
+    const startMin = timeToMinutes(startTime);
+    const duration = TYPE_DURATIONS[type] || 30;
+    setEndTime(minutesToTime(startMin + duration));
+  }, [type, startTime, editing, userInteractedWithEnd]);
+
   if (!open) return null;
 
   const contactFirstName = contactName.split(" ")[0] || "Contact";
@@ -145,8 +173,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     if (!date) e.date = "Date is required";
     if (!startTime) e.startTime = "Start time is required";
     if (startTime && endTime) {
-      const si = TIMES.indexOf(startTime);
-      const ei = TIMES.indexOf(endTime);
+      const si = timeToMinutes(startTime);
+      const ei = timeToMinutes(endTime);
       if (ei <= si) e.endTime = "End time must be after start time";
     }
     setErrors(e);
@@ -413,19 +441,41 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-muted-foreground block mb-1">Start Time *</label>
-              <select value={startTime} onChange={e => setStartTime(e.target.value)} className={`${inputCls} ${errors.startTime ? "border-red-500" : ""}`}>
-                {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <input 
+                list="appointment-times"
+                value={startTime} 
+                onChange={e => setStartTime(e.target.value.toUpperCase())} 
+                placeholder="10:00 AM"
+                className={`${inputCls} ${errors.startTime ? "border-red-500" : ""}`} 
+              />
               {errors.startTime && <p className="text-xs text-red-500 mt-0.5">{errors.startTime}</p>}
             </div>
             <div>
               <label className="text-sm font-medium text-muted-foreground block mb-1">End Time *</label>
-              <select value={endTime} onChange={e => setEndTime(e.target.value)} className={`${inputCls} ${errors.endTime ? "border-red-500" : ""}`}>
-                {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <input 
+                list="appointment-times"
+                value={endTime} 
+                onChange={e => {
+                  setEndTime(e.target.value.toUpperCase());
+                  setUserInteractedWithEnd(true);
+                }} 
+                placeholder="10:30 AM"
+                className={`${inputCls} ${errors.endTime ? "border-red-500" : ""}`} 
+              />
               {errors.endTime && <p className="text-xs text-red-500 mt-0.5">{errors.endTime}</p>}
             </div>
           </div>
+
+          <datalist id="appointment-times">
+            {Array.from({ length: 96 }).map((_, i) => {
+              const h = Math.floor(i / 4);
+              const m = (i % 4) * 15;
+              const hr = h % 12 || 12;
+              const ampm = h < 12 ? "AM" : "PM";
+              const t = `${hr}:${m.toString().padStart(2, "0")} ${ampm}`;
+              return <option key={t} value={t} />;
+            })}
+          </datalist>
           {/* Agent */}
           <div>
             <label className="text-sm font-medium text-muted-foreground block mb-1">Agent</label>
@@ -512,9 +562,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 };
 
 function advanceTime(time: string): string {
-  const idx = TIMES.indexOf(time);
-  if (idx >= 0 && idx + 2 < TIMES.length) return TIMES[idx + 2];
-  return "10:30 AM";
+  const min = timeToMinutes(time);
+  return minutesToTime(min + 30);
 }
 
 export default AppointmentModal;
