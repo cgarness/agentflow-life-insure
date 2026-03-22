@@ -73,6 +73,15 @@ const WIDGET_ICONS: Record<string, React.ElementType> = {
   anniversaries: Gift,
 };
 
+const WIDGET_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  callbacks: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20" },
+  appointments: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20" },
+  goal_progress: { bg: "bg-emerald-500/10", text: "text-emerald-500", border: "border-emerald-500/20" },
+  leaderboard: { bg: "bg-amber-500/10", text: "text-amber-500", border: "border-amber-500/20" },
+  missed_calls: { bg: "bg-red-500/10", text: "text-red-500", border: "border-red-500/20" },
+  anniversaries: { bg: "bg-pink-500/10", text: "text-pink-500", border: "border-pink-500/20" },
+};
+
 // Sortable widget wrapper for edit mode
 const SortableWidget: React.FC<{
   id: string;
