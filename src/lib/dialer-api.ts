@@ -75,31 +75,77 @@ export async function getLeadHistory(leadId: string) {
   return merged;
 }
 
-export async function saveCall(data: {
-  master_lead_id: string;
-  campaign_lead_id: string;
+export async function createCall(data: {
+  contact_id: string;
   agent_id: string;
-  campaign_id: string;
+  campaign_id?: string;
+  caller_id_used?: string;
+  contact_name?: string;
+  contact_phone?: string;
+}) {
+  const { data: call, error } = await supabase
+    .from("calls")
+    .insert({
+      contact_id: data.contact_id,
+      agent_id: data.agent_id,
+      campaign_id: data.campaign_id || null,
+      caller_id_used: data.caller_id_used || null,
+      contact_name: data.contact_name || null,
+      contact_phone: data.contact_phone || null,
+      direction: "outbound",
+      status: "ringing",
+      started_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return call.id;
+}
+
+export async function saveCall(data: {
+  id?: string; // Optional internal call UUID
+  master_lead_id: string;
+  campaign_lead_id?: string;
+  agent_id: string;
+  campaign_id?: string;
   duration_seconds: number;
   disposition: string;
-  disposition_color: string;
   notes: string;
   outcome: string;
   caller_id_used?: string;
 }) {
-  const { error: callError } = await supabase.from("calls").insert({
+  const callPayload = {
     contact_id: data.master_lead_id,
-    campaign_lead_id: data.campaign_lead_id,
+    campaign_lead_id: data.campaign_lead_id || null,
     agent_id: data.agent_id,
-    campaign_id: data.campaign_id,
+    campaign_id: data.campaign_id || null,
     duration: data.duration_seconds,
     disposition_name: data.disposition,
     notes: data.notes,
     outcome: data.outcome,
     direction: "outbound",
     caller_id_used: data.caller_id_used || null,
-  });
-  if (callError) throw new Error(callError.message);
+    status: "completed",
+    ended_at: new Date().toISOString(),
+  };
+
+  let error;
+  if (data.id) {
+    // Upsert if ID is provided
+    const { error: upsertError } = await supabase
+      .from("calls")
+      .upsert({ id: data.id, ...callPayload }, { onConflict: "id" });
+    error = upsertError;
+  } else {
+    // Otherwise insert new
+    const { error: insertError } = await supabase
+      .from("calls")
+      .insert(callPayload);
+    error = insertError;
+  }
+
+  if (error) throw new Error(error.message);
 
   const { error: actError } = await supabase.from("contact_activities").insert({
     contact_id: data.master_lead_id,

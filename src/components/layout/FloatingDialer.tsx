@@ -8,6 +8,7 @@ import { useTelnyx } from "@/contexts/TelnyxContext";
 import { useNavigate } from "react-router-dom";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
+import { createCall, saveCall } from "@/lib/dialer-api";
 
 interface ContactResult {
   id: string;
@@ -132,6 +133,7 @@ const FloatingDialer: React.FC = () => {
   // --- Call state ---
   const [onCall, setOnCall] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
+  const [currentCallId, setCurrentCallId] = useState<string | null>(null);
 
   // --- Post-call disposition state ---
   const [showDisposition, setShowDisposition] = useState(false);
@@ -372,17 +374,35 @@ const FloatingDialer: React.FC = () => {
     return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const proceedWithCall = (destinationNumber: string, callerNumber: string) => {
+  const proceedWithCall = (destinationNumber: string, callerNumber: string, callId?: string) => {
     lastUsedCallerId.current = callerNumber;
-    telnyxMakeCall(destinationNumber, callerNumber || undefined);
+    setCurrentCallId(callId || null);
+    telnyxMakeCall(destinationNumber, callerNumber || undefined, callId);
     setOnCall(true);
     setCallSeconds(0);
   };
 
   const initiateCall = async (destinationNumber: string, contactId: string | null) => {
     const autoSelectedNumber = selectCallerId(destinationNumber);
+    
+    // For all calls, create record first if possible
+    let callId;
+    if (user && contactId) {
+      try {
+        callId = await createCall({
+          contact_id: contactId,
+          agent_id: user.id,
+          caller_id_used: autoSelectedNumber,
+          contact_name: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : destinationNumber,
+          contact_phone: destinationNumber,
+        });
+      } catch (err) {
+        console.error("Failed to create call record:", err);
+      }
+    }
+
     if (!contactId) {
-      proceedWithCall(destinationNumber, autoSelectedNumber);
+      proceedWithCall(destinationNumber, autoSelectedNumber, callId);
       return;
     }
     const previousNumber = await getPreviousCallerId(contactId);
@@ -390,13 +410,14 @@ const FloatingDialer: React.FC = () => {
       const prevRecord = ownedNumbers.current.find(n => n.phone_number === previousNumber);
       const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
       if (!prevIsFlagged) {
-        proceedWithCall(destinationNumber, previousNumber);
+        proceedWithCall(destinationNumber, previousNumber, callId);
       } else {
         setPendingCall({ leadPhone: destinationNumber, contactId, proposedNumber: autoSelectedNumber, previousNumber });
         setShowCallerIdWarning(true);
+        // We might want to pass callId to pending call state here too, but for now let's keep it simple
       }
     } else {
-      proceedWithCall(destinationNumber, autoSelectedNumber);
+      proceedWithCall(destinationNumber, autoSelectedNumber, callId);
     }
   };
 
@@ -496,39 +517,21 @@ const FloatingDialer: React.FC = () => {
   const handleSaveDisposition = async () => {
     const disp = dispositions.find((d) => d.id === selectedDispId);
     if (disp) {
-      // Log the call with caller_id_used
-      if (user) {
+      // Log the call via shared API
+      if (user && selectedContact) {
         try {
-          await supabase.from('calls').insert({
-            contact_id: selectedContact?.id || null,
+          await saveCall({
+            id: currentCallId || undefined,
+            master_lead_id: selectedContact.id,
             agent_id: user.id,
+            duration_seconds: telnyxCallDuration || callSeconds,
             disposition: disp.name,
-            caller_id_used: lastUsedCallerId.current || null,
-            duration: telnyxCallDuration || callSeconds,
-            created_at: new Date().toISOString(),
+            notes: callNotes.trim(),
+            outcome: disp.name,
+            caller_id_used: lastUsedCallerId.current || undefined,
           });
-        } catch {
-          // non-blocking
-        }
-      }
-
-      // Save call notes if require_notes is true
-      if (disp.require_notes && callNotes.trim() && selectedContact?.id && user) {
-        try {
-          const { data: latestCall } = await supabase
-            .from('calls')
-            .select('id')
-            .eq('contact_id', selectedContact.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          if (latestCall) {
-            await supabase.from('calls')
-              .update({ notes: callNotes.trim() })
-              .eq('id', latestCall.id);
-          }
-        } catch {
-          // non-blocking
+        } catch (err) {
+          console.error("Failed to save call:", err);
         }
       }
 

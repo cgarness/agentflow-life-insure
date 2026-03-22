@@ -40,6 +40,7 @@ import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import {
   getCampaignLeads,
   getLeadHistory,
+  createCall,
   saveCall,
   saveNote,
   saveAppointment,
@@ -189,6 +190,7 @@ export default function DialerPage() {
   } = useTelnyx();
 
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
+  const [currentCallId, setCurrentCallId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteError, setNoteError] = useState(false);
   const [showWrapUp, setShowWrapUp] = useState(false);
@@ -774,10 +776,10 @@ export default function DialerPage() {
   // ── Auto-dial call event → trigger TelnyxRTC ──
   useEffect(() => {
     const handleAutoDialCall = (event: Event) => {
-      const { lead } = (event as CustomEvent).detail;
+      const { lead, callId } = (event as CustomEvent).detail;
       if (lead?.phone) {
         const callerNum = selectCallerId(lead.phone);
-        proceedWithCall(lead.phone, callerNum);
+        proceedWithCall(lead.phone, callerNum, callId);
       }
     };
     window.addEventListener("auto-dial-call", handleAutoDialCall);
@@ -843,25 +845,44 @@ export default function DialerPage() {
     previousNumber: string;
   } | null>(null);
 
-  const proceedWithCall = (leadPhone: string, callerNumber: string) => {
+  const proceedWithCall = (leadPhone: string, callerNumber: string, callId?: string) => {
     lastUsedCallerId.current = callerNumber;
-    telnyxMakeCall(leadPhone, callerNumber || undefined);
+    setCurrentCallId(callId || null);
+    telnyxMakeCall(leadPhone, callerNumber || undefined, callId);
   };
 
   const initiateCall = async (leadPhone: string, contactId: string) => {
     const previousNumber = await getPreviousCallerId(contactId);
     const autoSelectedNumber = selectCallerId(leadPhone);
+    
+    // For manual calls, we create the record first to get a callId
+    let callId;
+    try {
+      callId = await createCall({
+        contact_id: contactId,
+        agent_id: user?.id || "",
+        campaign_id: selectedCampaignId || undefined,
+        caller_id_used: previousNumber || autoSelectedNumber,
+        contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
+        contact_phone: leadPhone,
+      });
+    } catch (err) {
+      console.error("Failed to create call record for manual call:", err);
+    }
+
     if (previousNumber) {
       const prevRecord = ownedNumbers.current.find(n => n.phone_number === previousNumber);
       const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
       if (!prevIsFlagged) {
-        proceedWithCall(leadPhone, previousNumber);
+        proceedWithCall(leadPhone, previousNumber, callId);
       } else {
         setPendingCall({ leadPhone, contactId, proposedNumber: autoSelectedNumber, previousNumber });
         setShowCallerIdWarning(true);
+        // We'll need to pass the callId to proceedWithCall when the user confirms the warning
+        // but for now let's store it in the pending state if needed
       }
     } else {
-      proceedWithCall(leadPhone, autoSelectedNumber);
+      proceedWithCall(leadPhone, autoSelectedNumber, callId);
     }
   };
 
@@ -911,13 +932,13 @@ export default function DialerPage() {
     try {
       const masterId = currentLead.lead_id || currentLead.id;
       await saveCall({
+        id: currentCallId || undefined,
         master_lead_id: masterId,
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
         duration_seconds: telnyxCallDuration,
         disposition: d.name,
-        disposition_color: d.color,
         notes: "",
         outcome: d.name,
         caller_id_used: lastUsedCallerId.current || undefined,
@@ -1019,13 +1040,13 @@ export default function DialerPage() {
 
       // 3. Save call record
       await saveCall({
+        id: currentCallId || undefined,
         master_lead_id: masterId,
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
         duration_seconds: telnyxCallDuration,
         disposition: selectedDisp?.name || "No Disposition",
-        disposition_color: selectedDisp?.color || "#6B7280",
         notes: noteText,
         outcome: selectedDisp?.name || "No Outcome",
         caller_id_used: lastUsedCallerId.current || undefined,

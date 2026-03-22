@@ -1,10 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
 import { selectCallerID } from './caller-id-selector';
+import { createCall } from './dialer-api';
 
 interface CampaignLead {
   id: string;
   phone: string;
   first_name: string;
+  last_name: string;
   campaign_id: string;
   status: string;
 }
@@ -136,26 +138,21 @@ export class AutoDialer {
     console.log(`Dialing lead ${lead.id} with caller ID ${callerNumber}`);
 
     // Create call record in database
-    const { data: callRecord } = await supabase
-      .from('calls')
-      .insert({
-        contact_id: lead.id,
-        contact_type: 'lead',
-        agent_id: this.agentId,
-        campaign_id: this.campaignId,
-        direction: 'outbound',
-        caller_id_used: callerNumber,
-        started_at: new Date().toISOString()
-      } as any)
-      .select()
-      .single();
+    const callId = await createCall({
+      contact_id: lead.id,
+      agent_id: this.agentId,
+      campaign_id: this.campaignId,
+      caller_id_used: callerNumber,
+      contact_name: `${lead.first_name || ''} ${lead.last_name || ''}`.trim(),
+      contact_phone: lead.phone,
+    });
 
     // Emit event for UI to initiate call via TelnyxRTC
     window.dispatchEvent(new CustomEvent('auto-dial-call', {
       detail: {
         lead,
         callerNumber,
-        callId: (callRecord as any)?.id
+        callId
       }
     }));
 

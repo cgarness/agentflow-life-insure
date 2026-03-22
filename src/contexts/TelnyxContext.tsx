@@ -17,7 +17,7 @@ interface TelnyxContextValue {
   isOnHold: boolean;
   defaultCallerNumber: string;
   isReady: boolean;
-  makeCall: (destinationNumber: string, callerNumber?: string) => void;
+  makeCall: (destinationNumber: string, callerNumber?: string, clientState?: string) => void;
   hangUp: () => void;
   toggleMute: () => void;
   toggleHold: () => void;
@@ -201,7 +201,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [callState]);
 
-  const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string) => {
+  const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, clientState?: string) => {
     if (status !== "ready") {
       console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
       return;
@@ -223,6 +223,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         destinationNumber,
         callerNumber: callerNumber || defaultCallerNumber || "",
         audio: true,
+        clientState: clientState || undefined,
       });
       callRef.current = call;
       setCurrentCall(call);

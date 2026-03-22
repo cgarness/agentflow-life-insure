@@ -66,23 +66,37 @@ Deno.serve(async (req: Request) => {
 
 // Handler: call.initiated
 async function handleCallInitiated(supabase: any, payload: any) {
+  const clientState = payload.client_state;
   console.log('Call initiated:', {
     callControlId: payload.call_control_id,
     from: payload.from,
     to: payload.to,
     direction: payload.direction,
+    clientState,
   });
 
-  const { error } = await supabase.from('calls').insert({
+  const callData: any = {
     telnyx_call_id: payload.call_control_id,
     direction: payload.direction,
     caller_id_used: payload.from,
     status: 'ringing',
-    created_at: new Date().toISOString(),
-  });
+    updated_at: new Date().toISOString(),
+  };
 
-  if (error) {
-    console.error('Error creating call record:', error);
+  if (clientState) {
+    // If clientState is provided, it's our internal call UUID
+    const { error } = await supabase
+      .from('calls')
+      .update(callData)
+      .eq('id', clientState);
+    if (error) console.error('Error updating call with client_state:', error);
+  } else {
+    // Otherwise insert a new record
+    const { error } = await supabase.from('calls').insert({
+      ...callData,
+      created_at: new Date().toISOString(),
+    });
+    if (error) console.error('Error creating call record:', error);
   }
 }
 
