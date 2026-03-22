@@ -67,8 +67,8 @@ const TimeSelect: React.FC<{
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <div className="relative">
+      <div className="relative">
+        <PopoverTrigger asChild>
           <Input 
             value={value}
             onChange={(e) => onChange(e.target.value.toUpperCase())}
@@ -77,10 +77,10 @@ const TimeSelect: React.FC<{
             className={`${className} pr-10 ${error ? "border-red-500 focus-visible:ring-red-500" : ""}`}
             onFocus={() => setOpen(true)}
           />
-          <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        </div>
-      </PopoverTrigger>
-      <PopoverContent className="w-[180px] p-0" align="start">
+        </PopoverTrigger>
+        <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+      </div>
+      <PopoverContent className="w-[180px] p-0 z-[200]" align="start">
         <ScrollArea className="h-64">
            <div className="p-1">
              {times.map(t => (
