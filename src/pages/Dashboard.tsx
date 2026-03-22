@@ -21,7 +21,6 @@ import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
 import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
-import WinCelebration from "@/components/dashboard/WinCelebration";
 import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
@@ -381,9 +380,6 @@ const Dashboard: React.FC = () => {
           {editMode ? "Cancel" : "Edit Dashboard"}
         </Button>
       </div>
-
-      {/* Win Celebration */}
-      {userId && <WinCelebration userId={userId} />}
 
       {/* Daily Briefing */}
       {showBriefing && userId && (
