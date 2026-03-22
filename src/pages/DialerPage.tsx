@@ -152,6 +152,14 @@ function mapDialerLeadToContactLead(row: any): Lead {
   };
 }
 
+const getCampaignTypeColor = (type: string) => {
+  const t = (type || "").toUpperCase();
+  if (t === "TEAM") return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+  if (t === "PERSONAL") return "bg-purple-500/10 text-purple-400 border-purple-500/20";
+  if (t.includes("POOL")) return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  return "bg-muted text-muted-foreground border-border";
+};
+
 /* ─── Component ─── */
 
 export default function DialerPage() {
@@ -294,6 +302,34 @@ export default function DialerPage() {
   /* --- queries --- */
   
   const [campaignsLoading, setCampaignsLoading] = useState(true);
+
+  const { data: campaignStateStats = {} } = useQuery({
+    queryKey: ["campaignStateStats"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('campaign_leads')
+        .select('campaign_id, state');
+      if (error) throw error;
+      
+      const stats: Record<string, { state: string, count: number }[]> = {};
+      data.forEach(row => {
+        if (!row.state) return;
+        if (!stats[row.campaign_id]) stats[row.campaign_id] = [];
+        let stateEntry = stats[row.campaign_id].find(s => s.state === row.state);
+        if (!stateEntry) {
+          stateEntry = { state: row.state, count: 0 };
+          stats[row.campaign_id].push(stateEntry);
+        }
+        stateEntry.count++;
+      });
+      // Sort states by count descending
+      Object.keys(stats).forEach(cid => {
+        stats[cid].sort((a, b) => b.count - a.count);
+      });
+      return stats;
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions"],
@@ -1294,93 +1330,47 @@ export default function DialerPage() {
           )}
           {!campaignsLoading &&
             campaigns.map((campaign: any) => {
-              const total = campaign.total_leads ?? 0;
-              const contacted = campaign.leads_contacted ?? 0;
-              const converted = campaign.leads_converted ?? 0;
-              const remaining = Math.max(0, total - contacted);
-
-              const mockAvgCall = contacted > 0 ? "3:24" : "--:--";
-              const mockStates = [
-                { state: "FL", count: 34, color: "#2563eb", bg: "rgba(59, 130, 246, 0.1)", border: "rgba(59, 130, 246, 0.3)" },
-                { state: "TX", count: 28, color: "#dc2626", bg: "rgba(239, 68, 68, 0.1)", border: "rgba(239, 68, 68, 0.3)" },
-                { state: "CA", count: 23, color: "#d97706", bg: "rgba(245, 158, 11, 0.1)", border: "rgba(245, 158, 11, 0.3)" },
-                { state: "NY", count: 18, color: "#9333ea", bg: "rgba(168, 85, 247, 0.1)", border: "rgba(168, 85, 247, 0.3)" },
-                { state: "OH", count: 12, color: "#16a34a", bg: "rgba(34, 197, 94, 0.1)", border: "rgba(34, 197, 94, 0.3)" },
-                { state: "WA", count: 8, color: "", bg: "", border: "" },
-                { state: "AZ", count: 6, color: "", bg: "", border: "" }
-              ];
-              const mockCallsMade = contacted || 0;
-              const mockTotalLeads = total || 0;
-              const mockConnectRate = contacted > 0 ? `${Math.round((converted/contacted)*100)}%` : "0%";
+              const states = campaignStateStats[campaign.id] || [];
 
               return (
                 <div
                   key={campaign.id}
                   className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3"
                 >
-                  {/* Campaign info — NO onClick on this wrapper */}
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-semibold text-foreground">{campaign.name}</p>
-                      <p className="text-xs text-muted-foreground">{campaign.type}</p>
-                    </div>
+                  {/* Campaign Name & Type - Centered */}
+                  <div className="flex flex-col items-center gap-1.5 py-2">
+                    <h3 className="font-bold text-lg text-foreground text-center line-clamp-1">{campaign.name}</h3>
+                    <span className={cn(
+                      "text-[10px] uppercase tracking-widest font-black px-2.5 py-0.5 rounded-full border",
+                      getCampaignTypeColor(campaign.type)
+                    )}>
+                      {campaign.type}
+                    </span>
                   </div>
 
-                  {/* Stats row */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
-                      <TrendingUp className="w-3 h-3 text-success" />
-                      <span className="text-xs font-medium text-foreground">Connect Rate: {mockConnectRate}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-accent/50 rounded px-2 py-1">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs font-medium text-foreground">Avg Call: {mockAvgCall}</span>
-                    </div>
-                  </div>
-
-                  {/* States */}
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1 font-medium">States</p>
+                  {/* States - Only those in the campaign */}
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[10px] uppercase tracking-widest font-black text-muted-foreground text-center">States</p>
                     <div className="grid grid-cols-4 gap-1.5">
-                      {mockStates.map(s => (
+                      {states.slice(0, 8).map(s => (
                         <span
                           key={s.state}
-                          className="flex items-center justify-center text-[10px] px-1 py-0.5 rounded-md font-medium transition-all bg-blue-500/10 text-blue-500 border border-blue-500/20"
+                          className="flex items-center justify-center text-[10px] px-1 py-1 rounded-md font-bold transition-all bg-primary/10 text-primary border border-primary/20"
                         >
                           {s.state} ({s.count})
                         </span>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Campaign Progress */}
-                  <div className="mt-auto space-y-2">
-                    <p className="text-xs text-muted-foreground font-medium">Campaign Progress</p>
-                    <p className="text-xs text-foreground mb-1.5 font-medium">
-                      {mockCallsMade}/{mockTotalLeads} calls made
-                    </p>
-
-                    <div className="relative w-full h-3 bg-accent rounded-full isolate">
-                      <div
-                        className="absolute top-0 left-0 h-full bg-primary/30 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, (mockCallsMade/mockTotalLeads)*100)}%` }}
-                      />
-                      <div
-                        className="absolute top-0 left-0 h-full bg-primary rounded-full transition-all duration-500 z-0"
-                        style={{ width: `${Math.min(100, (converted/mockTotalLeads)*100 || 18)}%` }}
-                      />
-                    </div>
-
-                    <div className="pt-2 flex">
-                      <p className="font-mono text-sm font-semibold text-foreground">
-                        {campaign.total_leads ? Math.max(0, campaign.total_leads - mockCallsMade) : remaining} remaining
-                      </p>
+                      {states.length === 0 && (
+                        <div className="col-span-full py-2 text-center text-[10px] text-muted-foreground italic">
+                          No leads assigned
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Local Presence toggle */}
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-xs text-muted-foreground font-medium">Local Presence</span>
+                  <div className="mt-auto flex items-center justify-between px-1 pt-3 border-t border-border/50">
+                    <span className="text-[10px] uppercase tracking-widest font-black text-muted-foreground">Local Presence</span>
                     <button
                       type="button"
                       role="switch"
@@ -1401,11 +1391,12 @@ export default function DialerPage() {
                     </button>
                   </div>
 
-                  <div className="flex gap-2 mt-3">
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 mt-1">
                     <button
                       type="button"
                       onClick={() => setSelectedCampaignId(campaign.id)}
-                      className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                      className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold uppercase tracking-widest hover:bg-primary/90 transition-all shadow-sm"
                     >
                       Start Dialing
                     </button>
@@ -1415,7 +1406,7 @@ export default function DialerPage() {
                         setSettingsCampaignId(campaign.id)
                         setCallingSettingsOpen(true)
                       }}
-                      className="px-4 py-2 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80 flex items-center gap-1.5"
+                      className="px-4 py-2 rounded-lg bg-accent text-foreground text-xs font-bold uppercase tracking-widest hover:bg-accent/80 flex items-center gap-1.5 transition-all"
                     >
                       <Settings className="w-3.5 h-3.5" />
                       Settings
