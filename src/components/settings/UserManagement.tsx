@@ -414,14 +414,16 @@ const UserProfileModal: React.FC<{
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onDeleted: (id: string) => void;
   currentUserId: string;
   allUsers: UserWithProfile[];
-}> = ({ user, open, onClose, onSaved, currentUserId, allUsers }) => {
+}> = ({ user, open, onClose, onSaved, onDeleted, currentUserId, allUsers }) => {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("profile");
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
@@ -451,6 +453,8 @@ const UserProfileModal: React.FC<{
         monthlySalesGoal: user.profile.monthlySalesGoal,
         weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal,
         monthlyTalkTimeGoalHours: user.profile.monthlyTalkTimeGoalHours,
+        npn: user.profile.npn || "",
+        timezone: user.profile.timezone || "",
       });
       setOnboardingItems([...user.profile.onboardingItems]);
       setAvatarUrl(user.avatar);
@@ -488,12 +492,15 @@ const UserProfileModal: React.FC<{
         residentState: form.residentState as string,
         commissionLevel: form.commissionLevel as string,
         uplineId: form.uplineId,
+        npn: form.npn as string,
+        timezone: form.timezone as string,
       });
-      toast({ title: "Saved", description: "User profile updated successfully." });
+      toast({ title: "Changes saved successfully" });
       setEditMode(false);
       onSaved();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      console.error(e);
+      toast({ title: "Failed to save changes. Please try again.", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -554,6 +561,22 @@ const UserProfileModal: React.FC<{
     }
   };
 
+  const handleDeleteUser = async () => {
+    setSaving(true);
+    try {
+      await usersApi.deleteUser(user.id);
+      toast({ title: "User deleted successfully" });
+      setDeleteConfirmOpen(false);
+      onClose();
+      onDeleted(user.id);
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      console.error(e);
+      toast({ title: "Failed to delete user. Please try again.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const onboardingPct = onboardingItems.length ? Math.round(onboardingItems.filter(i => i.completed).length / onboardingItems.length * 100) : 0;
 
   const goalActuals = {
@@ -568,9 +591,9 @@ const UserProfileModal: React.FC<{
   return (
     <>
       <Dialog open={open} onOpenChange={v => !v && onClose()}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[780px] max-w-none h-[620px] flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between flex-shrink-0">
             <div className="flex items-center gap-4">
               <AvatarUpload
                 currentAvatar={avatarUrl}
@@ -590,6 +613,7 @@ const UserProfileModal: React.FC<{
 
           </div>
 
+          <div className="flex-1 overflow-y-auto min-h-0">
           <Tabs value={tab} onValueChange={setTab} className="mt-4">
             <TabsList className="w-full">
               <TabsTrigger value="profile" className="flex-1">Profile</TabsTrigger>
@@ -678,6 +702,15 @@ const UserProfileModal: React.FC<{
               </div>
               {editMode && (
                 <div className="flex gap-2 justify-end">
+                  {!isSelf && (
+                    <Button
+                      variant="outline"
+                      className="text-destructive border-destructive hover:bg-destructive/10 mr-auto"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      Delete User
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={onClose}>Cancel</Button>
                   <Button onClick={handleSaveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
                 </div>
@@ -802,6 +835,7 @@ const UserProfileModal: React.FC<{
               )}
             </TabsContent>
           </Tabs>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -817,6 +851,22 @@ const UserProfileModal: React.FC<{
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetPwOpen(false)}>Cancel</Button>
             <Button onClick={handleResetPassword}>Send Reset Email</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Confirmation */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete {user.firstName} {user.lastName}? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteUser} disabled={saving}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1020,6 +1070,11 @@ const UserManagement: React.FC = () => {
         open={profileOpen}
         onClose={() => { setProfileOpen(false); setSelectedUser(null); }}
         onSaved={() => { fetchUsers(); }}
+        onDeleted={(id) => {
+          setUsers(prev => prev.filter(u => u.id !== id));
+          setProfileOpen(false);
+          setSelectedUser(null);
+        }}
         currentUserId={currentUser?.id || ""}
         allUsers={users}
       />

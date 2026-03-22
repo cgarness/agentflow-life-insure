@@ -169,6 +169,14 @@ export const usersSupabaseApi = {
     return `${window.location.origin}/signup?${params.toString()}`;
   },
 
+  async deleteUser(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", id);
+    if (error) throw error;
+  },
+
   async getPerformance(userId: string) {
     const { data: calls } = await supabase
       .from("calls")
