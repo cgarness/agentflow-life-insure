@@ -469,17 +469,20 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {visibleWidgets.map((key) => {
             const Icon = WIDGET_ICONS[key] || Target;
+            const colors = WIDGET_COLORS[key] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border" };
             return (
               <div
                 key={key}
                 ref={(el) => {
                   widgetRefs.current[key] = el;
                 }}
-                className="bg-card rounded-xl border border-border shadow-sm"
+                className={`bg-card rounded-xl border shadow-sm ${colors.border}`}
               >
-                <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
-                  <Icon className="w-4 h-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold text-foreground">
+                <div className={`flex items-center gap-2 px-5 py-3 border-b ${colors.border} ${colors.bg} rounded-t-xl`}>
+                  <div className={`w-6 h-6 rounded-md flex items-center justify-center ${colors.bg}`}>
+                    <Icon className={`w-3.5 h-3.5 ${colors.text}`} />
+                  </div>
+                  <h3 className={`text-sm font-semibold ${colors.text}`}>
                     {WIDGET_LABELS[key]}
                   </h3>
                 </div>
