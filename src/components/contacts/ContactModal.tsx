@@ -237,6 +237,11 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [convoFilter, setConvoFilter] = useState<"All" | "Calls" | "SMS" | "Email">("All");
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [phoneNumbers, setPhoneNumbers] = useState<{ id: string; phone_number: string; friendly_name: string | null; is_default: boolean }[]>([]);
+  const [selectedFromNumber, setSelectedFromNumber] = useState<string>("");
+  const [templates, setTemplates] = useState<{ id: string; name: string; type: string; subject: string | null; content: string }[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -342,6 +347,17 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   }, [lead]);
 
   useEffect(() => {
+    supabase.from("phone_numbers").select("id, phone_number, friendly_name, is_default").eq("status", "active").order("is_default", { ascending: false })
+      .then(({ data }) => {
+        if (data) {
+          setPhoneNumbers(data);
+          const def = data.find(n => n.is_default) || data[0];
+          if (def) setSelectedFromNumber(def.phone_number);
+        }
+      });
+  }, []);
+
+  useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
         setStatusDropdownOpen(false);
@@ -355,8 +371,8 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     if (rightTab !== "Conversations" || !lead?.id) return;
     setConvoLoading(true);
     Promise.all([
-      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, started_at").eq("contact_id", lead.id).eq("contact_type", "lead").order("started_at", { ascending: true }),
-      supabase.from("messages").select("id, direction, body, sent_at").eq("lead_id", lead.id).order("sent_at", { ascending: true })
+      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, started_at, caller_id_used").eq("contact_id", lead.id).eq("contact_type", "lead").order("started_at", { ascending: true }),
+      supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", lead.id).order("sent_at", { ascending: true })
     ]).then(([callsRes, msgsRes]) => {
       const calls = (callsRes.data || []).map(c => ({ ...c, _type: "call", _ts: new Date((c as any).started_at).getTime() })); // eslint-disable-line @typescript-eslint/no-explicit-any
       const msgs = (msgsRes.data || []).map(m => ({ ...m, _type: "sms", _ts: new Date((m as any).sent_at).getTime() })); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -577,7 +593,6 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
               <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm font-medium" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
               <Button className="px-4 py-2.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 text-white" onClick={() => setShowAppointmentModal(true)}><Calendar className="size-4 mr-1" />Schedule</Button>
               <Button className="px-4 py-2.5 text-sm font-medium bg-green-500 hover:bg-green-600 text-white" onClick={() => setConfirmConvert(true)}><ArrowRight className="size-4 mr-1" />Convert</Button>
-              <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={() => { if (editMode) handleCancel(); else setEditMode(true); }}><Pencil className="size-4" /></Button>
               <Button variant="ghost" className="px-4 py-2.5 text-sm font-medium" onClick={tryClose}><X className="size-4" /></Button>
             </div>
           </div>
@@ -878,6 +893,9 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                               {item.disposition_name && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{item.disposition_name}</span>}
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">{new Date(item.started_at).toLocaleString()}</p>
+                            {item.caller_id_used && (
+                              <p className="text-xs text-muted-foreground mt-0.5">From: {item.caller_id_used}</p>
+                            )}
                             {item.recording_url && <button className="flex items-center gap-1 mt-1 text-xs text-primary hover:underline"><Play className="w-3 h-3" /> Play Recording</button>}
                           </div>
                         );
@@ -888,6 +906,9 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                             <div className={`rounded-xl px-4 py-3 max-w-[80%] text-sm ${item.direction === "outbound" ? "text-white rounded-br-sm" : "bg-accent text-foreground rounded-bl-sm"}`} style={item.direction === "outbound" ? { backgroundColor: "#16a34a" } : undefined}>
                               <p>{item.body}</p>
                               <p className="text-xs mt-1 opacity-70">{new Date(item.sent_at).toLocaleString()}</p>
+                              {item.from_number && (
+                                <p className="text-xs mt-0.5 opacity-60">From: {item.from_number}</p>
+                              )}
                             </div>
                           </div>
                         );
@@ -907,17 +928,83 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                     })}
                   </div>
                   <div className="border-t border-border p-3 flex-shrink-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-muted-foreground flex-shrink-0">From:</span>
+                      <select
+                        value={selectedFromNumber}
+                        onChange={e => setSelectedFromNumber(e.target.value)}
+                        className="flex-1 text-xs bg-accent border border-border rounded-lg px-2 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      >
+                        {phoneNumbers.map(n => (
+                          <option key={n.id} value={n.phone_number}>
+                            {n.friendly_name ? `${n.friendly_name} (${n.phone_number})` : n.phone_number}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex gap-1 mb-2">
                       {["SMS", "Email"].map(t => (
                         <button key={t} onClick={() => setComposeTab(t as any)} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${composeTab === t ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>{t}</button>
                       ))}
                     </div>
-                    <div className="flex gap-2 items-center">
-                      <input value={composeText} onChange={e => setComposeText(e.target.value)} placeholder="Type a message..." className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                      <button onClick={() => toast.success("Templates coming soon")} className="p-2 rounded-lg border border-border bg-card hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                        <FileText className="w-4 h-4" />
-                      </button>
-                      <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Send</button>
+                    <div className="relative">
+                      {composeTab === "Email" ? (
+                        <div className="space-y-2 mb-2">
+                          <input
+                            type="text"
+                            placeholder="Subject"
+                            value={emailSubject}
+                            onChange={e => setEmailSubject(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border"
+                          />
+                          <textarea
+                            placeholder="Body"
+                            value={composeText}
+                            onChange={e => setComposeText(e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border resize-none"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 items-center mb-2">
+                          <input value={composeText} onChange={e => setComposeText(e.target.value)} placeholder="Type a message..." className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                        </div>
+                      )}
+                      <div className="flex gap-2 items-center justify-end">
+                        <div className="relative">
+                          <button
+                            onClick={() => {
+                              supabase.from("message_templates").select("id, name, type, subject, content").eq("type", composeTab.toLowerCase())
+                                .then(({ data }) => { if (data) setTemplates(data); setShowTemplates(true); });
+                            }}
+                            className="p-2 rounded-lg border border-border bg-card hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                          {showTemplates && (
+                            <div className="absolute bottom-full mb-1 right-0 w-64 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                              <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+                                <span className="text-xs font-semibold text-foreground">Templates</span>
+                                <button onClick={() => setShowTemplates(false)} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
+                              </div>
+                              {templates.length === 0
+                                ? <div className="px-3 py-4 text-xs text-muted-foreground text-center">No {composeTab} templates yet</div>
+                                : templates.map(t => (
+                                    <button key={t.id} onClick={() => {
+                                      setComposeText(t.content);
+                                      if (t.subject) setEmailSubject(t.subject);
+                                      setShowTemplates(false);
+                                    }} className="w-full text-left px-3 py-2.5 text-sm hover:bg-accent border-b border-border last:border-0 transition-colors">
+                                      <div className="font-medium text-foreground text-xs">{t.name}</div>
+                                      <div className="text-muted-foreground text-xs truncate mt-0.5">{t.content}</div>
+                                    </button>
+                                  ))
+                              }
+                            </div>
+                          )}
+                        </div>
+                        <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Send</button>
+                      </div>
                     </div>
                   </div>
                 </>
