@@ -35,6 +35,22 @@ const historyIconConfig: Record<string, { bg: string; text: string; icon: React.
 const historyFilterMap: Record<string, string> = { Calls: "call", Emails: "email", SMS: "sms", Appointments: "appointment" };
 const activityDotColor = (type: string) => ({ call: "bg-blue-500", note: "bg-gray-500", status: "bg-blue-500", appointment: "bg-purple-500", import: "bg-green-500", delete: "bg-red-500", pin: "bg-yellow-500" }[type] || "bg-blue-500");
 
+const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
+    if (!value && value !== 0) return <span className="text-muted-foreground">—</span>;
+    const display = String(value);
+    return (
+        <div className="flex items-center justify-between group w-full">
+            <span className="text-foreground font-medium">{display}</span>
+            <button
+                onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            >
+                <Clipboard className="w-3.5 h-3.5" />
+            </button>
+        </div>
+    );
+};
+
 interface RecruitModalProps { recruit: Recruit | null; onClose: () => void; onUpdate: (id: string, data: Partial<Recruit>) => Promise<void>; onDelete: (id: string) => Promise<void>; }
 
 const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate, onDelete }) => {
@@ -121,7 +137,7 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
     const fmt = (s: number) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toString().padStart(2, "0")}`; };
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
-    const renderField = (label: string, key: string, type: "text" | "email" | "select" | "textarea" = "text", options?: string[], copyable?: boolean) => { const val = (editForm as any)[key] ?? ""; return (<div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : copyable && val ? (<div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center"><div className="flex items-center justify-between group w-full"><span className="text-foreground font-medium">{val}</span><button onClick={() => { navigator.clipboard.writeText(val); toast.success("Copied to clipboard"); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"><Clipboard className="w-3.5 h-3.5" /></button></div></div>) : <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{val || "—"}</div>}</div>); }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const renderField = (label: string, key: string, type: "text" | "email" | "select" | "textarea" = "text", options?: string[], copyable?: boolean) => { const val = (editForm as any)[key] ?? ""; return (<div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>{editMode ? (type === "select" ? <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp}><option value="">—</option>{options?.map(o => <option key={o} value={o}>{o}</option>)}</select> : type === "textarea" ? <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inp} min-h-[72px] py-2`} /> : <input type={type} value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inp} />) : <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center"><CopyField value={val} /></div>}</div>); }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     return (<TooltipProvider>
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={tryClose}>
@@ -183,7 +199,7 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
                                     {renderField("First Name", "firstName")}{renderField("Last Name", "lastName")}
                                     {renderField("Phone", "phone", "text", undefined, true)}{renderField("Email", "email", "email", undefined, true)}
                                     {renderField("Status", "status", "select", recruitStatuses)}
-                                    <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>{editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <p className="text-sm text-foreground mt-0.5">{getAgentName(recruit.assignedAgentId)}</p>}</div>
+                                    <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>{editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <CopyField value={getAgentName(recruit.assignedAgentId)} />}</div>
                                 </div>
                                 <div>{renderField("Notes", "notes", "textarea")}</div>
                             </div>}

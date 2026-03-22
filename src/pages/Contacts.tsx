@@ -6,7 +6,7 @@ import {
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
   Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2, Megaphone, Download, UserPlus,
-  GraduationCap, CheckCircle2, ArrowRight
+  GraduationCap, CheckCircle2, ArrowRight, Clipboard
 } from "lucide-react";
 import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
@@ -134,6 +134,23 @@ const mockAgents = [
   { id: "u4", name: "Lisa R." },
   { id: "u5", name: "James W." },
 ];
+
+// ---- CopyField ----
+const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
+  if (!value && value !== 0) return <span className="text-muted-foreground">—</span>;
+  const display = String(value);
+  return (
+    <div className="flex items-center justify-between group w-full">
+      <span className="text-foreground font-medium">{display}</span>
+      <button
+        onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+      >
+        <Clipboard className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};
 
 // ---- Add/Edit Contact Modal ----
 const AddContactModal: React.FC<{
