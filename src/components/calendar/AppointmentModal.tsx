@@ -53,17 +53,28 @@ const TimeSelect: React.FC<{
 }> = ({ value, onChange, onBlur, placeholder, className, error }) => {
   const [open, setOpen] = React.useState(false);
   
-  const times = React.useMemo(() => {
-    const res: string[] = [];
-    for (let i = 0; i < 96; i++) {
-       const h = Math.floor(i / 4);
-       const m = (i % 4) * 15;
-       const hr = h % 12 || 12;
-       const ampm = h < 12 ? "AM" : "PM";
-       res.push(`${hr}:${m.toString().padStart(2, "0")} ${ampm}`);
-    }
-    return res;
-  }, []);
+  const parseValue = (v: string) => {
+    const match = v.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!match) return { h: "10", m: "00", p: "AM" };
+    return { 
+      h: match[1], 
+      m: match[2].padStart(2, "0"), 
+      p: match[3].toUpperCase() 
+    };
+  };
+
+  const { h: currentH, m: currentM, p: currentP } = parseValue(value || "10:00 AM");
+
+  const updateValue = (newH?: string, newM?: string, newP?: string) => {
+    const h = newH || currentH;
+    const m = newM || currentM;
+    const p = newP || currentP;
+    onChange(`${h}:${m} ${p}`);
+  };
+
+  const hours = Array.from({ length: 12 }, (_, i) => String(i + 1));
+  const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+  const periods = ["AM", "PM"];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -80,24 +91,57 @@ const TimeSelect: React.FC<{
         </PopoverTrigger>
         <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
       </div>
-      <PopoverContent className="w-[180px] p-0 z-[200]" align="start">
-        <ScrollArea className="h-64">
-           <div className="p-1">
-             {times.map(t => (
-               <button
-                 key={t}
-                 type="button"
-                 className="w-full text-left px-2 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-                 onClick={() => {
-                   onChange(t);
-                   setOpen(false);
-                 }}
-               >
-                 {t}
-               </button>
-             ))}
-           </div>
-        </ScrollArea>
+      <PopoverContent className="w-[220px] p-0 z-[200]" align="start">
+        <div className="flex h-72 divide-x divide-border overflow-hidden">
+          {/* Hours */}
+          <ScrollArea className="flex-1">
+            <div className="p-1 space-y-0.5">
+              <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase text-center sticky top-0 bg-popover z-10">Hr</div>
+              {hours.map(h => (
+                <button
+                  key={h}
+                  type="button"
+                  className={`w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors ${h === currentH ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"}`}
+                  onClick={() => updateValue(h)}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+          {/* Minutes */}
+          <ScrollArea className="flex-1 border-x border-border">
+            <div className="p-1 space-y-0.5">
+              <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase text-center sticky top-0 bg-popover z-10">Min</div>
+              {minutes.map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors ${m === currentM ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"}`}
+                  onClick={() => updateValue(undefined, m)}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+          {/* AM/PM */}
+          <ScrollArea className="w-[60px]">
+            <div className="p-1 space-y-0.5">
+              <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase text-center sticky top-0 bg-popover z-10"></div>
+              {periods.map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  className={`w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors ${p === currentP ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"}`}
+                  onClick={() => updateValue(undefined, undefined, p)}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );
