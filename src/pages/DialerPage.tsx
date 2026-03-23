@@ -561,7 +561,7 @@ export default function DialerPage() {
       .from('profiles')
       .select('first_name, last_name')
       .eq('id', currentLead.assigned_agent_id)
-      .single()
+      .maybeSingle()
       .then(({ data }) => {
         if (data) {
           setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
@@ -680,7 +680,7 @@ export default function DialerPage() {
       .from("campaigns")
       .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
-      .single()
+      .maybeSingle()
       .then(({ data }) => {
         if (data) {
           setIsUnlimited(data.max_attempts === null);
@@ -690,7 +690,13 @@ export default function DialerPage() {
           setRetryIntervalHours(data.retry_interval_hours ?? 24);
           setSettingsAutoDialEnabled(data.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(data.local_presence_enabled ?? true);
+        } else {
+          console.warn(`[DialerPage] campaigns row not found for id=${effectiveCampaignId}, using defaults`);
         }
+        setCallingSettingsLoading(false);
+      })
+      .catch((err) => {
+        console.warn('[DialerPage] Failed to load campaign calling settings', err);
         setCallingSettingsLoading(false);
       });
   }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId]);
@@ -833,9 +839,10 @@ export default function DialerPage() {
         .gt('duration', 0)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
       return data?.caller_id_used || null;
-    } catch {
+    } catch (err) {
+      console.warn('[DialerPage] getPreviousCallerId failed, defaulting to null', err);
       return null;
     }
   };
