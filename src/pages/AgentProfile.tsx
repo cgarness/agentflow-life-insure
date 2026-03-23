@@ -178,7 +178,7 @@ const AgentProfile: React.FC = () => {
           {/* Dynamic Badges */}
           <div className="relative mt-6 flex flex-wrap gap-2">
             {badges.map((b, i) => (
-              <span key={i} className={`rounded-full border border-${b.color}-400/40 bg-${b.color}-400/10 px-3 py-1 text-xs font-medium text-${b.color}-500`}>
+              <span key={i} className={`rounded-full border px-3 py-1 text-xs font-medium ${b.cls}`}>
                 {b.label}
               </span>
             ))}
