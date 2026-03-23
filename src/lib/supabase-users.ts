@@ -41,7 +41,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
 
 export const usersSupabaseApi = {
   async getAll(filters?: { search?: string; role?: string; status?: string }): Promise<(User & { profile: UserProfile })[]> {
-    const columns = [
+    const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", "onboarding_complete", 
@@ -49,9 +49,14 @@ export const usersSupabaseApi = {
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers"
-    ].join(",");
-    
-    let q = supabase.from("profiles").select(columns);
+    ];
+
+    const safeColumns = [
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "availability_status", "theme_preference", "created_at"
+    ];
+
+    let q = supabase.from("profiles").select(allExpectedColumns.join(","));
     
     if (filters?.search) {
       const search = filters.search.toLowerCase();
@@ -65,18 +70,39 @@ export const usersSupabaseApi = {
     if (filters?.status && filters.status !== "All") {
       q = q.eq("status", filters.status);
     } else {
-      // By default, hide deleted users
       q = q.neq("status", "Deleted");
     }
     
     const { data, error } = await q.order("first_name", { ascending: true });
+    
+    if (error && error.message.includes("does not exist")) {
+      console.warn("Retrying fetch with safe column set due to schema mismatch:", error.message);
+      const { data: safeData, error: safeError } = await supabase
+        .from("profiles")
+        .select(safeColumns.join(","))
+        .order("first_name", { ascending: true });
+      
+      if (safeError) throw safeError;
+      return (safeData || []).map(row => rowToUser({
+        ...(row as Record<string, any>),
+        onboarding_complete: false,
+        monthly_call_goal: 0,
+        monthly_sales_goal: 0,
+        weekly_appointment_goal: 0,
+        monthly_talk_time_goal_hours: 0,
+        onboarding_items: [],
+        licensed_states: [],
+        carriers: []
+      }));
+    }
+    
     if (error) throw error;
     
     return (data || []).map(rowToUser);
   },
 
   async getById(id: string): Promise<User & { profile: UserProfile }> {
-    const columns = [
+    const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", "onboarding_complete", 
@@ -84,13 +110,41 @@ export const usersSupabaseApi = {
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers"
-    ].join(",");
+    ];
+
+    const safeColumns = [
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "availability_status", "theme_preference", "created_at"
+    ];
 
     const { data, error } = await supabase
       .from("profiles")
-      .select(columns)
+      .select(allExpectedColumns.join(","))
       .eq("id", id)
       .single();
+    
+    if (error && error.message.includes("does not exist")) {
+      console.warn("Retrying fetch with safe column set due to schema mismatch:", error.message);
+      const { data: safeData, error: safeError } = await supabase
+        .from("profiles")
+        .select(safeColumns.join(","))
+        .eq("id", id)
+        .single();
+      
+      if (safeError) throw safeError;
+      return rowToUser({
+        ...(safeData as Record<string, any>),
+        onboarding_complete: false,
+        monthly_call_goal: 0,
+        monthly_sales_goal: 0,
+        weekly_appointment_goal: 0,
+        monthly_talk_time_goal_hours: 0,
+        onboarding_items: [],
+        licensed_states: [],
+        carriers: []
+      });
+    }
+
     if (error) throw error;
     return rowToUser(data);
   },
@@ -134,7 +188,7 @@ export const usersSupabaseApi = {
     if (data.onboardingItems !== undefined) payload.onboarding_items = data.onboardingItems;
     payload.updated_at = new Date().toISOString();
 
-    const columns = [
+    const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", "onboarding_complete", 
@@ -142,13 +196,45 @@ export const usersSupabaseApi = {
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers"
-    ].join(",");
+    ];
+
+    const safeColumns = [
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "availability_status", "theme_preference", "created_at"
+    ];
 
     const { data: result, error } = await supabase
       .from("profiles")
       .update(payload)
       .eq("id", userId)
-      .select(columns);
+      .select(allExpectedColumns.join(","));
+    
+    if (error && error.message.includes("does not exist")) {
+      console.warn("Retrying update without returning new columns due to schema mismatch:", error.message);
+      const { data: safeResult, error: safeError } = await supabase
+        .from("profiles")
+        .update(payload)
+        .eq("id", userId)
+        .select(safeColumns.join(","));
+      
+      if (safeError) throw safeError;
+      if (!safeResult || safeResult.length === 0) {
+        throw new Error("Update failed: User profile not found or permission denied (RLS).");
+      }
+      
+      const u = rowToUser({
+        ...(safeResult[0] as Record<string, any>),
+        onboarding_complete: false,
+        monthly_call_goal: 0,
+        monthly_sales_goal: 0,
+        weekly_appointment_goal: 0,
+        monthly_talk_time_goal_hours: 0,
+        onboarding_items: [],
+        licensed_states: [],
+        carriers: []
+      });
+      return u.profile;
+    }
     
     if (error) throw error;
     if (!result || result.length === 0) {
