@@ -1556,6 +1556,7 @@ export type Database = {
           theme_preference: string
           timezone: string | null
           updated_at: string
+          upline_id: string | null
           win_sound_enabled: boolean | null
         }
         Insert: {
@@ -1582,6 +1583,7 @@ export type Database = {
           theme_preference?: string
           timezone?: string | null
           updated_at?: string
+          upline_id?: string | null
           win_sound_enabled?: boolean | null
         }
         Update: {
@@ -1608,9 +1610,18 @@ export type Database = {
           theme_preference?: string
           timezone?: string | null
           updated_at?: string
+          upline_id?: string | null
           win_sound_enabled?: boolean | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_upline_id_fkey"
+            columns: ["upline_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       recruits: {
         Row: {
@@ -1845,7 +1856,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_admin: { Args: never; Returns: boolean }
+      is_team_leader: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
