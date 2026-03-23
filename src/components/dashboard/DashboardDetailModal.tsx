@@ -321,32 +321,32 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             className="group relative flex items-center justify-between p-4 rounded-2xl border border-white/5 bg-white/[0.03] backdrop-blur-sm transition-all cursor-pointer overflow-hidden"
           >
             {/* Left Accent Bar */}
-            <div className={`absolute left-0 top-0 bottom-0 w-1 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-b ${
-              type === 'calls_today' || type === 'callbacks' ? 'from-blue-500 to-indigo-500' :
-              type === 'policies_sold' ? 'from-emerald-500 to-teal-500' :
-              type === 'appointments' ? 'from-violet-500 to-purple-500' :
+            <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
+              type === 'calls_today' || type === 'callbacks' ? 'from-blue-400 to-indigo-500' :
+              type === 'policies_sold' ? 'from-emerald-400 to-teal-500' :
+              type === 'appointments' ? 'from-violet-400 to-purple-500' :
               'from-primary to-primary/50'
             }`} />
 
             <div className="flex items-center gap-4 flex-1">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-white/5 group-hover:scale-110 transition-transform duration-300`}>
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center bg-white/5 group-hover:bg-white/10 group-hover:scale-110 transition-all duration-300 border border-white/5`}>
                 {getIcon()}
               </div>
               {renderItemDetails(item)}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               {item.status && (
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${
-                  item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
-                  item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                  'bg-muted text-muted-foreground'
+                <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
+                  item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                  item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                  'bg-white/5 text-muted-foreground border border-white/10'
                 }`}>
                   {item.status}
                 </span>
               )}
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/0 group-hover:bg-white/10 transition-colors">
-                <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-white/0 group-hover:bg-white/10 transition-all duration-300">
+                <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-white transition-colors" />
               </div>
             </div>
           </motion.div>
@@ -367,53 +367,53 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             className="absolute inset-0 bg-black/80 backdrop-blur-md"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 30 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-[#0A0A0B]/90 glass-card border border-white/10 rounded-[2.5rem] shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)]"
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-[#0f1115]/95 backdrop-blur-xl border border-white/10 rounded-[2rem] shadow-[0_0_80px_-15px_rgba(0,0,0,0.6)]"
           >
             {/* Header with Visual Polish */}
-            <div className="relative p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
-              <div className="absolute top-0 right-0 p-4">
+            <div className="relative p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.05] via-transparent to-transparent">
+              <div className="absolute top-6 right-6">
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={onClose}
-                  className="rounded-full hover:bg-white/10 text-muted-foreground hover:text-foreground h-10 w-10"
+                  className="rounded-full hover:bg-white/10 text-muted-foreground hover:text-white h-10 w-10 transition-all"
                 >
                   <X className="w-5 h-5" />
                 </Button>
               </div>
 
               <div className="flex items-center gap-6">
-                <div className={`w-16 h-16 rounded-[1.5rem] bg-gradient-to-br flex items-center justify-center shadow-xl border border-white/10 ${
+                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 group animate-pulse-ring ${
                   type === 'calls_today' || type === 'callbacks' ? 'from-blue-500 to-indigo-600' :
                   type === 'policies_sold' ? 'from-emerald-500 to-teal-600' :
                   type === 'appointments' ? 'from-violet-500 to-purple-600' :
                   'from-primary to-primary/80'
                 }`}>
-                  <div className="text-white scale-125">
+                  <div className="text-white scale-110 drop-shadow-lg">
                     {getIcon()}
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-3xl font-black text-white tracking-tight uppercase italic">{getTitle()}</h3>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    <p className="text-sm font-medium text-muted-foreground tracking-wide uppercase">Real-time Intelligence Feed</p>
+                  <h3 className="text-2xl font-black text-white tracking-tight uppercase">{getTitle()}</h3>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                    <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">Real-time Intelligence Feed</p>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-black/20">
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-black/10">
               <div className="mb-6 flex items-center justify-between">
-                <span className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em]">Activity Feed</span>
+                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Activity Feed</span>
                 {data.length > 0 && (
-                  <span className="text-[10px] font-bold text-primary px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20">
-                    {data.length} RECORDS FOUND
+                  <span className="text-[9px] font-black text-primary px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 tracking-wider">
+                    {data.length} RECORDS DETECTED
                   </span>
                 )}
               </div>
@@ -421,16 +421,16 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="px-8 py-5 border-t border-white/5 bg-black/40 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold italic">
+            <div className="px-8 py-5 border-t border-white/5 bg-black/60 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
                   AgentFlow Analytics Engine
                 </span>
               </div>
               <button 
                 onClick={onClose}
-                className="text-xs font-bold text-primary hover:text-primary/80 transition-colors uppercase tracking-widest"
+                className="text-[10px] font-black text-white/50 hover:text-white transition-all uppercase tracking-[0.2em] border border-white/5 px-4 py-2 rounded-xl hover:bg-white/5 bg-white/[0.02]"
               >
                 Dismiss View
               </button>
