@@ -231,13 +231,15 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     if (item.contact_id || item.id) {
       const id = item.contact_id || item.id;
       if (type === "anniversaries") {
-        navigate(`/contacts?id=${id}`);
+        navigate(`/contacts?contact=${id}&tab=Leads`);
       } else if (type === "callbacks" || type === "appointments") {
         navigate(`/calendar`);
-      } else if (type === "calls_today" || type === "missed_calls" || type === "policies_sold" || type === "premium_sold") {
-        navigate(`/contacts?id=${id}`);
+      } else if (type === "calls_today" || type === "missed_calls") {
+        navigate(`/contacts?contact=${id}&tab=Leads`);
+      } else if (type === "policies_sold" || type === "premium_sold") {
+        navigate(`/contacts?contact=${id}&tab=Clients`);
       } else {
-        navigate(`/contacts?id=${id}`);
+        navigate(`/contacts?contact=${id}`);
       }
     }
   };

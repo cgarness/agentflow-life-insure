@@ -798,14 +798,48 @@ const Contacts: React.FC = () => {
 
   useEffect(() => {
     const contactId = new URLSearchParams(location.search).get("contact");
-    if (contactId && leads.length > 0) {
+    if (!contactId) return;
+
+    // Check leads
+    if (leads.length > 0) {
       const match = leads.find(l => l.id === contactId);
       if (match) {
         setSelectedLead(match);
         window.history.replaceState({}, "", "/contacts");
+        return;
       }
     }
-  }, [location.search, leads]);
+
+    // Check clients
+    if (clients.length > 0) {
+      const match = clients.find(c => c.id === contactId);
+      if (match) {
+        setSelectedClient(match);
+        window.history.replaceState({}, "", "/contacts");
+        return;
+      }
+    }
+
+    // Check recruits
+    if (recruits.length > 0) {
+      const match = recruits.find(r => r.id === contactId);
+      if (match) {
+        setSelectedRecruit(match);
+        window.history.replaceState({}, "", "/contacts");
+        return;
+      }
+    }
+
+    // Check agents/users
+    if (agents.length > 0) {
+      const match = agents.find(u => u.id === contactId);
+      if (match) {
+        setSelectedAgent(match);
+        window.history.replaceState({}, "", "/contacts");
+        return;
+      }
+    }
+  }, [location.search, leads, clients, recruits, agents]);
 
   // ===== Lead CRUD =====
   const handleAddLead = async (data: Partial<Lead>) => {
