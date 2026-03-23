@@ -603,7 +603,7 @@ const UserProfileModal: React.FC<{
   return (
     <>
       <Dialog open={open} onOpenChange={v => !v && onClose()}>
-        <DialogContent className="w-[850px] max-w-[95vw] h-[720px] flex flex-col overflow-hidden p-0">
+        <DialogContent className="w-[850px] max-w-[95vw] h-[720px] max-h-[92vh] flex flex-col overflow-hidden p-0">
           <div className="p-6 pb-0 flex items-start justify-between flex-shrink-0">
             <div className="flex items-center gap-4">
               <AvatarUpload
