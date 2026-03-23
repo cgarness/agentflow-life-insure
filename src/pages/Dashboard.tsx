@@ -29,6 +29,7 @@ import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget"
 import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget";
 import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWidget";
 import PerformanceChart from "@/components/dashboard/widgets/PerformanceChart";
+import DashboardDetailModal, { ModalType } from "@/components/dashboard/DashboardDetailModal";
 import QuickActions from "@/components/dashboard/widgets/QuickActions";
 
 import {
@@ -178,6 +179,30 @@ const Dashboard: React.FC = () => {
   const [showBriefing, setShowBriefing] = useState(false);
   const [aiTip, setAiTip] = useState<string | null>(null);
   const [tipLoading, setTipLoading] = useState(false);
+
+  // Detail Modal
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [detailModalType, setDetailModalType] = useState<ModalType | null>(null);
+
+  const handleCardClick = (type: string) => {
+    setDetailModalType(type as ModalType);
+    setIsDetailModalOpen(true);
+  };
+
+  const handleWidgetClick = (key: string) => {
+    const supportedTypes: Record<string, ModalType> = {
+      callbacks: "callbacks",
+      appointments: "appointments",
+      missed_calls: "missed_calls",
+      anniversaries: "anniversaries",
+      performance: "conversion_rate",
+    };
+
+    if (supportedTypes[key]) {
+      setDetailModalType(supportedTypes[key]);
+      setIsDetailModalOpen(true);
+    }
+  };
 
   // Widget refs for scrolling
   const widgetRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -498,6 +523,7 @@ const Dashboard: React.FC = () => {
             role={role}
             userId={userId}
             adminToggle={adminViewMode}
+            onCardClick={handleCardClick}
           />
         </div>
       )}
@@ -586,7 +612,8 @@ const Dashboard: React.FC = () => {
                 ref={(el) => {
                   widgetRefs.current[key] = el;
                 }}
-                className={`glass-card rounded-2xl border ${colors.border} transition-all duration-300 hover:shadow-2xl hover:shadow-primary/5 group`}
+                className={`glass-card rounded-2xl border ${colors.border} transition-all duration-300 hover:shadow-2xl hover:shadow-primary/5 group cursor-pointer`}
+                onClick={() => handleWidgetClick(key)}
               >
                 <div className={`flex items-center gap-3 px-6 py-4 border-b ${colors.border} bg-gradient-to-r ${colors.bg} to-transparent rounded-t-2xl`}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors.gradient} shadow-lg shadow-black/5 transition-transform duration-300 group-hover:scale-110`}>
@@ -635,6 +662,16 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Dashboard Detail Modal */}
+      <DashboardDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+        type={detailModalType}
+        userId={userId}
+        role={role}
+        adminToggle={adminViewMode}
+      />
     </div>
   );
 };

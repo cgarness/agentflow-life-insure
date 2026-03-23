@@ -7,6 +7,7 @@ interface StatCardsProps {
   role: string;
   userId: string;
   adminToggle: "team" | "my";
+  onCardClick?: (type: string) => void;
 }
 
 interface StatData {
@@ -20,7 +21,7 @@ interface StatData {
   winsThisMonth: number;
 }
 
-const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
+const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCardClick }) => {
   const [data, setData] = useState<StatData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -127,6 +128,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
 
   const cards = [
     {
+      id: "calls_today",
       label: "Calls Made Today",
       value: data?.callsToday ?? null,
       trend:
@@ -142,6 +144,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
       shadow: "shadow-blue-500/20",
     },
     {
+      id: "policies_sold",
       label: "Policies Sold This Month",
       value: data?.policiesThisMonth ?? null,
       trend:
@@ -157,6 +160,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
       shadow: "shadow-emerald-500/20",
     },
     {
+      id: "appointments",
       label: "Appointments Today",
       value: data?.appointmentsToday ?? null,
       trend:
@@ -170,6 +174,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
       shadow: "shadow-violet-500/20",
     },
     {
+      id: "conversion_rate",
       label: "Conversion Rate",
       value: data ? `${conversionRate}%` : null,
       trend: data && data.callsThisMonth === 0 ? null : null,
@@ -188,7 +193,8 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: index * 0.1 }}
           whileHover={{ y: -5, transition: { duration: 0.2 } }}
-          className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-300`}
+          onClick={() => onCardClick?.(card.id)}
+          className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-300 cursor-pointer`}
         >
           {/* Background Glow */}
           <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl ${card.gradient}`} />
