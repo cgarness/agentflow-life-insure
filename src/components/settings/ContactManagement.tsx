@@ -1252,30 +1252,60 @@ const RequiredFieldsTab: React.FC = () => {
 
 // ==================== ASSIGNMENT RULES TAB ====================
 
-const MOCK_AGENTS = [
-  { id: "a1", name: "Chris Garcia", initials: "CG" },
-  { id: "a2", name: "Sarah Johnson", initials: "SJ" },
-  { id: "a3", name: "Mike Thompson", initials: "MT" },
-  { id: "a4", name: "Jessica Williams", initials: "JW" },
-  { id: "a5", name: "David Martinez", initials: "DM" },
-];
+interface AgentProfile {
+  id: string;
+  name: string;
+  initials: string;
+}
 
 const AssignmentRulesTab: React.FC = () => {
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(true);
   const [method, setMethod] = useState("unassigned");
   const [specificAgent, setSpecificAgent] = useState("");
-  const [rotation, setRotation] = useState<Record<string, boolean>>(() => {
-    const r: Record<string, boolean> = {};
-    MOCK_AGENTS.forEach(a => r[a.id] = true);
-    return r;
-  });
+  const [rotation, setRotation] = useState<Record<string, boolean>>({});
   const [importOverride, setImportOverride] = useState(false);
   const [importMethod, setImportMethod] = useState("unassigned");
   const [importAgent, setImportAgent] = useState("");
-  const [importRotation, setImportRotation] = useState<Record<string, boolean>>(() => {
-    const r: Record<string, boolean> = {};
-    MOCK_AGENTS.forEach(a => r[a.id] = true);
-    return r;
-  });
+  const [importRotation, setImportRotation] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, first_name, last_name")
+          .not("role", "eq", "admin")
+          .eq("status", "Active");
+
+        if (error) throw error;
+
+        const transformed: AgentProfile[] = (data || []).map(p => ({
+          id: p.id,
+          name: `${p.first_name || ""} ${p.last_name || ""}`.trim() || "Unknown Agent",
+          initials: `${p.first_name?.[0] || ""}${p.last_name?.[0] || ""}`.toUpperCase() || "??",
+        }));
+
+        setAgents(transformed);
+        
+        // Initialize rotation maps
+        const rot: Record<string, boolean> = {};
+        const iRot: Record<string, boolean> = {};
+        transformed.forEach(a => {
+          rot[a.id] = true;
+          iRot[a.id] = true;
+        });
+        setRotation(rot);
+        setImportRotation(iRot);
+      } catch (err) {
+        console.error("Error fetching agents for assignment rules:", err);
+      } finally {
+        setLoadingAgents(false);
+      }
+    };
+
+    fetchAgents();
+  }, []);
   const [saving, setSaving] = useState(false);
 
   const handleSave = () => {
@@ -1294,10 +1324,10 @@ const AssignmentRulesTab: React.FC = () => {
     }, 400);
   };
 
-  const firstInRotation = MOCK_AGENTS.find(a => rotation[a.id]);
-  const firstInImportRotation = MOCK_AGENTS.find(a => importRotation[a.id]);
-  const allRotationOff = MOCK_AGENTS.every(a => !rotation[a.id]);
-  const allImportRotationOff = MOCK_AGENTS.every(a => !importRotation[a.id]);
+  const firstInRotation = agents.find(a => rotation[a.id]);
+  const firstInImportRotation = agents.find(a => importRotation[a.id]);
+  const allRotationOff = agents.every(a => !rotation[a.id]);
+  const allImportRotationOff = agents.every(a => !importRotation[a.id]);
 
   const RadioOption = ({ value, current, onChange, label, desc }: { value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
     <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => onChange(value)}>
@@ -1314,7 +1344,7 @@ const AssignmentRulesTab: React.FC = () => {
   const renderMethodFields = (
     m: string, agent: string, setAgent: (v: string) => void,
     rot: Record<string, boolean>, setRot: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
-    allOff: boolean, firstIn: typeof MOCK_AGENTS[0] | undefined
+    allOff: boolean, firstIn: AgentProfile | undefined
   ) => (
     <>
       {m === "specific" && (
@@ -1323,14 +1353,14 @@ const AssignmentRulesTab: React.FC = () => {
           <Select value={agent} onValueChange={setAgent}>
             <SelectTrigger className="w-64"><SelectValue placeholder="Select an agent..." /></SelectTrigger>
             <SelectContent>
-              {MOCK_AGENTS.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+              {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
       )}
       {m === "round_robin" && (
         <div className="pl-7 mt-2 space-y-2">
-          {MOCK_AGENTS.map(a => (
+          {agents.map(a => (
             <div key={a.id} className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-full bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center text-[10px] font-bold">{a.initials}</div>
