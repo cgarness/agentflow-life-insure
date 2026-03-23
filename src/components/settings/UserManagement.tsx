@@ -524,7 +524,6 @@ const UserProfileModal: React.FC<{
     try {
       await usersApi.updateProfile(user.id, {
         monthlyCallGoal: form.monthlyCallGoal as number,
-        monthlySalesGoal: form.monthlySalesGoal as number,
         weeklyAppointmentGoal: form.weeklyAppointmentGoal as number,
         monthlyTalkTimeGoalHours: form.monthlyTalkTimeGoalHours as number,
       });
