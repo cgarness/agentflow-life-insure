@@ -8,6 +8,7 @@ interface StatCardsProps {
   userId: string;
   adminToggle: "team" | "my";
   onCardClick?: (type: string) => void;
+  timeRange?: "day" | "week" | "month" | "year";
 }
 
 interface StatData {
@@ -21,9 +22,10 @@ interface StatData {
   winsThisMonth: number;
   premiumThisMonth: number;
   premiumLastMonth: number;
+  prevLabel: string;
 }
 
-const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCardClick }) => {
+const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCardClick, timeRange }) => {
   const [data, setData] = useState<StatData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,92 +34,118 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
   const fetchStats = useCallback(async () => {
     try {
       const now = new Date();
-      const todayStr = now.toISOString().split("T")[0];
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split("T")[0];
+      const range = timeRange || "month";
+      
+      let startOfPeriod = new Date();
+      let startOfPrevPeriod = new Date();
+      let endOfPrevPeriod = new Date();
+      
+      let prevLabel = "yesterday";
 
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
+      if (range === "day") {
+        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        startOfPrevPeriod = new Date(startOfPeriod);
+        startOfPrevPeriod.setDate(startOfPrevPeriod.getDate() - 1);
+        endOfPrevPeriod = new Date(startOfPeriod);
+        endOfPrevPeriod.setMilliseconds(-1);
+        prevLabel = "yesterday";
+      } else if (range === "week") {
+        const day = now.getDay();
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
+        startOfPeriod = new Date(now.setDate(diff));
+        startOfPeriod.setHours(0, 0, 0, 0);
+        
+        startOfPrevPeriod = new Date(startOfPeriod);
+        startOfPrevPeriod.setDate(startOfPrevPeriod.getDate() - 7);
+        endOfPrevPeriod = new Date(startOfPeriod);
+        endOfPrevPeriod.setMilliseconds(-1);
+        prevLabel = "last week";
+      } else if (range === "month") {
+        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
+        startOfPrevPeriod = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endOfPrevPeriod = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+        prevLabel = "last month";
+      } else if (range === "year") {
+        startOfPeriod = new Date(now.getFullYear(), 0, 1);
+        startOfPrevPeriod = new Date(now.getFullYear() - 1, 0, 1);
+        endOfPrevPeriod = new Date(now.getFullYear(), 0, 0, 23, 59, 59);
+        prevLabel = "last year";
+      }
 
-      const buildCallQuery = (dateStr: string) => {
+      const startStr = startOfPeriod.toISOString();
+      const startPrevStr = startOfPrevPeriod.toISOString();
+      const endPrevStr = endOfPrevPeriod.toISOString();
+
+      const buildCallQuery = (start: string, end?: string) => {
         let q = supabase
           .from("calls")
           .select("id", { count: "exact", head: true })
-          .gte("created_at", `${dateStr}T00:00:00`)
-          .lt("created_at", `${dateStr}T23:59:59.999`);
-        if (isFiltered) q = q.eq("agent_id", userId);
-        return q;
-      };
-
-      const buildWinsQuery = (start: string, end?: string) => {
-        let q = supabase
-          .from("wins")
-          .select("id, premium_amount", { count: "exact" })
           .gte("created_at", start);
         if (end) q = q.lte("created_at", end);
         if (isFiltered) q = q.eq("agent_id", userId);
         return q;
       };
 
-      const buildApptQuery = (dateStr: string) => {
+      const buildSalesQuery = (start: string, end?: string) => {
+        let q = supabase
+          .from("clients")
+          .select("id, premium", { count: "exact" })
+          .gte("created_at", start);
+        if (end) q = q.lte("created_at", end);
+        if (isFiltered) q = q.eq("assigned_agent_id", userId);
+        return q;
+      };
+
+      const buildApptQuery = (start: string, end?: string) => {
         let q = supabase
           .from("appointments")
           .select("id", { count: "exact", head: true })
-          .gte("start_time", `${dateStr}T00:00:00`)
-          .lt("start_time", `${dateStr}T23:59:59.999`)
+          .gte("start_time", start)
           .eq("status", "Scheduled");
+        if (end) q = q.lte("start_time", end);
         if (isFiltered) q = q.eq("user_id", userId);
         return q;
       };
 
-      const buildCallsMonthQuery = (start: string, end?: string) => {
-        let q = supabase
-          .from("calls")
-          .select("id", { count: "exact", head: true })
-          .gte("created_at", start);
-        if (end) q = q.lte("created_at", end);
-        if (isFiltered) q = q.eq("agent_id", userId);
-        return q;
-      };
-
       const [
-        callsTodayRes,
-        callsYesterdayRes,
-        winsThisMonthRes,
-        winsLastMonthRes,
-        apptsToday,
-        apptsYesterday,
-        callsThisMonthRes,
+        callsNow,
+        callsPrev,
+        salesNow,
+        salesPrev,
+        apptsNow,
+        apptsPrev,
       ] = await Promise.all([
-        buildCallQuery(todayStr),
-        buildCallQuery(yesterdayStr),
-        buildWinsQuery(startOfMonth),
-        buildWinsQuery(startOfLastMonth, endOfLastMonth),
-        buildApptQuery(todayStr),
-        buildApptQuery(yesterdayStr),
-        buildCallsMonthQuery(startOfMonth),
+        buildCallQuery(startStr),
+        buildCallQuery(startPrevStr, endPrevStr),
+        buildSalesQuery(startStr),
+        buildSalesQuery(startPrevStr, endPrevStr),
+        buildApptQuery(startStr),
+        buildApptQuery(startPrevStr, endPrevStr),
       ]);
 
+      const premiumNow = (salesNow.data as any[])?.reduce((sum, s) => sum + (Number(s.premium) || 0), 0) ?? 0;
+      const premiumPrev = (salesPrev.data as any[])?.reduce((sum, s) => sum + (Number(s.premium) || 0), 0) ?? 0;
+
       setData({
-        callsToday: callsTodayRes.count ?? 0,
-        callsYesterday: callsYesterdayRes.count ?? 0,
-        policiesThisMonth: winsThisMonthRes.count ?? 0,
-        policiesLastMonth: winsLastMonthRes.count ?? 0,
-        appointmentsToday: apptsToday.count ?? 0,
-        appointmentsYesterday: apptsYesterday.count ?? 0,
-        callsThisMonth: callsThisMonthRes.count ?? 0,
-        winsThisMonth: winsThisMonthRes.count ?? 0,
-        premiumThisMonth: (winsThisMonthRes.data as any[])?.reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0) ?? 0,
-        premiumLastMonth: (winsLastMonthRes.data as any[])?.reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0) ?? 0,
-      });
-    } catch {
+        callsToday: callsNow.count ?? 0,
+        callsYesterday: callsPrev.count ?? 0,
+        policiesThisMonth: salesNow.count ?? 0,
+        policiesLastMonth: salesPrev.count ?? 0,
+        appointmentsToday: apptsNow.count ?? 0,
+        appointmentsYesterday: apptsPrev.count ?? 0,
+        callsThisMonth: callsNow.count ?? 0, // Placeholder or remove if unused
+        winsThisMonth: salesNow.count ?? 0,
+        premiumThisMonth: premiumNow * 12, // Annual Premium
+        premiumLastMonth: premiumPrev * 12,
+        prevLabel, // Add this to the state if needed, or handle locally
+      } as any);
+    } catch (err) {
+      console.error("Error fetching stats:", err);
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [userId, isFiltered]);
+  }, [userId, isFiltered, timeRange]);
 
   useEffect(() => {
     fetchStats();
@@ -133,7 +161,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
   const cards = [
     {
       id: "calls_today",
-      label: "Calls Made Today",
+      label: timeRange === "day" ? "Calls Made Today" : `Calls Made (${timeRange})`,
       value: data?.callsToday ?? null,
       trend:
         data != null
@@ -149,7 +177,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
     },
     {
       id: "policies_sold",
-      label: "Policies Sold This Month",
+      label: timeRange === "day" ? "Policies Sold Today" : `Policies Sold (${timeRange})`,
       value: data?.policiesThisMonth ?? null,
       trend:
         data != null
@@ -165,7 +193,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
     },
     {
       id: "appointments",
-      label: "Appointments Today",
+      label: timeRange === "day" ? "Appointments Today" : `Appointments (${timeRange})`,
       value: data?.appointmentsToday ?? null,
       trend:
         data != null
@@ -237,7 +265,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
                     {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
                   </span>
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                    vs yesterday
+                    vs {data?.prevLabel || "yesterday"}
                   </span>
                 </div>
               )}

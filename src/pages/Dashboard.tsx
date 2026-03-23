@@ -31,6 +31,7 @@ import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWid
 import PerformanceChart from "@/components/dashboard/widgets/PerformanceChart";
 import DashboardDetailModal, { ModalType } from "@/components/dashboard/DashboardDetailModal";
 import QuickActions from "@/components/dashboard/widgets/QuickActions";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import {
   DndContext,
@@ -175,6 +176,7 @@ const Dashboard: React.FC = () => {
   const [widgetOrder, setWidgetOrder] = useState<string[]>(DEFAULT_WIDGET_ORDER);
   const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
 
   // Daily briefing
   const [showBriefing, setShowBriefing] = useState(false);
@@ -403,7 +405,7 @@ const Dashboard: React.FC = () => {
   const renderWidget = (key: string) => {
     switch (key) {
       case "performance":
-        return <PerformanceChart userId={userId} />;
+        return <PerformanceChart userId={userId} timeRange={timeRange} />;
       case "quick_actions":
         return <QuickActions />;
       case "callbacks":
@@ -467,15 +469,31 @@ const Dashboard: React.FC = () => {
             >
               Good Morning, {firstName} 👋
             </motion.h1>
-            <motion.p 
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 }}
-              className="text-muted-foreground mt-2 text-lg"
-            >
-              Welcome back to AgentFlow. Here's what's happening today.
-            </motion.p>
-          </div>
+              <motion.p 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+                className="text-muted-foreground mt-2 text-lg"
+              >
+                Welcome back to AgentFlow. Here's what's happening.
+              </motion.p>
+              
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="mt-6 inline-flex p-1 bg-muted/40 backdrop-blur-md rounded-2xl border border-white/5"
+              >
+                <Tabs value={timeRange} onValueChange={(v: any) => setTimeRange(v)} className="w-auto">
+                  <TabsList className="bg-transparent h-9 p-0 gap-1">
+                    <TabsTrigger value="day" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Day</TabsTrigger>
+                    <TabsTrigger value="week" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Week</TabsTrigger>
+                    <TabsTrigger value="month" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Month</TabsTrigger>
+                    <TabsTrigger value="year" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Year</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </motion.div>
+            </div>
           
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
@@ -526,6 +544,7 @@ const Dashboard: React.FC = () => {
             role={role}
             userId={userId}
             adminToggle={adminViewMode}
+            timeRange={timeRange}
             onCardClick={handleCardClick}
           />
         </div>
@@ -680,6 +699,7 @@ const Dashboard: React.FC = () => {
         userId={userId}
         role={role}
         adminToggle={adminViewMode}
+        timeRange={timeRange}
       />
     </div>
   );

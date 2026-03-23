@@ -31,6 +31,7 @@ interface DashboardDetailModalProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  timeRange?: "day" | "week" | "month" | "year";
 }
 
 const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
@@ -40,6 +41,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   userId,
   role,
   adminToggle,
+  timeRange,
 }) => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -47,21 +49,22 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
   const getTitle = () => {
+    const rangeSuffix = timeRange ? ` (${timeRange})` : "";
     switch (type) {
       case "callbacks":
         return "Callbacks Detail";
       case "appointments":
-        return "Appointments Detail";
+        return `Appointments Detail${rangeSuffix}`;
       case "calls_today":
-        return "Calls Made Today";
+        return `Calls Made${rangeSuffix}`;
       case "policies_sold":
-        return "Policies Sold This Month";
+        return `Policies Sold${rangeSuffix}`;
       case "missed_calls":
-        return "Missed Calls (24h)";
+        return "Missed Calls (Recent)";
       case "anniversaries":
         return "Upcoming Anniversaries";
       case "premium_sold":
-        return "Premium Sold Analysis";
+        return `Premium Sold Analysis${rangeSuffix}`;
       default:
         return "Details";
     }
@@ -95,9 +98,33 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       setLoading(true);
       try {
         const now = new Date();
-        const todayStr = now.toISOString().split("T")[0];
-        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const range = timeRange || "month";
+        
+        let startOfPeriod = new Date();
+        let endOfPeriod = new Date();
+
+        if (range === "day") {
+          startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          endOfPeriod = new Date(startOfPeriod);
+          endOfPeriod.setHours(23, 59, 59, 999);
+        } else if (range === "week") {
+          const day = now.getDay();
+          const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+          startOfPeriod = new Date(now.setDate(diff));
+          startOfPeriod.setHours(0, 0, 0, 0);
+          endOfPeriod = new Date(startOfPeriod);
+          endOfPeriod.setDate(endOfPeriod.getDate() + 7);
+          endOfPeriod.setMilliseconds(-1);
+        } else if (range === "month") {
+          startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
+          endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        } else if (range === "year") {
+          startOfPeriod = new Date(now.getFullYear(), 0, 1);
+          endOfPeriod = new Date(now.getFullYear(), 12, 0, 23, 59, 59);
+        }
+
+        const startStr = startOfPeriod.toISOString();
+        const endStr = endOfPeriod.toISOString();
 
         let query: any;
 
@@ -116,8 +143,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             query = supabase
               .from("appointments")
               .select("id, contact_name, contact_id, start_time, status, type, title")
-              .gte("start_time", `${todayStr}T00:00:00`)
-              .lte("start_time", `${todayStr}T23:59:59.999`)
+              .gte("start_time", startStr)
+              .lte("start_time", endStr)
               .order("start_time", { ascending: true });
             if (isFiltered) query = query.eq("user_id", userId);
             break;
@@ -126,21 +153,25 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             query = supabase
               .from("calls")
               .select("id, contact_name, contact_id, created_at, disposition_name, duration, status")
-              .gte("created_at", `${todayStr}T00:00:00`)
+              .gte("created_at", startStr)
+              .lte("created_at", endStr)
               .order("created_at", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
 
           case "policies_sold":
+            // Use clients table instead of wins
             query = supabase
-              .from("wins")
-              .select("id, contact_name, contact_id, created_at, policy_type, premium_amount")
-              .gte("created_at", startOfMonth)
+              .from("clients")
+              .select("id, first_name, last_name, created_at, policy_type, premium")
+              .gte("created_at", startStr)
+              .lte("created_at", endStr)
               .order("created_at", { ascending: false });
-            if (isFiltered) query = query.eq("agent_id", userId);
+            if (isFiltered) query = query.eq("assigned_agent_id", userId);
             break;
 
           case "missed_calls":
+            const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             query = supabase
               .from("calls")
               .select("id, contact_name, contact_id, created_at, disposition_name, contact_phone")
@@ -151,32 +182,39 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             break;
 
           case "anniversaries":
-            // Fetch leads with DOB in the current month
-            const currentMonth = now.getMonth() + 1;
             query = supabase
               .from("leads")
               .select("id, first_name, last_name, date_of_birth, email")
               .not("date_of_birth", "is", null)
               .limit(20);
-            // Post-filter for current month if needed, or just show upcoming
             break;
 
           case "premium_sold":
-            const [callsRes, winsRes] = await Promise.all([
+            const [callsRes, salesRes] = await Promise.all([
               supabase
                 .from("calls")
                 .select("id, contact_name, created_at, disposition_name")
-                .gte("created_at", startOfMonth)
+                .gte("created_at", startStr)
+                .lte("created_at", endStr)
                 .order("created_at", { ascending: false })
                 .limit(10),
               supabase
-                .from("wins")
-                .select("id, contact_name, created_at, policy_type, premium_amount")
-                .gte("created_at", startOfMonth)
+                .from("clients")
+                .select("id, first_name, last_name, created_at, policy_type, premium")
+                .gte("created_at", startStr)
+                .lte("created_at", endStr)
                 .order("created_at", { ascending: false })
                 .limit(10),
             ]);
-            setData([...(winsRes.data || []), ...(callsRes.data || [])]);
+            
+            // Format data for combined view
+            const formattedSales = (salesRes.data || []).map(s => ({
+              ...s,
+              contact_name: `${s.first_name} ${s.last_name}`,
+              premium_amount: s.premium
+            }));
+            
+            setData([...formattedSales, ...(callsRes.data || [])]);
             setLoading(false);
             return;
         }
@@ -194,7 +232,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     };
 
     fetchData();
-  }, [isOpen, type, userId, isFiltered]);
+  }, [isOpen, type, userId, isFiltered, timeRange]);
 
   const handleRowClick = (item: any) => {
     onClose();
@@ -242,11 +280,11 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "policies_sold":
         return (
           <div className="flex flex-col">
-            <span className="text-sm font-bold text-foreground">{item.contact_name || "New Policyholder"}</span>
+            <span className="text-sm font-bold text-foreground">{item.contact_name || `${item.first_name} ${item.last_name}`}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <ShieldCheck className="w-3 h-3" />
               {item.policy_type || "Life Insurance"}
-              {item.premium_amount && ` • $${item.premium_amount.toLocaleString()}`}
+              {item.premium && ` • $${item.premium.toLocaleString()} (Mo)`}
             </span>
           </div>
         );

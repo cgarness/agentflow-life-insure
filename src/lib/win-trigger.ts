@@ -9,6 +9,7 @@ interface WinTriggerParams {
   campaignName?: string;
   callId?: string;
   policyType?: string;
+  premiumAmount?: number;
 }
 
 /**
@@ -27,6 +28,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
     campaignName,
     callId,
     policyType,
+    premiumAmount,
   } = params;
 
   // 1. Insert win record
@@ -41,6 +43,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       campaign_name: campaignName || null,
       call_id: callId || null,
       policy_type: policyType || null,
+      premium_amount: premiumAmount || null,
       celebrated: false,
     })
     .select("id, agent_name, contact_name, campaign_name, created_at")

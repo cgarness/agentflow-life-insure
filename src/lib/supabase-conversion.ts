@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Lead, Client } from "@/lib/types";
+import { triggerWin } from "./win-trigger";
 
 export const conversionSupabaseApi = {
   /**
@@ -41,6 +42,20 @@ export const conversionSupabaseApi = {
     }
 
     const clientId = client.id;
+
+    // 1.5 Trigger win celebration
+    try {
+      await triggerWin({
+        agentId: lead.assignedAgentId,
+        agentName: "Agent", // Standard fallback, though triggerWin could handle better
+        contactName: `${client.first_name} ${client.last_name}`,
+        contactId: clientId,
+        policyType: client.policy_type,
+        premiumAmount: client.premium,
+      });
+    } catch (e) {
+      console.warn("Error triggering win celebration:", e);
+    }
 
     // 2. Update related activities
     const { error: activityError } = await (supabase as any)

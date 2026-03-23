@@ -12,47 +12,122 @@ import { supabase } from "@/integrations/supabase/client";
 
 interface PerformanceChartProps {
   userId: string;
+  timeRange?: "day" | "week" | "month" | "year";
 }
 
-const PerformanceChart: React.FC<PerformanceChartProps> = ({ userId }) => {
+const PerformanceChart: React.FC<PerformanceChartProps> = ({ userId, timeRange }) => {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const days = 7;
+        const range = timeRange || "month";
         const chartData = [];
         const now = new Date();
+        
+        if (range === "day") {
+          // Last 24 hours, hourly buckets
+          for (let i = 23; i >= 0; i--) {
+            const date = new Date(now);
+            date.setHours(date.getHours() - i, 0, 0, 0);
+            const start = date.toISOString();
+            const end = new Date(date.getTime() + 3599999).toISOString();
+            const label = date.toLocaleTimeString([], { hour: 'numeric' });
 
-        for (let i = days - 1; i >= 0; i--) {
-          const date = new Date(now);
-          date.setDate(date.getDate() - i);
-          const dateStr = date.toISOString().split("T")[0];
-          const label = date.toLocaleDateString("en-US", { weekday: "short" });
+            const { count: calls } = await supabase
+              .from("calls")
+              .select("id", { count: "exact", head: true })
+              .eq("agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
 
-          const start = `${dateStr}T00:00:00`;
-          const end = `${dateStr}T23:59:59.999`;
+            const { count: wins } = await supabase
+              .from("clients")
+              .select("id", { count: "exact", head: true })
+              .eq("assigned_agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
 
-          const { count: calls } = await supabase
-            .from("calls")
-            .select("id", { count: "exact", head: true })
-            .eq("agent_id", userId)
-            .gte("created_at", start)
-            .lte("created_at", end);
+            chartData.push({ name: label, calls: calls || 0, wins: wins || 0 });
+          }
+        } else if (range === "week") {
+          // Last 7 days, daily buckets
+          for (let i = 6; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split("T")[0];
+            const start = `${dateStr}T00:00:00`;
+            const end = `${dateStr}T23:59:59.999`;
+            const label = date.toLocaleDateString("en-US", { weekday: "short" });
 
-          const { count: wins } = await supabase
-            .from("wins")
-            .select("id", { count: "exact", head: true })
-            .eq("agent_id", userId)
-            .gte("created_at", start)
-            .lte("created_at", end);
+            const { count: calls } = await supabase
+              .from("calls")
+              .select("id", { count: "exact", head: true })
+              .eq("agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
 
-          chartData.push({
-            name: label,
-            calls: calls || 0,
-            wins: wins || 0,
-          });
+            const { count: wins } = await supabase
+              .from("clients")
+              .select("id", { count: "exact", head: true })
+              .eq("assigned_agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
+
+            chartData.push({ name: label, calls: calls || 0, wins: wins || 0 });
+          }
+        } else if (range === "month") {
+          // Last 30 days, daily buckets
+          for (let i = 29; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split("T")[0];
+            const start = `${dateStr}T00:00:00`;
+            const end = `${dateStr}T23:59:59.999`;
+            const label = date.getDate().toString();
+
+            const { count: calls } = await supabase
+              .from("calls")
+              .select("id", { count: "exact", head: true })
+              .eq("agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
+
+            const { count: wins } = await supabase
+              .from("clients")
+              .select("id", { count: "exact", head: true })
+              .eq("assigned_agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
+
+            chartData.push({ name: label, calls: calls || 0, wins: wins || 0 });
+          }
+        } else if (range === "year") {
+          // Last 12 months, monthly buckets
+          for (let i = 11; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const start = date.toISOString();
+            const endDate = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
+            const end = endDate.toISOString();
+            const label = date.toLocaleDateString("en-US", { month: "short" });
+
+            const { count: calls } = await supabase
+              .from("calls")
+              .select("id", { count: "exact", head: true })
+              .eq("agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
+
+            const { count: wins } = await supabase
+              .from("clients")
+              .select("id", { count: "exact", head: true })
+              .eq("assigned_agent_id", userId)
+              .gte("created_at", start)
+              .lte("created_at", end);
+
+            chartData.push({ name: label, calls: calls || 0, wins: wins || 0 });
+          }
         }
 
         setData(chartData);
@@ -64,7 +139,7 @@ const PerformanceChart: React.FC<PerformanceChartProps> = ({ userId }) => {
     };
 
     fetchData();
-  }, [userId]);
+  }, [userId, timeRange]);
 
   if (loading) {
     return <div className="h-[200px] w-full flex items-center justify-center bg-muted/20 rounded animate-pulse">Loading Chart...</div>;
