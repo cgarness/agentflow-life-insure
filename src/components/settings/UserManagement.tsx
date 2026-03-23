@@ -787,9 +787,7 @@ const UserProfileModal: React.FC<{
                                 </span>
                               </div>
                               <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden border border-white/5 shadow-inner">
-                                <div className={`h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(0,0,0,0.2)] ${goalColor(pct)}`} style={{ width: `${pct}%` }}>
-                                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent w-full animate-shimmer" style={{ backgroundSize: "200% 100%" }} />
-                                </div>
+                                <div className={`h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(0,0,0,0.2)] ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
                               </div>
                             </div>
                           </div>
