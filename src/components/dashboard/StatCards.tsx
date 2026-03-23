@@ -19,6 +19,8 @@ interface StatData {
   appointmentsYesterday: number;
   callsThisMonth: number;
   winsThisMonth: number;
+  premiumThisMonth: number;
+  premiumLastMonth: number;
 }
 
 const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCardClick }) => {
@@ -52,7 +54,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
       const buildWinsQuery = (start: string, end?: string) => {
         let q = supabase
           .from("wins")
-          .select("id", { count: "exact", head: true })
+          .select("id, premium_amount", { count: "exact" })
           .gte("created_at", start);
         if (end) q = q.lte("created_at", end);
         if (isFiltered) q = q.eq("agent_id", userId);
@@ -107,6 +109,8 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
         appointmentsYesterday: apptsYesterday.count ?? 0,
         callsThisMonth: callsThisMonthRes.count ?? 0,
         winsThisMonth: winsThisMonthRes.count ?? 0,
+        premiumThisMonth: (winsThisMonthRes.data as any[])?.reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0) ?? 0,
+        premiumLastMonth: (winsLastMonthRes.data as any[])?.reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0) ?? 0,
       });
     } catch {
       setData(null);
@@ -174,10 +178,17 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
       shadow: "shadow-violet-500/20",
     },
     {
-      id: "conversion_rate",
-      label: "Conversion Rate",
-      value: data ? `${conversionRate}%` : null,
-      trend: data && data.callsThisMonth === 0 ? null : null,
+      id: "premium_sold",
+      label: "Premium Sold",
+      value: data ? `$${data.premiumThisMonth.toLocaleString()}` : null,
+      trend:
+        data != null
+          ? data.premiumThisMonth > data.premiumLastMonth
+            ? "up"
+            : data.premiumThisMonth < data.premiumLastMonth
+              ? "down"
+              : "neutral"
+          : null,
       icon: TrendingUp,
       gradient: "premium-gradient-amber",
       shadow: "shadow-amber-500/20",

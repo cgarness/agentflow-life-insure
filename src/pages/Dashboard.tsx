@@ -174,6 +174,7 @@ const Dashboard: React.FC = () => {
   const [editMode, setEditMode] = useState(false);
   const [widgetOrder, setWidgetOrder] = useState<string[]>(DEFAULT_WIDGET_ORDER);
   const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
   // Daily briefing
   const [showBriefing, setShowBriefing] = useState(false);
@@ -195,7 +196,7 @@ const Dashboard: React.FC = () => {
       appointments: "appointments",
       missed_calls: "missed_calls",
       anniversaries: "anniversaries",
-      performance: "conversion_rate",
+      performance: "premium_sold",
     };
 
     if (supportedTypes[key]) {
@@ -238,12 +239,14 @@ const Dashboard: React.FC = () => {
           const val = orderPref.preference_value;
           if (Array.isArray(val)) setWidgetOrder(val as string[]);
         }
-        if (hiddenPref?.preference_value) {
+          if (hiddenPref?.preference_value) {
           const val = hiddenPref.preference_value;
           if (Array.isArray(val)) setHiddenWidgets(val as string[]);
         }
       } catch {
         // use defaults
+      } finally {
+        setPreferencesLoaded(true);
       }
     };
     loadPrefs();
@@ -568,7 +571,13 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Widget Grid */}
-      {editMode ? (
+      {!preferencesLoaded ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-64 bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+      ) : editMode ? (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}

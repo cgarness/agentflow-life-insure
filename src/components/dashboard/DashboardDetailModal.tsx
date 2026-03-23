@@ -22,7 +22,7 @@ export type ModalType =
   | "policies_sold"
   | "missed_calls"
   | "anniversaries"
-  | "conversion_rate";
+  | "premium_sold";
 
 interface DashboardDetailModalProps {
   isOpen: boolean;
@@ -60,8 +60,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         return "Missed Calls (24h)";
       case "anniversaries":
         return "Upcoming Anniversaries";
-      case "conversion_rate":
-        return "Conversion Rate Analysis";
+      case "premium_sold":
+        return "Premium Sold Analysis";
       default:
         return "Details";
     }
@@ -81,7 +81,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         return <PhoneMissed className="w-5 h-5 text-red-500" />;
       case "anniversaries":
         return <Gift className="w-5 h-5 text-pink-500" />;
-      case "conversion_rate":
+      case "premium_sold":
         return <TrendingUp className="w-5 h-5 text-amber-500" />;
       default:
         return null;
@@ -161,7 +161,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             // Post-filter for current month if needed, or just show upcoming
             break;
 
-          case "conversion_rate":
+          case "premium_sold":
             const [callsRes, winsRes] = await Promise.all([
               supabase
                 .from("calls")
@@ -171,7 +171,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                 .limit(10),
               supabase
                 .from("wins")
-                .select("id, contact_name, created_at, policy_type")
+                .select("id, contact_name, created_at, policy_type, premium_amount")
                 .gte("created_at", startOfMonth)
                 .order("created_at", { ascending: false })
                 .limit(10),
@@ -204,7 +204,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         navigate(`/contacts?id=${id}`);
       } else if (type === "callbacks" || type === "appointments") {
         navigate(`/calendar`);
-      } else if (type === "calls_today" || type === "missed_calls" || type === "policies_sold") {
+      } else if (type === "calls_today" || type === "missed_calls" || type === "policies_sold" || type === "premium_sold") {
         navigate(`/contacts?id=${id}`);
       } else {
         navigate(`/contacts?id=${id}`);
@@ -260,14 +260,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
-      case "conversion_rate":
+      case "premium_sold":
         const isWin = !!item.policy_type;
         return (
           <div className="flex flex-col">
             <span className="text-sm font-bold text-foreground">{item.contact_name || "Activity"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isWin ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <Phone className="w-3 h-3" />}
-              {isWin ? `Closed: ${item.policy_type}` : `Call: ${item.disposition_name || 'Completed'}`}
+              {isWin ? `Closed: ${item.policy_type} • $${(item.premium_amount || 0).toLocaleString()}` : `Call: ${item.disposition_name || 'Completed'}`}
             </span>
           </div>
         );
