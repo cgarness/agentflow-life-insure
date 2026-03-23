@@ -475,11 +475,16 @@ const FloatingDialer: React.FC = () => {
       if (!callControlId) return;
 
       try {
-        const { data: callRecord } = await supabase
+        const { data: callRecord, error: amdError } = await supabase
           .from('calls')
           .select('amd_result')
           .eq('telnyx_call_id', callControlId)
-          .single();
+          .maybeSingle();
+
+        if (amdError) {
+          console.warn('AMD check failed, continuing with normal wrap-up:', amdError.message);
+          return;
+        }
 
         if (callRecord?.amd_result === 'machine') {
           const vmDisposition = dispositions.find(d =>
@@ -491,8 +496,8 @@ const FloatingDialer: React.FC = () => {
             handleAutoDispose(vmDisposition);
           }
         }
-      } catch {
-        // non-blocking
+      } catch (err) {
+        console.warn('AMD check threw, continuing with normal wrap-up:', err);
       }
     };
 

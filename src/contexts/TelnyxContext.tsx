@@ -48,6 +48,36 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Ensure a hidden <audio> element exists for remote audio playback
+  const getRemoteAudioElement = useCallback(() => {
+    if (remoteAudioRef.current) return remoteAudioRef.current;
+    let el = document.getElementById("telnyx-remote-audio") as HTMLAudioElement | null;
+    if (!el) {
+      el = document.createElement("audio");
+      el.id = "telnyx-remote-audio";
+      el.autoplay = true;
+      el.setAttribute("playsinline", "true");
+      document.body.appendChild(el);
+    }
+    remoteAudioRef.current = el;
+    return el;
+  }, []);
+
+  // Attach remote media stream from a call object to the hidden audio element
+  const attachRemoteAudio = useCallback((call: any) => {
+    try {
+      const stream = call?.remoteStream || call?.options?.remoteStream;
+      if (stream) {
+        const audioEl = getRemoteAudioElement();
+        audioEl.srcObject = stream;
+        audioEl.play().catch(() => { /* autoplay may be blocked */ });
+      }
+    } catch (err) {
+      console.warn("Failed to attach remote audio:", err);
+    }
+  }, [getRemoteAudioElement]);
 
   // Fetch default caller number
   useEffect(() => {
@@ -128,6 +158,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setCurrentCall(call);
 
         const state = call.state;
+
+        // Attach remote audio for ringback tone and active call audio
+        if (state === "active" || state === "ringing" || state === "early" || state === "trying") {
+          attachRemoteAudio(call);
+        }
+
         if (state === "active") {
           setCallState("active");
         } else if (state === "destroy" || state === "hangup") {
@@ -139,6 +175,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (mediaStreamRef.current) {
             mediaStreamRef.current.getTracks().forEach(track => track.stop());
             mediaStreamRef.current = null;
+          }
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = null;
           }
           endResetRef.current = setTimeout(() => {
             setCallState("idle");
@@ -159,7 +198,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setStatus("error");
       setErrorMessage(err?.message || "Could not initialize dialer");
     }
-  }, []);
+  }, [attachRemoteAudio]);
 
   const destroyClient = useCallback(() => {
     if (clientRef.current) {
@@ -230,10 +269,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCallState("dialing");
       setIsMuted(false);
       setIsOnHold(false);
+      // Attach remote audio immediately so ringback tone is heard
+      attachRemoteAudio(call);
     } catch (err) {
       console.error("Failed to start call:", err);
     }
-  }, [status, defaultCallerNumber]);
+  }, [status, defaultCallerNumber, attachRemoteAudio]);
 
   const hangUp = useCallback(() => {
     if (callRef.current) {
