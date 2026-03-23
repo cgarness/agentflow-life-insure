@@ -144,9 +144,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       client.on("telnyx.error", (error: any) => {
+        const errorCode = error?.code || error?.error?.code;
+        const errorMessage = error?.message || error?.error?.message || '';
         const isRemoteHangup =
-          error?.code === -32002 ||
-          (typeof error?.message === "string" && error.message.includes("CALL DOES NOT EXIST"));
+          errorCode === -32002 ||
+          (typeof errorMessage === "string" && errorMessage.includes("CALL DOES NOT EXIST"));
 
         if (isRemoteHangup) {
           console.log("Remote party ended call — normal cleanup (code -32002)");
