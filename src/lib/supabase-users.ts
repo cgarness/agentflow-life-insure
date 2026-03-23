@@ -115,11 +115,14 @@ export const usersSupabaseApi = {
       .from("profiles")
       .update(payload)
       .eq("id", userId)
-      .select()
-      .single();
-    if (error) throw error;
+      .select();
     
-    const u = rowToUser(result);
+    if (error) throw error;
+    if (!result || result.length === 0) {
+      throw new Error("Update failed: User profile not found or permission denied (RLS). Please ensure you have applied the latest database migrations.");
+    }
+    
+    const u = rowToUser(result[0]);
     return u.profile;
   },
 
