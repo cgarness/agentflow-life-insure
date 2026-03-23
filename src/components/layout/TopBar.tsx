@@ -312,6 +312,20 @@ const TopBar: React.FC = () => {
                 </button>
               ))}
             </div>
+            {/* View Daily Briefing button */}
+            <div className="px-4 py-2 border-b">
+              <button
+                onClick={() => {
+                  setNotifOpen(false);
+                  navigate("/dashboard");
+                  setTimeout(() => window.dispatchEvent(new Event("open-daily-briefing")), 100);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium transition-colors"
+              >
+                <Sparkles className="w-4 h-4" />
+                View Daily Briefing
+              </button>
+            </div>
             <div className="flex-1 overflow-y-auto">
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
