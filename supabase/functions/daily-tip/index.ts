@@ -19,6 +19,11 @@ serve(async (req) => {
     const dayOfYear = Math.floor(
       (today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000
     );
+    const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const weekday = weekdays[today.getDay()];
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const month = months[today.getMonth()];
+    const day = today.getDate();
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -31,7 +36,12 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a motivational sales coach for life insurance agents. Give ONE brief, actionable sales or business tip of the day. Keep it to 2-3 sentences max. Be specific and practical, not generic. Vary topics: objection handling, prospecting, follow-up, mindset, closing techniques, time management, client relationships. Today is day ${dayOfYear} of the year - use this to vary your tips. Address the agent by first name if provided.`,
+            content: `You are a motivational sales coach for life insurance agents. Give ONE brief, actionable sales or business tip of the day. 
+            Keep it to 2-3 sentences max. Be specific and practical, not generic. 
+            Vary topics: objection handling, prospecting, follow-up, mindset, closing techniques, time management, client relationships.
+            Today is ${weekday}, ${month} ${day}, day ${dayOfYear} of the year. Use this date and day of the week to ensure your tip is unique and feels fresh. 
+            DO NOT repeat common platitudes. Give a tip that feels like it was written for TODAY specifically. 
+            Address the agent by first name if provided.`,
           },
           {
             role: "user",

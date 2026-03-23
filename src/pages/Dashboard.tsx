@@ -176,6 +176,8 @@ const Dashboard: React.FC = () => {
 
   // Daily briefing
   const [showBriefing, setShowBriefing] = useState(false);
+  const [aiTip, setAiTip] = useState<string | null>(null);
+  const [tipLoading, setTipLoading] = useState(false);
 
   // Widget refs for scrolling
   const widgetRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -222,14 +224,45 @@ const Dashboard: React.FC = () => {
     loadPrefs();
   }, [userId]);
 
-  // Daily briefing check
+  // Daily briefing check and pre-fetch
   useEffect(() => {
     if (!userId) return;
-    const today = new Date().toISOString().split("T")[0];
+    
+    // Use local date for briefing logic to avoid UTC mismatch
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
     const storageKey = `agentflow_briefing_${userId}_${today}`;
     const isDismissed = localStorage.getItem(storageKey) === "dismissed";
-    if (!isDismissed) setShowBriefing(true);
+    
+    if (!isDismissed) {
+      setShowBriefing(true);
+      // Pre-fetch the tip if it's not already cached
+      fetchAiTip(today);
+    }
   }, [userId]);
+
+  const fetchAiTip = async (dateStr: string) => {
+    const cacheKey = `agentflow_tip_${dateStr}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      setAiTip(cached);
+      return;
+    }
+
+    setTipLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("daily-tip", {
+        body: { firstName },
+      });
+      if (error) throw error;
+      const tip = data?.tip || "Make every call count today! 💪";
+      setAiTip(tip);
+      localStorage.setItem(cacheKey, tip);
+    } catch (e) {
+      console.error("Failed to pre-fetch AI tip:", e);
+    } finally {
+      setTipLoading(false);
+    }
+  };
 
   // Unsaved changes guard
   useEffect(() => {
@@ -242,22 +275,23 @@ const Dashboard: React.FC = () => {
   }, [editMode]);
 
   const dismissBriefing = useCallback(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date().toLocaleDateString('en-CA');
     const storageKey = `agentflow_briefing_${userId}_${today}`;
     localStorage.setItem(storageKey, "dismissed");
     setShowBriefing(false);
   }, [userId]);
 
   const openBriefing = useCallback(() => {
+    const today = new Date().toLocaleDateString('en-CA');
+    fetchAiTip(today);
     setShowBriefing(true);
-  }, []);
+  }, [firstName]);
 
   // Listen for custom event to reopen briefing from TopBar
   useEffect(() => {
-    const handler = () => setShowBriefing(true);
-    window.addEventListener("open-daily-briefing", handler);
-    return () => window.removeEventListener("open-daily-briefing", handler);
-  }, []);
+    window.addEventListener("open-daily-briefing", openBriefing);
+    return () => window.removeEventListener("open-daily-briefing", openBriefing);
+  }, [openBriefing]);
 
   const scrollToWidget = useCallback((widgetId: string) => {
     const el = widgetRefs.current[widgetId];
@@ -449,6 +483,8 @@ const Dashboard: React.FC = () => {
           userId={userId}
           firstName={firstName}
           role={role}
+          aiTip={aiTip}
+          tipLoading={tipLoading}
           onClose={dismissBriefing}
           onDismiss={dismissBriefing}
           onScrollTo={scrollToWidget}

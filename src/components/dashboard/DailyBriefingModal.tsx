@@ -17,6 +17,8 @@ interface DailyBriefingModalProps {
   onClose: () => void;
   onDismiss: () => void;
   onScrollTo: (widgetId: string) => void;
+  aiTip?: string | null;
+  tipLoading?: boolean;
 }
 
 const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
@@ -26,17 +28,19 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
   onClose,
   onDismiss,
   onScrollTo,
+  aiTip: initialAiTip,
+  tipLoading: initialTipLoading,
 }) => {
   const navigate = useNavigate();
   const [callbackCount, setCallbackCount] = useState<number | null>(null);
   const [appointmentCount, setAppointmentCount] = useState<number | null>(null);
   const [missedCallCount, setMissedCallCount] = useState<number | null>(null);
   const [campaignCount, setCampaignCount] = useState<number | null>(null);
-  const [aiTip, setAiTip] = useState<string | null>(null);
-  const [tipLoading, setTipLoading] = useState(true);
+  const [aiTip, setAiTip] = useState<string | null>(initialAiTip || null);
+  const [tipLoading, setTipLoading] = useState(initialTipLoading ?? true);
 
   const isFiltered = role !== "Admin";
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
 
   const hour = new Date().getHours();
   const greeting =
@@ -113,8 +117,14 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
     fetchData();
   }, [userId, isFiltered, todayStr]);
 
-  // Fetch AI tip
+  // Fetch AI tip if not provided or missing
   useEffect(() => {
+    if (initialAiTip) {
+      setAiTip(initialAiTip);
+      setTipLoading(false);
+      return;
+    }
+
     const fetchTip = async () => {
       setTipLoading(true);
       try {
@@ -143,7 +153,7 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
       }
     };
     fetchTip();
-  }, [firstName, todayStr]);
+  }, [firstName, todayStr, initialAiTip]);
 
   const handleView = (target: string) => {
     if (target === "campaigns") {
