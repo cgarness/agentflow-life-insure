@@ -316,9 +316,9 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.3, delay: idx * 0.05 }}
-            whileHover={{ x: 4, backgroundColor: "rgba(255, 255, 255, 0.08)" }}
+            whileHover={{ x: 4, backgroundColor: "var(--accent)" }}
             onClick={() => handleRowClick(item)}
-            className="group relative flex items-center justify-between p-4 rounded-2xl border border-white/5 bg-white/[0.03] backdrop-blur-sm transition-all cursor-pointer overflow-hidden"
+            className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 backdrop-blur-sm transition-all cursor-pointer overflow-hidden"
           >
             {/* Left Accent Bar */}
             <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
@@ -329,7 +329,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             }`} />
 
             <div className="flex items-center gap-4 flex-1">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center bg-white/5 group-hover:bg-white/10 group-hover:scale-110 transition-all duration-300 border border-white/5`}>
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center bg-muted border border-border group-hover:scale-110 transition-all duration-300`}>
                 {getIcon()}
               </div>
               {renderItemDetails(item)}
@@ -338,15 +338,15 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <div className="flex items-center gap-4">
               {item.status && (
                 <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
-                  item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                  item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                  'bg-white/5 text-muted-foreground border border-white/10'
+                  item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
+                  item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                  'bg-muted text-muted-foreground border border-border'
                 }`}>
                   {item.status}
                 </span>
               )}
-              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-white/0 group-hover:bg-white/10 transition-all duration-300">
-                <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-white transition-colors" />
+              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-transparent group-hover:bg-muted transition-all duration-300">
+                <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
               </div>
             </div>
           </motion.div>
@@ -371,16 +371,16 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-[#0f1115]/95 backdrop-blur-xl border border-white/10 rounded-[2rem] shadow-[0_0_80px_-15px_rgba(0,0,0,0.6)]"
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-card/95 backdrop-blur-xl border border-border rounded-[2rem] shadow-[0_0_80px_-15px_rgba(0,0,0,0.3)] dark:shadow-[0_0_80px_-15px_rgba(0,0,0,0.6)]"
           >
             {/* Header with Visual Polish */}
-            <div className="relative p-8 border-b border-white/5 bg-gradient-to-br from-white/[0.05] via-transparent to-transparent">
+            <div className="relative p-8 border-b border-border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
               <div className="absolute top-6 right-6">
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={onClose}
-                  className="rounded-full hover:bg-white/10 text-muted-foreground hover:text-white h-10 w-10 transition-all"
+                  className="rounded-full hover:bg-muted text-muted-foreground hover:text-foreground h-10 w-10 transition-all"
                 >
                   <X className="w-5 h-5" />
                 </Button>
@@ -398,7 +398,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-white tracking-tight uppercase">{getTitle()}</h3>
+                  <h3 className="text-2xl font-black text-foreground tracking-tight uppercase">{getTitle()}</h3>
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
                     <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">Real-time Intelligence Feed</p>
@@ -408,7 +408,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-black/10">
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-muted/20">
               <div className="mb-6 flex items-center justify-between">
                 <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Activity Feed</span>
                 {data.length > 0 && (
@@ -421,7 +421,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="px-8 py-5 border-t border-white/5 bg-black/60 flex items-center justify-between">
+            <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                 <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
@@ -430,7 +430,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               </div>
               <button 
                 onClick={onClose}
-                className="text-[10px] font-black text-white/50 hover:text-white transition-all uppercase tracking-[0.2em] border border-white/5 px-4 py-2 rounded-xl hover:bg-white/5 bg-white/[0.02]"
+                className="text-[10px] font-black text-foreground/50 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50"
               >
                 Dismiss View
               </button>
