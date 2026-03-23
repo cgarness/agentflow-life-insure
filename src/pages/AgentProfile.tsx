@@ -107,14 +107,14 @@ const AgentProfile: React.FC = () => {
 
   // Build dynamic badges
   const badges = useMemo(() => {
-    const b: { label: string; color: string }[] = [];
-    if (licensedStates.length > 1) b.push({ label: "Multistate Licensed", color: "fuchsia" });
-    if ((stats?.totalClients || 0) >= 10) b.push({ label: "Top Producer", color: "emerald" });
-    if ((stats?.monthWins || 0) >= 3) b.push({ label: "Hot Streak", color: "amber" });
-    if (carriers.length >= 3) b.push({ label: "Multi-Carrier", color: "cyan" });
-    if (role === "Admin") b.push({ label: "Administrator", color: "violet" });
-    if (role === "Team Leader") b.push({ label: "Team Leader", color: "blue" });
-    if (b.length === 0) b.push({ label: role, color: "cyan" });
+    const b: { label: string; cls: string }[] = [];
+    if (licensedStates.length > 1) b.push({ label: "Multistate Licensed", cls: "border-fuchsia-400/40 bg-fuchsia-400/10 text-fuchsia-500" });
+    if ((stats?.totalClients || 0) >= 10) b.push({ label: "Top Producer", cls: "border-emerald-400/40 bg-emerald-400/10 text-emerald-500" });
+    if ((stats?.monthWins || 0) >= 3) b.push({ label: "Hot Streak", cls: "border-amber-400/40 bg-amber-400/10 text-amber-500" });
+    if (carriers.length >= 3) b.push({ label: "Multi-Carrier", cls: "border-cyan-400/40 bg-cyan-400/10 text-cyan-500" });
+    if (role === "Admin") b.push({ label: "Administrator", cls: "border-violet-400/40 bg-violet-400/10 text-violet-500" });
+    if (role === "Team Leader") b.push({ label: "Team Leader", cls: "border-blue-400/40 bg-blue-400/10 text-blue-500" });
+    if (b.length === 0) b.push({ label: role, cls: "border-cyan-400/40 bg-cyan-400/10 text-cyan-500" });
     return b;
   }, [licensedStates, stats, carriers, role]);
 
