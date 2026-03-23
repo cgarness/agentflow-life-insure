@@ -95,12 +95,41 @@ interface HistoryItem {
   created_at: string;
 }
 
+/* ─── Dialer Session ─── */
+
+const DIALER_SESSION_KEY = 'agentflow_dialer_session';
+
+interface DialerSessionData {
+  sessionStart: string | null;
+  callsMade: number;
+  connected: number;
+  policiesSold: number;
+  totalCallSeconds: number;
+  sessionDurationSeconds: number;
+}
+
+const defaultDialerSession: DialerSessionData = {
+  sessionStart: null,
+  callsMade: 0,
+  connected: 0,
+  policiesSold: 0,
+  totalCallSeconds: 0,
+  sessionDurationSeconds: 0,
+};
+
 /* ─── Helpers ─── */
 
 function fmtDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function fmtSessionDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
 function historyIcon(type: string) {
@@ -209,12 +238,18 @@ export default function DialerPage() {
   const [aptStartTime, setAptStartTime] = useState("10:00 AM");
   const [aptEndTime, setAptEndTime] = useState("10:30 AM");
   const [aptNotes, setAptNotes] = useState("");
-  const [sessionStats, setSessionStats] = useState({
-    calls: 0,
-    connected: 0,
-    talkSeconds: 0,
-    callbacks: 0,
+  const [dialerSession, setDialerSession] = useState<DialerSessionData>(() => {
+    try {
+      const saved = localStorage.getItem(DIALER_SESSION_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.sessionStart !== undefined) return parsed as DialerSessionData;
+      }
+    } catch {}
+    return { ...defaultDialerSession };
   });
+  const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
+  const sessionDurationTickRef = useRef(0);
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
@@ -671,6 +706,23 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [showWrapUp, callState, dispositions]);
 
+  // ── Session duration ticker ──
+  useEffect(() => {
+    if (!dialerSession.sessionStart) return;
+    const interval = setInterval(() => {
+      setDialerSession(prev => {
+        const next = { ...prev, sessionDurationSeconds: prev.sessionDurationSeconds + 1 };
+        sessionDurationTickRef.current += 1;
+        if (sessionDurationTickRef.current >= 10) {
+          sessionDurationTickRef.current = 0;
+          localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [dialerSession.sessionStart]);
+
   // ── Calling Settings: fetch on open ──
   useEffect(() => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
@@ -907,11 +959,32 @@ export default function DialerPage() {
       toast.error("Dialer error. Please check your settings.");
       return;
     }
+    const now = new Date().toISOString();
+    setDialerSession(prev => {
+      const next = {
+        ...prev,
+        sessionStart: prev.sessionStart ?? now,
+        callsMade: prev.callsMade + 1,
+      };
+      localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
+      return next;
+    });
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
   }
 
   function handleHangUp() {
+    if (callState === "active") {
+      setDialerSession(prev => {
+        const next = {
+          ...prev,
+          connected: prev.connected + 1,
+          totalCallSeconds: prev.totalCallSeconds + telnyxCallDuration,
+        };
+        localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
     telnyxHangUp();
   }
 
@@ -958,7 +1031,6 @@ export default function DialerPage() {
     } catch {
       /* ignore */
     }
-    setSessionStats((s) => ({ ...s, calls: s.calls + 1 }));
     handleAdvance();
   }
 
@@ -1095,13 +1167,14 @@ export default function DialerPage() {
         setShouldAdvanceAfterModal(false);
         fetchHistory(currentLead.lead_id || currentLead.id);
         toast.success("Call saved successfully", { id: toastId });
-        setSessionStats((s) => ({
-          ...s,
-          calls: s.calls + 1,
-          connected: s.connected + 1,
-          talkSeconds: s.talkSeconds + telnyxCallDuration,
-        }));
-        
+        if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
+          setDialerSession(prev => {
+            const next = { ...prev, policiesSold: prev.policiesSold + 1 };
+            localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
+            return next;
+          });
+        }
+
         // Update local status
         if (selectedDisp) {
           setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
@@ -1121,13 +1194,13 @@ export default function DialerPage() {
       if (success) {
         setShouldAdvanceAfterModal(true);
         toast.success("Saved successfully", { id: toastId });
-        setSessionStats((s) => ({
-          ...s,
-          calls: s.calls + 1,
-          connected: s.connected + 1,
-          talkSeconds: s.talkSeconds + telnyxCallDuration,
-          callbacks: selectedDisp?.callbackScheduler ? s.callbacks + 1 : s.callbacks,
-        }));
+        if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
+          setDialerSession(prev => {
+            const next = { ...prev, policiesSold: prev.policiesSold + 1 };
+            localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
+            return next;
+          });
+        }
 
         // Delegate advance + auto-dial logic to autoDialer
         if (autoDialer && selectedDisp) {
@@ -1300,16 +1373,6 @@ export default function DialerPage() {
     setMessageText("");
     setSubjectText("");
   }
-
-  /* --- computed --- */
-  const avgDuration =
-    sessionStats.connected > 0
-      ? fmtDuration(Math.round(sessionStats.talkSeconds / sessionStats.connected))
-      : "0:00";
-  const convRate =
-    sessionStats.calls > 0
-      ? `${Math.round((sessionStats.connected / sessionStats.calls) * 100)}%`
-      : "0%";
 
   /* ─── RENDER ─── */
 
@@ -1722,6 +1785,8 @@ export default function DialerPage() {
         {/* LEFT */}
         <button
           onClick={() => {
+            localStorage.removeItem(DIALER_SESSION_KEY);
+            setDialerSession({ ...defaultDialerSession });
             telnyxDestroy();
             setSelectedCampaignId(null);
             setLeadQueue([]);
@@ -1735,15 +1800,15 @@ export default function DialerPage() {
         {/* CENTER: centered inline stats in subtle boxes */}
         <div className="flex items-center justify-center flex-1 gap-2">
           {[
-            { label: "Calls", value: sessionStats.calls },
-            { label: "Connected", value: sessionStats.connected },
-            { label: "Avg Duration", value: avgDuration },
-            { label: "Talk Time", value: fmtDuration(sessionStats.talkSeconds) },
-            { label: "Conv Rate", value: convRate },
-            { label: "Callbacks", value: sessionStats.callbacks },
+            { label: "Session Duration", value: fmtSessionDuration(dialerSession.sessionDurationSeconds) },
+            { label: "Calls Made", value: dialerSession.callsMade },
+            { label: "Connected", value: dialerSession.connected },
+            { label: "Answer Rate", value: dialerSession.callsMade > 0 ? `${((dialerSession.connected / dialerSession.callsMade) * 100).toFixed(0)}%` : "—" },
+            { label: "Policies Sold", value: dialerSession.policiesSold },
+            { label: "Avg Duration", value: dialerSession.connected > 0 ? fmtDuration(Math.round(dialerSession.totalCallSeconds / dialerSession.connected)) : "—" },
           ].map((s) => (
-            <div 
-              key={s.label} 
+            <div
+              key={s.label}
               className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px] transition-all hover:bg-accent/50"
             >
               <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">{s.label}</div>
@@ -1801,8 +1866,45 @@ export default function DialerPage() {
           <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
             {selectedCampaign?.name ?? "No Campaign"}
           </span>
+          <button
+            onClick={() => setShowEndSessionConfirm(true)}
+            className="border border-destructive text-destructive text-xs rounded-lg px-3 py-1 font-semibold hover:bg-destructive hover:text-destructive-foreground transition-colors"
+          >
+            End Session
+          </button>
         </div>
       </div>
+
+      {/* End Session confirmation */}
+      {showEndSessionConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card border rounded-xl p-6 w-80 flex flex-col gap-4 shadow-xl">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-semibold text-foreground">Reset session stats?</p>
+              <p className="text-xs text-muted-foreground">Are you sure? This will reset all session stats.</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowEndSessionConfirm(false)}
+                className="flex-1 py-2 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.removeItem(DIALER_SESSION_KEY);
+                  setDialerSession({ ...defaultDialerSession });
+                  sessionDurationTickRef.current = 0;
+                  setShowEndSessionConfirm(false);
+                }}
+                className="flex-1 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90"
+              >
+                Reset Stats
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── COLUMNS ── */}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
