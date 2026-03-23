@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Gift } from "lucide-react";
+import { Gift, Calendar, User, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { motion } from "framer-motion";
 
 interface AnniversariesWidgetProps {
   userId: string;
@@ -75,7 +76,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
           })
           .filter((c) => c.daysUntil >= 0 && c.daysUntil <= 30)
           .sort((a, b) => a.daysUntil - b.daysUntil)
-          .slice(0, 8);
+          .slice(0, 5);
 
         setItems(withAnniversary);
       } catch {
@@ -101,7 +102,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-10 bg-muted rounded animate-pulse" />
+          <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
         ))}
       </div>
     );
@@ -109,19 +110,19 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-6">
-        <Gift className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">
-          No upcoming policy anniversaries
-        </p>
+      <div className="text-center py-10 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-pink-500/10 flex items-center justify-center mb-4">
+          <Gift className="w-8 h-8 text-pink-500 opacity-50" />
+        </div>
+        <p className="text-sm text-muted-foreground font-medium">No policy anniversaries soon</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1">
-      {items.map((item) => {
-        const daysColor = item.daysUntil <= 7 ? "#F97316" : "#3B82F6";
+    <div className="space-y-3">
+      {items.map((item, idx) => {
+        const isUrgent = item.daysUntil <= 7;
         const daysLabel =
           item.daysUntil === 0
             ? "Today!"
@@ -130,37 +131,37 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
               : `in ${item.daysUntil} days`;
 
         return (
-          <div
+          <motion.div
             key={item.id}
-            className="flex items-center justify-between py-2 border-b border-border last:border-0"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: idx * 0.05 }}
+            className="group relative flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-pink-500/20 hover:bg-pink-500/5 transition-all"
           >
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">
-                {item.firstName} {item.lastName}
-              </p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ backgroundColor: "#8B5CF6", color: "white" }}
-                >
-                  {item.policyType}
-                </span>
-                <span
-                  className="text-xs font-medium"
-                  style={{ color: daysColor }}
-                >
-                  {daysLabel}
-                </span>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5 text-pink-500/50" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-sm text-foreground truncate group-hover:text-pink-500 transition-colors">
+                  {item.firstName} {item.lastName}
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${isUrgent ? "text-orange-500" : "text-muted-foreground"}`}>
+                    Anniversary {daysLabel}
+                  </span>
+                </div>
               </div>
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => handleContact(item)}
+              className="rounded-lg shadow-sm hover:bg-pink-500 hover:text-white hover:border-pink-500 transition-all px-4 h-9"
             >
-              Contact
+              Wish
             </Button>
-          </div>
+          </motion.div>
         );
       })}
     </div>

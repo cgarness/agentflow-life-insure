@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Trophy } from "lucide-react";
+import { Trophy, Medal, Star, User } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { Button } from "@/components/ui/button";
 
 interface LeaderboardWidgetProps {
   userId: string;
@@ -15,10 +17,10 @@ interface RankedAgent {
   wins: number;
 }
 
-const RANK_STYLES: Record<number, { border: string; emoji: string }> = {
-  1: { border: "#FACC15", emoji: "🥇" },
-  2: { border: "#D1D5DB", emoji: "🥈" },
-  3: { border: "#B45309", emoji: "🥉" },
+const RANK_STYLES: Record<number, { gradient: string; icon: any; shadow: string }> = {
+  1: { gradient: "premium-gradient-amber", icon: Trophy, shadow: "shadow-amber-500/20" },
+  2: { gradient: "bg-slate-300", icon: Medal, shadow: "shadow-slate-500/10" },
+  3: { gradient: "bg-amber-700", icon: Medal, shadow: "shadow-amber-900/10" },
 };
 
 const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
@@ -75,19 +77,24 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-16 bg-muted rounded animate-pulse" />
-        ))}
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 bg-muted/20 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+        <div className="h-12 bg-muted/20 rounded-xl animate-pulse" />
       </div>
     );
   }
 
   if (ranked.length === 0) {
     return (
-      <div className="text-center py-6">
-        <Trophy className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">No sales data yet this month</p>
+      <div className="text-center py-10 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
+          <Trophy className="w-8 h-8 text-muted-foreground opacity-50" />
+        </div>
+        <p className="text-sm text-muted-foreground font-medium">No sales data yet</p>
       </div>
     );
   }
@@ -97,55 +104,75 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
   const currentUserData = ranked.find((p) => p.id === userId);
 
   return (
-    <div>
-      {/* Trophy cards */}
-      <div className="grid grid-cols-3 gap-2 mb-4">
+    <div className="space-y-6">
+      {/* Trophy podium */}
+      <div className="grid grid-cols-3 gap-3 items-end">
         {top3.map((agent, idx) => {
           const rank = idx + 1;
           const style = RANK_STYLES[rank];
+          const isWinner = rank === 1;
+          
           return (
-            <div
+            <motion.div
               key={agent.id}
-              className="rounded-lg p-3 text-center"
-              style={{ border: `2px solid ${style.border}` }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: idx * 0.1 }}
+              className={`relative flex flex-col items-center p-3 rounded-2xl glass-card border border-white/5 ${style.shadow} ${isWinner ? "pb-6 -mb-2 z-10 scale-110" : "opacity-80 scale-95"}`}
             >
-              <span className="text-2xl">{style.emoji}</span>
-              <p className="text-sm font-medium text-foreground mt-1 truncate">
-                {agent.firstName} {agent.lastName.charAt(0)}.
+              <div className={`w-10 h-10 rounded-full ${style.gradient} flex items-center justify-center mb-2 shadow-lg`}>
+                <style.icon className="w-5 h-5 text-white" />
+              </div>
+              <p className="text-[10px] font-bold text-foreground text-center truncate w-full px-1">
+                {agent.firstName}
               </p>
-              <p className="text-xs text-muted-foreground">
-                {agent.wins} {agent.wins === 1 ? "policy" : "policies"}
-              </p>
-            </div>
+              <div className="mt-1 flex items-center gap-1">
+                <span className="text-xs font-bold text-primary">{agent.wins}</span>
+                <span className="text-[8px] text-muted-foreground uppercase font-bold tracking-tighter">pts</span>
+              </div>
+              
+              {isWinner && (
+                <div className="absolute -top-1 -right-1">
+                  <Star className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse" />
+                </div>
+              )}
+            </motion.div>
           );
         })}
       </div>
 
-      {/* Divider */}
-      <div className="border-t border-border my-3" />
-
-      {/* Current user rank */}
+      {/* Current user rank bar */}
       {currentUserData && (
-        <div>
-          {currentUserRank <= 3 ? (
-            <p className="text-sm text-center text-foreground font-medium">
-              You're on the podium! 🎉
-            </p>
-          ) : (
-            <div className="bg-primary/10 border border-primary rounded-lg px-3 py-2 text-sm text-foreground">
-              You — Rank #{currentUserRank} — {currentUserData.wins}{" "}
-              {currentUserData.wins === 1 ? "policy" : "policies"} this month
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between p-4 rounded-xl bg-primary/5 border border-primary/10"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-xs text-primary">
+              #{currentUserRank}
             </div>
-          )}
-        </div>
+            <div>
+              <p className="text-xs font-bold text-foreground">Your Standing</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
+                {currentUserRank <= 3 ? "On the podium!" : "Keep pushing!"}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-primary">{currentUserData.wins} Wins</p>
+          </div>
+        </motion.div>
       )}
 
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => navigate("/leaderboard")}
-        className="text-sm text-primary hover:underline mt-3 block"
+        className="w-full text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
       >
-        View Full Leaderboard →
-      </button>
+        View Full Standings
+      </Button>
     </div>
   );
 };

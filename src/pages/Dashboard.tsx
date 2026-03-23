@@ -12,6 +12,7 @@ import {
   PhoneMissed,
   Gift,
   Plus,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,6 +28,8 @@ import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidge
 import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
 import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget";
 import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWidget";
+import PerformanceChart from "@/components/dashboard/widgets/PerformanceChart";
+import QuickActions from "@/components/dashboard/widgets/QuickActions";
 
 import {
   DndContext,
@@ -45,8 +48,11 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { motion } from "framer-motion";
 
 const DEFAULT_WIDGET_ORDER = [
+  "performance",
+  "quick_actions",
   "callbacks",
   "appointments",
   "goal_progress",
@@ -56,6 +62,8 @@ const DEFAULT_WIDGET_ORDER = [
 ];
 
 const WIDGET_LABELS: Record<string, string> = {
+  performance: "Weekly Performance",
+  quick_actions: "Quick Actions",
   callbacks: "Callbacks",
   appointments: "Appointments",
   goal_progress: "Goal Progress",
@@ -65,6 +73,8 @@ const WIDGET_LABELS: Record<string, string> = {
 };
 
 const WIDGET_ICONS: Record<string, React.ElementType> = {
+  performance: TrendingUp,
+  quick_actions: Plus,
   callbacks: Phone,
   appointments: Calendar,
   goal_progress: Target,
@@ -73,13 +83,15 @@ const WIDGET_ICONS: Record<string, React.ElementType> = {
   anniversaries: Gift,
 };
 
-const WIDGET_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  callbacks: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20" },
-  appointments: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20" },
-  goal_progress: { bg: "bg-emerald-500/10", text: "text-emerald-500", border: "border-emerald-500/20" },
-  leaderboard: { bg: "bg-amber-500/10", text: "text-amber-500", border: "border-amber-500/20" },
-  missed_calls: { bg: "bg-red-500/10", text: "text-red-500", border: "border-red-500/20" },
-  anniversaries: { bg: "bg-pink-500/10", text: "text-pink-500", border: "border-pink-500/20" },
+const WIDGET_COLORS: Record<string, { bg: string; text: string; border: string; gradient: string }> = {
+  performance: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20", gradient: "premium-gradient-blue" },
+  quick_actions: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20", gradient: "premium-gradient-violet" },
+  callbacks: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20", gradient: "premium-gradient-blue" },
+  appointments: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20", gradient: "premium-gradient-violet" },
+  goal_progress: { bg: "bg-emerald-500/10", text: "text-emerald-500", border: "border-emerald-500/20", gradient: "premium-gradient-emerald" },
+  leaderboard: { bg: "bg-amber-500/10", text: "text-amber-500", border: "border-amber-500/20", gradient: "premium-gradient-amber" },
+  missed_calls: { bg: "bg-red-500/10", text: "text-red-500", border: "border-red-500/20", gradient: "bg-gradient-to-br from-red-500 to-rose-600" },
+  anniversaries: { bg: "bg-pink-500/10", text: "text-pink-500", border: "border-pink-500/20", gradient: "bg-gradient-to-br from-pink-500 to-rose-400" },
 };
 
 // Sortable widget wrapper for edit mode
@@ -105,44 +117,44 @@ const SortableWidget: React.FC<{
   };
 
   const Icon = WIDGET_ICONS[id] || Target;
-  const colors = WIDGET_COLORS[id] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border" };
+  const colors = WIDGET_COLORS[id] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border", gradient: "bg-muted" };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-card rounded-xl border shadow-sm ${colors.border}`}
+      className={`glass-card rounded-2xl border ${colors.border} transition-all duration-300 hover:shadow-2xl hover:shadow-primary/5`}
     >
       {/* Widget header */}
-      <div className={`flex items-center justify-between px-5 py-3 border-b ${colors.border} ${colors.bg} rounded-t-xl`}>
-        <div className="flex items-center gap-2">
+      <div className={`flex items-center justify-between px-6 py-4 border-b ${colors.border} bg-gradient-to-r ${colors.bg} to-transparent rounded-t-2xl`}>
+        <div className="flex items-center gap-3">
           {editMode && (
             <button
-              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-1 hover:bg-white/10 rounded-md transition-colors"
               {...attributes}
               {...listeners}
             >
               <GripVertical className="w-4 h-4" />
             </button>
           )}
-          <div className={`w-6 h-6 rounded-md flex items-center justify-center ${colors.bg}`}>
-            <Icon className={`w-3.5 h-3.5 ${colors.text}`} />
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors.gradient} shadow-lg shadow-black/5`}>
+            <Icon className="w-4 h-4 text-white" />
           </div>
-          <h3 className={`text-sm font-semibold ${colors.text}`}>
+          <h3 className={`text-sm font-bold tracking-tight text-foreground uppercase`}>
             {WIDGET_LABELS[id]}
           </h3>
         </div>
         {editMode && (
           <button
             onClick={() => onToggleHide(id)}
-            className="text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground p-1.5 hover:bg-white/5 rounded-full transition-colors"
           >
             <EyeOff className="w-4 h-4" />
           </button>
         )}
       </div>
       {/* Widget content */}
-      <div className="p-5">{children}</div>
+      <div className="p-6">{children}</div>
     </div>
   );
 };
@@ -328,6 +340,10 @@ const Dashboard: React.FC = () => {
 
   const renderWidget = (key: string) => {
     switch (key) {
+      case "performance":
+        return <PerformanceChart userId={userId} />;
+      case "quick_actions":
+        return <QuickActions />;
       case "callbacks":
         return (
           <CallbacksWidget
@@ -374,21 +390,60 @@ const Dashboard: React.FC = () => {
   );
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setEditMode(!editMode)}
-        >
-          <Pencil className="h-4 w-4 mr-2" />
-          {editMode ? "Cancel" : "Edit Dashboard"}
-        </Button>
+    <div className="p-6 space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-700">
+      {/* Hero Section */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/10 via-background to-background border border-primary/10 p-8 shadow-2xl shadow-primary/5">
+        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-60 h-60 bg-violet-500/5 rounded-full blur-3xl" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <motion.h1 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="text-3xl md:text-4xl font-bold tracking-tight text-foreground"
+            >
+              Good Morning, {firstName} 👋
+            </motion.h1>
+            <motion.p 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 }}
+              className="text-muted-foreground mt-2 text-lg"
+            >
+              Welcome back to AgentFlow. Here's what's happening today.
+            </motion.p>
+          </div>
+          
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2 }}
+            className="flex items-center gap-4"
+          >
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => setEditMode(!editMode)}
+              className="bg-background/50 backdrop-blur-sm border-white/10 hover:bg-background/80 transition-all rounded-xl"
+            >
+              <Pencil className="h-4 w-4 mr-2 text-primary" />
+              {editMode ? "Cancel Editing" : "Customize"}
+            </Button>
+            {!editMode && (
+              <Button 
+                size="lg"
+                onClick={() => setShowBriefing(true)}
+                className="rounded-xl shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30"
+              >
+                Today's Briefing
+              </Button>
+            )}
+          </motion.div>
+        </div>
       </div>
 
-      {/* Daily Briefing */}
+      {/* Daily Briefing Modal */}
       {showBriefing && userId && (
         <DailyBriefingModal
           userId={userId}
@@ -402,43 +457,52 @@ const Dashboard: React.FC = () => {
 
       {/* Stat Cards */}
       {userId && (
-        <StatCards
-          role={role}
-          userId={userId}
-          adminToggle={adminViewMode}
-        />
+        <div className="relative">
+          <StatCards
+            role={role}
+            userId={userId}
+            adminToggle={adminViewMode}
+          />
+        </div>
       )}
 
       {/* Admin Toggle Pill */}
       {role === "Admin" && (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Viewing:</span>
+        <div className="flex items-center gap-3 text-sm px-1">
+          <span className="text-muted-foreground font-medium">Viewing Perspective:</span>
           <button
             onClick={() =>
               setAdminViewMode(adminViewMode === "team" ? "my" : "team")
             }
-            className="px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors"
+            className="px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-all border border-primary/20 shadow-sm"
           >
             {adminViewMode === "team"
-              ? "Team Totals | Switch to My Stats"
-              : "My Stats | Switch to Team Totals"}
+              ? "Team Overview → Switch to Personal"
+              : "Personal Stats → Switch to Team"}
           </button>
         </div>
       )}
 
       {/* Edit Mode Header */}
       {editMode && (
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium px-2 py-1 rounded bg-yellow-100 text-yellow-800">
-            Editing Layout
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl"
+        >
+          <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+          <span className="text-sm font-bold text-yellow-500 uppercase tracking-wider">
+            Layout Editor Active
           </span>
-          <Button size="sm" onClick={saveLayout}>
-            Save Layout
-          </Button>
-          <Button variant="outline" size="sm" onClick={resetLayout}>
-            Reset to Default
-          </Button>
-        </div>
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" onClick={saveLayout} className="bg-yellow-600 hover:bg-yellow-700 text-white border-0 rounded-lg">
+              Save Changes
+            </Button>
+            <Button variant="outline" size="sm" onClick={resetLayout} className="border-yellow-500/20 hover:bg-yellow-500/10 rounded-lg">
+              Reset Default
+            </Button>
+          </div>
+        </motion.div>
       )}
 
       {/* Widget Grid */}
@@ -473,28 +537,31 @@ const Dashboard: React.FC = () => {
           </SortableContext>
         </DndContext>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {visibleWidgets.map((key) => {
             const Icon = WIDGET_ICONS[key] || Target;
-            const colors = WIDGET_COLORS[key] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border" };
+            const colors = WIDGET_COLORS[key] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border", gradient: "bg-muted" };
             return (
-              <div
+              <motion.div
                 key={key}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
                 ref={(el) => {
                   widgetRefs.current[key] = el;
                 }}
-                className={`bg-card rounded-xl border shadow-sm ${colors.border}`}
+                className={`glass-card rounded-2xl border ${colors.border} transition-all duration-300 hover:shadow-2xl hover:shadow-primary/5 group`}
               >
-                <div className={`flex items-center gap-2 px-5 py-3 border-b ${colors.border} ${colors.bg} rounded-t-xl`}>
-                  <div className={`w-6 h-6 rounded-md flex items-center justify-center ${colors.bg}`}>
-                    <Icon className={`w-3.5 h-3.5 ${colors.text}`} />
+                <div className={`flex items-center gap-3 px-6 py-4 border-b ${colors.border} bg-gradient-to-r ${colors.bg} to-transparent rounded-t-2xl`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors.gradient} shadow-lg shadow-black/5 transition-transform duration-300 group-hover:scale-110`}>
+                    <Icon className="w-4 h-4 text-white" />
                   </div>
-                  <h3 className={`text-sm font-semibold ${colors.text}`}>
+                  <h3 className={`text-sm font-bold tracking-tight text-foreground uppercase`}>
                     {WIDGET_LABELS[key]}
                   </h3>
                 </div>
-                <div className="p-5">{renderWidget(key)}</div>
-              </div>
+                <div className="p-6">{renderWidget(key)}</div>
+              </motion.div>
             );
           })}
         </div>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, PhoneForwarded, User, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { motion } from "framer-motion";
 
 interface MissedCallsWidgetProps {
   userId: string;
@@ -47,7 +48,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           .in("disposition_name", ["No Answer", "Missed", "No Answer / Voicemail"])
           .gte("created_at", since)
           .order("created_at", { ascending: false })
-          .limit(8);
+          .limit(5);
 
         if (isFiltered) q = q.eq("agent_id", userId);
 
@@ -57,7 +58,6 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           return;
         }
 
-        // Fetch phones from leads
         const contactIds = data
           .map((c) => c.contact_id)
           .filter(Boolean) as string[];
@@ -65,7 +65,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
         if (contactIds.length > 0) {
           const { data: leads } = await supabase
             .from("leads")
-            .select("id, phone, first_name, last_name")
+            .select("id, phone")
             .in("id", contactIds);
           if (leads) {
             for (const lead of leads) {
@@ -108,7 +108,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-10 bg-muted rounded animate-pulse" />
+          <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
         ))}
       </div>
     );
@@ -116,39 +116,50 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
 
   if (calls.length === 0) {
     return (
-      <div className="text-center py-6">
-        <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">
-          No missed calls in the last 24 hours
-        </p>
+      <div className="text-center py-10 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mb-4">
+          <CheckCircle className="w-8 h-8 text-emerald-500 opacity-50" />
+        </div>
+        <p className="text-sm text-muted-foreground font-medium">All caught up!</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-1">
-      {calls.map((call) => (
-        <div
+    <div className="space-y-3">
+      {calls.map((call, idx) => (
+        <motion.div
           key={call.id}
-          className="flex items-center justify-between py-2 border-b border-border last:border-0"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: idx * 0.05 }}
+          className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-red-500/20 hover:bg-red-500/5 transition-all group"
         >
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">
-              {call.contactName}
-            </p>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{timeAgo(call.createdAt)}</span>
-              {call.phone && <span>{call.phone}</span>}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center shrink-0">
+              <PhoneForwarded className="w-5 h-5 text-red-500/50" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-sm text-foreground truncate group-hover:text-red-500 transition-colors">
+                {call.contactName}
+              </p>
+              <div className="flex items-center gap-2">
+                <Clock className="w-3 h-3 text-muted-foreground" />
+                <p className="text-[10px] font-medium text-muted-foreground">
+                  {timeAgo(call.createdAt)}
+                </p>
+              </div>
             </div>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() => handleCallBack(call)}
+            className="rounded-lg shadow-sm hover:bg-red-500 hover:text-white hover:border-red-500 transition-all px-4 h-9"
           >
             Call Back
           </Button>
-        </div>
+        </motion.div>
       ))}
     </div>
   );

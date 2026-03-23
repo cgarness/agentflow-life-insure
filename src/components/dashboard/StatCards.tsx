@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { motion } from "framer-motion";
 
 interface StatCardsProps {
   role: string;
@@ -137,8 +138,8 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
               : "neutral"
           : null,
       icon: Phone,
-      color: "text-blue-500",
-      bgColor: "bg-blue-500/10",
+      gradient: "premium-gradient-blue",
+      shadow: "shadow-blue-500/20",
     },
     {
       label: "Policies Sold This Month",
@@ -152,8 +153,8 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
               : "neutral"
           : null,
       icon: ShieldCheck,
-      color: "text-emerald-500",
-      bgColor: "bg-emerald-500/10",
+      gradient: "premium-gradient-emerald",
+      shadow: "shadow-emerald-500/20",
     },
     {
       label: "Appointments Today",
@@ -165,58 +166,74 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle }) => {
             : "down"
           : null,
       icon: Calendar,
-      color: "text-violet-500",
-      bgColor: "bg-violet-500/10",
+      gradient: "premium-gradient-violet",
+      shadow: "shadow-violet-500/20",
     },
     {
       label: "Conversion Rate",
       value: data ? `${conversionRate}%` : null,
       trend: data && data.callsThisMonth === 0 ? null : null,
       icon: TrendingUp,
-      color: "text-amber-500",
-      bgColor: "bg-amber-500/10",
+      gradient: "premium-gradient-amber",
+      shadow: "shadow-amber-500/20",
     },
   ];
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {cards.map((card) => (
-        <div
+      {cards.map((card, index) => (
+        <motion.div
           key={card.label}
-          className="bg-card rounded-xl border border-border shadow-sm p-5 transition-all duration-200 hover:shadow-md hover:-translate-y-1 hover:border-primary/20"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: index * 0.1 }}
+          whileHover={{ y: -5, transition: { duration: 0.2 } }}
+          className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-300`}
         >
-          <div className="flex items-start justify-between">
+          {/* Background Glow */}
+          <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl ${card.gradient}`} />
+          
+          <div className="flex items-start justify-between relative z-10">
             <div>
+              <p className="text-sm font-medium text-muted-foreground mb-1">
+                {card.label}
+              </p>
               {loading ? (
-                <div className="h-8 w-20 bg-muted rounded animate-pulse" />
+                <div className="h-9 w-20 bg-muted rounded-lg animate-pulse" />
               ) : (
-                <p className="text-3xl font-bold text-foreground">
+                <p className="text-3xl font-bold tracking-tight text-foreground">
                   {card.value ?? "—"}
                 </p>
               )}
-              <p className="text-sm text-muted-foreground mt-1">{card.label}</p>
-              {!loading && card.trend && (
-                <p
-                  className={`text-xs mt-1 ${
-                    card.trend === "up"
-                      ? "text-green-600"
-                      : card.trend === "down"
-                        ? "text-red-500"
-                        : "text-muted-foreground"
-                  }`}
-                >
-                  {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
-                </p>
-              )}
-              {!loading && !card.trend && (
-                <p className="text-xs mt-1 text-muted-foreground">—</p>
+              
+              {!loading && (
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      card.trend === "up"
+                        ? "bg-emerald-500/10 text-emerald-500"
+                        : card.trend === "down"
+                          ? "bg-red-500/10 text-red-500"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                    vs yesterday
+                  </span>
+                </div>
               )}
             </div>
-            <div className={`p-2 rounded-lg ${card.bgColor}`}>
-              <card.icon className={`h-5 w-5 ${card.color}`} />
+            
+            <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${card.gradient} shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
+              <card.icon className="h-6 w-6 text-white" />
             </div>
           </div>
-        </div>
+          
+          {/* Subtle bottom line */}
+          <div className={`absolute bottom-0 left-0 h-1 w-full opacity-30 ${card.gradient}`} />
+        </motion.div>
       ))}
     </div>
   );

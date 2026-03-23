@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Phone } from "lucide-react";
+import { Phone, Clock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 
 interface CallbacksWidgetProps {
   userId: string;
@@ -133,7 +134,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-10 bg-muted rounded animate-pulse" />
+          <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
         ))}
       </div>
     );
@@ -143,9 +144,11 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
 
   if (allEmpty) {
     return (
-      <div className="text-center py-6">
-        <Phone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">No callbacks due</p>
+      <div className="text-center py-10 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
+          <Phone className="w-8 h-8 text-muted-foreground opacity-50" />
+        </div>
+        <p className="text-sm text-muted-foreground font-medium">No pending callbacks</p>
       </div>
     );
   }
@@ -157,33 +160,52 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
   ) => {
     if (items.length === 0) return null;
     return (
-      <div className="mb-3">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="mb-4 last:mb-0">
+        <div className="flex items-center gap-2 mb-3">
           <span
-            className="w-2 h-2 rounded-full"
+            className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.1)]"
             style={{ backgroundColor: dotColor }}
           />
-          <span className="text-xs font-medium text-muted-foreground uppercase">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
             {title} ({items.length})
           </span>
         </div>
-        {items.slice(0, 10).map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center justify-between py-2 border-b border-border last:border-0"
-          >
-            <div>
-              <p className="font-medium text-sm text-foreground">{item.contactName}</p>
-              <p className="text-xs text-muted-foreground">{formatTime(item.startTime)}</p>
-              {item.phone && (
-                <p className="text-xs text-muted-foreground">{item.phone}</p>
-              )}
-            </div>
-            <Button variant="outline" size="sm" onClick={() => handleCall(item)}>
-              Call
-            </Button>
-          </div>
-        ))}
+        <div className="space-y-2">
+          {items.slice(0, 5).map((item, idx) => (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: idx * 0.05 }}
+              className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-primary/20 hover:bg-muted/50 transition-all group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center shrink-0">
+                  <User className="w-5 h-5 text-muted-foreground/50" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                    {item.contactName}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3 h-3 text-muted-foreground" />
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      {formatTime(item.startTime)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => handleCall(item)}
+                className="rounded-lg shadow-sm hover:bg-primary hover:text-white hover:border-primary transition-all px-4"
+              >
+                Call
+              </Button>
+            </motion.div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -193,13 +215,15 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
       {renderSection("Overdue", "#EF4444", overdue)}
       {renderSection("Due Today", "#22C55E", dueToday)}
       {renderSection("Due Soon", "#3B82F6", dueSoon)}
-      {totalCount > 10 && (
-        <button
+      {totalCount > 5 && (
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate("/contacts")}
-          className="text-sm text-primary hover:underline mt-2"
+          className="w-full mt-4 text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
         >
-          View all {totalCount} →
-        </button>
+          View All {totalCount} Callbacks
+        </Button>
       )}
     </div>
   );
