@@ -223,22 +223,20 @@ const CalendarPage: React.FC = () => {
       } catch (error) {
         toast({ title: "Failed to update appointment", variant: "destructive" });
       }
+      setModalOpen(false); // Close modal on success
       return;
     }
 
     try {
-      // For create, we need the ID for Google sync.
-      // Context's addAppointment inserts but doesn't return the ID right now.
-      // I'll update CalendarContext to return the ID or I'll just keep the local insert here for now.
-      // Actually, let's update CalendarContext.tsx's addAppointment to return the data.
+      const inserted = await addAppointment(localPayload);
+      if (!inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
       
-      const { data: inserted, error } = await supabase.from('appointments').insert([localPayload]).select('id').single();
-      if (error || !inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
       toast({ title: "Appointment scheduled" });
+      setModalOpen(false); // Close modal on success
       
       await syncAppointmentToGoogle({
         action: "create",
-        appointmentId: inserted.id,
+        appointmentId: (inserted as any).id,
         title: data.title,
         notes: data.notes,
         startTime: startDate.toISOString(),
@@ -247,19 +245,24 @@ const CalendarPage: React.FC = () => {
       });
     } catch (error) {
        console.error("Save error", error);
+       toast({ title: "Failed to save appointment", variant: "destructive" });
     }
   };
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     const externalEventId = appointmentMetaById[appointmentId]?.externalEventId;
     try {
+      // Optimistic delete handled in context now
       await deleteAppointment(appointmentId);
       toast({ title: "Appointment deleted" });
+      setModalOpen(false); // Close modal on delete
       await syncAppointmentToGoogle({ action: "delete", appointmentId, externalEventId });
     } catch (error) {
+       // Context handles re-fetching on error
       toast({ title: "Failed to delete appointment", variant: "destructive" });
     }
   };
+
 
   const searchContacts = async (query: string) => {
     setContactSearch(query);

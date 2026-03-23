@@ -76,7 +76,7 @@ const initialAppointments: CalendarAppointment[] = [
 interface CalendarContextValue {
   appointments: CalendarAppointment[];
   loading: boolean;
-  addAppointment: (a: any) => Promise<void>;
+  addAppointment: (a: any) => Promise<any>;
   updateAppointment: (id: string, data: any) => Promise<void>;
   deleteAppointment: (id: string) => Promise<void>;
   fetchAppointments: () => Promise<void>;
@@ -141,64 +141,107 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLoading(false);
   }, [user?.id, mapAppointment]);
 
+  const addAppointment = useCallback(async (a: any) => {
+    if (!user?.id) return;
+    
+    // We don't do optimistic update here yet because we need the ID from DB
+    // But we could generate a temporary ID if we wanted.
+    // However, the real-time subscription should pick it up.
+    
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert([{ ...a, user_id: user.id }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error adding appointment:', error);
+      throw error;
+    }
+    
+    if (data) {
+      const mapped = mapAppointment(data);
+      setAppointments(prev => [...prev, mapped].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      ));
+    }
+    return data;
+  }, [user?.id, mapAppointment]);
+
+  const updateAppointment = useCallback(async (id: string, data: any) => {
+    // Optimistic update
+    setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...data, ...mapAppointment({ ...a, ...data }) } : a));
+
+    const { error } = await supabase.from('appointments').update(data).eq('id', id);
+    if (error) {
+      console.error('Error updating appointment:', error);
+      // Revert if needed? Usually fetchAppointments will fix it or real-time update will come.
+      fetchAppointments();
+      throw error;
+    }
+  }, [fetchAppointments, mapAppointment]);
+
+  const deleteAppointment = useCallback(async (id: string) => {
+    // Optimistic update
+    setAppointments(prev => prev.filter(a => a.id !== id));
+
+    const { error } = await supabase.from('appointments').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting appointment:', error);
+      fetchAppointments();
+      throw error;
+    }
+  }, [fetchAppointments]);
+
   useEffect(() => {
     fetchAppointments();
 
     if (!user?.id) return;
 
-    // Realtime subscription
+    // Realtime subscription with unique channel name
     const channel = supabase
-      .channel('calendar_appointments_changes')
+      .channel(`calendar_appointments_${user.id}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'appointments',
+          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
+          console.log('Calendar realtime payload:', payload);
           if (payload.eventType === 'INSERT') {
-            setAppointments(prev => [...prev, mapAppointment(payload.new)].sort((a, b) => 
-               new Date(a.date).getTime() - new Date(b.date).getTime()
-            ));
+            const mapped = mapAppointment(payload.new);
+            setAppointments(prev => {
+              // Check if already exists (e.g. from optimistic update)
+              if (prev.some(a => a.id === mapped.id)) return prev;
+              return [...prev, mapped].sort((a, b) => 
+                new Date(a.date).getTime() - new Date(b.date).getTime()
+              );
+            });
           } else if (payload.eventType === 'UPDATE') {
-            setAppointments(prev => prev.map(a => a.id === payload.new.id ? mapAppointment(payload.new) : a));
+            const mapped = mapAppointment(payload.new);
+            setAppointments(prev => prev.map(a => a.id === mapped.id ? mapped : a));
           } else if (payload.eventType === 'DELETE') {
-            setAppointments(prev => prev.filter(a => a.id !== payload.old.id));
+            const deletedId = payload.old.id;
+            if (deletedId) {
+                setAppointments(prev => prev.filter(a => a.id !== deletedId));
+            }
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.error('Calendar realtime channel error');
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [user?.id, fetchAppointments, mapAppointment]);
 
-  const addAppointment = useCallback(async (a: any) => {
-    if (!user?.id) return;
-    const { error } = await supabase.from('appointments').insert([{ ...a, user_id: user.id }]);
-    if (error) {
-      console.error('Error adding appointment:', error);
-      throw error;
-    }
-  }, [user?.id]);
-
-  const updateAppointment = useCallback(async (id: string, data: any) => {
-    const { error } = await supabase.from('appointments').update(data).eq('id', id);
-    if (error) {
-      console.error('Error updating appointment:', error);
-      throw error;
-    }
-  }, []);
-
-  const deleteAppointment = useCallback(async (id: string) => {
-    const { error } = await supabase.from('appointments').delete().eq('id', id);
-    if (error) {
-      console.error('Error deleting appointment:', error);
-      throw error;
-    }
-  }, []);
 
   const todayCount = useMemo(() => {
     const now = new Date();
