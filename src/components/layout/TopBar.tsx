@@ -5,6 +5,7 @@ import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
   User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
+  Sparkles,
 } from "lucide-react";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
