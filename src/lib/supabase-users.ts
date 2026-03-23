@@ -72,24 +72,22 @@ export const usersSupabaseApi = {
     return rowToUser(data);
   },
 
-  async update(id: string, data: Partial<User>): Promise<User> {
+  async update(id: string, updates: Partial<User>): Promise<void> {
     const payload: any = {};
-    if (data.firstName !== undefined) payload.first_name = data.firstName;
-    if (data.lastName !== undefined) payload.last_name = data.lastName;
-    if (data.email !== undefined) payload.email = data.email;
-    if (data.role !== undefined) payload.role = data.role;
-    if (data.status !== undefined) payload.status = data.status;
-    if (data.phone !== undefined) payload.phone = data.phone;
-    if (data.avatar !== undefined) payload.avatar_url = data.avatar;
+    if (updates.firstName !== undefined) payload.first_name = updates.firstName;
+    if (updates.lastName !== undefined) payload.last_name = updates.lastName;
+    if (updates.email !== undefined) payload.email = updates.email;
+    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.role !== undefined) payload.role = updates.role;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.avatar !== undefined) payload.avatar_url = updates.avatar;
+    payload.updated_at = new Date().toISOString();
 
-    const { data: result, error } = await supabase
+    const { error } = await supabase
       .from("profiles")
       .update(payload)
-      .eq("id", id)
-      .select()
-      .single();
+      .eq("id", id);
     if (error) throw error;
-    return rowToUser(result);
   },
 
   async updateProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile> {
@@ -111,6 +109,7 @@ export const usersSupabaseApi = {
     if (data.smsNotificationsEnabled !== undefined) payload.sms_notifications_enabled = data.smsNotificationsEnabled;
     if (data.pushNotificationsEnabled !== undefined) payload.push_notifications_enabled = data.pushNotificationsEnabled;
     if (data.onboardingItems !== undefined) payload.onboarding_items = data.onboardingItems;
+    payload.updated_at = new Date().toISOString();
 
     const { data: result, error } = await supabase
       .from("profiles")
@@ -126,8 +125,6 @@ export const usersSupabaseApi = {
 
   async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string }): Promise<void> {
     console.log("Inviting user:", data);
-    // Real implementation would be a supabase.auth.admin call
-    // or an insert into an invites table
     return Promise.resolve();
   },
 
@@ -166,7 +163,6 @@ export const usersSupabaseApi = {
     if (typeof data === "string") {
       params.set("invite", data);
     } else {
-      // Encode object as base64 to pass pre-fill data
       const encoded = btoa(JSON.stringify(data));
       params.set("invite", encoded);
     }

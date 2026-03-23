@@ -497,12 +497,12 @@ const UserProfileModal: React.FC<{
         avatar: avatarUrl,
       });
       await usersApi.updateProfile(user.id, {
-        licensedStates: form.licensedStates as any[],
-        residentState: form.residentState as string,
-        commissionLevel: form.commissionLevel as string,
-        uplineId: form.uplineId,
-        npn: form.npn as string,
-        timezone: form.timezone as string,
+        licensedStates: (form.licensedStates as any[]) || [],
+        residentState: (form.residentState as string) || "",
+        commissionLevel: (form.commissionLevel as string) || "0%",
+        uplineId: form.uplineId === "_none" ? null : form.uplineId,
+        npn: (form.npn as string) || "",
+        timezone: (form.timezone as string) || "Eastern Time (US & Canada)",
       });
       toast({ title: "Changes saved successfully" });
       setEditMode(false);
@@ -697,7 +697,7 @@ const UserProfileModal: React.FC<{
                 <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
                 <div>
                   <Label>Upline Agent</Label>
-                  <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? undefined : v }))}>
+                  <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
                     <SelectTrigger><SelectValue placeholder="Select upline agent..." /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_none">None</SelectItem>
