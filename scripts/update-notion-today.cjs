@@ -25,11 +25,11 @@ async function main() {
     }
 
     // Progress Tracker
-    const progressText = `[${date}] SESSION LOG: Restructured Dialer active session layout: unified the SMS/Email composer pinned to the bottom of the conversation history, switched campaign selection UI to a responsive 4-column grid, implemented End Session functionality, and synced the robust "ContactModal" from the actual Contacts page to be used as the Dialer's "Full View", ensuring bi-directional database consistency.`;
+    const progressText = `[${date}] SESSION LOG: Resolved "Failed to save" error in User Management by fixing RLS policies and addressing "infinite recursion" in Supabase. Implemented full RBAC filtering for Admin (full access), Team Leader (team view), and Agent (self view) roles. Replaced mock agent data in the Contacts page with real Supabase user profile data and added security definer functions for safe permission checks.`;
     await appendParagraph(process.env.NOTION_PAGE_PROGRESS_TRACKER, progressText);
 
     // Decisions Log
-    const decisionText = `[${date}] DECISION: We replaced the custom inline dialog in DialerPage with the shared <ContactModal> component used in the Contacts tab. This enriches the Dialer UI with activity timelines and history filtering without compromising the layout hierarchy.`;
+    const decisionText = `[${date}] DECISION: We implemented SECURITY DEFINER functions (is_admin, is_team_leader) in Supabase to bypass RLS recursion when policies query the same table they protect. This ensures robust and safe RBAC checks without hitting database performance or stability issues.`;
     await appendParagraph(process.env.NOTION_PAGE_DECISIONS_LOG, decisionText);
 
     console.log("Notion updates completed.");
