@@ -236,8 +236,15 @@ const Dashboard: React.FC = () => {
     setShowBriefing(false);
   }, [userId]);
 
-  const closeBriefing = useCallback(() => {
-    setShowBriefing(false);
+  const openBriefing = useCallback(() => {
+    setShowBriefing(true);
+  }, []);
+
+  // Listen for custom event to reopen briefing from TopBar
+  useEffect(() => {
+    const handler = () => setShowBriefing(true);
+    window.addEventListener("open-daily-briefing", handler);
+    return () => window.removeEventListener("open-daily-briefing", handler);
   }, []);
 
   const scrollToWidget = useCallback((widgetId: string) => {
@@ -387,7 +394,7 @@ const Dashboard: React.FC = () => {
           userId={userId}
           firstName={firstName}
           role={role}
-          onClose={closeBriefing}
+          onClose={dismissBriefing}
           onDismiss={dismissBriefing}
           onScrollTo={scrollToWidget}
         />

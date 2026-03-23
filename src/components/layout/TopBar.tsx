@@ -5,6 +5,7 @@ import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
   User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
+  Sparkles,
 } from "lucide-react";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -310,6 +311,20 @@ const TopBar: React.FC = () => {
                   )}
                 </button>
               ))}
+            </div>
+            {/* View Daily Briefing button */}
+            <div className="px-4 py-2 border-b">
+              <button
+                onClick={() => {
+                  setNotifOpen(false);
+                  navigate("/dashboard");
+                  setTimeout(() => window.dispatchEvent(new Event("open-daily-briefing")), 100);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium transition-colors"
+              >
+                <Sparkles className="w-4 h-4" />
+                View Daily Briefing
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {isLoading ? (

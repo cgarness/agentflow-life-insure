@@ -4,9 +4,11 @@ import {
   Calendar,
   PhoneMissed,
   Megaphone,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 
 interface DailyBriefingModalProps {
   userId: string;
@@ -30,6 +32,8 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
   const [appointmentCount, setAppointmentCount] = useState<number | null>(null);
   const [missedCallCount, setMissedCallCount] = useState<number | null>(null);
   const [campaignCount, setCampaignCount] = useState<number | null>(null);
+  const [aiTip, setAiTip] = useState<string | null>(null);
+  const [tipLoading, setTipLoading] = useState(true);
 
   const isFiltered = role !== "Admin";
   const todayStr = new Date().toISOString().split("T")[0];
@@ -109,6 +113,38 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
     fetchData();
   }, [userId, isFiltered, todayStr]);
 
+  // Fetch AI tip
+  useEffect(() => {
+    const fetchTip = async () => {
+      setTipLoading(true);
+      try {
+        // Check cache first
+        const cacheKey = `agentflow_tip_${todayStr}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          setAiTip(cached);
+          setTipLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke("daily-tip", {
+          body: { firstName },
+        });
+
+        if (error) throw error;
+        const tip = data?.tip || "Make every call count today! 💪";
+        setAiTip(tip);
+        localStorage.setItem(cacheKey, tip);
+      } catch (e) {
+        console.error("Failed to fetch AI tip:", e);
+        setAiTip("Stay focused and make every conversation count today! 🎯");
+      } finally {
+        setTipLoading(false);
+      }
+    };
+    fetchTip();
+  }, [firstName, todayStr]);
+
   const handleView = (target: string) => {
     if (target === "campaigns") {
       onDismiss();
@@ -152,12 +188,30 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-      <div className="bg-card rounded-xl border border-border shadow-xl p-6 max-w-[560px] w-full mx-4">
+      <div className="bg-card rounded-xl border border-border shadow-xl p-6 max-w-[560px] w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Greeting */}
         <h2 className="text-2xl font-bold text-foreground">
           {greeting}, {firstName} 👋
         </h2>
         <p className="text-muted-foreground mt-1">{dateFormatted}</p>
+
+        {/* AI Tip of the Day */}
+        <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-primary">AI Tip of the Day</span>
+          </div>
+          {tipLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              Generating your daily tip...
+            </div>
+          ) : (
+            <div className="text-sm text-foreground leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown>{aiTip || ""}</ReactMarkdown>
+            </div>
+          )}
+        </div>
 
         {/* Data rows */}
         <div className="mt-5">
@@ -197,12 +251,6 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
             className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
           >
             Let's Go →
-          </button>
-          <button
-            onClick={onClose}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Remind me later
           </button>
         </div>
       </div>
