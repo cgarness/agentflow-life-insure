@@ -40,6 +40,7 @@ export interface UserProfile {
   onboardingComplete: boolean;
   monthlyCallGoal: number;
   monthlySalesGoal: number;
+  monthlyPoliciesGoal: number;
   weeklyAppointmentGoal: number;
   monthlyTalkTimeGoalHours: number;
   onboardingItems: OnboardingItem[];
