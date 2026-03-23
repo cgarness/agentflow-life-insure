@@ -94,10 +94,10 @@ const StateMultiSelect: React.FC<{
   , [search]);
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1">
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {selected.map(s => (
-          <div key={s.state} className="flex flex-col gap-1 p-2 border rounded-md bg-accent/20 min-w-[120px]">
+          <div key={s.state} className="flex flex-col gap-1.5 p-2 border rounded-md bg-accent/20 min-w-0">
             <div className="flex items-center justify-between">
               <Badge variant="secondary" className="text-xs">{s.state}</Badge>
               {!disabled && (
@@ -372,7 +372,7 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Invite User</DialogTitle>
           <DialogDescription>Send an invitation to join AgentFlow.</DialogDescription>
@@ -603,7 +603,7 @@ const UserProfileModal: React.FC<{
   return (
     <>
       <Dialog open={open} onOpenChange={v => !v && onClose()}>
-        <DialogContent className="w-[780px] max-w-none h-[620px] flex flex-col overflow-hidden">
+        <DialogContent className="w-[850px] max-w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-start justify-between flex-shrink-0">
             <div className="flex items-center gap-4">
