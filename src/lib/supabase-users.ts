@@ -41,7 +41,17 @@ function rowToUser(row: any): User & { profile: UserProfile } {
 
 export const usersSupabaseApi = {
   async getAll(filters?: { search?: string; role?: string; status?: string }): Promise<(User & { profile: UserProfile })[]> {
-    let q = supabase.from("profiles").select("*");
+    const columns = [
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "availability_status", "theme_preference", "created_at", "licensed_states", 
+      "resident_state", "commission_level", "upline_id", "onboarding_complete", 
+      "monthly_call_goal", "monthly_sales_goal", "weekly_appointment_goal", 
+      "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
+      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
+      "push_notifications_enabled", "carriers"
+    ].join(",");
+    
+    let q = supabase.from("profiles").select(columns);
     
     if (filters?.search) {
       const search = filters.search.toLowerCase();
@@ -66,9 +76,19 @@ export const usersSupabaseApi = {
   },
 
   async getById(id: string): Promise<User & { profile: UserProfile }> {
+    const columns = [
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "availability_status", "theme_preference", "created_at", "licensed_states", 
+      "resident_state", "commission_level", "upline_id", "onboarding_complete", 
+      "monthly_call_goal", "monthly_sales_goal", "weekly_appointment_goal", 
+      "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
+      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
+      "push_notifications_enabled", "carriers"
+    ].join(",");
+
     const { data, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select(columns)
       .eq("id", id)
       .single();
     if (error) throw error;
@@ -114,11 +134,21 @@ export const usersSupabaseApi = {
     if (data.onboardingItems !== undefined) payload.onboarding_items = data.onboardingItems;
     payload.updated_at = new Date().toISOString();
 
+    const columns = [
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "availability_status", "theme_preference", "created_at", "licensed_states", 
+      "resident_state", "commission_level", "upline_id", "onboarding_complete", 
+      "monthly_call_goal", "monthly_sales_goal", "weekly_appointment_goal", 
+      "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
+      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
+      "push_notifications_enabled", "carriers"
+    ].join(",");
+
     const { data: result, error } = await supabase
       .from("profiles")
       .update(payload)
       .eq("id", userId)
-      .select();
+      .select(columns);
     
     if (error) throw error;
     if (!result || result.length === 0) {
