@@ -240,6 +240,13 @@ const Dashboard: React.FC = () => {
     setShowBriefing(true);
   }, []);
 
+  // Listen for custom event to reopen briefing from TopBar
+  useEffect(() => {
+    const handler = () => setShowBriefing(true);
+    window.addEventListener("open-daily-briefing", handler);
+    return () => window.removeEventListener("open-daily-briefing", handler);
+  }, []);
+
   const scrollToWidget = useCallback((widgetId: string) => {
     const el = widgetRefs.current[widgetId];
     if (el) {
