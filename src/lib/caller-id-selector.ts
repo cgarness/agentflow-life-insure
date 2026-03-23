@@ -19,14 +19,23 @@ interface CampaignLead {
 
 // Area code to state mapping lookup
 export async function getStateByAreaCode(areaCode: string): Promise<string | null> {
-  const { data, error } = await (supabase as any)
-    .from('area_code_mapping')
-    .select('state')
-    .eq('area_code', areaCode)
-    .single();
+  try {
+    const { data, error } = await (supabase as any)
+      .from('area_code_mapping')
+      .select('state')
+      .eq('area_code', areaCode)
+      .maybeSingle();
 
-  if (error || !data) return null;
-  return (data as any).state;
+    if (error) {
+      console.warn(`[caller-id-selector] area_code_mapping lookup failed for areaCode=${areaCode}`, error);
+      return null;
+    }
+    if (!data) return null;
+    return (data as any).state;
+  } catch (err) {
+    console.warn(`[caller-id-selector] getStateByAreaCode threw for areaCode=${areaCode}`, err);
+    return null;
+  }
 }
 
 // Extract area code from E.164 phone number

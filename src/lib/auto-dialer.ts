@@ -49,25 +49,35 @@ export class AutoDialer {
 
   async startSession(): Promise<void> {
     // Load session settings
-    const { data: session } = await supabase
-      .from('dialer_sessions')
-      .select('auto_dial_enabled')
-      .eq('id', this.sessionId)
-      .single();
+    try {
+      const { data: session } = await supabase
+        .from('dialer_sessions')
+        .select('auto_dial_enabled')
+        .eq('id', this.sessionId)
+        .maybeSingle();
 
-    if (session) {
-      this.autoDialEnabled = (session as any).auto_dial_enabled ?? true;
+      this.autoDialEnabled = (session as any)?.auto_dial_enabled ?? true;
+      if (!session) {
+        console.warn(`[AutoDialer] dialer_sessions row not found for id=${this.sessionId}, defaulting auto_dial_enabled=true`);
+      }
+    } catch (err) {
+      console.warn('[AutoDialer] Failed to load session settings, defaulting auto_dial_enabled=true', err);
     }
 
     // Load campaign settings
-    const { data: campaign } = await supabase
-      .from('campaigns')
-      .select('local_presence_enabled')
-      .eq('id', this.campaignId)
-      .single();
+    try {
+      const { data: campaign } = await supabase
+        .from('campaigns')
+        .select('local_presence_enabled')
+        .eq('id', this.campaignId)
+        .maybeSingle();
 
-    if (campaign) {
-      this.localPresenceEnabled = (campaign as any).local_presence_enabled ?? true;
+      this.localPresenceEnabled = (campaign as any)?.local_presence_enabled ?? true;
+      if (!campaign) {
+        console.warn(`[AutoDialer] campaigns row not found for id=${this.campaignId}, defaulting local_presence_enabled=true`);
+      }
+    } catch (err) {
+      console.warn('[AutoDialer] Failed to load campaign settings, defaulting local_presence_enabled=true', err);
     }
 
     // Load phone numbers (cache for entire session)
@@ -112,11 +122,17 @@ export class AutoDialer {
     const lead = this.leadQueue[this.currentLeadIndex];
 
     // DNC check (double-check in case list changed)
-    const { data: dncRecord } = await supabase
-      .from('dnc_list')
-      .select('*')
-      .eq('phone_number', lead.phone)
-      .single();
+    let dncRecord: Record<string, unknown> | null = null;
+    try {
+      const { data } = await supabase
+        .from('dnc_list')
+        .select('*')
+        .eq('phone_number', lead.phone)
+        .maybeSingle();
+      dncRecord = data as Record<string, unknown> | null;
+    } catch (err) {
+      console.warn('[AutoDialer] DNC check failed, proceeding without DNC verification', err);
+    }
 
     if (dncRecord) {
       console.log('Lead on DNC list, emitting warning event');

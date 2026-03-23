@@ -97,9 +97,10 @@ export async function createCall(data: {
       started_at: new Date().toISOString(),
     })
     .select("id")
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
+  if (!call) throw new Error("createCall: insert returned no data");
   return call.id;
 }
 

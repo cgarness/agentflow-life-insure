@@ -360,9 +360,10 @@ const FloatingDialer: React.FC = () => {
         .gt('duration', 0)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
       return data?.caller_id_used || null;
-    } catch {
+    } catch (err) {
+      console.warn('[FloatingDialer] getPreviousCallerId failed, defaulting to null', err);
       return null;
     }
   };
