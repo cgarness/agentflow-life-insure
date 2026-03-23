@@ -54,6 +54,9 @@ export const usersSupabaseApi = {
     
     if (filters?.status && filters.status !== "All") {
       q = q.eq("status", filters.status);
+    } else {
+      // By default, hide deleted users
+      q = q.neq("status", "Deleted");
     }
     
     const { data, error } = await q.order("first_name", { ascending: true });
@@ -175,7 +178,7 @@ export const usersSupabaseApi = {
   async deleteUser(id: string): Promise<void> {
     const { error } = await supabase
       .from("profiles")
-      .delete()
+      .update({ status: "Deleted" })
       .eq("id", id);
     if (error) throw error;
   },

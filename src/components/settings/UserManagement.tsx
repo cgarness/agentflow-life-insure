@@ -603,9 +603,8 @@ const UserProfileModal: React.FC<{
   return (
     <>
       <Dialog open={open} onOpenChange={v => !v && onClose()}>
-        <DialogContent className="w-[850px] max-w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
-          {/* Header */}
-          <div className="flex items-start justify-between flex-shrink-0">
+        <DialogContent className="w-[850px] max-w-[95vw] h-[720px] flex flex-col overflow-hidden p-0">
+          <div className="p-6 pb-0 flex items-start justify-between flex-shrink-0">
             <div className="flex items-center gap-4">
               <AvatarUpload
                 currentAvatar={avatarUrl}
@@ -622,234 +621,248 @@ const UserProfileModal: React.FC<{
                 <p className="text-xs text-muted-foreground mt-1">Last login: {formatDate(user.lastLoginAt)}</p>
               </div>
             </div>
-
+            {/* Header Right spacer if needed */}
           </div>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
-          <Tabs value={tab} onValueChange={setTab} className="mt-4">
-            <TabsList className="w-full">
-              <TabsTrigger value="profile" className="flex-1">Profile</TabsTrigger>
-              <TabsTrigger value="goals" className="flex-1">Goals</TabsTrigger>
-              <TabsTrigger value="onboarding" className="flex-1">Onboarding</TabsTrigger>
-              <TabsTrigger value="performance" className="flex-1">Performance</TabsTrigger>
-            </TabsList>
+          <div className="px-6 mt-4 flex-shrink-0">
+            <Tabs value={tab} onValueChange={setTab} className="w-full">
+              <TabsList className="w-full">
+                <TabsTrigger value="profile" className="flex-1">Profile</TabsTrigger>
+                <TabsTrigger value="goals" className="flex-1">Goals</TabsTrigger>
+                <TabsTrigger value="onboarding" className="flex-1">Onboarding</TabsTrigger>
+                <TabsTrigger value="performance" className="flex-1">Performance</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
 
-            {/* PROFILE TAB */}
-            <TabsContent value="profile" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>First Name</Label><Input value={form.firstName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} /></div>
-                <div><Label>Last Name</Label><Input value={form.lastName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>Email</Label><Input type="email" value={form.email as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
-                <div><Label>Phone</Label><Input value={form.phone as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Role</Label>
-                  <Select value={form.role as string} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Admin">Admin</SelectItem>
-                      <SelectItem value="Team Leader">Team Leader</SelectItem>
-                      <SelectItem value="Agent">Agent</SelectItem>
-                    </SelectContent>
-                  </Select>
+          <div className="flex-1 overflow-y-auto min-h-0 p-6 pt-0 mt-4">
+            <Tabs value={tab} className="mt-0 border-none shadow-none">
+              {/* Profile Tab Section */}
+              <TabsContent value="profile" className="space-y-4 mt-0">
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>First Name</Label><Input value={form.firstName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} /></div>
+                  <div><Label>Last Name</Label><Input value={form.lastName as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} /></div>
                 </div>
-                <div>
-                  <Label>Status</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-sm text-foreground">{form.status === "Active" ? "Active" : "Inactive"}</span>
-                    <Switch
-                      checked={form.status === "Active"}
-                      disabled={!editMode || isSelf}
-                      onCheckedChange={handleToggleStatus}
-                    />
-                    {/* Reset Password button */}
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="ml-auto gap-1.5"
-                            disabled={isSelf}
-                            onClick={() => !isSelf && setResetPwOpen(true)}
-                          >
-                            <Lock className="w-3.5 h-3.5" />
-                            Reset Password
-                          </Button>
-                        </TooltipTrigger>
-                        {isSelf && (
-                          <TooltipContent>
-                            <p>Use Profile Settings to change your own password</p>
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    </TooltipProvider>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Email</Label><Input type="email" value={form.email as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+                  <div><Label>Phone</Label><Input value={form.phone as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Role</Label>
+                    <Select value={form.role as string} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Admin">Admin</SelectItem>
+                        <SelectItem value="Team Leader">Team Leader</SelectItem>
+                        <SelectItem value="Agent">Agent</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                </div>
-              </div>
-              <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as any[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
-              <div><Label>Resident State</Label><SingleStateSelect value={form.residentState as string} onChange={v => setForm(p => ({ ...p, residentState: v }))} disabled={!editMode} /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
-                <div>
-                  <Label>Upline Agent</Label>
-                  <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select upline agent..." /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">None</SelectItem>
-                      {uplineCandidates.map(u => (
-                        <SelectItem key={u.id} value={u.id}>
-                          <span className="flex items-center gap-2">
-                            {u.firstName} {u.lastName}
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1">{u.role}</Badge>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {editMode && (
-                <div className="flex gap-2 justify-end">
-                  {!isSelf && (
-                    <Button
-                      variant="outline"
-                      className="text-destructive border-destructive hover:bg-destructive/10 mr-auto"
-                      onClick={() => setDeleteConfirmOpen(true)}
-                    >
-                      Delete User
-                    </Button>
-                  )}
-                  <Button variant="outline" onClick={onClose}>Cancel</Button>
-                  <Button onClick={handleSaveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
-                </div>
-              )}
-            </TabsContent>
-
-            {/* GOALS TAB */}
-            <TabsContent value="goals" className="space-y-5 mt-4">
-              {[
-                { label: "Daily Calls Goal", key: "monthlyCallGoal", actual: goalActuals.calls },
-                { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policies },
-                { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointments },
-                { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTime) },
-              ].map(g => {
-                const target = (form as any)[g.key] as number || 1; // eslint-disable-line @typescript-eslint/no-explicit-any
-                const pct = Math.min(100, Math.round((g.actual / target) * 100));
-                return (
-                  <div key={g.key} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>{g.label}</Label>
-                      <Input
-                        type="number"
-                        className="w-24 h-8 text-sm"
-                        value={(form as any)[g.key] || 0} // eslint-disable-line @typescript-eslint/no-explicit-any
-                        onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
+                  <div>
+                    <Label>Status</Label>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="text-sm text-foreground">{form.status === "Active" ? "Active" : "Inactive"}</span>
+                      <Switch
+                        checked={form.status === "Active"}
+                        disabled={!editMode || isSelf}
+                        onCheckedChange={handleToggleStatus}
                       />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className={`text-xs font-medium min-w-[80px] text-right ${pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"}`}>
-                        {g.actual} / {target} ({pct}%)
-                      </span>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="ml-auto gap-1.5"
+                              disabled={isSelf}
+                              onClick={() => !isSelf && setResetPwOpen(true)}
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              Reset Password
+                            </Button>
+                          </TooltipTrigger>
+                          {isSelf && (
+                            <TooltipContent>
+                              <p>Use Profile Settings to change your own password</p>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                   </div>
-                );
-              })}
-              <div className="flex justify-end">
-                <Button onClick={handleSaveGoals} disabled={saving}>{saving ? "Saving..." : "Save Goals"}</Button>
-              </div>
-            </TabsContent>
-
-            {/* ONBOARDING TAB */}
-            <TabsContent value="onboarding" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground mb-1">Completion: {onboardingPct}%</p>
-                  <Progress value={onboardingPct} className="h-2" />
                 </div>
-                <Button variant="outline" size="sm" className="ml-4" onClick={handleResetOnboarding}>Reset Checklist</Button>
-              </div>
-              <div className="space-y-2">
-                {onboardingItems.map(item => (
-                  <label key={item.key} className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/30 cursor-pointer transition-colors">
-                    <Checkbox checked={item.completed} onCheckedChange={(c) => handleToggleOnboarding(item.key, !!c)} />
-                    <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>{item.label}</span>
-                    {item.completedAt && <span className="text-xs text-muted-foreground">{new Date(item.completedAt).toLocaleDateString()}</span>}
-                  </label>
-                ))}
-              </div>
-            </TabsContent>
-
-            {/* PERFORMANCE TAB */}
-            <TabsContent value="performance" className="space-y-4 mt-4">
-              {perfLoading ? (
-                <div className="space-y-3">
-                  {[1,2,3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
-                </div>
-              ) : performance ? (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {[
-                      { label: "Calls Made", value: performance.callsMade },
-                      { label: "Policies Sold", value: performance.policiesSold },
-                      { label: "Appointments Set", value: performance.appointmentsSet },
-                      { label: "Total Talk Time", value: performance.totalTalkTime },
-                      { label: "Conversion Rate", value: performance.conversionRate },
-                    ].map(s => (
-                      <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-muted-foreground">{s.label}</p>
-                        <p className="text-lg font-bold text-foreground mt-0.5">{s.value}</p>
-                      </div>
-                    ))}
+                <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as any[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
+                <div><Label>Resident State</Label><SingleStateSelect value={form.residentState as string} onChange={v => setForm(p => ({ ...p, residentState: v }))} disabled={!editMode} /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
+                  <div>
+                    <Label>Upline Agent</Label>
+                    <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
+                      <SelectTrigger><SelectValue placeholder="Select upline agent..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">None</SelectItem>
+                        {uplineCandidates.map(u => (
+                          <SelectItem key={u.id} value={u.id}>
+                            <span className="flex items-center gap-2">
+                              {u.firstName} {u.lastName}
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1">{u.role}</Badge>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <h4 className="text-sm font-medium text-foreground mt-4">Goal Progress</h4>
-                  {[
-                    { label: "Calls", actual: performance.callsMade, target: form.monthlyCallGoal as number },
-                    { label: "Policies", actual: performance.policiesSold, target: form.monthlySalesGoal as number },
-                    { label: "Appointments", actual: performance.appointmentsSet, target: form.weeklyAppointmentGoal as number },
-                  ].map(g => {
-                    const pct = g.target ? Math.min(100, Math.round((g.actual / g.target) * 100)) : 0;
-                    return (
-                      <div key={g.label} className="flex items-center gap-3">
-                        <span className="text-sm text-muted-foreground w-24">{g.label}</span>
-                        <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                          <div className={`h-full rounded-full ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
+                </div>
+                {editMode && (
+                  <div className="flex gap-2 justify-end pt-4 pb-2">
+                    {!isSelf && (
+                      <Button
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10 mr-auto"
+                        onClick={() => setDeleteConfirmOpen(true)}
+                      >
+                        Delete User
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={onClose}>Cancel</Button>
+                    <Button onClick={handleSaveProfile} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Goals Tab Section */}
+              <TabsContent value="goals" className="space-y-6 mt-0">
+                {[
+                  { label: "Daily Calls Goal", key: "monthlyCallGoal", actual: goalActuals.calls },
+                  { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policies },
+                  { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointments },
+                  { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTime) },
+                ].map(g => {
+                  const target = (form as any)[g.key] as number || 1;
+                  const pct = Math.min(100, Math.round((g.actual / target) * 100));
+                  return (
+                    <div key={g.key} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>{g.label}</Label>
+                        <Input
+                          type="number"
+                          className="w-24 h-8 text-sm"
+                          value={(form as any)[g.key] || 0}
+                          onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
                         </div>
-                        <span className="text-xs text-muted-foreground w-20 text-right">{g.actual}/{g.target}</span>
+                        <span className={`text-xs font-medium min-w-[80px] text-right ${pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"}`}>
+                          {g.actual} / {target} ({pct}%)
+                        </span>
                       </div>
-                    );
-                  })}
-                  <h4 className="text-sm font-medium text-foreground mt-4">Recent Calls</h4>
-                  {performance.recentCalls.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No recent calls.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {performance.recentCalls.map((c: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
-                        <div key={c.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-accent/30 text-sm">
-                          <span className="text-foreground">{c.contactName}</span>
-                          <div className="flex items-center gap-3">
-                            <Badge variant="outline" className="text-xs">{c.disposition || "N/A"}</Badge>
-                            <span className="text-muted-foreground text-xs">{Math.floor(c.duration / 60)}:{String(c.duration % 60).padStart(2, "0")}</span>
-                          </div>
+                    </div>
+                  );
+                })}
+                <div className="flex justify-end pt-4">
+                  <Button onClick={handleSaveGoals} disabled={saving}>{saving ? "Saving..." : "Save Goals"}</Button>
+                </div>
+              </TabsContent>
+
+              {/* Onboarding Tab Section */}
+              <TabsContent value="onboarding" className="space-y-4 mt-0">
+                <div className="flex items-center justify-between p-1">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground mb-1.5">Completion: {onboardingPct}%</p>
+                    <Progress value={onboardingPct} className="h-2" />
+                  </div>
+                  <Button variant="outline" size="sm" className="ml-6" onClick={handleResetOnboarding}>Reset Checklist</Button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 mt-2">
+                  {onboardingItems.map(item => (
+                    <label key={item.key} className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/30 cursor-pointer transition-colors">
+                      <Checkbox checked={item.completed} onCheckedChange={(c) => handleToggleOnboarding(item.key, !!c)} />
+                      <span className={`flex-1 text-sm ${item.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>{item.label}</span>
+                      {item.completedAt && <span className="text-xs text-muted-foreground">{new Date(item.completedAt).toLocaleDateString()}</span>}
+                    </label>
+                  ))}
+                </div>
+              </TabsContent>
+
+              {/* Performance Tab Section */}
+              <TabsContent value="performance" className="space-y-6 mt-0">
+                {perfLoading ? (
+                  <div className="space-y-3">
+                    {[1,2,3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
+                  </div>
+                ) : performance ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {[
+                        { label: "Calls Made", value: performance.callsMade },
+                        { label: "Policies Sold", value: performance.policiesSold },
+                        { label: "Appointments Set", value: performance.appointmentsSet },
+                        { label: "Total Talk Time", value: performance.totalTalkTime },
+                        { label: "Conversion Rate", value: performance.conversionRate },
+                      ].map(s => (
+                        <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center border">
+                          <p className="text-xs text-muted-foreground">{s.label}</p>
+                          <p className="text-lg font-bold text-foreground mt-0.5">{s.value}</p>
                         </div>
                       ))}
                     </div>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">Select Performance tab to load stats.</p>
-              )}
-            </TabsContent>
-          </Tabs>
+                    <div>
+                      <h4 className="text-sm font-medium text-foreground mb-4">Goal Progress</h4>
+                      <div className="space-y-4">
+                        {[
+                          { label: "Calls", actual: performance.callsMade, target: form.monthlyCallGoal as number },
+                          { label: "Policies", actual: performance.policiesSold, target: form.monthlySalesGoal as number },
+                          { label: "Appointments", actual: performance.appointmentsSet, target: form.weeklyAppointmentGoal as number },
+                        ].map(g => {
+                          const pct = g.target ? Math.min(100, Math.round((g.actual / g.target) * 100)) : 0;
+                          return (
+                            <div key={g.label} className="flex items-center gap-3">
+                              <span className="text-sm text-muted-foreground w-24">{g.label}</span>
+                              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                                <div className={`h-full rounded-full ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-xs font-mono text-muted-foreground w-20 text-right">{g.actual}/{g.target}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-foreground mb-4">Recent Calls</h4>
+                      {performance.recentCalls.length === 0 ? (
+                        <div className="py-8 text-center border rounded-lg bg-accent/10">
+                          <p className="text-sm text-muted-foreground">No recent calls recorded.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {performance.recentCalls.map((c: any) => (
+                            <div key={c.id} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-accent/30 border text-sm">
+                              <span className="text-foreground font-medium">{c.contactName}</span>
+                              <div className="flex items-center gap-4">
+                                <Badge variant="outline" className="text-[10px] uppercase font-bold">{c.disposition || "N/A"}</Badge>
+                                <span className="text-muted-foreground font-mono text-xs">{Math.floor(c.duration / 60)}:{String(c.duration % 60).padStart(2, "0")}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-12 text-center border rounded-lg bg-accent/10">
+                    <p className="text-sm text-muted-foreground">Select Performance tab to load stats.</p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
         </DialogContent>
       </Dialog>
+
 
       {/* Reset Password Confirmation */}
       <Dialog open={resetPwOpen} onOpenChange={setResetPwOpen}>
