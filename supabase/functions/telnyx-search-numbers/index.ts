@@ -14,11 +14,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { area_code, api_key: directApiKey, limit = 10 } = await req.json();
-
-        if (!area_code) {
-            throw new Error("Area code is required");
-        }
+        const { area_code, locality, state, contains, starts_with, ends_with, api_key: directApiKey, limit = 20 } = await req.json();
 
         // Try to use the API key passed directly first, then fall back to database
         let apiKey = directApiKey;
@@ -42,9 +38,24 @@ Deno.serve(async (req) => {
             throw new Error("Telnyx API key not found. Please save your API Key in Settings first.");
         }
 
+        // Build query parameters
+        const params = new URLSearchParams();
+        params.append("filter[country_code]", "US");
+        params.append("filter[features]", "voice");
+        params.append("filter[features]", "sms");
+        params.append("filter[best_effort]", "true");
+        params.append("filter[limit]", limit.toString());
+
+        if (area_code) params.append("filter[national_destination_code]", area_code);
+        if (locality) params.append("filter[locality]", locality);
+        if (state) params.append("filter[administrative_area]", state);
+        if (contains) params.append("filter[phone_number][contains]", contains);
+        if (starts_with) params.append("filter[phone_number][starts_with]", starts_with);
+        if (ends_with) params.append("filter[phone_number][ends_with]", ends_with);
+
         // Search Telnyx numbers
         const searchResponse = await fetch(
-            `https://api.telnyx.com/v2/available_phone_numbers?filter[features]=voice&filter[features]=sms&filter[national_destination_code]=${area_code}&filter[best_effort]=true&filter[limit]=${limit}`,
+            `https://api.telnyx.com/v2/available_phone_numbers?${params.toString()}`,
             {
                 method: "GET",
                 headers: {

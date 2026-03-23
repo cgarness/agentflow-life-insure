@@ -88,6 +88,10 @@ const PhoneSettings: React.FC = () => {
   // Purchase Modal
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [searchAreaCode, setSearchAreaCode] = useState("");
+  const [searchLocality, setSearchLocality] = useState("");
+  const [searchState, setSearchState] = useState("");
+  const [searchPattern, setSearchPattern] = useState("");
+  const [searchPatternType, setSearchPatternType] = useState<"contains" | "starts_with" | "ends_with">("contains");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
@@ -262,11 +266,20 @@ const PhoneSettings: React.FC = () => {
 
   // Purchase flow
   const handleSearchNumbers = async () => {
-    if (searchAreaCode.length !== 3) return;
     setSearching(true);
     setSearchResults([]);
     try {
-      const { data, error } = await supabase.functions.invoke("telnyx-search-numbers", { body: { area_code: searchAreaCode, api_key: apiKey } });
+      const { data, error } = await supabase.functions.invoke("telnyx-search-numbers", {
+        body: {
+          area_code: searchAreaCode || undefined,
+          locality: searchLocality || undefined,
+          state: searchState || undefined,
+          contains: searchPatternType === "contains" ? searchPattern : undefined,
+          starts_with: searchPatternType === "starts_with" ? searchPattern : undefined,
+          ends_with: searchPatternType === "ends_with" ? searchPattern : undefined,
+          api_key: apiKey
+        }
+      });
       if (error) throw error;
       if (data?.error) {
         if (/api key/i.test(data.error) || /credential/i.test(data.error)) {
@@ -279,6 +292,7 @@ const PhoneSettings: React.FC = () => {
       }
       setSearchResults(data?.numbers || []);
       if ((data?.numbers || []).length > 0) setPurchaseStep(2);
+      else toast.info("No numbers found matching your filters.");
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -304,6 +318,10 @@ const PhoneSettings: React.FC = () => {
 
   const resetPurchaseModal = () => {
     setSearchAreaCode("");
+    setSearchLocality("");
+    setSearchState("");
+    setSearchPattern("");
+    setSearchPatternType("contains");
     setSearchResults([]);
     setSelectedNumber(null);
     setPurchaseStep(1);
@@ -663,21 +681,64 @@ const PhoneSettings: React.FC = () => {
 
           {purchaseStep === 1 && (
             <div className="space-y-4">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Area Code</label>
                   <Input
-                    placeholder="Area code (e.g. 213)"
+                    placeholder="e.g. 213"
                     value={searchAreaCode}
                     onChange={e => setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
-                    className="pl-9"
                     onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
                   />
                 </div>
-                <Button onClick={handleSearchNumbers} disabled={searching || searchAreaCode.length !== 3}>
-                  {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search Available Numbers"}
-                </Button>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">State (2-letter)</label>
+                  <Input
+                    placeholder="e.g. CA"
+                    value={searchState}
+                    onChange={e => setSearchState(e.target.value.toUpperCase().slice(0, 2))}
+                    onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">City (Locality)</label>
+                  <Input
+                    placeholder="e.g. Los Angeles"
+                    value={searchLocality}
+                    onChange={e => setSearchLocality(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Number Pattern</label>
+                  <div className="flex gap-1">
+                    <Select
+                      value={searchPatternType}
+                      onValueChange={(v: any) => setSearchPatternType(v)}
+                    >
+                      <SelectTrigger className="w-24 text-xs h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="contains">Contains</SelectItem>
+                        <SelectItem value="starts_with">Starts</SelectItem>
+                        <SelectItem value="ends_with">Ends</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="888"
+                      value={searchPattern}
+                      onChange={e => setSearchPattern(e.target.value.replace(/\D/g, ""))}
+                      onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
               </div>
+              <Button className="w-full" onClick={handleSearchNumbers} disabled={searching}>
+                {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
+                Search Available Numbers
+              </Button>
             </div>
           )}
 
@@ -706,7 +767,7 @@ const PhoneSettings: React.FC = () => {
                               )}
                             </div>
                           </div>
-                          <span className="text-xs text-muted-foreground">{r.monthly_cost || "$1.00"}/mo</span>
+                          <span className="text-xs font-semibold text-primary">$3.00/mo</span>
                         </label>
                       );
                     })}
