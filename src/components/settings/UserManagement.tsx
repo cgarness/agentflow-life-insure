@@ -507,9 +507,8 @@ const UserProfileModal: React.FC<{
       toast({ title: "Changes saved successfully" });
       setEditMode(false);
       onSaved();
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      console.error(e);
-      toast({ title: "Failed to save changes. Please try again.", variant: "destructive" });
+    } catch (e: any) {
+      toast({ title: "Failed to save changes", description: e.message || "An unknown error occurred", variant: "destructive" });
     } finally {
       setSaving(false);
     }
