@@ -236,8 +236,8 @@ const Dashboard: React.FC = () => {
     setShowBriefing(false);
   }, [userId]);
 
-  const closeBriefing = useCallback(() => {
-    setShowBriefing(false);
+  const openBriefing = useCallback(() => {
+    setShowBriefing(true);
   }, []);
 
   const scrollToWidget = useCallback((widgetId: string) => {
