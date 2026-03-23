@@ -189,16 +189,20 @@ export class AutoDialer {
     const lead = this.leadQueue[this.currentLeadIndex];
     console.log(`Saving disposition ${dispositionId} for lead ${lead?.id}`);
 
-    // Save disposition to database
-    await (supabase as any)
-      .from('call_dispositions')
-      .insert({
-        lead_id: lead.id,
-        disposition_id: dispositionId,
-        agent_id: this.agentId,
-        notes: notes ?? null,
-        created_at: new Date().toISOString()
-      });
+    // Save disposition to existing call record
+    try {
+      await supabase
+        .from('calls')
+        .update({
+          disposition_id: dispositionId,
+          notes: notes || ''
+        } as any)
+        .eq('contact_id', lead.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+    } catch (err) {
+      console.warn('Disposition may not have saved:', err);
+    }
 
     // Mark lead as Called
     await supabase
