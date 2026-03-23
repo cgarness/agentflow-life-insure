@@ -64,7 +64,7 @@ import ContactModal from "@/components/contacts/ContactModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage } from "@/lib/types";
-import { pipelineApi } from "@/lib/mock-api";
+import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
@@ -368,7 +368,7 @@ export default function DialerPage() {
 
   const { data: leadStagesData = [] } = useQuery({
     queryKey: ["leadStages"],
-    queryFn: pipelineApi.getLeadStages,
+    queryFn: pipelineSupabaseApi.getLeadStages,
     staleTime: 1000 * 60 * 60, // 1 hour
   });
 

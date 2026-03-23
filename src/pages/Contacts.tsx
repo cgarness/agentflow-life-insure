@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { pipelineApi } from "@/lib/mock-api";
+import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
@@ -19,7 +19,7 @@ import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 
 type UserWithProfile = User & { profile: UserProfile };
 import type { Json } from "@/integrations/supabase/types";
-import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
+import { calcAging, getAgentName, getAgentInitials } from "@/lib/data-helpers";
 import ContactModal from "@/components/contacts/ContactModal";
 import ClientModal from "@/components/contacts/ClientModal";
 import RecruitModal from "@/components/contacts/RecruitModal";
@@ -130,13 +130,7 @@ const AGENT_COLUMNS: AgentColDef[] = [
 ];
 const DEFAULT_AGENT_VISIBLE = new Set(AGENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
 
-const mockAgents = [
-  { id: "u1", name: "Chris G." },
-  { id: "u2", name: "Sarah J." },
-  { id: "u3", name: "Mike T." },
-  { id: "u4", name: "Lisa R." },
-  { id: "u5", name: "James W." },
-];
+
 
 // ---- CopyField ----
 const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
@@ -372,6 +366,8 @@ const Contacts: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [recruits, setRecruits] = useState<Recruit[]>([]);
   const [agents, setAgents] = useState<UserWithProfile[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+  const [realCampaigns, setRealCampaigns] = useState<{ id: string; name: string; type: string; status: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -621,7 +617,7 @@ const Contacts: React.FC = () => {
       case "source": case "leadSourceAlias": return l.leadSource.toLowerCase();
       case "score": return l.leadScore;
       case "aging": return calcAging(l.lastContactedAt);
-      case "agent": return getAgentName(l.assignedAgentId).toLowerCase();
+      case "agent": return getAgentName(l.assignedAgentId, agentProfiles).toLowerCase();
       case "dob": return l.dateOfBirth || "";
       case "health": return l.healthStatus || "";
       case "bestTime": return l.bestTimeToCall || "";
@@ -652,7 +648,7 @@ const Contacts: React.FC = () => {
       case "premium": return c.premiumAmount;
       case "faceAmount": return c.faceAmount;
       case "issueDate": return c.issueDate;
-      case "agent": return getAgentName(c.assignedAgentId).toLowerCase();
+      case "agent": return getAgentName(c.assignedAgentId, agentProfiles).toLowerCase();
       default: return "";
     }
   };
@@ -675,7 +671,7 @@ const Contacts: React.FC = () => {
       case "phone": return r.phone;
       case "email": return r.email.toLowerCase();
       case "status": return recruitStatuses.indexOf(r.status);
-      case "agent": return getAgentName(r.assignedAgentId).toLowerCase();
+      case "agent": return getAgentName(r.assignedAgentId, agentProfiles).toLowerCase();
       default: return "";
     }
   };
@@ -733,15 +729,23 @@ const Contacts: React.FC = () => {
 
   // Fetch pipeline stage colors from settings
   useEffect(() => {
-    pipelineApi.getLeadStages().then(stages => {
+    pipelineSupabaseApi.getLeadStages().then(stages => {
       const map: Record<string, string> = {};
       stages.forEach(s => { map[s.name] = s.color; });
       setLeadStageColors(map);
     });
-    pipelineApi.getRecruitStages().then(stages => {
+    pipelineSupabaseApi.getRecruitStages().then(stages => {
       const map: Record<string, string> = {};
       stages.forEach(s => { map[s.name] = s.color; });
       setRecruitStageColors(map);
+    });
+    // Fetch agent profiles for display
+    supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
+      if (data) setAgentProfiles(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+    });
+    // Fetch campaigns for import modal
+    supabase.from("campaigns").select("id, name, type, status").then(({ data }) => {
+      if (data) setRealCampaigns(data);
     });
   }, []);
 
@@ -914,7 +918,7 @@ const Contacts: React.FC = () => {
   const toggleRecruitSelect = (id: string) => setSelectedRecruitIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAllRecruits = () => setSelectedRecruitIds(prev => prev.size === recruits.length ? new Set() : new Set(recruits.map(r => r.id)));
   const toggleAgentSelect = (id: string) => setSelectedAgentIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const toggleAllAgents = () => setSelectedAgentIds(prev => prev.size === mockUsers.length ? new Set() : new Set(mockUsers.map(u => u.id)));
+  const toggleAllAgents = () => setSelectedAgentIds(prev => prev.size === agents.length ? new Set() : new Set(agents.map(u => u.id)));
 
   const isAllSelected = selectedIds.size === leads.length && leads.length > 0;
   const isIndeterminate = selectedIds.size > 0 && selectedIds.size < leads.length;
@@ -957,7 +961,7 @@ const Contacts: React.FC = () => {
         const pill = agingPill(aging);
         return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${pill.cls}`}>{pill.label}</span>;
       }
-      case "agent": return <span className="text-foreground">{getAgentName(l.assignedAgentId)}</span>;
+      case "agent": return <span className="text-foreground">{getAgentName(l.assignedAgentId, agentProfiles)}</span>;
       case "dob": return <span className="text-muted-foreground text-xs">{l.dateOfBirth || "—"}</span>;
       case "health": return <span className="text-muted-foreground text-xs">{l.healthStatus || "—"}</span>;
       case "bestTime": return <span className="text-muted-foreground text-xs">{l.bestTimeToCall || "—"}</span>;
@@ -977,7 +981,7 @@ const Contacts: React.FC = () => {
       case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
       case "faceAmount": return <span className="text-foreground">{c.faceAmount}</span>;
       case "issueDate": return <span className="text-muted-foreground">{formatDate(c.issueDate)}</span>;
-      case "agent": return <span className="text-foreground">{getAgentName(c.assignedAgentId)}</span>;
+      case "agent": return <span className="text-foreground">{getAgentName(c.assignedAgentId, agentProfiles)}</span>;
       default: return null;
     }
   };
@@ -1007,7 +1011,7 @@ const Contacts: React.FC = () => {
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
       );
-      case "agent": return <span className="text-foreground">{getAgentName(r.assignedAgentId)}</span>;
+      case "agent": return <span className="text-foreground">{getAgentName(r.assignedAgentId, agentProfiles)}</span>;
       default: return null;
     }
   };
@@ -1146,8 +1150,8 @@ const Contacts: React.FC = () => {
           <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
           {bulkAssignOpen && (
             <div className="absolute top-full mt-1 left-0 w-40 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
-              {mockAgents.map(a => (
-                <button key={a.id} onClick={() => handleBulkAssign(a.name)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.name}</button>
+              {agentProfiles.map(a => (
+                <button key={a.id} onClick={() => handleBulkAssign(`${a.firstName} ${a.lastName}`)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.firstName} {a.lastName}</button>
               ))}
             </div>
           )}
@@ -1389,7 +1393,7 @@ const Contacts: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs text-muted-foreground">{l.leadSource}</span>
-                      <div className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">{getAgentInitials(l.assignedAgentId)}</div>
+                      <div className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">{getAgentInitials(l.assignedAgentId, agentProfiles)}</div>
                     </div>
                   </div>
                 ))}
@@ -1501,7 +1505,7 @@ const Contacts: React.FC = () => {
                         <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => setSelectedRecruit(r)}>
                           <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
                           <p className="text-xs text-muted-foreground">{r.email}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId)}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId, agentProfiles)}</p>
                         </div>
                       ))}
                       <button onClick={() => setAddModalOpen(true)} className="w-full py-2 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent sidebar-transition">+ Add</button>
@@ -1653,7 +1657,7 @@ const Contacts: React.FC = () => {
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
         existingLeads={leads}
-        campaigns={mockCampaigns.map(c => ({ id: c.id, name: c.name, type: c.type, status: c.status }))}
+        campaigns={realCampaigns}
         onImportComplete={async (newLeads, historyEntry) => {
           const result = await importLeadsToSupabase(newLeads);
           // Insert import history row into Supabase

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { X, Phone, Mail, Calendar, Pencil, Trash2, GitMerge, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare, Loader2, Play, Save, Clipboard, AlertTriangle } from "lucide-react";
 import { Client, ContactNote, ContactActivity, Call } from "@/lib/types";
-import { mockUsers, mockCalls, getAgentName } from "@/lib/mock-data";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
@@ -30,44 +29,9 @@ function timeAgo(dateStr: string) {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+
+
 interface HistoryItem { id: string; type: "call" | "email" | "sms" | "appointment"; description: string; detail?: string; timestamp: string; agentName: string; }
-
-function generateMockHistory(client: Client): HistoryItem[] {
-  const ag = getAgentName(client.assignedAgentId);
-  return [
-    { id: `h1-${client.id}`, type: "call", description: `Call by ${ag} — Policy review discussed`, timestamp: new Date(Date.now() - 2 * 3600000).toISOString(), agentName: ag },
-    { id: `h2-${client.id}`, type: "appointment", description: `Policy Review on ${new Date(Date.now() + 7 * 86400000).toLocaleDateString()} at 10:00 AM`, timestamp: new Date(Date.now() - 4 * 3600000).toISOString(), agentName: ag },
-    { id: `h3-${client.id}`, type: "email", description: `Annual policy statement sent`, timestamp: new Date(Date.now() - 86400000).toISOString(), agentName: ag },
-    { id: `h4-${client.id}`, type: "call", description: `Call by ${ag} — Premium payment confirmed`, timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), agentName: ag },
-  ];
-}
-
-function generateMockActivities(client: Client): ContactActivity[] {
-  const ag = getAgentName(client.assignedAgentId);
-  return [
-    { id: `ga1-${client.id}`, contactId: client.id, contactType: "client", type: "import", description: "Policy issued and client record created", agentId: client.assignedAgentId, agentName: ag, createdAt: client.createdAt },
-    { id: `ga2-${client.id}`, contactId: client.id, contactType: "client", type: "call", description: `Called by ${ag} — Policy review`, agentId: client.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 86400000).toISOString() },
-    { id: `ga3-${client.id}`, contactId: client.id, contactType: "client", type: "note", description: `Note added by ${ag}`, agentId: client.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 3600000).toISOString() },
-  ];
-}
-
-function generateMockCalls(client: Client): Call[] {
-  const existing = mockCalls.filter(c => c.contactId === client.id);
-  if (existing.length > 0) return existing;
-  const ag = getAgentName(client.assignedAgentId);
-  return [
-    { id: `gc1-${client.id}`, contactId: client.id, contactType: "client", contactName: `${client.firstName} ${client.lastName}`, agentId: client.assignedAgentId, agentName: ag, direction: "outbound", duration: 312, disposition: "Policy Review Completed", createdAt: new Date(Date.now() - 5 * 86400000).toISOString() },
-    { id: `gc2-${client.id}`, contactId: client.id, contactType: "client", contactName: `${client.firstName} ${client.lastName}`, agentId: client.assignedAgentId, agentName: ag, direction: "outbound", duration: 184, disposition: "Premium Payment Confirmed", createdAt: new Date(Date.now() - 12 * 86400000).toISOString() },
-  ];
-}
-
-function generateMockNotes(client: Client): ContactNote[] {
-  const ag = getAgentName(client.assignedAgentId);
-  return [
-    { id: `gn1-${client.id}`, contactId: client.id, contactType: "client", note: `${client.policyType} policy with ${client.carrier}. Payment is current.`, pinned: true, agentId: client.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 2 * 86400000).toISOString() },
-    { id: `gn2-${client.id}`, contactId: client.id, contactType: "client", note: "Annual review scheduled for next quarter.", pinned: false, agentId: client.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 86400000).toISOString() },
-  ];
-}
 
 const historyIconConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   call: { bg: "bg-blue-100", text: "text-blue-600", icon: <Phone className="w-3.5 h-3.5" /> },
@@ -115,6 +79,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
   const [lastUpdated, setLastUpdated] = useState(new Date().toISOString());
+  const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [showSmsCompose, setShowSmsCompose] = useState(false);
   const [smsText, setSmsText] = useState("");
   const [smsSending, setSmsSending] = useState(false);
@@ -185,14 +150,33 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
         activitiesSupabaseApi.getByContact(client.id)
       ]);
 
+      // Fetch real calls from Supabase
+      const { data: callData } = await supabase.from("calls").select("*").eq("contact_id", client.id).order("created_at", { ascending: false });
+      const realCalls: Call[] = (callData || []).map((c: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+        id: c.id,
+        contactId: c.contact_id,
+        contactType: "client",
+        contactName: c.contact_name || `${client.firstName} ${client.lastName}`,
+        agentId: c.agent_id,
+        agentName: c.agent_id || "Unknown",
+        direction: c.direction || "outbound",
+        duration: c.duration || 0,
+        disposition: c.disposition_name || "",
+        createdAt: c.created_at,
+      }));
+
       setLocalNotes(fetchedNotes);
       setActivities(fetchedActivities);
-      setCalls(generateMockCalls(client));
-      setHistoryItems(generateMockHistory(client));
+      setCalls(realCalls);
+      setHistoryItems([]);
       setActiveTab("Overview"); setEditMode(false); setHasChanges(false);
       setNewNote(""); setNoteError(""); setPinNewNote(false); setHistoryFilter("All");
       setShowAppt(false); setLastUpdated(new Date().toISOString());
       setShowSmsCompose(false); setSmsText(""); setSmsSending(false);
+
+      // Fetch agents list
+      const { data: profileData } = await supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
+      if (profileData) setAgents(profileData.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
     }
     loadData();
   }, [client]);
@@ -217,7 +201,10 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   }, [rightTab, filtered.length]);
 
   if (!client) return null;
-  const agents = mockUsers.filter(u => u.status === "Active");
+  const getAgentDisplayName = (agentId: string) => {
+    const a = agents.find(a => a.id === agentId);
+    return a ? `${a.firstName} ${a.lastName}` : agentId;
+  };
   const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); setHasUnsavedChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
   const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Client updated"); };
   const handleCancel = () => { setEditForm({ ...client }); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); };
@@ -322,7 +309,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
                   {renderField("Beneficiary Phone", "beneficiaryPhone")}
                   <div>
                     <label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>
-                    {editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <CopyField value={getAgentName(client.assignedAgentId)} />}
+                    {editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <CopyField value={getAgentDisplayName(client.assignedAgentId)} />}
                   </div>
                 </div>
                 <div>{renderField("Notes", "notes", "textarea")}</div>

@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { Lead, LeadStatus, ContactNote, ContactActivity, Client, PolicyType, PipelineStage } from "@/lib/types";
-import { mockUsers, mockActivities, mockNotes, calcAging, getAgentName } from "@/lib/mock-data";
+import { calcAging } from "@/lib/data-helpers";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { conversionSupabaseApi } from "@/lib/supabase-conversion";
@@ -84,19 +84,7 @@ interface HistoryItem {
   agentName: string;
 }
 
-function generateMockHistory(lead: Lead): HistoryItem[] {
-  const agentName = getAgentName(lead.assignedAgentId);
-  const contactName = `${lead.firstName} ${lead.lastName}`;
-  return [
-    { id: `h1-${lead.id}`, type: "call", description: `Call by ${agentName} — 3:42 — Left Voicemail`, timestamp: new Date(Date.now() - 2 * 3600000).toISOString(), agentName },
-    { id: `h2-${lead.id}`, type: "appointment", description: `Appointment: Sales Call on ${new Date(Date.now() + 2 * 86400000).toLocaleDateString()} at 10:00 AM — Scheduled`, timestamp: new Date(Date.now() - 4 * 3600000).toISOString(), agentName },
-    { id: `h3-${lead.id}`, type: "email", description: `Email sent to ${contactName}`, detail: "Email available after SMTP is configured", timestamp: new Date(Date.now() - 86400000).toISOString(), agentName },
-    { id: `h4-${lead.id}`, type: "call", description: `Call by ${agentName} — 7:15 — Interested`, timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), agentName },
-    { id: `h5-${lead.id}`, type: "sms", description: `SMS sent to ${lead.phone}`, detail: "SMS available after Telnyx is configured", timestamp: new Date(Date.now() - 3 * 86400000).toISOString(), agentName },
-    { id: `h6-${lead.id}`, type: "appointment", description: `Appointment: Follow Up on ${new Date(Date.now() - 5 * 86400000).toLocaleDateString()} at 2:00 PM — Completed`, timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), agentName },
-    { id: `h7-${lead.id}`, type: "call", description: `Call by ${agentName} — 1:20 — No Answer`, timestamp: new Date(Date.now() - 6 * 86400000).toISOString(), agentName },
-  ];
-}
+
 
 const historyIconConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   call: { bg: "bg-blue-100", text: "text-blue-600", icon: <Phone className="w-3.5 h-3.5" /> },
@@ -106,19 +94,6 @@ const historyIconConfig: Record<string, { bg: string; text: string; icon: React.
 };
 
 const historyFilterMap: Record<string, string> = { Calls: "call", Emails: "email", SMS: "sms", Appointments: "appointment" };
-
-// ---- Other mock generators ----
-function generateMockActivities(lead: Lead): ContactActivity[] {
-  const existing = mockActivities.filter(a => a.contactId === lead.id);
-  if (existing.length > 0) return existing;
-  const agentName = getAgentName(lead.assignedAgentId);
-  return [
-    { id: `ga1-${lead.id}`, contactId: lead.id, contactType: "lead", type: "import", description: "Lead imported via CSV", agentId: lead.assignedAgentId, agentName, createdAt: lead.createdAt },
-    { id: `ga2-${lead.id}`, contactId: lead.id, contactType: "lead", type: "status", description: `Status changed from New to ${lead.status}`, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 2 * 86400000).toISOString() },
-    { id: `ga3-${lead.id}`, contactId: lead.id, contactType: "lead", type: "call", description: `Called by ${agentName} — 3:42 — Left Voicemail`, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 86400000).toISOString() },
-    { id: `ga4-${lead.id}`, contactId: lead.id, contactType: "lead", type: "note", description: `Note added by ${agentName}`, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 3600000).toISOString() },
-  ];
-}
 
 interface CallRecord {
   id: string;
@@ -131,15 +106,6 @@ interface CallRecord {
   caller_id_used: string | null;
 }
 
-function generateMockNotes(lead: Lead): ContactNote[] {
-  const existing = mockNotes.filter(n => n.contactId === lead.id);
-  if (existing.length > 0) return existing;
-  const agentName = getAgentName(lead.assignedAgentId);
-  return [
-    { id: `gn1-${lead.id}`, contactId: lead.id, contactType: "lead", note: "Initial contact made. Expressed interest in term life coverage.", pinned: true, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 2 * 86400000).toISOString() },
-    { id: `gn2-${lead.id}`, contactId: lead.id, contactType: "lead", note: "Follow-up scheduled for next week.", pinned: false, agentId: lead.assignedAgentId, agentName, createdAt: new Date(Date.now() - 86400000).toISOString() },
-  ];
-}
 
 const activityIcon = (type: string) => {
   switch (type) {
@@ -244,6 +210,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
   const [showTemplates, setShowTemplates] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
 
   const AGENT_NAME = "Chris Garcia";
 
@@ -327,7 +294,11 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
         .order('created_at', { ascending: false });
       setCalls((callHistory as CallRecord[]) || []);
       setCallsLoading(false);
-      setHistoryItems(generateMockHistory(lead));
+      setHistoryItems([]);
+
+      // Fetch agents list
+      const { data: profileData } = await supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
+      if (profileData) setAgents(profileData.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
       setActiveTab("Overview");
       setEditMode(false);
       setHasChanges(false);
@@ -391,7 +362,10 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
 
   if (!lead) return null;
 
-  const agents = mockUsers.filter(u => u.status === "Active");
+  const getAgentDisplayName = (agentId: string) => {
+    const a = agents.find(ag => ag.id === agentId);
+    return a ? `${a.firstName} ${a.lastName}` : agentId;
+  };
 
   const handleStatusChange = async (newStatus: string) => {
     setStatusDropdownOpen(false);
@@ -429,7 +403,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     for (const key of Object.keys(fieldLabels)) {
       if ((editForm as any)[key] !== (lead as any)[key]) { // eslint-disable-line @typescript-eslint/no-explicit-any
         if (key === "assignedAgentId") {
-          const agentName = getAgentName((editForm as any)[key]); // eslint-disable-line @typescript-eslint/no-explicit-any
+          const agentName = getAgentDisplayName((editForm as any)[key]); // eslint-disable-line @typescript-eslint/no-explicit-any
           changedFields.push(`Assigned agent changed to ${agentName}`);
         } else if (key === "leadSource") {
           changedFields.push(`Lead source changed to ${(editForm as any)[key]}`); // eslint-disable-line @typescript-eslint/no-explicit-any

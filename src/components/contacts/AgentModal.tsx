@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Phone, Mail, Calendar, Clock, FileText, RefreshCw, MessageSquare, ChevronDown } from "lucide-react";
 import { User, UserProfile, ContactActivity } from "@/lib/types";
-import { mockProfiles } from "@/lib/mock-data";
+import { supabase } from "@/integrations/supabase/client";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
@@ -53,8 +53,37 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
         loadData();
     }, [agent]);
 
+    const [profile, setProfile] = useState<UserProfile | undefined>(undefined);
+
+    useEffect(() => {
+        if (!agent) return;
+        supabase.from("profiles").select("*").eq("id", agent.id).single().then(({ data: rawData }) => {
+            if (!rawData) return;
+            const data = rawData as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            setProfile({
+                userId: data.id,
+                licensedStates: data.licensed_states || [],
+                carriers: data.carriers || [],
+                residentState: data.resident_state,
+                commissionLevel: data.commission_level || "0%",
+                uplineId: data.upline_id,
+                onboardingComplete: data.onboarding_complete || false,
+                monthlyCallGoal: data.monthly_call_goal || 0,
+                monthlySalesGoal: data.monthly_sales_goal || 0,
+                weeklyAppointmentGoal: data.weekly_appointment_goal || 0,
+                monthlyTalkTimeGoalHours: data.monthly_talk_time_goal_hours || 0,
+                npn: data.npn || "",
+                timezone: data.timezone || "Eastern Time (US & Canada)",
+                winSoundEnabled: data.win_sound_enabled ?? true,
+                emailNotificationsEnabled: data.email_notifications_enabled ?? true,
+                smsNotificationsEnabled: data.sms_notifications_enabled ?? false,
+                pushNotificationsEnabled: data.push_notifications_enabled ?? true,
+                onboardingItems: data.onboarding_items || [],
+            });
+        });
+    }, [agent]);
+
     if (!agent) return null;
-    const profile: UserProfile | undefined = mockProfiles.find(p => p.userId === agent.id);
 
     const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
 

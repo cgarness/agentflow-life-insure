@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { X, Phone, Mail, Calendar, Pencil, Trash2, Clock, Pin, Headphones, FileText, RefreshCw, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2 } from "lucide-react";
 import { Recruit, ContactNote, ContactActivity, Call } from "@/lib/types";
 
-import { mockUsers, mockCalls, getAgentName } from "@/lib/mock-data";
+
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
@@ -26,10 +26,7 @@ function timeAgo(dateStr: string) { const diff = Date.now() - new Date(dateStr).
 
 interface HistoryItem { id: string; type: "call" | "email" | "sms" | "appointment"; description: string; timestamp: string; agentName: string; }
 
-function generateMockHistory(r: Recruit): HistoryItem[] { const ag = getAgentName(r.assignedAgentId); return [{ id: `h1-${r.id}`, type: "call", description: `Call by ${ag} — Initial outreach`, timestamp: new Date(Date.now() - 2 * 3600000).toISOString(), agentName: ag }, { id: `h2-${r.id}`, type: "appointment", description: `Interview scheduled for ${new Date(Date.now() + 3 * 86400000).toLocaleDateString()}`, timestamp: new Date(Date.now() - 4 * 3600000).toISOString(), agentName: ag }, { id: `h3-${r.id}`, type: "email", description: `Recruit information packet sent`, timestamp: new Date(Date.now() - 86400000).toISOString(), agentName: ag }]; }
-function generateMockActivities(r: Recruit): ContactActivity[] { const ag = getAgentName(r.assignedAgentId); return [{ id: `ga1-${r.id}`, contactId: r.id, contactType: "recruit", type: "import", description: "Recruit record created", agentId: r.assignedAgentId, agentName: ag, createdAt: r.createdAt }, { id: `ga2-${r.id}`, contactId: r.id, contactType: "recruit", type: "status", description: `Status set to ${r.status}`, agentId: r.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 86400000).toISOString() }, { id: `ga3-${r.id}`, contactId: r.id, contactType: "recruit", type: "call", description: `Called by ${ag}`, agentId: r.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 3600000).toISOString() }]; }
-function generateMockCalls(r: Recruit): Call[] { const existing = mockCalls.filter(c => c.contactId === r.id); if (existing.length > 0) return existing; const ag = getAgentName(r.assignedAgentId); return [{ id: `gc1-${r.id}`, contactId: r.id, contactType: "recruit", contactName: `${r.firstName} ${r.lastName}`, agentId: r.assignedAgentId, agentName: ag, direction: "outbound", duration: 210, disposition: "Interested in Opportunity", createdAt: new Date(Date.now() - 3 * 86400000).toISOString() }]; }
-function generateMockNotes(r: Recruit): ContactNote[] { const ag = getAgentName(r.assignedAgentId); return [{ id: `gn1-${r.id}`, contactId: r.id, contactType: "recruit", note: `Recruit ${r.firstName} is currently in ${r.status} stage. Follow up required.`, pinned: true, agentId: r.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 2 * 86400000).toISOString() }, { id: `gn2-${r.id}`, contactId: r.id, contactType: "recruit", note: "Showed strong interest in life insurance sales career.", pinned: false, agentId: r.assignedAgentId, agentName: ag, createdAt: new Date(Date.now() - 86400000).toISOString() }]; }
+
 
 const historyIconConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = { call: { bg: "bg-blue-100", text: "text-blue-600", icon: <Phone className="w-3.5 h-3.5" /> }, email: { bg: "bg-green-100", text: "text-green-600", icon: <Mail className="w-3.5 h-3.5" /> }, sms: { bg: "bg-teal-100", text: "text-teal-600", icon: <MessageSquare className="w-3.5 h-3.5" /> }, appointment: { bg: "bg-purple-100", text: "text-purple-600", icon: <Calendar className="w-3.5 h-3.5" /> } };
 const historyFilterMap: Record<string, string> = { Calls: "call", Emails: "email", SMS: "sms", Appointments: "appointment" };
@@ -72,6 +69,7 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
     const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
     const [historyFilter, setHistoryFilter] = useState<"All" | "Calls" | "Emails" | "SMS" | "Appointments">("All");
     const [lastUpdated, setLastUpdated] = useState(new Date().toISOString());
+    const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
     const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
     const [localStatus, setLocalStatus] = useState(recruit?.status ?? "Prospect");
     const AGENT_NAME = "Chris Garcia";
@@ -98,8 +96,15 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
 
             setLocalNotes(fetchedNotes);
             setActivities(fetchedActivities);
-            setCalls(generateMockCalls(recruit));
-            setHistoryItems(generateMockHistory(recruit));
+
+            // Fetch real calls from Supabase
+            const { data: callData } = await supabase.from("calls").select("*").eq("contact_id", recruit.id).order("created_at", { ascending: false });
+            setCalls((callData || []).map((c: any) => ({ id: c.id, contactId: c.contact_id, contactType: "recruit", contactName: c.contact_name || `${recruit.firstName} ${recruit.lastName}`, agentId: c.agent_id, agentName: c.agent_id || "Unknown", direction: c.direction || "outbound", duration: c.duration || 0, disposition: c.disposition_name || "", createdAt: c.created_at }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+            setHistoryItems([]);
+
+            // Fetch agents list
+            const { data: profileData } = await supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
+            if (profileData) setAgents(profileData.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
             setActiveTab("Overview"); setEditMode(false); setHasChanges(false); setNewNote(""); setNoteError(""); setPinNewNote(false); setHistoryFilter("All"); setShowAppt(false); setStatusDropdownOpen(false); setLastUpdated(new Date().toISOString());
         }
         loadData();
@@ -125,7 +130,10 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
     }, [rightTab, filtered.length]);
 
     if (!recruit) return null;
-    const agents = mockUsers.filter(u => u.status === "Active");
+    const getAgentDisplayName = (agentId: string) => {
+        const a = agents.find(a => a.id === agentId);
+        return a ? `${a.firstName} ${a.lastName}` : agentId;
+    };
     const handleStatusChange = async (newStatus: string) => { setStatusDropdownOpen(false); setLocalStatus(newStatus); setEditForm(f => ({ ...f, status: newStatus })); await onUpdate(recruit.id, { status: newStatus }); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" }); toast.success(`Status updated to ${newStatus}`); };
     const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); setHasUnsavedChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
     const handleSave = async () => { await onUpdate(recruit.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Recruit updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Recruit updated"); };
@@ -199,7 +207,7 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
                                     {renderField("First Name", "firstName")}{renderField("Last Name", "lastName")}
                                     {renderField("Phone", "phone", "text", undefined, true)}{renderField("Email", "email", "email", undefined, true)}
                                     {renderField("Status", "status", "select", recruitStatuses)}
-                                    <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>{editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <CopyField value={getAgentName(recruit.assignedAgentId)} />}</div>
+                                    <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>{editMode ? <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inp}>{agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}</select> : <CopyField value={getAgentDisplayName(recruit.assignedAgentId)} />}</div>
                                 </div>
                                 <div>{renderField("Notes", "notes", "textarea")}</div>
                             </div>}

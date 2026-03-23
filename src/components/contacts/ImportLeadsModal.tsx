@@ -6,7 +6,7 @@ import {
 import { Lead, LeadStatus, CustomField } from "@/lib/types";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { customFieldsApi } from "@/lib/mock-api";
+import { customFieldsSupabaseApi as customFieldsApi } from "@/lib/supabase-settings";
 
 // ---- Types ----
 interface ImportHistoryEntry {

@@ -1,6 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
 import { ContactActivity, ContactType } from "@/lib/types";
-import { getAgentName } from "@/lib/mock-data";
 
 export const activitiesSupabaseApi = {
     // Get all activities for a specific contact
@@ -43,7 +42,7 @@ export const activitiesSupabaseApi = {
 };
 
 function rowToActivity(row: any): ContactActivity { // eslint-disable-line @typescript-eslint/no-explicit-any
-    const agentName = row.agent ? `${row.agent.first_name} ${row.agent.last_name}` : (row.agent_id ? getAgentName(row.agent_id) : "System");
+    const agentName = row.agent ? `${row.agent.first_name} ${row.agent.last_name}` : (row.agent_id ? row.agent_id : "System");
 
     return {
         id: row.id,

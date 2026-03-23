@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Phone, MessageSquare, Mail, Plus, Clock } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
-import { mockUsers } from "@/lib/mock-data";
+
 import { toast as toastSonner } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
@@ -147,7 +147,7 @@ const TimeSelect: React.FC<{
   );
 };
 
-const agents = mockUsers.filter(u => u.status === "Active");
+
 
 interface Props {
   open: boolean;
@@ -189,6 +189,14 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [newFirstName, setNewFirstName] = useState("");
   const [newLastName, setNewLastName] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+
+  // Fetch active agents from Supabase
+  useEffect(() => {
+    supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
+      if (data) setAgents(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+    });
+  }, []);
 
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
