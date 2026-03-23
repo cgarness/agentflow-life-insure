@@ -26,6 +26,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       onboardingComplete: row.onboarding_complete || false,
       monthlyCallGoal: row.monthly_call_goal || 0,
       monthlySalesGoal: row.monthly_sales_goal || 0,
+      monthlyPoliciesGoal: row.monthly_policies_goal || 0,
       weeklyAppointmentGoal: row.weekly_appointment_goal || 0,
       monthlyTalkTimeGoalHours: row.monthly_talk_time_goal_hours || 0,
       npn: row.npn || "",
@@ -45,7 +46,7 @@ export const usersSupabaseApi = {
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", "onboarding_complete", 
-      "monthly_call_goal", "monthly_sales_goal", "weekly_appointment_goal", 
+      "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers"
@@ -88,6 +89,7 @@ export const usersSupabaseApi = {
         onboarding_complete: false,
         monthly_call_goal: 0,
         monthly_sales_goal: 0,
+        monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
         monthly_talk_time_goal_hours: 0,
         onboarding_items: [],
@@ -106,7 +108,7 @@ export const usersSupabaseApi = {
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", "onboarding_complete", 
-      "monthly_call_goal", "monthly_sales_goal", "weekly_appointment_goal", 
+      "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers"
@@ -137,6 +139,7 @@ export const usersSupabaseApi = {
         onboarding_complete: false,
         monthly_call_goal: 0,
         monthly_sales_goal: 0,
+        monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
         monthly_talk_time_goal_hours: 0,
         onboarding_items: [],
@@ -177,6 +180,7 @@ export const usersSupabaseApi = {
     if (data.onboardingComplete !== undefined) payload.onboarding_complete = data.onboardingComplete;
     if (data.monthlyCallGoal !== undefined) payload.monthly_call_goal = data.monthlyCallGoal;
     if (data.monthlySalesGoal !== undefined) payload.monthly_sales_goal = data.monthlySalesGoal;
+    if (data.monthlyPoliciesGoal !== undefined) payload.monthly_policies_goal = data.monthlyPoliciesGoal;
     if (data.weeklyAppointmentGoal !== undefined) payload.weekly_appointment_goal = data.weeklyAppointmentGoal;
     if (data.monthlyTalkTimeGoalHours !== undefined) payload.monthly_talk_time_goal_hours = data.monthlyTalkTimeGoalHours;
     if (data.npn !== undefined) payload.npn = data.npn;
@@ -192,7 +196,7 @@ export const usersSupabaseApi = {
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", "onboarding_complete", 
-      "monthly_call_goal", "monthly_sales_goal", "weekly_appointment_goal", 
+      "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers"
@@ -227,6 +231,7 @@ export const usersSupabaseApi = {
         onboarding_complete: false,
         monthly_call_goal: 0,
         monthly_sales_goal: 0,
+        monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
         monthly_talk_time_goal_hours: 0,
         onboarding_items: [],
