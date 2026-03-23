@@ -144,6 +144,31 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       client.on("telnyx.error", (error: any) => {
+        const isRemoteHangup =
+          error?.code === -32002 ||
+          (typeof error?.message === "string" && error.message.includes("CALL DOES NOT EXIST"));
+
+        if (isRemoteHangup) {
+          console.log("Remote party ended call — normal cleanup (code -32002)");
+          setCallState("ended");
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = null;
+          }
+          callRef.current = null;
+          endResetRef.current = setTimeout(() => {
+            setCallState("idle");
+            setCallDuration(0);
+            setCurrentCall(null);
+            setIsMuted(false);
+            setIsOnHold(false);
+          }, 2000);
+          return;
+        }
+
         console.error('TelnyxRTC full error:', JSON.stringify(error, null, 2));
         console.error('TelnyxRTC error message:', error?.message);
         console.error('TelnyxRTC error code:', error?.code);
