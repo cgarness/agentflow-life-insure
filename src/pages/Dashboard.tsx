@@ -387,7 +387,7 @@ const Dashboard: React.FC = () => {
           userId={userId}
           firstName={firstName}
           role={role}
-          onClose={closeBriefing}
+          onClose={dismissBriefing}
           onDismiss={dismissBriefing}
           onScrollTo={scrollToWidget}
         />
