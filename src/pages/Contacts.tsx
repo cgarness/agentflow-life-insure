@@ -14,7 +14,10 @@ import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
-import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity } from "@/lib/types";
+import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
+import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+
+type UserWithProfile = User & { profile: UserProfile };
 import type { Json } from "@/integrations/supabase/types";
 import { mockUsers, mockProfiles, mockCalls, mockNotes, mockActivities, mockCampaigns, calcAging, getAgentName, getAgentInitials } from "@/lib/mock-data";
 import ContactModal from "@/components/contacts/ContactModal";
@@ -360,16 +363,41 @@ const Contacts: React.FC = () => {
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents") => {
     setSearchParams({ tab: newTab });
   };
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
+
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [recruits, setRecruits] = useState<Recruit[]>([]);
+  const [agents, setAgents] = useState<UserWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [leadData, clientData, recruitData, agentData, stats] = await Promise.all([
+        leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }).catch(e => { console.error("Error fetching leads:", e); return []; }),
+        clientsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching clients:", e); return []; }),
+        recruitsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching recruits:", e); return []; }),
+        usersApi.getAll({ search: searchQuery }).catch(e => { console.error("Error fetching agents:", e); return []; }),
+        leadsSupabaseApi.getSourceStats().catch(e => { console.error("Error fetching lead stats:", e); return []; }),
+      ]);
+      setLeads(leadData);
+      setClients(clientData);
+      setRecruits(recruitData);
+      setAgents(agentData);
+      setSourceStats(stats);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, statusFilter, sourceFilter, user?.id]);
+
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [sourceFilter, setSourceFilter] = useState<string>("");
+
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [selectedRecruitIds, setSelectedRecruitIds] = useState<Set<string>>(new Set());
@@ -377,7 +405,7 @@ const Contacts: React.FC = () => {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedRecruit, setSelectedRecruit] = useState<Recruit | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<typeof mockUsers[0] | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<UserWithProfile | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [editClient, setEditClient] = useState<Client | null>(null);
@@ -664,8 +692,8 @@ const Contacts: React.FC = () => {
   }, [recruits, sortCol, sortDir]);
 
   // ===== Agent sort =====
-  const getAgentSortValue = (u: typeof mockUsers[0], key: AgentColumnKey): string | number => {
-    const p = mockProfiles.find(p => p.userId === u.id);
+  const getAgentSortValue = (u: UserWithProfile, key: AgentColumnKey): string | number => {
+    const p = u.profile;
     switch (key) {
       case "name": return `${u.firstName} ${u.lastName}`.toLowerCase();
       case "email": return u.email.toLowerCase();
@@ -678,15 +706,15 @@ const Contacts: React.FC = () => {
   };
 
   const sortedAgents = React.useMemo(() => {
-    if (!sortCol) return mockUsers;
-    return [...mockUsers].sort((a, b) => {
+    if (!sortCol) return agents;
+    return [...agents].sort((a, b) => {
       const va = getAgentSortValue(a, sortCol as AgentColumnKey);
       const vb = getAgentSortValue(b, sortCol as AgentColumnKey);
       if (va < vb) return sortDir === "asc" ? -1 : 1;
       if (va > vb) return sortDir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [sortCol, sortDir]);
+  }, [agents, sortCol, sortDir]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -698,23 +726,8 @@ const Contacts: React.FC = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, [columnsOpen, actionMenuId]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [leadData, clientData, recruitData, stats] = await Promise.all([
-        leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }).catch(e => { console.error("Error fetching leads:", e); return []; }),
-        clientsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching clients:", e); return []; }),
-        recruitsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching recruits:", e); return []; }),
-        leadsSupabaseApi.getSourceStats().catch(e => { console.error("Error fetching lead stats:", e); return []; }),
-      ]);
-      setLeads(leadData);
-      setClients(clientData);
-      setRecruits(recruitData);
-      setSourceStats(stats);
-    } finally {
-      setLoading(false);
-    }
-  }, [searchQuery, statusFilter, sourceFilter]);
+
+
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -999,21 +1012,21 @@ const Contacts: React.FC = () => {
     }
   };
 
-  const renderAgentCell = (u: typeof mockUsers[0], key: AgentColumnKey) => {
-    const p = mockProfiles.find(p => p.userId === u.id);
+  const renderAgentCell = (u: UserWithProfile, key: AgentColumnKey) => {
+    const p = u.profile;
     const availColors: Record<string, string> = { Available: "bg-success", "On Break": "bg-warning", "Do Not Disturb": "bg-destructive", Offline: "bg-muted-foreground/50" };
     switch (key) {
       case "name": return (
         <div className="flex items-center gap-3">
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">{u.firstName[0]}{u.lastName[0]}</div>
-            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${availColors[u.availabilityStatus] || "bg-muted-foreground/50"}`} />
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card ${availColors[u.availabilityStatus || "Offline"]}`} />
           </div>
           <span className="font-medium text-foreground truncate">{u.firstName} {u.lastName}</span>
         </div>
       );
       case "email": return <span className="text-muted-foreground">{u.email}</span>;
-      case "licensedStates": return <span className="text-muted-foreground">{p?.licensedStates.join(", ")}</span>;
+      case "licensedStates": return <span className="text-muted-foreground">{p?.licensedStates?.map((s: any) => typeof s === 'string' ? s : s.state).join(", ")}</span>;
       case "commission": return <span className="text-foreground">{p?.commissionLevel}</span>;
       case "role": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span>;
       case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span>;
@@ -1514,7 +1527,7 @@ const Contacts: React.FC = () => {
               <table className="w-full text-sm table-fixed">
                 <thead><tr className="text-muted-foreground border-b bg-accent/50">
                   <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
-                    <input type="checkbox" checked={selectedAgentIds.size === mockUsers.length && mockUsers.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < mockUsers.length; }} onChange={toggleAllAgents} className="rounded" />
+                    <input type="checkbox" checked={selectedAgentIds.size === agents.length && agents.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length; }} onChange={toggleAllAgents} className="rounded" />
                   </th>
                   {AGENT_COLUMNS.filter(c => visibleAgentCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
                   <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>

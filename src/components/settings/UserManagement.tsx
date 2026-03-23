@@ -918,20 +918,23 @@ const UserManagement: React.FC = () => {
     if (!currentProfile) return [];
     
     return allUsers.filter(u => {
-      // Admin sees everyone
-      if (currentProfile.role === "Admin") return true;
+      const role = currentProfile.role?.toLowerCase();
       
-      // Team Leader sees themselves and their team (those with this TL as upline)
-      if (currentProfile.role === "Team Leader") {
+      // Admin sees everyone
+      if (role === "admin") return true;
+      
+      // Team Leader sees themselves and their team
+      if (role === "team leader") {
         return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
       }
       
       // Agent sees only themselves
-      if (currentProfile.role === "Agent") {
+      if (role === "agent") {
         return u.id === currentProfile.id;
       }
       
-      return false;
+      // Default to showing only themselves if role is unrecognized but they are logged in
+      return u.id === currentProfile.id;
     });
   }, [allUsers, currentProfile]);
 
@@ -1108,7 +1111,7 @@ const UserManagement: React.FC = () => {
         onClose={() => { setProfileOpen(false); setSelectedUser(null); }}
         onSaved={() => { fetchUsers(); }}
         onDeleted={(id) => {
-          setUsers(prev => prev.filter(u => u.id !== id));
+          setAllUsers(prev => prev.filter(u => u.id !== id));
           setProfileOpen(false);
           setSelectedUser(null);
         }}
