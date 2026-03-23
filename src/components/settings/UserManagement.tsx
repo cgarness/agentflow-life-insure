@@ -74,14 +74,16 @@ function goalColor(pct: number): string {
   return "bg-destructive";
 }
 
-// ---- STATE MULTI-SELECT (FIXED: scrollable, removable badges) ----
+// ---- STATE MULTI-SELECT (FIXED: handles objects with license numbers) ----
 const StateMultiSelect: React.FC<{
-  selected: string[];
-  onChange: (v: string[]) => void;
+  selected: { state: string; licenseNumber: string }[];
+  onChange: (v: { state: string; licenseNumber: string }[]) => void;
   disabled?: boolean;
 }> = ({ selected, onChange, disabled }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const selectedStateNames = useMemo(() => selected.map(s => s.state), [selected]);
+  
   const filtered = useMemo(() =>
     search
       ? US_STATES.filter(s =>
@@ -92,31 +94,37 @@ const StateMultiSelect: React.FC<{
   , [search]);
 
   return (
-    <div>
-      {/* Selected badges */}
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
-          {selected.map(s => (
-            <Badge key={s} variant="secondary" className="text-xs gap-1 pr-1">
-              {s}
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1">
+        {selected.map(s => (
+          <div key={s.state} className="flex flex-col gap-1 p-2 border rounded-md bg-accent/20 min-w-[120px]">
+            <div className="flex items-center justify-between">
+              <Badge variant="secondary" className="text-xs">{s.state}</Badge>
               {!disabled && (
                 <button
                   type="button"
-                  className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
-                  onClick={(e) => { e.stopPropagation(); onChange(selected.filter(x => x !== s)); }}
+                  className="rounded-full hover:bg-muted-foreground/20 p-0.5"
+                  onClick={() => onChange(selected.filter(x => x.state !== s.state))}
                 >
                   <X className="w-3 h-3" />
                 </button>
               )}
-            </Badge>
-          ))}
-        </div>
-      )}
+            </div>
+            <Input
+              placeholder="License #"
+              value={s.licenseNumber}
+              disabled={disabled}
+              onChange={e => onChange(selected.map(x => x.state === s.state ? { ...x, licenseNumber: e.target.value } : x))}
+              className="h-7 text-[10px] px-2"
+            />
+          </div>
+        ))}
+      </div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="outline" className="w-full justify-between h-10" disabled={disabled}>
             <span className="text-muted-foreground text-sm">
-              {selected.length === 0 ? "Select states..." : `${selected.length} state${selected.length > 1 ? "s" : ""} selected`}
+              {selected.length === 0 ? "Add licensed states..." : `Add more states (${selected.length} selected)`}
             </span>
             <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 ml-2" />
           </Button>
@@ -135,18 +143,19 @@ const StateMultiSelect: React.FC<{
             {filtered.map(st => (
               <label key={st} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-sm">
                 <Checkbox
-                  checked={selected.includes(st)}
+                  checked={selectedStateNames.includes(st)}
                   onCheckedChange={(checked) => {
-                    onChange(checked ? [...selected, st] : selected.filter(s => s !== st));
+                    if (checked) {
+                      onChange([...selected, { state: st, licenseNumber: "" }]);
+                    } else {
+                      onChange(selected.filter(s => s.state !== st));
+                    }
                   }}
                 />
                 <span className="font-medium">{st}</span>
                 <span className="text-muted-foreground text-xs">{US_STATE_NAMES[st]}</span>
               </label>
             ))}
-            {filtered.length === 0 && (
-              <p className="text-sm text-muted-foreground p-2 text-center">No states found</p>
-            )}
           </div>
         </PopoverContent>
       </Popover>
@@ -319,7 +328,7 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
-  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "Agent" as UserRole, licensedStates: [] as string[], commissionLevel: "50%" });
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "Agent" as UserRole, licensedStates: [] as { state: string; licenseNumber: string }[], commissionLevel: "50%" });
 
   const handleSubmit = async () => {
     if (!form.firstName || !form.lastName || !form.email) {
@@ -488,7 +497,7 @@ const UserProfileModal: React.FC<{
         avatar: avatarUrl,
       });
       await usersApi.updateProfile(user.id, {
-        licensedStates: form.licensedStates as string[],
+        licensedStates: form.licensedStates as any[],
         residentState: form.residentState as string,
         commissionLevel: form.commissionLevel as string,
         uplineId: form.uplineId,
@@ -504,6 +513,10 @@ const UserProfileModal: React.FC<{
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleToggleStatus = (checked: boolean) => {
+    setForm(p => ({ ...p, status: checked ? "Active" : "Inactive" }));
   };
 
   const handleSaveGoals = async () => {
@@ -651,7 +664,7 @@ const UserProfileModal: React.FC<{
                     <Switch
                       checked={form.status === "Active"}
                       disabled={!editMode || isSelf}
-                      onCheckedChange={c => setForm(p => ({ ...p, status: c ? "Active" : "Inactive" }))}
+                      onCheckedChange={handleToggleStatus}
                     />
                     {/* Reset Password button */}
                     <TooltipProvider>
@@ -678,7 +691,7 @@ const UserProfileModal: React.FC<{
                   </div>
                 </div>
               </div>
-              <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as string[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
+              <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as any[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
               <div><Label>Resident State</Label><SingleStateSelect value={form.residentState as string} onChange={v => setForm(p => ({ ...p, residentState: v }))} disabled={!editMode} /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
@@ -878,7 +891,8 @@ const UserProfileModal: React.FC<{
 const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<UserWithProfile[]>([]);
+  const { profile: currentProfile } = useAuth();
+  const [allUsers, setAllUsers] = useState<UserWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
@@ -892,13 +906,36 @@ const UserManagement: React.FC = () => {
     setLoading(true);
     try {
       const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter });
-      setUsers(data);
+      setAllUsers(data);
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   }, [search, roleFilter, statusFilter]);
+
+  const filteredUsers = useMemo(() => {
+    if (!currentProfile) return [];
+    
+    return allUsers.filter(u => {
+      // Admin sees everyone
+      if (currentProfile.role === "Admin") return true;
+      
+      // Team Leader sees themselves and their team (those with this TL as upline)
+      if (currentProfile.role === "Team Leader") {
+        return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
+      }
+      
+      // Agent sees only themselves
+      if (currentProfile.role === "Agent") {
+        return u.id === currentProfile.id;
+      }
+      
+      return false;
+    });
+  }, [allUsers, currentProfile]);
+
+  const users = filteredUsers; // Use filtered list for display
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 

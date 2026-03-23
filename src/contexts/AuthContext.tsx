@@ -62,6 +62,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .eq("id", userId)
       .single();
     if (!error && data) {
+      if (data.status === "Inactive") {
+        console.warn("User account is inactive. Logging out.");
+        await supabase.auth.signOut();
+        return;
+      }
       setProfile(data as unknown as Profile);
     }
   }, []);

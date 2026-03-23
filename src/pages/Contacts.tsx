@@ -669,7 +669,7 @@ const Contacts: React.FC = () => {
     switch (key) {
       case "name": return `${u.firstName} ${u.lastName}`.toLowerCase();
       case "email": return u.email.toLowerCase();
-      case "licensedStates": return p?.licensedStates.join(", ") || "";
+      case "licensedStates": return p?.licensedStates?.map((s: any) => typeof s === "string" ? s : s.state).join(", ") || "";
       case "commission": return p?.commissionLevel || "";
       case "role": return u.role;
       case "status": return u.status;

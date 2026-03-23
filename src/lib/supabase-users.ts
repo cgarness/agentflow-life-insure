@@ -124,7 +124,7 @@ export const usersSupabaseApi = {
     return u.profile;
   },
 
-  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: string[]; commissionLevel: string }): Promise<void> {
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string }): Promise<void> {
     console.log("Inviting user:", data);
     // Real implementation would be a supabase.auth.admin call
     // or an insert into an invites table
@@ -134,7 +134,11 @@ export const usersSupabaseApi = {
   async deactivate(id: string): Promise<void> {
     const { error } = await supabase
       .from("profiles")
-      .update({ status: "Inactive", availability_status: "Offline" })
+      .update({ 
+        status: "Inactive", 
+        availability_status: "Offline",
+        updated_at: new Date().toISOString()
+      })
       .eq("id", id);
     if (error) throw error;
   },
