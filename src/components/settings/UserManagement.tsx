@@ -461,6 +461,7 @@ const UserProfileModal: React.FC<{
         uplineId: user.profile.uplineId,
         monthlyCallGoal: user.profile.monthlyCallGoal,
         monthlySalesGoal: user.profile.monthlySalesGoal,
+        monthlyPoliciesGoal: user.profile.monthlyPoliciesGoal,
         weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal,
         monthlyTalkTimeGoalHours: user.profile.monthlyTalkTimeGoalHours,
         npn: user.profile.npn || "",
@@ -745,7 +746,7 @@ const UserProfileModal: React.FC<{
                     <div className="grid grid-cols-2 gap-4">
                       {[
                         { label: "Monthly Calls Goal", key: "monthlyCallGoal", actual: goalActuals.callsMonth, icon: PhoneCall, color: "text-blue-500", bg: "bg-blue-500/10" },
-                        { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+                        { label: "Monthly Policies Goal", key: "monthlyPoliciesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
                         { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointmentsWeek, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10" },
                         { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTimeMonth), icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10" },
                       ].map(g => {
@@ -866,7 +867,7 @@ const UserProfileModal: React.FC<{
                       <div className="space-y-4 bg-accent/20 rounded-2xl p-5 border border-white/5">
                         {[
                           { label: "Monthly Calls", actual: performance.callsMonthly, target: form.monthlyCallGoal as number },
-                          { label: "Monthly Policies", actual: performance.policiesMonthly, target: form.monthlySalesGoal as number },
+                          { label: "Monthly Policies", actual: performance.policiesMonthly, target: form.monthlyPoliciesGoal as number },
                           { label: "Weekly Appointments", actual: performance.appsWeekly, target: form.weeklyAppointmentGoal as number },
                         ].map(g => {
                           const pct = g.target ? Math.min(100, Math.round((g.actual / g.target) * 100)) : 0;
