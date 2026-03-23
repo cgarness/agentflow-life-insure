@@ -184,27 +184,45 @@ export const usersSupabaseApi = {
   },
 
   async getPerformance(userId: string) {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    
+    // Start of this week (Sunday)
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - now.getDay());
+    sunday.setHours(0, 0, 0, 0);
+    const startOfWeek = sunday.toISOString();
+
     const { data: calls } = await supabase
       .from("calls")
-      .select("outcome, duration")
-      .eq("agent_id", userId);
+      .select("outcome, duration, created_at")
+      .eq("agent_id", userId)
+      .gte("created_at", startOfMonth);
     
     const { data: apps } = await supabase
       .from("appointments")
-      .select("id")
+      .select("id, created_at")
       .eq("user_id", userId)
-      .eq("status", "Scheduled");
+      .eq("status", "Scheduled")
+      .gte("created_at", startOfWeek);
 
-    const callsMade = calls?.length || 0;
-    const policiesSold = calls?.filter(c => (c.outcome || "").toLowerCase().includes("sold")).length || 0;
-    const totalDuration = calls?.reduce((sum, c) => sum + (c.duration || 0), 0) || 0;
+    const callsMonthly = calls?.length || 0;
+    const policiesMonthly = calls?.filter(c => (c.outcome || "").toLowerCase().includes("sold")).length || 0;
+    const talkTimeMonthlyHours = (calls?.reduce((sum, c) => sum + (c.duration || 0), 0) || 0) / 3600;
+    
+    const appsWeekly = apps?.length || 0;
     
     return {
-      callsMade,
-      policiesSold,
-      appointmentsSet: apps?.length || 0,
-      totalTalkTime: `${(totalDuration / 3600).toFixed(1)} hrs`,
-      conversionRate: callsMade ? `${((policiesSold / callsMade) * 100).toFixed(1)}%` : "0%",
+      callsMonthly,
+      policiesMonthly,
+      appsWeekly,
+      talkTimeMonthlyHours,
+      // For backward compatibility
+      callsMade: callsMonthly,
+      policiesSold: policiesMonthly,
+      appointmentsSet: appsWeekly,
+      totalTalkTime: `${talkTimeMonthlyHours.toFixed(1)} hrs`,
+      conversionRate: callsMonthly ? `${((policiesMonthly / callsMonthly) * 100).toFixed(1)}%` : "0%",
       recentCalls: [],
     };
   }

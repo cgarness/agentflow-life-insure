@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   Plus, Search, MoreHorizontal, X, ChevronDown,
   Shield, User as UserIcon, Users, Pencil, Ban, RefreshCw, Mail,
-  Lock, Copy, Camera, ZoomIn,
+  Lock, Copy, Camera, ZoomIn, PhoneCall, ShieldCheck, TrendingUp,
+  Clock, Percent, Target,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -474,7 +475,7 @@ const UserProfileModal: React.FC<{
   }, [user]);
 
   useEffect(() => {
-    if (user && tab === "performance" && !performance) {
+    if (user && (tab === "performance" || tab === "goals") && !performance) {
       setPerfLoading(true);
       usersApi.getPerformance(user.id).then(p => { setPerformance(p); setPerfLoading(false); });
     }
@@ -592,10 +593,10 @@ const UserProfileModal: React.FC<{
   const onboardingPct = onboardingItems.length ? Math.round(onboardingItems.filter(i => i.completed).length / onboardingItems.length * 100) : 0;
 
   const goalActuals = {
-    calls: performance?.callsMade ?? Math.floor(Math.random() * (form.monthlyCallGoal as number || 100)),
-    policies: performance?.policiesSold ?? Math.floor(Math.random() * (form.monthlySalesGoal as number || 10)),
-    appointments: performance?.appointmentsSet ?? Math.floor(Math.random() * (form.weeklyAppointmentGoal as number || 10)),
-    talkTime: performance ? parseFloat(performance.totalTalkTime) : Math.random() * (form.monthlyTalkTimeGoalHours as number || 20),
+    callsMonth: performance?.callsMonthly ?? 0,
+    policiesMonth: performance?.policiesMonthly ?? 0,
+    appointmentsWeek: performance?.appsWeekly ?? 0,
+    talkTimeMonth: performance?.talkTimeMonthlyHours ?? 0,
   };
 
   const isSelf = user.id === currentUserId;
@@ -732,40 +733,81 @@ const UserProfileModal: React.FC<{
               </TabsContent>
 
               {/* Goals Tab Section */}
-              <TabsContent value="goals" className="space-y-6 mt-0">
-                {[
-                  { label: "Daily Calls Goal", key: "monthlyCallGoal", actual: goalActuals.calls },
-                  { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policies },
-                  { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointments },
-                  { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTime) },
-                ].map(g => {
-                  const target = (form as any)[g.key] as number || 1;
-                  const pct = Math.min(100, Math.round((g.actual / target) * 100));
-                  return (
-                    <div key={g.key} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label>{g.label}</Label>
-                        <Input
-                          type="number"
-                          className="w-24 h-8 text-sm"
-                          value={(form as any)[g.key] || 0}
-                          onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
-                        />
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className={`text-xs font-medium min-w-[80px] text-right ${pct >= 80 ? "text-success" : pct >= 50 ? "text-warning" : "text-destructive"}`}>
-                          {g.actual} / {target} ({pct}%)
-                        </span>
-                      </div>
+              <TabsContent value="goals" className="space-y-4 mt-0">
+                {perfLoading && (
+                  <div className="grid grid-cols-2 gap-4">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="h-32 rounded-lg bg-muted animate-pulse" />)}
+                  </div>
+                )}
+                
+                {!perfLoading && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      {[
+                        { label: "Monthly Calls Goal", key: "monthlyCallGoal", actual: goalActuals.callsMonth, icon: PhoneCall, color: "text-blue-500", bg: "bg-blue-500/10" },
+                        { label: "Monthly Policies Goal", key: "monthlySalesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+                        { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointmentsWeek, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10" },
+                        { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTimeMonth), icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10" },
+                      ].map(g => {
+                        const Icon = g.icon;
+                        const target = (form as any)[g.key] as number || 1;
+                        const pct = Math.min(100, Math.round((g.actual / target) * 100));
+                        return (
+                          <div key={g.key} className="bg-card/50 border rounded-xl p-3.5 space-y-3 shadow-sm hover:border-primary/30 transition-colors relative overflow-hidden group">
+                            <div className={`absolute -right-4 -top-4 w-16 h-16 rounded-full ${g.bg} opacity-20 blur-2xl group-hover:opacity-40 transition-opacity`} />
+                            
+                            <div className="flex items-center justify-between relative z-10">
+                              <div className="flex items-center gap-2.5">
+                                <div className={`p-1.5 rounded-lg ${g.bg} border border-white/10 shadow-sm`}>
+                                  <Icon className={`w-3.5 h-3.5 ${g.color}`} />
+                                </div>
+                                <Label className="text-[10px] font-bold text-foreground/70 uppercase tracking-widest">{g.label}</Label>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] text-muted-foreground font-black uppercase tracking-tighter opacity-70">Target</span>
+                                <Input
+                                  type="number"
+                                  className="w-14 h-7 text-[11px] font-black bg-muted/30 border-none shadow-inner text-center p-0 focus-visible:ring-1 focus-visible:ring-primary/30"
+                                  value={(form as any)[g.key] || 0}
+                                  onChange={e => setForm(p => ({ ...p, [g.key]: parseInt(e.target.value) || 0 }))}
+                                />
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-2 relative z-10">
+                              <div className="flex items-end justify-between px-0.5">
+                                <div className="flex flex-col">
+                                  <span className="text-[10px] font-black tracking-widest text-muted-foreground uppercase leading-none mb-1" >Status</span>
+                                  <span className={`text-sm font-black tabular-nums tracking-tight ${pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-rose-500"}`}>
+                                    {g.actual} / {target}
+                                  </span>
+                                </div>
+                                <span className={`text-[10px] font-black tabular-nums bg-accent/80 px-2 py-0.5 rounded-full border border-white/5`}>
+                                  {pct}%
+                                </span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden border border-white/5 shadow-inner">
+                                <div className={`h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(0,0,0,0.2)] ${goalColor(pct)}`} style={{ width: `${pct}%` }}>
+                                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent w-full animate-shimmer" style={{ backgroundSize: "200% 100%" }} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-                <div className="flex justify-end pt-4">
-                  <Button onClick={handleSaveGoals} disabled={saving}>{saving ? "Saving..." : "Save Goals"}</Button>
-                </div>
+                    <div className="flex justify-end pt-4 border-t mt-4">
+                      <Button onClick={handleSaveGoals} disabled={saving} className="bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 px-8 h-9 font-bold uppercase tracking-widest text-[10px] group">
+                        {saving ? "Saving..." : (
+                          <>
+                            Save Performance Goals
+                            <TrendingUp className="w-3.5 h-3.5 ml-2 group-hover:translate-y-[-1px] transition-transform" />
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </TabsContent>
 
               {/* Onboarding Tab Section */}
@@ -790,42 +832,58 @@ const UserProfileModal: React.FC<{
 
               {/* Performance Tab Section */}
               <TabsContent value="performance" className="space-y-6 mt-0">
-                {perfLoading ? (
+                {perfLoading && (
                   <div className="space-y-3">
-                    {[1,2,3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
+                    {[1, 2, 3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
                   </div>
-                ) : performance ? (
-                  <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                )}
+                
+                {!perfLoading && performance && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {[
-                        { label: "Calls Made", value: performance.callsMade },
-                        { label: "Policies Sold", value: performance.policiesSold },
-                        { label: "Appointments Set", value: performance.appointmentsSet },
-                        { label: "Total Talk Time", value: performance.totalTalkTime },
-                        { label: "Conversion Rate", value: performance.conversionRate },
-                      ].map(s => (
-                        <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center border">
-                          <p className="text-xs text-muted-foreground">{s.label}</p>
-                          <p className="text-lg font-bold text-foreground mt-0.5">{s.value}</p>
-                        </div>
-                      ))}
+                        { label: "Calls Made", value: performance.callsMonthly, icon: PhoneCall, color: "text-blue-500" },
+                        { label: "Policies Sold", value: performance.policiesMonthly, icon: ShieldCheck, color: "text-emerald-500" },
+                        { label: "Apps Set", value: performance.appsWeekly, icon: Users, color: "text-amber-500" },
+                        { label: "Talk Time", value: `${performance.talkTimeMonthlyHours.toFixed(1)}h`, icon: Clock, color: "text-purple-500" },
+                        { label: "Conv. Rate", value: performance.conversionRate, icon: Percent, color: "text-rose-500" },
+                      ].map(s => {
+                        const Icon = s.icon;
+                        return (
+                          <div key={s.label} className="bg-accent/40 rounded-xl p-3.5 border border-white/5 shadow-sm group hover:bg-accent/60 transition-colors">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Icon className={`w-3.5 h-3.5 ${s.color} opacity-75`} />
+                              <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">{s.label}</p>
+                            </div>
+                            <p className="text-xl font-black text-foreground tabular-nums tracking-tight">{s.value}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                     <div>
-                      <h4 className="text-sm font-medium text-foreground mb-4">Goal Progress</h4>
-                      <div className="space-y-4">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Target className="w-4 h-4 text-primary" />
+                        <h4 className="text-sm font-bold text-foreground/80 tracking-tight uppercase">Current Goal Progress</h4>
+                      </div>
+                      <div className="space-y-4 bg-accent/20 rounded-2xl p-5 border border-white/5">
                         {[
-                          { label: "Calls", actual: performance.callsMade, target: form.monthlyCallGoal as number },
-                          { label: "Policies", actual: performance.policiesSold, target: form.monthlySalesGoal as number },
-                          { label: "Appointments", actual: performance.appointmentsSet, target: form.weeklyAppointmentGoal as number },
+                          { label: "Monthly Calls", actual: performance.callsMonthly, target: form.monthlyCallGoal as number },
+                          { label: "Monthly Policies", actual: performance.policiesMonthly, target: form.monthlySalesGoal as number },
+                          { label: "Weekly Appointments", actual: performance.appsWeekly, target: form.weeklyAppointmentGoal as number },
                         ].map(g => {
                           const pct = g.target ? Math.min(100, Math.round((g.actual / g.target) * 100)) : 0;
                           return (
-                            <div key={g.label} className="flex items-center gap-3">
-                              <span className="text-sm text-muted-foreground w-24">{g.label}</span>
-                              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                                <div className={`h-full rounded-full ${goalColor(pct)}`} style={{ width: `${pct}%` }} />
+                            <div key={g.label} className="space-y-1.5">
+                              <div className="flex items-center justify-between px-0.5">
+                                <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">{g.label}</span>
+                                <span className="text-[11px] font-black text-foreground tabular-nums">
+                                  {g.actual} <span className="text-muted-foreground/50 mx-1">/</span> {g.target}
+                                  <span className={`ml-2 ${pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-rose-500"}`}>({pct}%)</span>
+                                </span>
                               </div>
-                              <span className="text-xs font-mono text-muted-foreground w-20 text-right">{g.actual}/{g.target}</span>
+                              <div className="h-2 rounded-full bg-muted/50 overflow-hidden border border-white/5">
+                                <div className={`h-full rounded-full transition-all duration-1000 ${goalColor(pct)} shadow-[0_0_8px_rgba(0,0,0,0.1)]`} style={{ width: `${pct}%` }} />
+                              </div>
                             </div>
                           );
                         })}
@@ -833,7 +891,7 @@ const UserProfileModal: React.FC<{
                     </div>
                     <div>
                       <h4 className="text-sm font-medium text-foreground mb-4">Recent Calls</h4>
-                      {performance.recentCalls.length === 0 ? (
+                      {!performance.recentCalls || performance.recentCalls.length === 0 ? (
                         <div className="py-8 text-center border rounded-lg bg-accent/10">
                           <p className="text-sm text-muted-foreground">No recent calls recorded.</p>
                         </div>
@@ -851,10 +909,12 @@ const UserProfileModal: React.FC<{
                         </div>
                       )}
                     </div>
-                  </>
-                ) : (
+                  </div>
+                )}
+                
+                {!perfLoading && !performance && (
                   <div className="py-12 text-center border rounded-lg bg-accent/10">
-                    <p className="text-sm text-muted-foreground">Select Performance tab to load stats.</p>
+                    <p className="text-sm text-muted-foreground">Data failed to load. Please try again.</p>
                   </div>
                 )}
               </TabsContent>
