@@ -190,31 +190,23 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             break;
 
           case "premium_sold":
-            const [callsRes, salesRes] = await Promise.all([
-              supabase
-                .from("calls")
-                .select("id, contact_name, created_at, disposition_name")
-                .gte("created_at", startStr)
-                .lte("created_at", endStr)
-                .order("created_at", { ascending: false })
-                .limit(10),
-              supabase
-                .from("clients")
-                .select("id, first_name, last_name, created_at, policy_type, premium")
-                .gte("created_at", startStr)
-                .lte("created_at", endStr)
-                .order("created_at", { ascending: false })
-                .limit(10),
-            ]);
+            const { data: salesResult, error: salesError } = await supabase
+              .from("clients")
+              .select("id, first_name, last_name, created_at, policy_type, premium")
+              .gte("created_at", startStr)
+              .lte("created_at", endStr)
+              .order("created_at", { ascending: false });
             
+            if (salesError) throw salesError;
+
             // Format data for combined view
-            const formattedSales = (salesRes.data || []).map(s => ({
+            const formatted = (salesResult || []).map(s => ({
               ...s,
               contact_name: `${s.first_name} ${s.last_name}`,
               premium_amount: s.premium
             }));
             
-            setData([...formattedSales, ...(callsRes.data || [])]);
+            setData(formatted);
             setLoading(false);
             return;
         }
@@ -305,7 +297,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-sm font-bold text-foreground">{item.contact_name || "Activity"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isWin ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <Phone className="w-3 h-3" />}
-              {isWin ? `Closed: ${item.policy_type} • $${(item.premium_amount || 0).toLocaleString()}` : `Call: ${item.disposition_name || 'Completed'}`}
+              {isWin ? `Closed: ${item.policy_type} • $${((item.premium_amount || 0) * 12).toLocaleString()} (Annual)` : `Call: ${item.disposition_name || 'Completed'}`}
             </span>
           </div>
         );
