@@ -168,6 +168,10 @@ const Dashboard: React.FC = () => {
   const role = profile?.role || "Agent";
   const firstName = profile?.first_name || "Agent";
 
+  // Missed calls (today, from Supabase)
+  const [missedCalls, setMissedCalls] = useState<any[]>([]);
+  const [missedCallsLoading, setMissedCallsLoading] = useState(true);
+
   // Admin toggle
   const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("team");
 
@@ -323,6 +327,32 @@ const Dashboard: React.FC = () => {
     return () => window.removeEventListener("open-daily-briefing", openBriefing);
   }, [openBriefing]);
 
+  // Fetch today's missed calls directly from Supabase
+  useEffect(() => {
+    const fetchMissedCalls = async () => {
+      setMissedCallsLoading(true);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase
+        .from('calls')
+        .select('id, contact_name, contact_phone, started_at, agent_id')
+        .eq('is_missed', true)
+        .gte('started_at', todayStart.toISOString())
+        .order('started_at', { ascending: false })
+        .limit(10);
+      if (!error && data) {
+        setMissedCalls(data.map(c => ({
+          id: c.id,
+          name: c.contact_name || `Unknown (${c.contact_phone})`,
+          phone: c.contact_phone,
+          time: new Date(c.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        })));
+      }
+      setMissedCallsLoading(false);
+    };
+    fetchMissedCalls();
+  }, []);
+
   const scrollToWidget = useCallback((widgetId: string) => {
     const el = widgetRefs.current[widgetId];
     if (el) {
@@ -429,6 +459,15 @@ const Dashboard: React.FC = () => {
       case "leaderboard":
         return <LeaderboardWidget userId={userId} />;
       case "missed_calls":
+        if (missedCallsLoading) {
+          return (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+              ))}
+            </div>
+          );
+        }
         return (
           <MissedCallsWidget
             userId={userId}
