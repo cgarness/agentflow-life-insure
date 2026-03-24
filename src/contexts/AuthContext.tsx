@@ -44,6 +44,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
+  checkProfileSetupNeeded: () => boolean;
+  markProfileSetupSeen: (skipped: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -167,10 +169,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(prev => prev ? { ...prev, ...data } : prev);
   }, [user]);
 
+  const checkProfileSetupNeeded = useCallback((): boolean => {
+    if (!user || !profile) return false;
+
+    const isComplete = !!(
+      profile.first_name?.trim() &&
+      profile.last_name?.trim() &&
+      profile.phone?.trim() &&
+      profile.resident_state?.trim()
+    );
+
+    if (isComplete) return false;
+
+    const storageKey = `agentflow-profile-setup-${user.id}`;
+    const stored = localStorage.getItem(storageKey);
+
+    if (!stored) return true;
+
+    try {
+      const parsed = JSON.parse(stored) as { firstLoginComplete: boolean; lastSkippedAt: string | null };
+      if (!parsed.firstLoginComplete) return true;
+      if (parsed.lastSkippedAt) {
+        const daysSinceSkipped = (Date.now() - new Date(parsed.lastSkippedAt).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSinceSkipped > 3) return true;
+      }
+      return false;
+    } catch {
+      return true;
+    }
+  }, [user, profile]);
+
+  const markProfileSetupSeen = useCallback((skipped: boolean) => {
+    if (!user) return;
+    const storageKey = `agentflow-profile-setup-${user.id}`;
+    const entry = {
+      firstLoginComplete: true,
+      lastSkippedAt: skipped ? new Date().toISOString() : null,
+    };
+    localStorage.setItem(storageKey, JSON.stringify(entry));
+  }, [user]);
+
   return (
     <AuthContext.Provider value={{
       user, profile, session, isAuthenticated: !!session, isLoading,
       login, signup, logout, resetPassword, updateProfile,
+      checkProfileSetupNeeded, markProfileSetupSeen,
     }}>
       {children}
     </AuthContext.Provider>
