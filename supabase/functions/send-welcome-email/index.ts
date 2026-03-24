@@ -1,8 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "npm:resend@3.2.0";
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -14,10 +12,22 @@ interface WelcomeEmailPayload {
   firstName: string;
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
+  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  if (!RESEND_API_KEY) {
+    console.error("RESEND_API_KEY is not set.");
+    return new Response(JSON.stringify({ error: "Email service not configured" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const resend = new Resend(RESEND_API_KEY);
 
   try {
     const payload: WelcomeEmailPayload = await req.json();
