@@ -86,6 +86,8 @@ interface Disposition {
   appointmentScheduler: boolean;
   automationTrigger: boolean;
   automationName?: string;
+  campaignAction: 'none' | 'remove_from_queue' | 'remove_from_campaign';
+  dncAutoAdd: boolean;
 }
 
 interface HistoryItem {
@@ -391,6 +393,8 @@ export default function DialerPage() {
         appointmentScheduler: d.appointmentScheduler,
         automationTrigger: d.automationTrigger,
         automationName: d.automationName,
+        campaignAction: d.campaignAction || 'none',
+        dncAutoAdd: d.dncAutoAdd || false,
       }));
     },
     staleTime: 1000 * 60 * 10, // 10 minutes
@@ -495,8 +499,58 @@ export default function DialerPage() {
       setHasMoreLeads(true);
       return;
     }
-    fetchLeadsBatch(selectedCampaignId, 0, true);
-  }, [selectedCampaignId, fetchLeadsBatch]);
+
+    // Load leads, then check for saved queue position
+    const loadWithResume = async () => {
+      setLoadingLeads(true);
+      try {
+        const leads = await getCampaignLeads(selectedCampaignId, BATCH_SIZE, 0);
+        if (leads.length < BATCH_SIZE) {
+          setHasMoreLeads(false);
+        } else {
+          setHasMoreLeads(true);
+        }
+        setLeadQueue(leads);
+        setCurrentOffset(BATCH_SIZE);
+
+        // Check for saved queue position
+        if (user?.id) {
+          try {
+            const { data: savedState } = await supabase
+              .from('dialer_queue_state')
+              .select('current_lead_id, queue_index')
+              .eq('user_id', user.id)
+              .eq('campaign_id', selectedCampaignId)
+              .maybeSingle();
+
+            if (savedState) {
+              const savedIndex = leads.findIndex(
+                (l: any) => (l.lead_id || l.id) === savedState.current_lead_id
+              );
+              if (savedIndex >= 0) {
+                setCurrentLeadIndex(savedIndex);
+                toast.success("Resuming where you left off");
+              } else {
+                setCurrentLeadIndex(0);
+              }
+            } else {
+              setCurrentLeadIndex(0);
+            }
+          } catch {
+            setCurrentLeadIndex(0);
+          }
+        } else {
+          setCurrentLeadIndex(0);
+        }
+      } catch {
+        toast.error("Failed to load leads");
+      } finally {
+        setLoadingLeads(false);
+      }
+    };
+
+    loadWithResume();
+  }, [selectedCampaignId, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load more leads when we get close to the end of the queue
   useEffect(() => {
@@ -1171,6 +1225,48 @@ export default function DialerPage() {
         console.warn("Master contact record update failed during save", e);
       }
 
+      // ── Campaign Action logic ──
+      if (selectedDisp) {
+        const action = selectedDisp.campaignAction || 'none';
+
+        if (action === 'remove_from_campaign') {
+          try {
+            await supabase
+              .from('campaign_leads')
+              .update({ status: 'removed' })
+              .eq('campaign_id', selectedCampaignId!)
+              .eq('lead_id', currentLead.lead_id || currentLead.id);
+          } catch (e) {
+            console.warn("Failed to remove lead from campaign", e);
+          }
+          // Remove from local queue
+          setLeadQueue(prev => prev.filter((_, i) => i !== currentLeadIndex));
+        } else if (action === 'remove_from_queue') {
+          // Mark as skipped in local session only — do NOT touch campaign_leads
+          setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, _skipped: true } : l));
+        }
+
+        // Auto-add to DNC if enabled
+        if (selectedDisp.dncAutoAdd && currentLead.phone) {
+          try {
+            const { data: existing } = await supabase
+              .from('dnc_list')
+              .select('id')
+              .eq('phone_number', currentLead.phone)
+              .maybeSingle();
+            if (!existing) {
+              await supabase.from('dnc_list').insert({
+                phone_number: currentLead.phone,
+                reason: `Auto-added via disposition: ${selectedDisp.name}`,
+                added_by: user.id,
+              });
+            }
+          } catch (e) {
+            console.warn("Failed to auto-add to DNC list", e);
+          }
+        }
+      }
+
       return true;
     } catch (e: any) {
       toast.error("Failed to save: " + e.message);
@@ -1270,6 +1366,24 @@ export default function DialerPage() {
     setIsEditingContact(false);
     setCurrentLeadIndex((i) => i + 1);
   }
+
+  // ── Queue Position Persistence: save on every lead advance ──
+  useEffect(() => {
+    if (!user?.id || !selectedCampaignId || !currentLead) return;
+    const leadId = currentLead.lead_id || currentLead.id;
+    if (!leadId) return;
+    supabase
+      .from('dialer_queue_state')
+      .upsert({
+        user_id: user.id,
+        campaign_id: selectedCampaignId,
+        current_lead_id: leadId,
+        queue_index: currentLeadIndex,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,campaign_id' })
+      .then(() => {})
+      .catch(() => {});
+  }, [currentLeadIndex, currentLead, user?.id, selectedCampaignId]);
 
   const startEditing = () => {
     if (!currentLead) return;
@@ -1798,6 +1912,16 @@ export default function DialerPage() {
         {/* LEFT */}
         <button
           onClick={() => {
+            // Clear saved queue position
+            if (user?.id && selectedCampaignId) {
+              supabase
+                .from('dialer_queue_state')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('campaign_id', selectedCampaignId)
+                .then(() => {})
+                .catch(() => {});
+            }
             telnyxDestroy();
             setSelectedCampaignId(null);
             setLeadQueue([]);
@@ -3096,6 +3220,16 @@ export default function DialerPage() {
           <DialogFooter>
             <Button
               onClick={() => {
+                // Clear saved queue position
+                if (user?.id && selectedCampaignId) {
+                  supabase
+                    .from('dialer_queue_state')
+                    .delete()
+                    .eq('user_id', user.id)
+                    .eq('campaign_id', selectedCampaignId)
+                    .then(() => {})
+                    .catch(() => {});
+                }
                 setShowSessionEnd(false);
                 window.location.href = "/campaigns";
               }}

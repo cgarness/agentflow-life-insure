@@ -232,6 +232,8 @@ export interface WinFeedItem {
   time: string;
 }
 
+export type CampaignAction = 'none' | 'remove_from_queue' | 'remove_from_campaign';
+
 export interface Disposition {
   id: string;
   name: string;
@@ -244,6 +246,8 @@ export interface Disposition {
   automationTrigger: boolean;
   automationId?: string;
   automationName?: string;
+  campaignAction: CampaignAction;
+  dncAutoAdd: boolean;
   order: number;
   usageCount: number;
   createdAt: string;

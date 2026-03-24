@@ -26,6 +26,8 @@ interface DispositionRow {
   callback_scheduler: boolean;
   automation_trigger: boolean;
   automation_id: string | null;
+  campaign_action: string | null;
+  dnc_auto_add: boolean | null;
 }
 
 interface RecentCall {
@@ -577,6 +579,27 @@ const FloatingDialer: React.FC = () => {
           contactId: selectedContact?.id,
           policyType: disp.name,
         });
+      }
+
+      // Auto-add to DNC if enabled
+      const phoneForDnc = selectedContact?.phone || dialedNumber;
+      if (disp.dnc_auto_add && phoneForDnc && user) {
+        try {
+          const { data: existing } = await supabase
+            .from('dnc_list')
+            .select('id')
+            .eq('phone_number', phoneForDnc)
+            .maybeSingle();
+          if (!existing) {
+            await supabase.from('dnc_list').insert({
+              phone_number: phoneForDnc,
+              reason: `Auto-added via disposition: ${disp.name}`,
+              added_by: user.id,
+            });
+          }
+        } catch (e) {
+          console.warn("Failed to auto-add to DNC list", e);
+        }
       }
     }
     resetAll();

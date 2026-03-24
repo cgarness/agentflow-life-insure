@@ -13,6 +13,8 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     automationTrigger: row.automation_trigger,
     automationId: row.automation_id ?? undefined,
     automationName: row.automation_name ?? undefined,
+    campaignAction: row.campaign_action ?? 'none',
+    dncAutoAdd: row.dnc_auto_add ?? false,
     order: row.sort_order,
     usageCount: row.usage_count,
     createdAt: row.created_at,
@@ -51,6 +53,8 @@ export const dispositionsSupabaseApi = {
         automation_trigger: input.automationTrigger,
         automation_id: input.automationId ?? null,
         automation_name: input.automationName ?? null,
+        campaign_action: input.campaignAction ?? 'none',
+        dnc_auto_add: input.dncAutoAdd ?? false,
         sort_order: (count ?? 0) + 1,
         usage_count: 0,
       })
@@ -81,6 +85,8 @@ export const dispositionsSupabaseApi = {
         ...(input.automationTrigger !== undefined && { automation_trigger: input.automationTrigger }),
         ...(input.automationId !== undefined && { automation_id: input.automationId }),
         ...(input.automationName !== undefined && { automation_name: input.automationName }),
+        ...(input.campaignAction !== undefined && { campaign_action: input.campaignAction }),
+        ...(input.dncAutoAdd !== undefined && { dnc_auto_add: input.dncAutoAdd }),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
