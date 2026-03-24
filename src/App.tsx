@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import ProfileSetupModal from "@/components/onboarding/ProfileSetupModal";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
@@ -41,9 +43,16 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 const queryClient = new QueryClient();
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user, checkProfileSetupNeeded, markProfileSetupSeen } = useAuth();
+  const [showProfileSetup, setShowProfileSetup] = useState(false);
   const searchParams = new URLSearchParams(window.location.search);
   const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      if (checkProfileSetupNeeded()) setShowProfileSetup(true);
+    }
+  }, [isAuthenticated, user, checkProfileSetupNeeded]);
 
   if (bypassAuth) return <>{children}</>;
   if (isLoading) return (
@@ -52,7 +61,22 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     </div>
   );
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <ProfileSetupModal
+        open={showProfileSetup}
+        onClose={() => {
+          markProfileSetupSeen(true);
+          setShowProfileSetup(false);
+        }}
+        onComplete={() => {
+          markProfileSetupSeen(false);
+          setShowProfileSetup(false);
+        }}
+      />
+    </>
+  );
 };
 
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
