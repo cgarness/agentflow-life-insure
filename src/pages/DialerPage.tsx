@@ -63,7 +63,9 @@ import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
-import { Lead, PipelineStage } from "@/lib/types";
+import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
+import { upsertDialerStats, getTodayStats, deleteTodayStats } from "@/lib/supabase-dialer-stats";
+import { Skeleton } from "@/components/ui/skeleton";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
@@ -97,26 +99,6 @@ interface HistoryItem {
 
 /* ─── Dialer Session ─── */
 
-const DIALER_SESSION_KEY = 'agentflow_dialer_session';
-
-interface DialerSessionData {
-  sessionStart: string | null;
-  callsMade: number;
-  connected: number;
-  policiesSold: number;
-  totalCallSeconds: number;
-  sessionDurationSeconds: number;
-}
-
-const defaultDialerSession: DialerSessionData = {
-  sessionStart: null,
-  callsMade: 0,
-  connected: 0,
-  policiesSold: 0,
-  totalCallSeconds: 0,
-  sessionDurationSeconds: 0,
-};
-
 /* ─── Helpers ─── */
 
 function fmtDuration(seconds: number): string {
@@ -126,6 +108,7 @@ function fmtDuration(seconds: number): string {
 }
 
 function fmtSessionDuration(seconds: number): string {
+  if (seconds <= 0) return "00:00:00";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
@@ -238,18 +221,10 @@ export default function DialerPage() {
   const [aptStartTime, setAptStartTime] = useState("10:00 AM");
   const [aptEndTime, setAptEndTime] = useState("10:30 AM");
   const [aptNotes, setAptNotes] = useState("");
-  const [dialerSession, setDialerSession] = useState<DialerSessionData>(() => {
-    try {
-      const saved = localStorage.getItem(DIALER_SESSION_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.sessionStart !== undefined) return parsed as DialerSessionData;
-      }
-    } catch {}
-    return { ...defaultDialerSession };
-  });
+  const [dialerStats, setDialerStats] = useState<DialerDailyStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [sessionElapsed, setSessionElapsed] = useState(0);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
-  const sessionDurationTickRef = useRef(0);
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
@@ -336,6 +311,39 @@ export default function DialerPage() {
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
 
   /* --- data loading --- */
+
+  // ── Fetch today's stats from Supabase on mount ──
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    setStatsLoading(true);
+    getTodayStats(user.id)
+      .then((stats) => {
+        if (!cancelled) {
+          setDialerStats(stats);
+          setStatsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // ── Session duration ticker (live-ticking from session_started_at) ──
+  useEffect(() => {
+    if (!dialerStats?.session_started_at) {
+      setSessionElapsed(0);
+      return;
+    }
+    const startTime = new Date(dialerStats.session_started_at).getTime();
+    const tick = () => {
+      setSessionElapsed(Math.floor((Date.now() - startTime) / 1000));
+    };
+    tick(); // immediate
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [dialerStats?.session_started_at]);
 
   /* --- queries --- */
   
@@ -706,22 +714,7 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [showWrapUp, callState, dispositions]);
 
-  // ── Session duration ticker ──
-  useEffect(() => {
-    if (!dialerSession.sessionStart) return;
-    const interval = setInterval(() => {
-      setDialerSession(prev => {
-        const next = { ...prev, sessionDurationSeconds: prev.sessionDurationSeconds + 1 };
-        sessionDurationTickRef.current += 1;
-        if (sessionDurationTickRef.current >= 10) {
-          sessionDurationTickRef.current = 0;
-          localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [dialerSession.sessionStart]);
+  // (Session duration ticker moved to mount effects above)
 
   // ── Calling Settings: fetch on open ──
   useEffect(() => {
@@ -960,30 +953,56 @@ export default function DialerPage() {
       return;
     }
     const now = new Date().toISOString();
-    setDialerSession(prev => {
-      const next = {
+    const isFirstCall = !dialerStats?.session_started_at;
+    // Optimistic local update
+    setDialerStats(prev => {
+      if (!prev) {
+        return {
+          id: "",
+          agent_id: user?.id || "",
+          stat_date: new Date().toISOString().split("T")[0],
+          calls_made: 1,
+          calls_connected: 0,
+          total_talk_seconds: 0,
+          policies_sold: 0,
+          session_started_at: now,
+          last_updated_at: now,
+        };
+      }
+      return {
         ...prev,
-        sessionStart: prev.sessionStart ?? now,
-        callsMade: prev.callsMade + 1,
+        calls_made: prev.calls_made + 1,
+        session_started_at: prev.session_started_at ?? now,
+        last_updated_at: now,
       };
-      localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
-      return next;
     });
+    // Persist to Supabase (fire-and-forget)
+    if (user?.id) {
+      upsertDialerStats(user.id, {
+        calls_made: 1,
+        session_started_at: isFirstCall ? now : null,
+      }).catch(() => {});
+    }
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
   }
 
   function handleHangUp() {
     if (callState === "active") {
-      setDialerSession(prev => {
-        const next = {
-          ...prev,
-          connected: prev.connected + 1,
-          totalCallSeconds: prev.totalCallSeconds + telnyxCallDuration,
-        };
-        localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
-        return next;
-      });
+      // Optimistic local update
+      setDialerStats(prev => prev ? {
+        ...prev,
+        calls_connected: prev.calls_connected + 1,
+        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
+        last_updated_at: new Date().toISOString(),
+      } : prev);
+      // Persist to Supabase
+      if (user?.id) {
+        upsertDialerStats(user.id, {
+          calls_connected: 1,
+          total_talk_seconds: telnyxCallDuration,
+        }).catch(() => {});
+      }
     }
     telnyxHangUp();
   }
@@ -1168,11 +1187,8 @@ export default function DialerPage() {
         fetchHistory(currentLead.lead_id || currentLead.id);
         toast.success("Call saved successfully", { id: toastId });
         if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
-          setDialerSession(prev => {
-            const next = { ...prev, policiesSold: prev.policiesSold + 1 };
-            localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
-            return next;
-          });
+          setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
+          if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
         // Update local status
@@ -1195,11 +1211,8 @@ export default function DialerPage() {
         setShouldAdvanceAfterModal(true);
         toast.success("Saved successfully", { id: toastId });
         if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
-          setDialerSession(prev => {
-            const next = { ...prev, policiesSold: prev.policiesSold + 1 };
-            localStorage.setItem(DIALER_SESSION_KEY, JSON.stringify(next));
-            return next;
-          });
+          setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
+          if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
         // Delegate advance + auto-dial logic to autoDialer
@@ -1785,8 +1798,6 @@ export default function DialerPage() {
         {/* LEFT */}
         <button
           onClick={() => {
-            localStorage.removeItem(DIALER_SESSION_KEY);
-            setDialerSession({ ...defaultDialerSession });
             telnyxDestroy();
             setSelectedCampaignId(null);
             setLeadQueue([]);
@@ -1799,22 +1810,31 @@ export default function DialerPage() {
 
         {/* CENTER: centered inline stats in subtle boxes */}
         <div className="flex items-center justify-center flex-1 gap-2">
-          {[
-            { label: "Session Duration", value: fmtSessionDuration(dialerSession.sessionDurationSeconds) },
-            { label: "Calls Made", value: dialerSession.callsMade },
-            { label: "Connected", value: dialerSession.connected },
-            { label: "Answer Rate", value: dialerSession.callsMade > 0 ? `${((dialerSession.connected / dialerSession.callsMade) * 100).toFixed(0)}%` : "—" },
-            { label: "Policies Sold", value: dialerSession.policiesSold },
-            { label: "Avg Duration", value: dialerSession.connected > 0 ? fmtDuration(Math.round(dialerSession.totalCallSeconds / dialerSession.connected)) : "—" },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px] transition-all hover:bg-accent/50"
-            >
-              <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">{s.label}</div>
-              <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
-            </div>
-          ))}
+          {statsLoading ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px]">
+                <Skeleton className="h-2 w-12 mb-1" />
+                <Skeleton className="h-3 w-8" />
+              </div>
+            ))
+          ) : (
+            [
+              { label: "Session Duration", value: dialerStats?.session_started_at ? fmtSessionDuration(sessionElapsed) : "—" },
+              { label: "Calls Made", value: dialerStats?.calls_made ?? 0 },
+              { label: "Connected", value: dialerStats?.calls_connected ?? 0 },
+              { label: "Answer Rate", value: (dialerStats?.calls_made ?? 0) > 0 ? `${(((dialerStats?.calls_connected ?? 0) / (dialerStats?.calls_made ?? 1)) * 100).toFixed(0)}%` : "—" },
+              { label: "Policies Sold", value: dialerStats?.policies_sold ?? 0 },
+              { label: "Avg Talk Time", value: (dialerStats?.calls_connected ?? 0) > 0 ? fmtDuration(Math.round((dialerStats?.total_talk_seconds ?? 0) / (dialerStats?.calls_connected ?? 1))) : "—" },
+            ].map((s) => (
+              <div
+                key={s.label}
+                className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px] transition-all hover:bg-accent/50"
+              >
+                <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">{s.label}</div>
+                <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* RIGHT */}
@@ -1868,20 +1888,20 @@ export default function DialerPage() {
           </span>
           <button
             onClick={() => setShowEndSessionConfirm(true)}
-            className="border border-destructive text-destructive text-xs rounded-lg px-3 py-1 font-semibold hover:bg-destructive hover:text-destructive-foreground transition-colors"
+            className="border border-destructive text-destructive text-xs px-3 py-1 rounded-lg hover:bg-destructive hover:text-destructive-foreground transition-colors"
           >
-            End Session
+            Reset Stats
           </button>
         </div>
       </div>
 
-      {/* End Session confirmation */}
+      {/* Reset Stats confirmation */}
       {showEndSessionConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card border rounded-xl p-6 w-80 flex flex-col gap-4 shadow-xl">
             <div className="flex flex-col gap-1">
-              <p className="text-sm font-semibold text-foreground">Reset session stats?</p>
-              <p className="text-xs text-muted-foreground">Are you sure? This will reset all session stats.</p>
+              <p className="text-sm font-semibold text-foreground">Reset today's stats?</p>
+              <p className="text-xs text-muted-foreground">This cannot be undone.</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -1892,10 +1912,10 @@ export default function DialerPage() {
               </button>
               <button
                 onClick={() => {
-                  localStorage.removeItem(DIALER_SESSION_KEY);
-                  setDialerSession({ ...defaultDialerSession });
-                  sessionDurationTickRef.current = 0;
+                  setDialerStats(null);
+                  setSessionElapsed(0);
                   setShowEndSessionConfirm(false);
+                  if (user?.id) deleteTodayStats(user.id).catch(() => {});
                 }}
                 className="flex-1 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90"
               >
