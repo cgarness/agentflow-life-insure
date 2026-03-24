@@ -56,11 +56,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId: string) => {
+    // Try full fetch first
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .single();
+
+    if (error && error.message.includes("does not exist")) {
+      console.warn("Retrying profile fetch with safe column set due to schema mismatch:", error.message);
+      // Fallback to minimal core columns that are guaranteed to exist
+      const { data: safeData, error: safeError } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, email, role, status, availability_status, avatar_url, theme_preference")
+        .eq("id", userId)
+        .single();
+      
+      if (!safeError && safeData) {
+        if (safeData.status === "Inactive") {
+          await supabase.auth.signOut();
+          return;
+        }
+        setProfile(safeData as unknown as Profile);
+      }
+      return;
+    }
+
     if (!error && data) {
       if (data.status === "Inactive") {
         console.warn("User account is inactive. Logging out.");
