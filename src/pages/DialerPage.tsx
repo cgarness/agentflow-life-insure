@@ -1042,7 +1042,8 @@ export default function DialerPage() {
   }
 
   function handleHangUp() {
-    if (callState === "active") {
+    console.log("[Dialer] Hang up — duration:", telnyxCallDuration, "counting as connected:", telnyxCallDuration >= 7);
+    if (telnyxCallDuration >= 7) {
       // Optimistic local update
       setDialerStats(prev => prev ? {
         ...prev,
@@ -1952,9 +1953,9 @@ export default function DialerPage() {
             ].map((s) => (
               <div
                 key={s.label}
-                className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px] transition-all hover:bg-accent/50"
+                className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-0 h-20 justify-center transition-all hover:bg-accent/50"
               >
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">{s.label}</div>
+                <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold truncate w-full text-center">{s.label}</div>
                 <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
               </div>
             ))
