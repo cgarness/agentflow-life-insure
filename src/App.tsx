@@ -34,6 +34,7 @@ import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
+import AuthCallback from "@/pages/AuthCallback";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -81,6 +82,7 @@ const App = () => (
                         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
+                        <Route path="/auth/callback" element={<AuthCallback />} />
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
