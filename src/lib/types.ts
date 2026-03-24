@@ -290,3 +290,15 @@ export interface HealthStatus {
   isDefault: boolean;
   order: number;
 }
+
+export interface DialerDailyStats {
+  id: string;
+  agent_id: string;
+  stat_date: string;
+  calls_made: number;
+  calls_connected: number;
+  total_talk_seconds: number;
+  policies_sold: number;
+  session_started_at: string | null;
+  last_updated_at: string;
+}
