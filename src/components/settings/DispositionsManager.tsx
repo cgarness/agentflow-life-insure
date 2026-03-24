@@ -5,8 +5,9 @@ import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, Info, BarChart3, TrendingUp,
   TrendingDown, Phone, Calendar, FileText, Zap, X, Check, AlertTriangle,
-  Users,
+  Users, ShieldBan,
 } from "lucide-react";
+import type { CampaignAction } from "@/lib/types";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -44,6 +45,8 @@ interface FormState {
   automationTrigger: boolean;
   automationId: string;
   automationName: string;
+  campaignAction: CampaignAction;
+  dncAutoAdd: boolean;
 }
 
 const emptyForm: FormState = {
@@ -56,6 +59,8 @@ const emptyForm: FormState = {
   automationTrigger: false,
   automationId: "",
   automationName: "",
+  campaignAction: "none",
+  dncAutoAdd: false,
 };
 
 const DispositionsManager: React.FC = () => {
@@ -119,6 +124,8 @@ const DispositionsManager: React.FC = () => {
       automationTrigger: d.automationTrigger,
       automationId: d.automationId || "",
       automationName: d.automationName || "",
+      campaignAction: d.campaignAction || "none",
+      dncAutoAdd: d.dncAutoAdd || false,
     });
     setShowModal(true);
   };
@@ -150,6 +157,8 @@ const DispositionsManager: React.FC = () => {
           automationTrigger: form.automationTrigger,
           automationId: form.automationTrigger ? form.automationId : undefined,
           automationName: form.automationTrigger ? form.automationName : undefined,
+          campaignAction: form.campaignAction,
+          dncAutoAdd: form.dncAutoAdd,
         });
         toast({ title: "Disposition updated" });
       } else {
@@ -164,6 +173,8 @@ const DispositionsManager: React.FC = () => {
           automationTrigger: form.automationTrigger,
           automationId: form.automationTrigger ? form.automationId : undefined,
           automationName: form.automationTrigger ? form.automationName : undefined,
+          campaignAction: form.campaignAction,
+          dncAutoAdd: form.dncAutoAdd,
           order: dispositions.length + 1,
         });
         toast({ title: "Disposition created" });
@@ -294,6 +305,16 @@ const DispositionsManager: React.FC = () => {
                 {d.automationTrigger && d.automationName && (
                   <span className="text-[10px] bg-yellow-500/10 text-yellow-700 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
                     <Zap className="w-2.5 h-2.5" /> {d.automationName}
+                  </span>
+                )}
+                {d.campaignAction && d.campaignAction !== 'none' && (
+                  <span className="text-[10px] bg-orange-500/10 text-orange-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                    <Users className="w-2.5 h-2.5" /> {d.campaignAction === 'remove_from_queue' ? 'Remove Queue' : 'Remove Campaign'}
+                  </span>
+                )}
+                {d.dncAutoAdd && (
+                  <span className="text-[10px] bg-red-500/10 text-red-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                    <ShieldBan className="w-2.5 h-2.5" /> Auto-DNC
                   </span>
                 )}
               </div>
@@ -553,6 +574,47 @@ const DispositionsManager: React.FC = () => {
                   ))}
                 </select>
               )}
+            </div>
+
+            {/* Campaign Action */}
+            <div className="rounded-lg border p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" /> Campaign Action
+                </p>
+                <p className="text-xs text-muted-foreground">What happens to the lead in the campaign after this disposition.</p>
+              </div>
+              <select
+                value={form.campaignAction}
+                onChange={e => setForm(f => ({ ...f, campaignAction: e.target.value as CampaignAction }))}
+                className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="none">No Action</option>
+                <option value="remove_from_queue">Remove from Queue</option>
+                <option value="remove_from_campaign">Remove from Campaign</option>
+              </select>
+              {form.campaignAction === "remove_from_queue" && (
+                <p className="text-[11px] text-muted-foreground">Skips this lead for the rest of today's session but keeps them in the campaign.</p>
+              )}
+              {form.campaignAction === "remove_from_campaign" && (
+                <p className="text-[11px] text-muted-foreground">Permanently removes this lead from the campaign — they won't appear in future queue pulls.</p>
+              )}
+            </div>
+
+            {/* Auto-Add to DNC */}
+            <div className="rounded-lg border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-4">
+                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                    <ShieldBan className="w-3.5 h-3.5" /> Auto-Add to DNC
+                  </p>
+                  <p className="text-xs text-muted-foreground">Automatically adds the lead's phone number to the Do Not Call list when this disposition is selected.</p>
+                </div>
+                <Switch
+                  checked={form.dncAutoAdd}
+                  onCheckedChange={v => setForm(f => ({ ...f, dncAutoAdd: v }))}
+                />
+              </div>
             </div>
 
           </div>
