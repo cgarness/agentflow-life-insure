@@ -14,7 +14,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
     status: row.status as UserStatus,
     availabilityStatus: row.availability_status || "Offline",
     themePreference: row.theme_preference || "light",
-    lastLoginAt: null,
+    lastLoginAt: row.last_login_at || null,
     createdAt: row.created_at,
     profile: {
       userId: row.id,
@@ -43,12 +43,12 @@ function rowToUser(row: any): User & { profile: UserProfile } {
 export const usersSupabaseApi = {
   async getAll(filters?: { search?: string; role?: string; status?: string }): Promise<(User & { profile: UserProfile })[]> {
     const allExpectedColumns = [
-      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
-      "availability_status", "theme_preference", "created_at", "licensed_states", 
-      "resident_state", "commission_level", "upline_id", "onboarding_complete", 
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
+      "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
+      "resident_state", "commission_level", "upline_id", "onboarding_complete",
       "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
-      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
+      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
       "push_notifications_enabled", "carriers"
     ];
 
@@ -105,12 +105,12 @@ export const usersSupabaseApi = {
 
   async getById(id: string): Promise<User & { profile: UserProfile }> {
     const allExpectedColumns = [
-      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
-      "availability_status", "theme_preference", "created_at", "licensed_states", 
-      "resident_state", "commission_level", "upline_id", "onboarding_complete", 
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
+      "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
+      "resident_state", "commission_level", "upline_id", "onboarding_complete",
       "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
-      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
+      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
       "push_notifications_enabled", "carriers"
     ];
 

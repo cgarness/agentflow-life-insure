@@ -423,7 +423,7 @@ const UserProfileModal: React.FC<{
   user: UserWithProfile | null;
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (patch?: Partial<UserWithProfile>) => void;
   onDeleted: (id: string) => void;
   currentUserId: string;
   allUsers: UserWithProfile[];
@@ -508,7 +508,7 @@ const UserProfileModal: React.FC<{
       });
       toast({ title: "Changes saved successfully" });
       setEditMode(false);
-      onSaved();
+      onSaved({ id: user.id, role: form.role as UserRole, status: form.status as any, firstName: form.firstName as string, lastName: form.lastName as string });
     } catch (e: any) {
       toast({ title: "Failed to save changes", description: e.message || "An unknown error occurred", variant: "destructive" });
     } finally {
@@ -1016,16 +1016,18 @@ const UserManagement: React.FC = () => {
   const handleDeactivateReactivate = async () => {
     const u = confirmDialog.user;
     if (!u) return;
+    const targetId = u.id;
     try {
       if (confirmDialog.action === "deactivate") {
-        await usersApi.deactivate(u.id);
+        await usersApi.deactivate(targetId);
         toast({ title: "Deactivated", description: `${u.firstName} ${u.lastName} has been deactivated.` });
+        setAllUsers(prev => prev.map(usr => usr.id === targetId ? { ...usr, status: "Inactive" as any } : usr));
       } else {
-        await usersApi.reactivate(u.id);
+        await usersApi.reactivate(targetId);
         toast({ title: "Reactivated", description: `${u.firstName} ${u.lastName} has been reactivated.` });
+        setAllUsers(prev => prev.map(usr => usr.id === targetId ? { ...usr, status: "Active" as any } : usr));
       }
       setConfirmDialog({ open: false, user: null, action: "deactivate" });
-      fetchUsers();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -1180,7 +1182,7 @@ const UserManagement: React.FC = () => {
         user={selectedUser}
         open={profileOpen}
         onClose={() => { setProfileOpen(false); setSelectedUser(null); }}
-        onSaved={() => { fetchUsers(); }}
+        onSaved={(patch) => { if (patch?.id) setAllUsers(prev => prev.map(u => u.id === patch.id! ? { ...u, ...patch } : u)); }}
         onDeleted={(id) => {
           setAllUsers(prev => prev.filter(u => u.id !== id));
           setProfileOpen(false);
