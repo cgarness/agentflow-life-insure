@@ -32,7 +32,7 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
-import ContactModal from "@/components/contacts/ContactModal";
+import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { Lead } from "@/lib/types";
 import { useBranding } from "@/contexts/BrandingContext";
 
@@ -662,11 +662,19 @@ const CalendarPage: React.FC = () => {
 
 
       {contactModalLead && (
-        <ContactModal
-          lead={contactModalLead}
+        <FullScreenContactView
+          contact={contactModalLead}
+          type="lead"
           onClose={() => setContactModalLead(null)}
-          onUpdate={async () => {}}
-          onDelete={async () => {}}
+          onUpdate={async (id, data) => {
+            await supabase.from("leads").update(data).eq("id", id);
+            fetchAppointments();
+          }}
+          onDelete={async (id) => {
+            await supabase.from("leads").delete().eq("id", id);
+            setContactModalLead(null);
+            fetchAppointments();
+          }}
         />
       )}
     </div>

@@ -61,7 +61,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { AutoDialer } from "@/lib/auto-dialer";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
-import ContactModal from "@/components/contacts/ContactModal";
+import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
@@ -3113,39 +3113,42 @@ export default function DialerPage() {
       />
 
 
-      <ContactModal
-        lead={showFullViewDrawer && currentLead ? mapDialerLeadToContactLead(currentLead) : null}
-        onClose={() => setShowFullViewDrawer(false)}
-        onUpdate={async (id, data) => {
-          try {
-            await leadsSupabaseApi.update(id, data);
-            // Refresh local queue state by matching either the lead_id or the internal id
-            setLeadQueue(prev => prev.map(l => (l.lead_id === id || l.id === id) ? {
-              ...l,
-              ...data,
-              first_name: data.firstName ?? l.first_name,
-              last_name: data.lastName ?? l.last_name,
-              email: data.email ?? l.email,
-              phone: data.phone ?? l.phone,
-              state: data.state ?? l.state,
-              status: data.status ?? l.status,
-            } : l));
-            toast.success("Contact updated successfully");
-          } catch (err: any) {
-            toast.error("Failed to update contact: " + err.message);
-          }
-        }}
-        onDelete={async (id) => {
-          try {
-            await leadsSupabaseApi.delete(id);
-            setLeadQueue(prev => prev.filter(l => l.id !== id));
-            setShowFullViewDrawer(false);
-            toast.success("Contact deleted");
-          } catch (err: any) {
-            toast.error("Failed to delete contact: " + err.message);
-          }
-        }}
-      />
+      {showFullViewDrawer && currentLead && (
+        <FullScreenContactView
+          contact={mapDialerLeadToContactLead(currentLead)}
+          type="lead"
+          onClose={() => setShowFullViewDrawer(false)}
+          onUpdate={async (id, data) => {
+            try {
+              await leadsSupabaseApi.update(id, data);
+              // Refresh local queue state by matching either the lead_id or the internal id
+              setLeadQueue(prev => prev.map(l => (l.lead_id === id || l.id === id) ? {
+                ...l,
+                ...data,
+                first_name: data.firstName ?? l.first_name,
+                last_name: data.lastName ?? l.last_name,
+                email: data.email ?? l.email,
+                phone: data.phone ?? l.phone,
+                state: data.state ?? l.state,
+                status: data.status ?? l.status,
+              } : l));
+              toast.success("Contact updated successfully");
+            } catch (err: any) {
+              toast.error("Failed to update contact: " + err.message);
+            }
+          }}
+          onDelete={async (id) => {
+            try {
+              await leadsSupabaseApi.delete(id);
+              setLeadQueue(prev => prev.filter(l => l.id !== id));
+              setShowFullViewDrawer(false);
+              toast.success("Contact deleted");
+            } catch (err: any) {
+              toast.error("Failed to delete contact: " + err.message);
+            }
+          }}
+        />
+      )}
 
       {/* ── DNC Warning Modal ── */}
       <Dialog open={showDncWarning} onOpenChange={setShowDncWarning}>
