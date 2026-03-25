@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +36,7 @@ interface DNCNumber {
 }
 
 const DNCSettings: React.FC = () => {
+    const { organizationId } = useOrganization();
     const { toast } = useToast();
     const [loading, setLoading] = useState(true);
     const [numbers, setNumbers] = useState<DNCNumber[]>([]);
@@ -99,7 +101,8 @@ const DNCSettings: React.FC = () => {
                 .insert({
                     phone_number: newNumber.trim(),
                     reason: newReason.trim() || null,
-                });
+                    organization_id: organizationId,
+                } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
             if (error) {
                 if (error.code === '23505') {

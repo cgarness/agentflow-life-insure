@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Target, TrendingUp, Plus, Loader2, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,7 @@ const COMMON_METRICS = [
 const PERIODS = ["Daily", "Weekly", "Monthly", "Quarterly", "Annually"];
 
 const GoalSetting: React.FC = () => {
+    const { organizationId } = useOrganization();
     const [goals, setGoals] = useState<Goal[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -115,7 +117,7 @@ const GoalSetting: React.FC = () => {
                 if (error) throw error;
                 toast({ title: "Goal updated", className: "bg-success text-success-foreground border-success" });
             } else {
-                const { error } = await supabase.from('goals').insert(payload);
+                const { error } = await supabase.from('goals').insert({ ...payload, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (error) throw error;
                 toast({ title: "Goal created", className: "bg-success text-success-foreground border-success" });
             }

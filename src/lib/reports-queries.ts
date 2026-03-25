@@ -125,8 +125,8 @@ export async function fetchSavedReports() {
   return data || [];
 }
 
-export async function createSavedReport(name: string, config: any, userId: string) {
-  const { error } = await supabase.from("saved_reports").insert({ name, config, created_by: userId });
+export async function createSavedReport(name: string, config: any, userId: string, organizationId: string | null = null) {
+  const { error } = await supabase.from("saved_reports").insert({ name, config, created_by: userId, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (error) throw error;
 }
 
@@ -143,8 +143,8 @@ export async function fetchScheduledReports() {
   return data || [];
 }
 
-export async function createScheduledReport(report: any) {
-  const { error } = await supabase.from("scheduled_reports").insert(report);
+export async function createScheduledReport(report: any, organizationId: string | null = null) {
+  const { error } = await supabase.from("scheduled_reports").insert({ ...report, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (error) throw error;
 }
 

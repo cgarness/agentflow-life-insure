@@ -32,7 +32,7 @@ export const dispositionsSupabaseApi = {
     if (error) throw new Error(error.message);
     return (data ?? []).map(rowToDisposition);
   },
-  async create(input: Omit<Disposition, "id" | "createdAt" | "updatedAt" | "usageCount">): Promise<Disposition> {
+  async create(input: Omit<Disposition, "id" | "createdAt" | "updatedAt" | "usageCount">, organizationId: string | null = null): Promise<Disposition> {
     const { data: existing } = await supabase
       .from("dispositions")
       .select("id")
@@ -61,7 +61,8 @@ export const dispositionsSupabaseApi = {
         auto_add_to_dnc: input.autoAddToDnc ?? false,
         sort_order: (count ?? 0) + 1,
         usage_count: 0,
-      })
+        organization_id: organizationId,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .select()
       .single();
     if (error) throw new Error(error.message);

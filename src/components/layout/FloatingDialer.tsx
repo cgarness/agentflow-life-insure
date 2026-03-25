@@ -8,6 +8,7 @@ import { useTelnyx } from "@/contexts/TelnyxContext";
 import { useNavigate } from "react-router-dom";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { createCall, saveCall } from "@/lib/dialer-api";
 
 interface ContactResult {
@@ -54,6 +55,7 @@ function timeAgo(dateStr: string): string {
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const { organizationId } = useOrganization();
 
   // --- Drag state ---
   const [position, setPosition] = useState({ x: window.innerWidth - 340 - 16, y: 64 });
@@ -398,7 +400,7 @@ const FloatingDialer: React.FC = () => {
           caller_id_used: autoSelectedNumber,
           contact_name: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : destinationNumber,
           contact_phone: destinationNumber,
-        });
+        }, organizationId);
       } catch (err) {
         console.error("Failed to create call record:", err);
       }
@@ -537,7 +539,7 @@ const FloatingDialer: React.FC = () => {
             notes: callNotes.trim(),
             outcome: disp.name,
             caller_id_used: lastUsedCallerId.current || undefined,
-          });
+          }, organizationId);
         } catch (err) {
           console.error("Failed to save call:", err);
         }
@@ -555,7 +557,8 @@ const FloatingDialer: React.FC = () => {
             start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
             notes: `Callback scheduled from dialer. Disposition: ${disp.name}`,
             created_by: user?.id,
-          }]);
+            organization_id: organizationId,
+          }] as any); // eslint-disable-line @typescript-eslint/no-explicit-any
         } catch {
           // non-blocking
         }
@@ -578,6 +581,7 @@ const FloatingDialer: React.FC = () => {
           contactName,
           contactId: selectedContact?.id,
           policyType: disp.name,
+          organizationId,
         });
       }
 
@@ -595,7 +599,8 @@ const FloatingDialer: React.FC = () => {
               phone_number: phoneForDnc,
               reason: `Auto-added via disposition: ${disp.name}`,
               added_by: user.id,
-            });
+              organization_id: organizationId,
+            } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           }
         } catch (e) {
           console.warn("Failed to auto-add to DNC list", e);

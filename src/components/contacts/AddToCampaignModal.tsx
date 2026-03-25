@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Search, Loader2, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { Campaign } from "@/lib/types";
 
@@ -12,6 +13,7 @@ interface AddToCampaignModalProps {
 }
 
 const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, selectedContacts, onSuccess }) => {
+  const { organizationId } = useOrganization();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -98,9 +100,10 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         state: c.state,
         age: c.age || null,
         status: "Queued",
+        organization_id: organizationId,
       }));
 
-      const { error } = await supabase.from("campaign_leads").insert(rows);
+      const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
       
       if (error) throw error;
 
@@ -141,6 +144,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
           type: newCampaignType,
           status: "Active",
           total_leads: 0,
+          organization_id: organizationId,
         } as any)
         .select("*")
         .single();
@@ -157,9 +161,10 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         state: c.state,
         age: c.age || null,
         status: "Queued",
+        organization_id: organizationId,
       }));
 
-      const { error: insertError } = await supabase.from("campaign_leads").insert(rows);
+      const { error: insertError } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
       if (insertError) throw insertError;
 
       await supabase

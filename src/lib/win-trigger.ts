@@ -10,6 +10,7 @@ interface WinTriggerParams {
   callId?: string;
   policyType?: string;
   premiumAmount?: number;
+  organizationId?: string | null;
 }
 
 /**
@@ -29,6 +30,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
     callId,
     policyType,
     premiumAmount,
+    organizationId = null,
   } = params;
 
   // 1. Insert win record
@@ -45,7 +47,8 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       policy_type: policyType || null,
       premium_amount: premiumAmount || null,
       celebrated: false,
-    })
+      organization_id: organizationId,
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .select("id, agent_name, contact_name, campaign_name, created_at")
     .single();
 
@@ -74,6 +77,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
         win_id: winData.id,
       },
       read: false,
+      organization_id: organizationId,
     }));
 
     await supabase.from("notifications").insert(notifications);

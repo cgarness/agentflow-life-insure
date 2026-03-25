@@ -27,7 +27,7 @@ export const leadsSupabaseApi = {
     return { lead: rowToLead(data), notes: [], activities: [], calls: [] };
   },
 
-  async create(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): Promise<Lead> {
+  async create(data: Omit<Lead, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Lead> {
     const { data: existing } = await supabase
       .from("leads")
       .select("id, first_name, last_name, phone")
@@ -37,7 +37,7 @@ export const leadsSupabaseApi = {
 
     const { data: row, error } = await supabase
       .from("leads")
-      .insert(leadToRow(data))
+      .insert({ ...leadToRow(data), organization_id: organizationId } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .select()
       .single();
     if (error) throw new Error(error.message);
@@ -80,7 +80,7 @@ export const leadsSupabaseApi = {
     if (error) throw new Error(error.message);
   },
 
-  async import(data: Partial<Lead>[]): Promise<{ imported: number; duplicates: number; errors: number }> {
+  async import(data: Partial<Lead>[], organizationId: string | null = null): Promise<{ imported: number; duplicates: number; errors: number }> {
     let imported = 0, duplicates = 0, errors = 0;
     const batchSize = 50;
 
@@ -95,7 +95,7 @@ export const leadsSupabaseApi = {
             .maybeSingle();
           if (existing) { duplicates++; continue; }
 
-          const { error } = await supabase.from("leads").insert(leadToRow({
+          const { error } = await supabase.from("leads").insert({ ...leadToRow({
             firstName: row.firstName || "",
             lastName: row.lastName || "",
             phone: row.phone || "",
@@ -110,7 +110,7 @@ export const leadsSupabaseApi = {
             healthStatus: row.healthStatus,
             bestTimeToCall: row.bestTimeToCall,
             notes: row.notes,
-          }));
+          }), organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           if (error) { errors++; } else { imported++; }
         } catch { errors++; }
       }

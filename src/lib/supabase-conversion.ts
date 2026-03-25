@@ -9,7 +9,7 @@ export const conversionSupabaseApi = {
    * 2. Updating related notes and activities to point to the new client ID and change contact_type to 'client'.
    * 3. Deleting the original lead record.
    */
-  async convertLeadToClient(lead: Lead, policyInfo: Partial<Client>): Promise<string> {
+  async convertLeadToClient(lead: Lead, policyInfo: Partial<Client>, organizationId: string | null = null): Promise<string> {
     // 1. Create the client record
     const clientData = {
       first_name: lead.firstName,
@@ -28,6 +28,7 @@ export const conversionSupabaseApi = {
       beneficiary_phone: policyInfo.beneficiaryPhone || null,
       notes: policyInfo.notes || lead.notes || null,
       assigned_agent_id: lead.assignedAgentId,
+      organization_id: organizationId,
     };
 
     const { data: client, error: clientError } = await (supabase as any)

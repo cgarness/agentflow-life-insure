@@ -9,12 +9,14 @@ type NotificationInsert = TablesInsert<"notifications">;
  * The NotificationContext Realtime subscription will pick it up automatically.
  */
 export async function createNotification(
-    data: Omit<NotificationInsert, "id" | "created_at" | "read">
+    data: Omit<NotificationInsert, "id" | "created_at" | "read">,
+    organizationId: string | null = null
 ) {
     const { error } = await supabase.from("notifications").insert({
         ...data,
         read: false,
-    });
+        organization_id: organizationId,
+    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     if (error) {
         console.error("Failed to create notification:", error);

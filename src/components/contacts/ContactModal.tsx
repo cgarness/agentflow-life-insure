@@ -22,6 +22,7 @@ import {
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 
 const US_STATES = [
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
@@ -159,6 +160,7 @@ interface ContactModalProps {
 }
 
 const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, onDelete, onConvert }) => {
+  const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls">("Overview");
@@ -380,7 +382,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     }
 
     await onUpdate(lead.id, { status: newStatus as LeadStatus });
-    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" });
+    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" }, organizationId);
     toast.success(`Status updated to ${newStatus}`);
   };
 
@@ -417,9 +419,9 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     setHasChanges(false);
     setHasUnsavedChanges(false);
 
-    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: `Contact details updated by ${AGENT_NAME}`, agentId: "u1" });
+    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: `Contact details updated by ${AGENT_NAME}`, agentId: "u1" }, organizationId);
     for (const cf of changedFields) {
-      await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: cf, agentId: "u1" });
+      await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: cf, agentId: "u1" }, organizationId);
     }
 
     toast.success("Contact updated successfully");
@@ -451,14 +453,14 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     setNoteError("");
 
     try {
-      const addedNote = await notesSupabaseApi.add(lead.id, "lead", newNote.trim(), "u1");
+      const addedNote = await notesSupabaseApi.add(lead.id, "lead", newNote.trim(), "u1", organizationId);
       setLocalNotes(prev => {
         const next = [addedNote, ...prev];
         return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
       });
       setNewNote("");
       setPinNewNote(false);
-      await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" });
+      await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" }, organizationId);
       toast.success("Note added");
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.error(e.message);
@@ -473,7 +475,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
     // Delete note not implemented in DB wrapper yet; optimistic UI only for now
     setLocalNotes(prev => prev.filter(n => n.id !== noteId));
     setDeleteNoteId(null);
-    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" });
+    await activitiesSupabaseApi.add({ contactId: lead.id, contactType: "lead", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" }, organizationId);
     toast.success("Note deleted");
   };
 
@@ -1144,7 +1146,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ lead, onClose, onUpdate, on
                   onClick={async () => {
                     setConverting(true);
                     try {
-                      await conversionSupabaseApi.convertLeadToClient(lead, policyForm);
+                      await conversionSupabaseApi.convertLeadToClient(lead, policyForm, organizationId);
                       logActivity(`Converted to Client by ${AGENT_NAME}`, "convert");
                       setConfirmConvert(false);
                       setConvertStep("form");

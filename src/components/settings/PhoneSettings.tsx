@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -54,6 +55,7 @@ interface Profile {
 }
 
 const PhoneSettings: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [loading, setLoading] = useState(true);
 
   // Credentials
@@ -254,7 +256,8 @@ const PhoneSettings: React.FC = () => {
       status: "active",
       area_code: areaCode,
       spam_status: "Unknown",
-    });
+      organization_id: organizationId,
+    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     setAddingManual(false);
     if (error) { toast.error("Failed to add number"); return; }
     setAddManualOpen(false);

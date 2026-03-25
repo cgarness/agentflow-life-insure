@@ -29,6 +29,8 @@ interface Profile {
   email_notifications_enabled: boolean;
   sms_notifications_enabled: boolean;
   push_notifications_enabled: boolean;
+  organization_id: string | null;
+  team_id: string | null;
   created_at: string;
   updated_at: string;
 }

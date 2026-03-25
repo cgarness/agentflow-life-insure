@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchSavedReports, createSavedReport, deleteSavedReport, AgentProfile } from "@/lib/reports-queries";
 import { toast } from "@/hooks/use-toast";
+import { useOrganization } from "@/hooks/useOrganization";
 import { format } from "date-fns";
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 }
 
 const CustomReportBuilder: React.FC<Props> = ({ open, onClose, agents, userId, onLoadReport }) => {
+  const { organizationId } = useOrganization();
   const [tab, setTab] = useState<"saved" | "create">("saved");
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,7 +38,7 @@ const CustomReportBuilder: React.FC<Props> = ({ open, onClose, agents, userId, o
   const handleSave = async () => {
     if (!name.trim()) { toast({ title: "Enter a report name", variant: "destructive" }); return; }
     try {
-      await createSavedReport(name, { metric, groupBy, chartType }, userId);
+      await createSavedReport(name, { metric, groupBy, chartType }, userId, organizationId);
       toast({ title: "Report saved" });
       setName("");
       load();

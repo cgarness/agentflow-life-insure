@@ -18,7 +18,7 @@ export const recruitsSupabaseApi = {
         return (data ?? []).map(rowToRecruit);
     },
 
-    async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">): Promise<Recruit> {
+    async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Recruit> {
         const { data: row, error } = await (supabase as any)
             .from("recruits")
             .insert({
@@ -29,7 +29,8 @@ export const recruitsSupabaseApi = {
                 status: data.status,
                 notes: data.notes,
                 assigned_agent_id: data.assignedAgentId,
-            })
+                organization_id: organizationId,
+            } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
             .select()
             .single();
         if (error) throw new Error(error.message);

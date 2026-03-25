@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Shield, Plus, Loader2, Search, Pencil, Trash2, ShieldCheck, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ interface Carrier {
 }
 
 const Carriers: React.FC = () => {
+    const { organizationId } = useOrganization();
     const [carriers, setCarriers] = useState<Carrier[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
@@ -99,7 +101,7 @@ const Carriers: React.FC = () => {
                 if (error) throw error;
                 toast({ title: "Carrier updated", className: "bg-success text-success-foreground border-success" });
             } else {
-                const { error } = await supabase.from('carriers').insert(payload);
+                const { error } = await supabase.from('carriers').insert({ ...payload, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (error) throw error;
                 toast({ title: "Carrier added", className: "bg-success text-success-foreground border-success" });
             }

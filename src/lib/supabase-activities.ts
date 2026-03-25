@@ -22,7 +22,7 @@ export const activitiesSupabaseApi = {
         description: string;
         agentId?: string;
         metadata?: Record<string, unknown>;
-    }): Promise<ContactActivity> {
+    }, organizationId: string | null = null): Promise<ContactActivity> {
         const { data: row, error } = await (supabase as any)
             .from("contact_activities")
             .insert({
@@ -32,7 +32,8 @@ export const activitiesSupabaseApi = {
                 description: data.description,
                 agent_id: data.agentId || null,
                 metadata: data.metadata || null,
-            })
+                organization_id: organizationId,
+            } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
             .select("*")
             .single();
 
