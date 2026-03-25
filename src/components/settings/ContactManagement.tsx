@@ -1035,10 +1035,10 @@ const HealthStatusesTab: React.FC = () => {
 // ==================== DUPLICATE DETECTION TAB ====================
 
 const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
-  const [detectionRule, setDetectionRule] = useState(settings?.duplicateDetectionRule || "phone_or_email");
-  const [detectionScope, setDetectionScope] = useState(settings?.duplicateDetectionScope || "all_agents");
-  const [manualAction, setManualAction] = useState(settings?.manualAction || "warn");
-  const [csvAction, setCsvAction] = useState(settings?.csvAction || "flag");
+  const [detectionRule, setDetectionRule] = useState<string>(settings?.duplicateDetectionRule || "phone_or_email");
+  const [detectionScope, setDetectionScope] = useState<string>(settings?.duplicateDetectionScope || "all_agents");
+  const [manualAction, setManualAction] = useState<string>(settings?.manualAction || "warn");
+  const [csvAction, setCsvAction] = useState<string>(settings?.csvAction || "flag");
   const [allowMerge, setAllowMerge] = useState(true);
   const [mergeWinner, setMergeWinner] = useState("newest");
   const [mergePermission, setMergePermission] = useState("agents_admins");
