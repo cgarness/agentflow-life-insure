@@ -1376,7 +1376,7 @@ export default function DialerPage() {
     if (!user?.id || !selectedCampaignId || !currentLead) return;
     const leadId = currentLead.lead_id || currentLead.id;
     if (!leadId) return;
-    supabase
+    (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .from('dialer_queue_state')
       .upsert({
         user_id: user.id,
