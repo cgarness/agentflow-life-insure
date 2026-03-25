@@ -26,7 +26,7 @@ export async function upsertDialerStats(
     session_started_at?: string | null;
   }
 ): Promise<void> {
-  const { error } = await supabase.rpc("increment_dialer_stats", {
+  const { error } = await (supabase as any).rpc("increment_dialer_stats", { // eslint-disable-line @typescript-eslint/no-explicit-any
     p_agent_id: agentId,
     p_calls_made: updates.calls_made ?? 0,
     p_calls_connected: updates.calls_connected ?? 0,
