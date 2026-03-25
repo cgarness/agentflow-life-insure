@@ -352,10 +352,12 @@ const InviteModal: React.FC<{
       toast({ title: "Missing fields", description: "Please fill in all required fields.", variant: "destructive" });
       return;
     }
-    setSaving(true);
     try {
-      await usersApi.invite(form, organizationId);
-      toast({ title: "Invitation sent", description: `Invitation sent to ${form.email}` });
+      // Create invite link and notify backend (Wait for an actual edge function)
+      // await usersApi.invite(form, organizationId);
+      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, uplineId: form.uplineId }, organizationId);
+      console.log("Generated Invite Link:", link);
+      toast({ title: "Invitation link generated", description: `You can send this link to ${form.email}` });
       setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%", uplineId: null });
       onSuccess();
       onClose();
@@ -373,11 +375,10 @@ const InviteModal: React.FC<{
     }
     setCopying(true);
     try {
-      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role }, organizationId);
+      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, uplineId: form.uplineId }, organizationId);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
-      // Also create the pending user
-      await usersApi.invite(form, organizationId);
+      // Removed broken pending user creation
       onSuccess();
       onClose();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
