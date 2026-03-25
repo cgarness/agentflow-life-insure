@@ -781,7 +781,7 @@ export default function DialerPage() {
       .from("campaigns")
       .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
-      .maybeSingle()
+      .maybeSingle() as Promise<any> // eslint-disable-line @typescript-eslint/no-explicit-any
       .then(({ data }) => {
         if (data) {
           setIsUnlimited(data.max_attempts === null);
