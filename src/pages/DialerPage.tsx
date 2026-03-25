@@ -3226,7 +3226,7 @@ export default function DialerPage() {
               onClick={() => {
                 // Clear saved queue position
                 if (user?.id && selectedCampaignId) {
-                  supabase
+                  (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
                     .from('dialer_queue_state')
                     .delete()
                     .eq('user_id', user.id)
