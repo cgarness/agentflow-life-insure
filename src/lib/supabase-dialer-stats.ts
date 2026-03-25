@@ -48,7 +48,7 @@ export async function getTodayStats(
   agentId: string
 ): Promise<DialerDailyStats | null> {
   const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .from("dialer_daily_stats")
     .select("*")
     .eq("agent_id", agentId)
