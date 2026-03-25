@@ -1253,7 +1253,7 @@ const Contacts: React.FC = () => {
   const handleAddContact = tab === "Clients" ? handleAddClient : tab === "Recruits" ? handleAddRecruit : handleAddLead;
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full w-full overflow-hidden">
       <h1 className="text-2xl font-bold text-foreground">Contacts</h1>
 
       {/* Tabs */}
