@@ -306,10 +306,18 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
+
   async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole; uplineId?: string | null }, organizationId: string | null): Promise<string> {
     const invitePayload = { ...data, organizationId };
     const encoded = btoa(JSON.stringify(invitePayload));
     return `${window.location.origin}/signup?invite=${encoded}`;
+  },
+
+  async sendInviteEmail(data: { email: string; firstName: string; role: string; inviteURL: string }): Promise<void> {
+    const { error } = await supabase.functions.invoke("send-invite-email", {
+      body: data,
+    });
+    if (error) throw error;
   },
 
   async deleteUser(id: string): Promise<void> {

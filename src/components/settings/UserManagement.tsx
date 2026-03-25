@@ -353,11 +353,17 @@ const InviteModal: React.FC<{
       return;
     }
     try {
-      // Create invite link and notify backend (Wait for an actual edge function)
-      // await usersApi.invite(form, organizationId);
+      setSaving(true);
       const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, uplineId: form.uplineId }, organizationId);
-      console.log("Generated Invite Link:", link);
-      toast({ title: "Invitation link generated", description: `You can send this link to ${form.email}` });
+      
+      await usersApi.sendInviteEmail({
+        email: form.email,
+        firstName: form.firstName,
+        role: form.role,
+        inviteURL: link
+      });
+
+      toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
       setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%", uplineId: null });
       onSuccess();
       onClose();
