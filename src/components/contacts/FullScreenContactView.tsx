@@ -458,10 +458,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       </div>
 
       {/* 3 COLUMN LAYOUT */}
-      <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+      <div className="flex flex-row h-full overflow-hidden">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[320px] min-w-[320px] bg-card border-r border-border flex flex-col min-h-0 overflow-y-auto">
+        <div className="w-72 shrink-0 bg-card border-r border-border flex flex-col h-full overflow-y-auto">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
             <h3 className="font-semibold text-sm">Contact Profile</h3>
             {!editMode ? (
@@ -561,7 +561,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         </div>
 
         {/* CENTER COLUMN - Conversations */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-[400px] overflow-y-auto">
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
           <div className="px-5 py-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
              <div className="flex items-center gap-3">
                 <MessageSquare className="w-4 h-4 text-muted-foreground" />
@@ -692,7 +692,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-[320px] min-w-[320px] bg-card border-l border-border flex flex-col min-h-0 overflow-y-auto">
+        <div className="w-64 shrink-0 bg-card border-l border-border flex flex-col h-full overflow-y-auto">
           <div className="px-5 py-4 border-b border-border shrink-0">
             <div className="flex gap-1.5">
               <button onClick={() => setRightTab("Activity")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Activity" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Activity</button>
