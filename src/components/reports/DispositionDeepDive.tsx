@@ -18,7 +18,7 @@ const DispositionDeepDive: React.FC<Props> = ({ calls, dispositions, agents, cam
   const { agentData, campaignData, topPaths } = useMemo(() => {
     // By agent
     const byAgent = new Map<string, Map<string, number>>();
-    const nonAdminAgents = agents.filter(a => a.role?.toLowerCase() !== "admin");
+    const nonAdminAgents = agents;
     nonAdminAgents.forEach(a => byAgent.set(getAgentName(agents, a.id), new Map()));
     calls.forEach(c => {
       const name = getAgentName(agents, c.agent_id);

@@ -75,7 +75,7 @@ const ScheduledReportsModal: React.FC<Props> = ({ open, onClose, agents, userId 
     load();
   };
 
-  const nonAdmin = agents.filter(a => a.role?.toLowerCase() !== "admin");
+  const nonAdmin = agents;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>

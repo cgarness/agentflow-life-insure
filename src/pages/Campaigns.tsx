@@ -432,9 +432,7 @@ const Campaigns: React.FC = () => {
       .from("profiles")
       .select("id, first_name, last_name, email, role");
     if (data) {
-      setAgents(
-        (data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")
-      );
+      setAgents(data as AgentProfile[]);
     }
     setAgentsLoading(false);
   }, []);

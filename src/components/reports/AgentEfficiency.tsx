@@ -13,7 +13,7 @@ const AgentEfficiency: React.FC<Props> = ({ calls, sessions, agents, currentUser
   const [sortAsc, setSortAsc] = useState(false);
 
   const data = useMemo(() => {
-    const nonAdmin = agents.filter(a => a.role?.toLowerCase() !== "admin");
+    const nonAdmin = agents;
     return nonAdmin.map(agent => {
       const ac = calls.filter(c => c.agent_id === agent.id);
       const connected = ac.filter(c => (c.duration || 0) > 0);

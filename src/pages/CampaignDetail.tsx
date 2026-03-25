@@ -616,7 +616,7 @@ const CampaignDetail: React.FC = () => {
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
     const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role");
-    if (data) { setAgents((data as AgentProfile[]).filter(a => a.role.toLowerCase() !== "admin")); }
+    if (data) { setAgents(data as AgentProfile[]); }
     setAgentsLoading(false);
   }, []);
 
@@ -669,25 +669,24 @@ const CampaignDetail: React.FC = () => {
   const filteredLeads = useMemo(() => {
     const role = profile?.role?.toLowerCase();
     const currentUserId = user?.id;
+    const isAdmin = role === "admin";
 
-    // Always show only claimed leads — leads with no assigned agent are never shown
-    let visibleLeads = leads.filter(l => l.claimed_by != null);
+    // Admins see all leads. Others might only see claimed leads.
+    let visibleLeads = leads;
 
     if (role === "agent") {
       // Agent: only their own claimed leads
       visibleLeads = visibleLeads.filter(l => l.claimed_by === currentUserId);
     } else if (role === "team leader" || role === "team_leader") {
-      // Team Leader: own leads + leads claimed by direct reports (upline_id === currentUserId)
-      // TODO: Replace upline_id check with a proper team membership query once team
-      //       relationships are wired (e.g. via a teams/team_members table).
+      // Team Leader: own leads + leads claimed by direct reports + unclaimed leads
       const teamMemberIds = new Set(
         agents.filter(a => (a as any).upline_id === currentUserId).map(a => a.id)
       );
       visibleLeads = visibleLeads.filter(
-        l => l.claimed_by === currentUserId || teamMemberIds.has(l.claimed_by!)
+        l => l.claimed_by === currentUserId || (l.claimed_by && teamMemberIds.has(l.claimed_by)) || l.claimed_by == null
       );
     }
-    // Admin: all claimed leads, no additional filtering
+    // Admin: all leads, no additional filtering
 
     if (leadFilter !== "All") {
       return visibleLeads.filter(l => l.status === leadFilter);

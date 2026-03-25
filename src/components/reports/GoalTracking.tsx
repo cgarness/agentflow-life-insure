@@ -10,7 +10,7 @@ interface Props { scorecards: any[]; agents: AgentProfile[]; selectedAgent?: str
 
 const GoalTracking: React.FC<Props> = ({ scorecards, agents, selectedAgent, loading }) => {
   const { chartData, agentNames, consistency } = useMemo(() => {
-    const nonAdmin = agents.filter(a => a.role?.toLowerCase() !== "admin");
+    const nonAdmin = agents;
     const filtered = selectedAgent ? scorecards.filter(s => s.agent_id === selectedAgent) : scorecards;
 
     // Group by week

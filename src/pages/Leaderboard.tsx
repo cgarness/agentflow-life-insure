@@ -193,7 +193,7 @@ const Leaderboard: React.FC = () => {
       supabase.from("goals").select("metric, target_value").eq("period", dbPeriod),
     ]);
 
-    const allProfiles = (profilesRes.data || []).filter(p => p.role?.toLowerCase() !== "admin");
+    const allProfiles = profilesRes.data || [];
     const goalsMap: Record<string, number> = {};
     (goalsRes.data || []).forEach(g => { 
       // Handle both simple "calls" and "daily_calls" style metrics

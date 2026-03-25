@@ -14,7 +14,7 @@ interface Props {
 }
 
 const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selectedAgent, onSelectAgent, loading }) => {
-  const nonAdmin = useMemo(() => agents.filter(a => a.role?.toLowerCase() !== "admin"), [agents]);
+  const nonAdmin = useMemo(() => agents, [agents]);
 
   const agentStats = useMemo(() => {
     const now = new Date();
