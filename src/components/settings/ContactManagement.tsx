@@ -1408,7 +1408,7 @@ const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null,
     
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .from("contact_management_settings")
         .upsert({
           organization_id: settings.organizationId,
