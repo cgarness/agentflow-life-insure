@@ -354,13 +354,14 @@ const InviteModal: React.FC<{
     }
     try {
       setSaving(true);
-      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, uplineId: form.uplineId }, organizationId);
-      
-      await usersApi.sendInviteEmail({
-        email: form.email,
+      await usersApi.invite({
         firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
         role: form.role,
-        inviteURL: link
+        licensedStates: form.licensedStates,
+        commissionLevel: form.commissionLevel,
+        uplineId: form.uplineId || undefined,
       });
 
       toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
@@ -1072,7 +1073,7 @@ const UserManagement: React.FC = () => {
 
   const handleResendInvite = async (u: UserWithProfile) => {
     try {
-      await usersApi.resendInvite(u.email);
+      await usersApi.resendInvite(u.id);
       toast({ title: "Invite resent", description: `Invitation resent to ${u.email}` });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
