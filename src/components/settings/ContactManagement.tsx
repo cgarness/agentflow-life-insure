@@ -1320,7 +1320,7 @@ interface AgentProfile {
 const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
-  const [method, setMethod] = useState(settings?.assignmentMethod || "unassigned");
+  const [method, setMethod] = useState<string>(settings?.assignmentMethod || "unassigned");
   const [specificAgent, setSpecificAgent] = useState(settings?.assignmentSpecificAgentId || "");
   const [rotation, setRotation] = useState<Record<string, boolean>>(() => {
     const r: Record<string, boolean> = {};
