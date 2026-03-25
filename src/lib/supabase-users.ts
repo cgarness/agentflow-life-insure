@@ -248,24 +248,31 @@ export const usersSupabaseApi = {
     return u.profile;
   },
 
-  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string | null }, organizationId: string | null): Promise<void> {
-    const { error } = await supabase
-      .from("profiles")
-      .insert({
-        first_name: data.firstName,
-        last_name: data.lastName,
-        email: data.email,
-        role: data.role,
-        status: "Pending",
-        commission_level: data.commissionLevel,
-        licensed_states: data.licensedStates,
-        organization_id: organizationId,
-        upline_id: data.uplineId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      } as any);
-    
-    if (error) throw error;
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string }): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role: data.role,
+          licensedStates: data.licensedStates,
+          commissionLevel: data.commissionLevel,
+          uplineId: data.uplineId,
+        }),
+      }
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to invite user");
+    }
   },
 
   async deactivate(id: string): Promise<void> {
@@ -288,15 +295,37 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
-  async resendInvite(email: string): Promise<void> {
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/login`,
-      },
-    });
-    if (error) throw error;
+  async resendInvite(id: string): Promise<void> {
+    // Get the user's email from profiles first
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("email, first_name, last_name, role, licensed_states, commission_level")
+      .eq("id", id)
+      .single();
+    if (error || !profile) throw new Error("User not found");
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          email: profile.email,
+          firstName: profile.first_name,
+          lastName: profile.last_name,
+          role: profile.role,
+          licensedStates: profile.licensed_states || [],
+          commissionLevel: profile.commission_level || "0%",
+        }),
+      }
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to resend invite");
+    }
   },
 
   async resetPassword(email: string): Promise<void> {
