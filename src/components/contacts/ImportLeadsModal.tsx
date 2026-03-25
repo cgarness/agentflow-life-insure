@@ -147,6 +147,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [newFieldType, setNewFieldType] = useState<"Text" | "Number" | "Date" | "Dropdown">("Text");
   const [newFieldDropdownOpts, setNewFieldDropdownOpts] = useState("");
   const [newFieldRequired, setNewFieldRequired] = useState(false);
+  const [newFieldError, setNewFieldError] = useState("");
 
   // Step 3
   const [duplicateHandling, setDuplicateHandling] = useState<DuplicateHandling>("skip");
@@ -248,6 +249,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       setNewFieldType("Text");
       setNewFieldDropdownOpts("");
       setNewFieldRequired(false);
+      setNewFieldError("");
       return;
     }
     setMappings(prev => ({ ...prev, [colIdx]: value }));
@@ -255,20 +257,30 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   const handleCreateCustomField = async () => {
     if (!newFieldLabel.trim() || creatingFieldForCol === null) return;
+    const trimmedName = newFieldLabel.trim();
+    const allExistingNames = [
+      ...(AGENTFLOW_FIELDS as readonly string[]),
+      ...customFieldNames,
+    ];
+    if (allExistingNames.some(n => n.toLowerCase() === trimmedName.toLowerCase())) {
+      setNewFieldError(`A field named "${trimmedName}" already exists.`);
+      return;
+    }
+    setNewFieldError("");
     try {
       await customFieldsApi.create({
-        name: newFieldLabel.trim(),
+        name: trimmedName,
         type: newFieldType,
         appliesTo: ["Leads"],
         required: newFieldRequired,
         active: true,
-        dropdownOptions: newFieldType === "Dropdown" ? newFieldDropdownOpts.split(",").map(s => s.trim()).filter(Boolean) : undefined,
+        defaultValue: "",
+        dropdownOptions: newFieldType === "Dropdown" ? newFieldDropdownOpts.split(",").map(s => s.trim()).filter(Boolean) : [],
       });
-      const fieldName = newFieldLabel.trim();
-      setCustomFieldNames(prev => [...prev, fieldName]);
-      setMappings(prev => ({ ...prev, [creatingFieldForCol!]: fieldName }));
+      setCustomFieldNames(prev => [...prev, trimmedName]);
+      setMappings(prev => ({ ...prev, [creatingFieldForCol!]: trimmedName }));
       setCreatingFieldForCol(null);
-      toast.success(`Custom field '${fieldName}' created`);
+      toast.success(`Custom field '${trimmedName}' created`);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       toast.error(err.message || "Failed to create custom field");
     }
@@ -279,6 +291,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       setMappings(prev => ({ ...prev, [creatingFieldForCol!]: "Do Not Import" }));
     }
     setCreatingFieldForCol(null);
+    setNewFieldError("");
   };
 
   const autoDetectAgain = () => {
@@ -549,8 +562,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               <label className="text-xs text-muted-foreground mb-1 block">Field Label *</label>
               <input
                 value={newFieldLabel}
-                onChange={e => setNewFieldLabel(e.target.value)}
-                className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                onChange={e => { setNewFieldLabel(e.target.value); setNewFieldError(""); }}
+                className={`w-full h-8 px-2 rounded-md bg-background text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none border ${newFieldError ? "border-destructive" : "border-border"}`}
                 placeholder="Field name"
               />
             </div>
@@ -578,6 +591,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                 placeholder="Hot, Warm, Cold"
               />
             </div>
+          )}
+          {newFieldError && (
+            <p className="text-xs text-destructive">{newFieldError}</p>
           )}
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
@@ -638,7 +654,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                         {AGENTFLOW_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
                         {customFieldNames.map(f => <option key={f} value={f}>{f} (Custom)</option>)}
                         <option disabled>──────────</option>
-                        <option value="__create_new__" className="text-primary">+ Create New Custom Field</option>
+                        <option value="__create_new__" className="text-primary">➕ Create as new custom field...</option>
                       </select>
                       {isAutoMatched && (
                         <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Auto-matched</span>
