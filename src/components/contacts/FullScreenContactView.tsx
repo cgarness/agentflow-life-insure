@@ -437,7 +437,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           <div className="flex items-center gap-4">
             {/* CONTACT TYPE BADGE */}
             <span className={cn(
-              "text-[10px] uppercase tracking-wider font-bold px-2.5 py-1 rounded-md shadow-sm border",
+              "h-9 px-3 flex items-center justify-center text-[11px] uppercase tracking-wider font-bold rounded-lg shadow-sm border whitespace-nowrap",
               type === 'lead' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
               type === 'client' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
               'bg-orange-500/10 text-orange-500 border-orange-500/20'
@@ -447,21 +447,18 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
             {/* LOCAL TIME - standout green */}
             {contact.state && (
-              <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-3 py-1.5 rounded-lg border border-green-500/20 shadow-sm">
-                <Clock className="w-4 h-4" />
-                <div className="flex flex-col leading-none">
-                  <span className="text-[10px] font-semibold uppercase opacity-70">Local Time</span>
-                  <span className="text-sm font-bold"><ContactLocalTime state={contact.state} /></span>
-                </div>
+              <div className="h-9 px-3 flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 rounded-lg border border-green-500/20 shadow-sm whitespace-nowrap">
+                <Clock className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider"><ContactLocalTime state={contact.state} /></span>
               </div>
             )}
 
             {/* STATUS DROPDOWN */}
             {type !== "client" ? (
               <div className="relative" ref={statusDropdownRef}>
-                <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="px-3 py-1.5 rounded-lg font-bold text-xs inline-flex items-center gap-2 transition-all shadow-sm border" style={statusBadgeStyle[localStatus] || { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
+                <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="h-9 px-3 rounded-lg font-bold text-[11px] uppercase tracking-wider inline-flex items-center gap-2 transition-all shadow-sm border" style={statusBadgeStyle[localStatus] || { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
                   <span className={cn("w-2 h-2 rounded-full", statusDotColor[localStatus] || "bg-gray-400")} />
-                  {localStatus.toUpperCase()} <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+                  {localStatus} <ChevronDown className="w-3.5 h-3.5 opacity-50" />
                 </button>
                 {statusDropdownOpen && (
                   <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
@@ -478,7 +475,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 )}
               </div>
             ) : (
-              <span className="text-[10px] px-2.5 py-1 rounded-md font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border">{contact.policyType || 'Client'}</span>
+              <span className="h-9 px-3 flex items-center justify-center text-[11px] font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border rounded-lg">{contact.policyType || 'Client'}</span>
             )}
           </div>
         </div>
@@ -488,8 +485,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button 
-                  variant="outline"
-                  className="h-10 px-4 flex items-center gap-2 border-primary/20 text-primary hover:bg-primary/5 hover:text-primary transition-all font-semibold"
+                  className="h-10 px-4 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all font-semibold"
                   onClick={() => {
                     logActivity(`Call initiated by ${AGENT_NAME}`, "call");
                     window.dispatchEvent(new CustomEvent("quick-call", {
@@ -510,8 +506,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button 
-                  variant="outline"
-                  className="h-10 px-4 flex items-center gap-2 border-purple-500/20 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 transition-all font-semibold"
+                  className="h-10 px-4 flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
                   onClick={() => setShowAppt(true)}
                 >
                   <Calendar className="w-4 h-4" /> Schedule
