@@ -82,7 +82,7 @@ export async function createCall(data: {
   caller_id_used?: string;
   contact_name?: string;
   contact_phone?: string;
-}) {
+}, organizationId: string | null = null) {
   const { data: call, error } = await supabase
     .from("calls")
     .insert({
@@ -95,7 +95,8 @@ export async function createCall(data: {
       direction: "outbound",
       status: "ringing",
       started_at: new Date().toISOString(),
-    })
+      organization_id: organizationId,
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .select("id")
     .maybeSingle();
 
@@ -115,7 +116,7 @@ export async function saveCall(data: {
   notes: string;
   outcome: string;
   caller_id_used?: string;
-}) {
+}, organizationId: string | null = null) {
   const callPayload = {
     contact_id: data.master_lead_id,
     campaign_lead_id: data.campaign_lead_id || null,
@@ -129,7 +130,8 @@ export async function saveCall(data: {
     caller_id_used: data.caller_id_used || null,
     status: "completed",
     ended_at: new Date().toISOString(),
-  };
+    organization_id: organizationId,
+  } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
   let error;
   if (data.id) {
@@ -153,7 +155,8 @@ export async function saveCall(data: {
     agent_id: data.agent_id,
     activity_type: "call",
     description: `Call — ${data.disposition} — ${formatDuration(data.duration_seconds)}`,
-  });
+    organization_id: organizationId,
+  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (actError) throw new Error(actError.message);
 }
 
@@ -161,17 +164,18 @@ export async function saveNote(data: {
   master_lead_id: string;
   agent_id: string;
   content: string;
-}) {
+}, organizationId: string | null = null) {
   const { error } = await supabase.from("contact_activities").insert({
     contact_id: data.master_lead_id,
     agent_id: data.agent_id,
     activity_type: "note",
     description: data.content,
-  });
+    organization_id: organizationId,
+  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (error) throw new Error(error.message);
 }
 
-export async function updateLeadStatus(campaignLeadId: string, masterLeadId: string, status: string) {
+export async function updateLeadStatus(campaignLeadId: string, masterLeadId: string, status: string, organizationId: string | null = null) {
   // 1. Map business status to a valid campaign-internal status
   // Most business status changes mean the lead has been "processed" for this campaign.
   const validCampaignStatuses = ["Queued", "Locked", "Claimed", "Called", "Skipped", "Completed", "Failed", "DNC"];
@@ -197,7 +201,8 @@ export async function updateLeadStatus(campaignLeadId: string, masterLeadId: str
     agent_id: user?.id ?? null,
     activity_type: "status",
     description: `Status changed to ${status}`,
-  });
+    organization_id: organizationId,
+  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (actError) throw new Error(actError.message);
 }
 
@@ -211,7 +216,7 @@ export async function saveAppointment(data: {
   time: string;
   end_time: string;
   notes: string;
-}) {
+}, organizationId: string | null = null) {
   const startTime = `${data.date}T${convertTo24h(data.time)}`;
   const endTime = data.end_time
     ? `${data.date}T${convertTo24h(data.end_time)}`
@@ -225,7 +230,8 @@ export async function saveAppointment(data: {
     end_time: endTime,
     notes: data.notes,
     status: "Scheduled",
-  });
+    organization_id: organizationId,
+  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (aptError) throw new Error(aptError.message);
 
   const { error: actError } = await supabase.from("contact_activities").insert({
@@ -233,7 +239,8 @@ export async function saveAppointment(data: {
     agent_id: data.agent_id,
     activity_type: "status",
     description: "Appointment scheduled",
-  });
+    organization_id: organizationId,
+  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (actError) throw new Error(actError.message);
 }
 

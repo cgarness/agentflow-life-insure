@@ -2,7 +2,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Lead } from "@/lib/types";
 
 export async function importLeadsToSupabase(
-  rows: Partial<Lead>[]
+  rows: Partial<Lead>[],
+  organizationId: string | null = null
 ): Promise<{ imported: number; duplicates: number; errors: number; importedLeadIds: string[] }> {
   let imported = 0;
   let duplicates = 0;
@@ -39,6 +40,7 @@ export async function importLeadsToSupabase(
     best_time_to_call: row.bestTimeToCall || "",
     notes: row.notes || "",
     assigned_agent_id: row.assignedAgentId || null,
+    organization_id: organizationId,
   }));
 
   // Insert in batches of 50, collect returned IDs

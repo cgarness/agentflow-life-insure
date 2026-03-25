@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const recruitStatusBadge: Record<string, string> = {
@@ -51,6 +52,7 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
 interface RecruitModalProps { recruit: Recruit | null; onClose: () => void; onUpdate: (id: string, data: Partial<Recruit>) => Promise<void>; onDelete: (id: string) => Promise<void>; }
 
 const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate, onDelete }) => {
+    const { organizationId } = useOrganization();
     const { addAppointment } = useCalendar();
     const [showAppt, setShowAppt] = useState(false);
     const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls">("Overview");
@@ -134,14 +136,14 @@ const RecruitModal: React.FC<RecruitModalProps> = ({ recruit, onClose, onUpdate,
         const a = agents.find(a => a.id === agentId);
         return a ? `${a.firstName} ${a.lastName}` : agentId;
     };
-    const handleStatusChange = async (newStatus: string) => { setStatusDropdownOpen(false); setLocalStatus(newStatus); setEditForm(f => ({ ...f, status: newStatus })); await onUpdate(recruit.id, { status: newStatus }); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" }); toast.success(`Status updated to ${newStatus}`); };
+    const handleStatusChange = async (newStatus: string) => { setStatusDropdownOpen(false); setLocalStatus(newStatus); setEditForm(f => ({ ...f, status: newStatus })); await onUpdate(recruit.id, { status: newStatus }); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" }, organizationId); toast.success(`Status updated to ${newStatus}`); };
     const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); setHasUnsavedChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const handleSave = async () => { await onUpdate(recruit.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Recruit updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Recruit updated"); };
+    const handleSave = async () => { await onUpdate(recruit.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Recruit updated by ${AGENT_NAME}`, agentId: "u1" }, organizationId); toast.success("Recruit updated"); };
     const handleCancel = () => { setEditForm({ ...recruit }); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); };
     const tryClose = () => { if (hasUnsavedChanges) { if (!window.confirm("You have unsaved changes. Close anyway?")) return; onClose(); return; } if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
-    const handleAddNote = async () => { if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; } setNoteError(""); try { const addedNote = await notesSupabaseApi.add(recruit.id, "recruit", newNote.trim(), "u1"); setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); setNewNote(""); setPinNewNote(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const handleAddNote = async () => { if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; } setNoteError(""); try { const addedNote = await notesSupabaseApi.add(recruit.id, "recruit", newNote.trim(), "u1", organizationId); setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))); setNewNote(""); setPinNewNote(false); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" }, organizationId); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
     const handleTogglePin = async (noteId: string) => { toast.error("Pinning is not currently supported in DB"); };
-    const handleDeleteNote = async (noteId: string) => { setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Note deleted"); };
+    const handleDeleteNote = async (noteId: string) => { setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null); await activitiesSupabaseApi.add({ contactId: recruit.id, contactType: "recruit", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" }, organizationId); toast.success("Note deleted"); };
     const fmt = (s: number) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toString().padStart(2, "0")}`; };
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 

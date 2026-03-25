@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import {
   FileText, Plus, Search, MoreVertical, Bold, Italic, Underline,
   List, ListOrdered, Heading, ChevronDown, Eye, Pencil, Loader2, Copy, Trash2,
@@ -72,6 +73,7 @@ function wordCount(text: string): number {
 }
 
 const CallScripts: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -204,7 +206,8 @@ const CallScripts: React.FC = () => {
           product_type: newType,
           active: newActive,
           content: "",
-        })
+          organization_id: organizationId,
+        } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .select()
         .single();
 
@@ -268,7 +271,8 @@ const CallScripts: React.FC = () => {
           product_type: orig.productType,
           active: orig.active,
           content: orig.content,
-        })
+          organization_id: organizationId,
+        } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .select()
         .single();
 

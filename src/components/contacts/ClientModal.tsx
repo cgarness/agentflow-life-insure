@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 
 const policyTypeBadge: Record<string, string> = {
   Term: "bg-blue-500 text-white",
@@ -61,6 +62,7 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
 interface ClientModalProps { client: Client | null; onClose: () => void; onUpdate: (id: string, data: Partial<Client>) => Promise<void>; onDelete: (id: string) => Promise<void>; }
 
 const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, onDelete }) => {
+  const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const [showAppt, setShowAppt] = useState(false);
   const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History" | "Calls">("Overview");
@@ -206,7 +208,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
     return a ? `${a.firstName} ${a.lastName}` : agentId;
   };
   const handleFieldChange = (key: string, value: any) => { setEditForm(f => ({ ...f, [key]: value })); setHasChanges(true); setHasUnsavedChanges(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }); toast.success("Client updated"); };
+  const handleSave = async () => { await onUpdate(client.id, editForm); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Client updated by ${AGENT_NAME}`, agentId: "u1" }, organizationId); toast.success("Client updated"); };
   const handleCancel = () => { setEditForm({ ...client }); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); };
   const tryClose = () => { if (hasUnsavedChanges) { if (!window.confirm("You have unsaved changes. Close anyway?")) return; onClose(); return; } if (editMode && hasChanges) setConfirmDiscard(true); else onClose(); };
   const handleAddNote = async () => {
@@ -214,10 +216,10 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
     setNoteError("");
 
     try {
-      const addedNote = await notesSupabaseApi.add(client.id, "client", newNote.trim(), "u1");
+      const addedNote = await notesSupabaseApi.add(client.id, "client", newNote.trim(), "u1", organizationId);
       setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
       setNewNote(""); setPinNewNote(false);
-      await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" });
+      await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "note", description: `Note added by ${AGENT_NAME}`, agentId: "u1" }, organizationId);
       toast.success("Note added");
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.error(e.message);
@@ -229,7 +231,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ client, onClose, onUpdate, on
   const handleDeleteNote = async (noteId: string) => {
     // Delete note not implemented in DB wrapper yet; optimistic UI only for now 
     setLocalNotes(prev => prev.filter(n => n.id !== noteId)); setDeleteNoteId(null);
-    await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" });
+    await activitiesSupabaseApi.add({ contactId: client.id, contactType: "client", type: "delete", description: `Note deleted by ${AGENT_NAME}`, agentId: "u1" }, organizationId);
     toast.success("Note deleted");
   };
   const fmt = (s: number) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toString().padStart(2, "0")}`; };

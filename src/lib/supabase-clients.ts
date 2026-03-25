@@ -18,10 +18,10 @@ export const clientsSupabaseApi = {
         return (data ?? []).map(rowToClient);
     },
 
-    async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">): Promise<Client> {
+    async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Client> {
         const { data: row, error } = await (supabase as any)
             .from("clients")
-            .insert(clientToRow(data))
+            .insert({ ...clientToRow(data), organization_id: organizationId })
             .select()
             .single();
         if (error) throw new Error(error.message);

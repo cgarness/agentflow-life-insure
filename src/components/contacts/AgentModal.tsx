@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -28,6 +29,7 @@ const activityDotColor = (type: string) => ({ call: "bg-blue-500", note: "bg-gra
 interface AgentModalProps { agent: User | null; onClose: () => void; }
 
 const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
+    const { organizationId } = useOrganization();
     const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History">("Overview");
     const [activities, setActivities] = useState<ContactActivity[]>([]);
     const [lastUpdated, setLastUpdated] = useState(new Date().toISOString());
@@ -85,9 +87,9 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
 
     if (!agent) return null;
 
-    const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
+    const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }, organizationId); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
 
-    const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1"); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1", organizationId); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }, organizationId); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 

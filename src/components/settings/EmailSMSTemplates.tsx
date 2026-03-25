@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Mail, MessageSquare, Plus, Loader2, Search, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ interface Template {
 }
 
 const EmailSMSTemplates: React.FC = () => {
+    const { organizationId } = useOrganization();
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
@@ -111,7 +113,7 @@ const EmailSMSTemplates: React.FC = () => {
                 if (error) throw error;
                 toast({ title: "Template updated", className: "bg-success text-success-foreground border-success" });
             } else {
-                const { error } = await supabase.from('message_templates').insert(payload);
+                const { error } = await supabase.from('message_templates').insert({ ...payload, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (error) throw error;
                 toast({ title: "Template created", className: "bg-success text-success-foreground border-success" });
             }

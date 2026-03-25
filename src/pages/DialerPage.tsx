@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import {
   getCampaignLeads,
@@ -239,6 +240,7 @@ export default function DialerPage() {
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
@@ -976,7 +978,7 @@ export default function DialerPage() {
         caller_id_used: previousNumber || autoSelectedNumber,
         contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
         contact_phone: leadPhone,
-      });
+      }, organizationId);
     } catch (err) {
       console.error("Failed to create call record for manual call:", err);
     }
@@ -1101,7 +1103,7 @@ export default function DialerPage() {
         notes: "",
         outcome: d.name,
         caller_id_used: lastUsedCallerId.current || undefined,
-      });
+      }, organizationId);
     } catch {
       /* ignore */
     }
@@ -1156,7 +1158,7 @@ export default function DialerPage() {
           time: aptStartTime,
           end_time: aptEndTime,
           notes: aptNotes || noteText,
-        });
+        }, organizationId);
         
         // Add to local calendar context for immediate UI feedback
         try {
@@ -1193,7 +1195,7 @@ export default function DialerPage() {
           time: callbackTime,
           end_time: "",
           notes: noteText,
-        });
+        }, organizationId);
       }
 
       // 3. Save call record
@@ -1208,18 +1210,18 @@ export default function DialerPage() {
         notes: noteText,
         outcome: selectedDisp?.name || "No Outcome",
         caller_id_used: lastUsedCallerId.current || undefined,
-      });
+      }, organizationId);
 
       if (noteText.trim()) {
         await saveNote({
           master_lead_id: masterId,
           agent_id: user.id,
           content: noteText,
-        });
+        }, organizationId);
       }
 
       // Also update the lead status in both the campaign and master record
-      await updateLeadStatus(currentLead.id, masterId, selectedDisp?.name || "Called");
+      await updateLeadStatus(currentLead.id, masterId, selectedDisp?.name || "Called", organizationId);
       try {
         await leadsSupabaseApi.update(masterId, { status: (selectedDisp?.name as any) || "Called" });
       } catch (e) {
@@ -1260,7 +1262,8 @@ export default function DialerPage() {
                 phone_number: currentLead.phone,
                 reason: `Auto-added via disposition: ${selectedDisp.name}`,
                 added_by: user.id,
-              });
+                organization_id: organizationId,
+              } as any);
             }
           } catch (e) {
             console.warn("Failed to auto-add to DNC list", e);
@@ -1334,7 +1337,7 @@ export default function DialerPage() {
       const masterLeadId = currentLead.lead_id || currentLead.id; // Primary key in leads
 
       // 1. Update the campaign lead status and contact activities
-      await updateLeadStatus(campaignLeadId, masterLeadId, newStatus);
+      await updateLeadStatus(campaignLeadId, masterLeadId, newStatus, organizationId);
       
       // 2. Also ensure the master lead record itself is updated
       if (masterLeadId) {
@@ -1466,7 +1469,7 @@ export default function DialerPage() {
         time: callbackTime,
         end_time: "",
         notes: "",
-      });
+      }, organizationId);
     } catch {
       /* ignore */
     }
@@ -3097,7 +3100,7 @@ export default function DialerPage() {
               time: data.startTime,
               end_time: data.endTime,
               notes: data.notes,
-            }).catch(() => {});
+            }, organizationId).catch(() => {});
           }
           setShowAppointmentModal(false);
           if (shouldAdvanceAfterModal) {

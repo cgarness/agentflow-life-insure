@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -112,6 +113,7 @@ const CreateCampaignModal: React.FC<{
   agentsLoading: boolean;
 }> = ({ open, onClose, onCreated, agents, agentsLoading }) => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [name, setName] = useState("");
   const [type, setType] = useState("Personal");
   const [description, setDescription] = useState("");
@@ -161,6 +163,7 @@ const CreateCampaignModal: React.FC<{
       tags: tags,
       status: "Draft",
       created_by: user?.id || null,
+      organization_id: organizationId,
     } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     setSaving(false);
@@ -328,6 +331,7 @@ const DuplicateCampaignModal: React.FC<{
   onDuplicated: () => void;
 }> = ({ campaign, onClose, onDuplicated }) => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -350,6 +354,7 @@ const DuplicateCampaignModal: React.FC<{
       leads_contacted: 0,
       leads_converted: 0,
       created_by: user?.id || null,
+      organization_id: organizationId,
     } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     setSaving(false);

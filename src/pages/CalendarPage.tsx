@@ -30,6 +30,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ContactModal from "@/components/contacts/ContactModal";
 import { Lead } from "@/lib/types";
@@ -68,6 +69,7 @@ type AppointmentSyncMeta = {
 
 const CalendarPage: React.FC = () => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const { 
     appointments, 
     loading, 
@@ -184,7 +186,7 @@ const CalendarPage: React.FC = () => {
     if (!modalEditing && creatingNew && newFirstName.trim() && newLastName.trim()) {
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
-        .insert([{ first_name: newFirstName.trim(), last_name: newLastName.trim() }])
+        .insert([{ first_name: newFirstName.trim(), last_name: newLastName.trim(), organization_id: organizationId }] as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .select().single();
       if (leadError || !newLead) { toast({ title: "Failed to create contact", variant: "destructive" }); return; }
       contactId = newLead.id;

@@ -12,6 +12,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useBranding } from "@/contexts/BrandingContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -248,6 +249,7 @@ const AddLeadsModal: React.FC<{
   existingLeadIds: Set<string>;
   onAdded: () => void;
 }> = ({ open, onClose, campaignId, existingLeadIds, onAdded }) => {
+  const { organizationId } = useOrganization();
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -277,7 +279,7 @@ const AddLeadsModal: React.FC<{
     const toAdd = leads.filter(l => selected.has(l.id) && !existingLeadIds.has(l.id));
     if (toAdd.length === 0) return;
     setAdding(true);
-    const rows = toAdd.map(l => ({ campaign_id: campaignId, lead_id: l.id, first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email, state: l.state, age: l.age, status: "Queued" }));
+    const rows = toAdd.map(l => ({ campaign_id: campaignId, lead_id: l.id, first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email, state: l.state, age: l.age, status: "Queued", organization_id: organizationId }));
     const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     if (error) { toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" }); }
     else {
@@ -352,6 +354,7 @@ const ImportCSVModal: React.FC<{
   campaignId: string;
   onImported: () => void;
 }> = ({ open, onClose, campaignId, onImported }) => {
+  const { organizationId } = useOrganization();
   const [step, setStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -378,7 +381,7 @@ const ImportCSVModal: React.FC<{
     const fieldToCol: Record<string, number> = {};
     Object.entries(mappings).forEach(([idx, field]) => { if (field !== "skip") fieldToCol[field] = Number(idx); });
     const getVal = (row: string[], field: string) => { const idx = fieldToCol[field]; return idx !== undefined ? row[idx]?.trim() || "" : ""; };
-    const toInsert = rows.map(row => ({ campaign_id: campaignId, first_name: getVal(row, "first_name"), last_name: getVal(row, "last_name"), phone: getVal(row, "phone"), email: getVal(row, "email"), state: getVal(row, "state"), status: "Queued" })).filter(r => r.phone || r.first_name);
+    const toInsert = rows.map(row => ({ campaign_id: campaignId, first_name: getVal(row, "first_name"), last_name: getVal(row, "last_name"), phone: getVal(row, "phone"), email: getVal(row, "email"), state: getVal(row, "state"), status: "Queued", organization_id: organizationId })).filter(r => r.phone || r.first_name);
     const { error } = await supabase.from("campaign_leads").insert(toInsert as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     if (error) { toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" }); }
     else {

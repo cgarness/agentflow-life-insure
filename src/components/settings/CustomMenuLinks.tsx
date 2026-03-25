@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Link2, ExternalLink, Plus, Loader2, Pencil, Trash2, GripVertical, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ interface CustomMenuLink {
 }
 
 const CustomMenuLinks: React.FC = () => {
+    const { organizationId } = useOrganization();
     const [links, setLinks] = useState<CustomMenuLink[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -113,7 +115,7 @@ const CustomMenuLinks: React.FC = () => {
                 if (error) throw error;
                 toast({ title: "Link updated", className: "bg-success text-success-foreground border-success" });
             } else {
-                const { error } = await supabase.from('custom_menu_links').insert(payload);
+                const { error } = await supabase.from('custom_menu_links').insert({ ...payload, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (error) throw error;
                 toast({ title: "Link created", className: "bg-success text-success-foreground border-success" });
             }

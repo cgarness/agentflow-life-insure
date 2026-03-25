@@ -36,7 +36,7 @@ export const pipelineSupabaseApi = {
     if (error) throw error;
     return (data || []).map(rowToStage);
   },
-  async createStage(data: Omit<PipelineStage, "id">): Promise<PipelineStage> {
+  async createStage(data: Omit<PipelineStage, "id">, organizationId: string | null = null): Promise<PipelineStage> {
     const { data: result, error } = await (supabase as any)
       .from("pipeline_stages")
       .insert({
@@ -47,7 +47,8 @@ export const pipelineSupabaseApi = {
         convert_to_client: data.convertToClient,
         sort_order: data.order,
         pipeline_type: data.pipelineType,
-      })
+        organization_id: organizationId,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .select()
       .single();
     if (error) throw error;

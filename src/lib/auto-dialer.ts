@@ -30,16 +30,18 @@ export class AutoDialer {
   private sessionId: string;
   private campaignId: string;
   private agentId: string;
+  private organizationId: string | null;
   private autoDialEnabled: boolean;
   private currentLeadIndex: number;
   private leadQueue: CampaignLead[];
   private phoneNumbers: PhoneNumber[];
   private localPresenceEnabled: boolean;
 
-  constructor(sessionId: string, campaignId: string, agentId: string) {
+  constructor(sessionId: string, campaignId: string, agentId: string, organizationId: string | null = null) {
     this.sessionId = sessionId;
     this.campaignId = campaignId;
     this.agentId = agentId;
+    this.organizationId = organizationId;
     this.autoDialEnabled = true;
     this.currentLeadIndex = 0;
     this.leadQueue = [];
@@ -161,7 +163,7 @@ export class AutoDialer {
       caller_id_used: callerNumber,
       contact_name: `${lead.first_name || ''} ${lead.last_name || ''}`.trim(),
       contact_phone: lead.phone,
-    });
+    }, this.organizationId);
 
     // Emit event for UI to initiate call via TelnyxRTC
     window.dispatchEvent(new CustomEvent('auto-dial-call', {

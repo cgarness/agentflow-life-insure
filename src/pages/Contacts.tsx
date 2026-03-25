@@ -26,6 +26,7 @@ import RecruitModal from "@/components/contacts/RecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
 import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
@@ -350,6 +351,7 @@ const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: ()
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -843,7 +845,7 @@ const Contacts: React.FC = () => {
 
   // ===== Lead CRUD =====
   const handleAddLead = async (data: Partial<Lead>) => {
-    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" } as unknown as Omit<Lead, "id" | "createdAt" | "updatedAt">);
+    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" } as unknown as Omit<Lead, "id" | "createdAt" | "updatedAt">, organizationId);
     toast.success("Lead added successfully");
     fetchData();
   };
@@ -1693,7 +1695,7 @@ const Contacts: React.FC = () => {
         existingLeads={leads}
         campaigns={realCampaigns}
         onImportComplete={async (newLeads, historyEntry) => {
-          const result = await importLeadsToSupabase(newLeads);
+          const result = await importLeadsToSupabase(newLeads, organizationId);
           // Insert import history row into Supabase
           await supabase.from("import_history").insert({
             file_name: historyEntry.fileName,
@@ -1703,7 +1705,8 @@ const Contacts: React.FC = () => {
             errors: historyEntry.errors + result.errors,
             agent_id: user?.id || null,
             imported_lead_ids: result.importedLeadIds,
-          });
+            organization_id: organizationId,
+          } as any);
           await fetchImportHistory();
           fetchData();
         }}

@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fetchScheduledReports, createScheduledReport, updateScheduledReport, deleteScheduledReport, AgentProfile } from "@/lib/reports-queries";
 import { toast } from "@/hooks/use-toast";
+import { useOrganization } from "@/hooks/useOrganization";
 import { format } from "date-fns";
 
 interface Props {
@@ -21,6 +22,7 @@ const REPORT_SECTIONS = ["Call Volume", "Dispositions", "Policies Sold", "Campai
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const ScheduledReportsModal: React.FC<Props> = ({ open, onClose, agents, userId }) => {
+  const { organizationId } = useOrganization();
   const [tab, setTab] = useState<"list" | "create">("list");
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,7 +56,7 @@ const ScheduledReportsModal: React.FC<Props> = ({ open, onClose, agents, userId 
         agent_filter: agentFilter === "all" ? null : agentFilter,
         recipients: [],
         created_by: userId,
-      });
+      }, organizationId);
       toast({ title: "Report schedule created" });
       setName("");
       load();

@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Mail, FileDown, X } f
 import { Badge as BadgeType } from "./useLeaderboardBadges";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { startOfWeek, endOfWeek, subWeeks, format, startOfDay } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as ReTooltip } from "recharts";
@@ -35,6 +36,7 @@ interface WeekStats {
 
 const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badges = [] }) => {
   const { profile } = useAuth();
+  const { organizationId } = useOrganization();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
   const [weekOffset, setWeekOffset] = useState(0);
   const [stats, setStats] = useState<WeekStats>({ callsMade: 0, policiesSold: 0, appointmentsSet: 0, talkTime: 0, premiumSold: 0 });
@@ -142,7 +144,8 @@ const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badge
         appointments_set: stats.appointmentsSet,
         talk_time: stats.talkTime,
         conversion_rate: stats.premiumSold, // Reusing column for premium for now as per "replace" requirement
-      });
+        organization_id: organizationId,
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     }
     setOriginalNotes(coachingNotes);
     setSaving(false);

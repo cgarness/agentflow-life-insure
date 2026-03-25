@@ -3,6 +3,7 @@ import { MessageCircle, X, Plus, Send, ArrowLeft, Users, Search } from "lucide-r
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface ChatGroup {
@@ -37,6 +38,7 @@ type View = "groups" | "chat" | "newGroup";
 
 export default function FloatingChat() {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("groups");
   const [groups, setGroups] = useState<ChatGroup[]>([]);
@@ -168,7 +170,7 @@ export default function FloatingChat() {
     if (!newGroupName.trim() || selectedUsers.length === 0 || !user) return;
     const { data: group, error } = await supabase
       .from("chat_groups")
-      .insert({ name: newGroupName.trim(), created_by: user.id })
+      .insert({ name: newGroupName.trim(), created_by: user.id, organization_id: organizationId } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .select()
       .single();
     if (error || !group) return;

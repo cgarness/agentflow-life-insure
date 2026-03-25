@@ -5,6 +5,7 @@ import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTM
 
 import { toast as toastSonner } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -165,6 +166,7 @@ interface Props {
 
 const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, editing, defaultDate, defaultTime, prefillContactName, prefillContactId }) => {
   const navigate = useNavigate();
+  const { organizationId } = useOrganization();
   const [title, setTitle] = useState("");
   const [type, setType] = useState<CalAppointmentType>("Sales Call");
   const [status, setStatus] = useState<CalAppointmentStatus>("Scheduled");
@@ -481,13 +483,14 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                         
                         const { data: newLead, error } = await supabase
                           .from('leads')
-                          .insert([{ 
-                            first_name: newFirstName.trim(), 
+                          .insert([{
+                            first_name: newFirstName.trim(),
                             last_name: newLastName.trim(),
                             phone: newPhone.trim(),
                             email: newEmail.trim() || null,
-                            status: "New"
-                          }])
+                            status: "New",
+                            organization_id: organizationId,
+                          }] as any) // eslint-disable-line @typescript-eslint/no-explicit-any
                           .select().single();
 
                         if (error || !newLead) {

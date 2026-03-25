@@ -15,7 +15,7 @@ export const notesSupabaseApi = {
     },
 
     // Add a new note
-    async add(contactId: string, contactType: string, note: string, agentId: string): Promise<ContactNote> {
+    async add(contactId: string, contactType: string, note: string, agentId: string, organizationId: string | null = null): Promise<ContactNote> {
         const { data: row, error } = await (supabase as any)
             .from("contact_notes")
             .insert({
@@ -23,7 +23,8 @@ export const notesSupabaseApi = {
                 contact_type: contactType,
                 content: note,
                 author_id: agentId,
-            })
+                organization_id: organizationId,
+            } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
             .select("*")
             .single();
 

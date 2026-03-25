@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 
 export type CalAppointmentType = "Sales Call" | "Follow Up" | "Recruit Interview" | "Policy Review" | "Policy Anniversary" | "Other";
 export type CalAppointmentStatus = "Scheduled" | "Confirmed" | "Completed" | "Cancelled" | "No Show";
@@ -93,6 +94,7 @@ export const useCalendar = () => {
 
 export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -150,7 +152,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     
     const { data, error } = await supabase
       .from('appointments')
-      .insert([{ ...a, user_id: user.id }])
+      .insert([{ ...a, user_id: user.id, organization_id: organizationId }] as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .select()
       .single();
 
