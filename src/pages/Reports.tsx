@@ -110,6 +110,9 @@ const Reports: React.FC = () => {
   const [leadCosts, setLeadCosts] = useState<any[]>([]);
   const [scorecards, setScorecards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [outcomesData, setOutcomesData] = useState<any[]>([]);
+  const [outcomesTotal, setOutcomesTotal] = useState(0);
+  const [outcomesLoading, setOutcomesLoading] = useState(true);
 
   const effectiveAgent = useMemo(() => {
     if (!isAdmin && profile?.id) return profile.id;
@@ -156,6 +159,29 @@ const Reports: React.FC = () => {
       setLeads(l); setSessions(sess); setGoals(g); setCampaignLeads(cl);
       setLeadCosts(lc); setScorecards(sc || []);
 
+      const { data: outcomeRows, error: outcomesError } = await supabase
+        .from('calls')
+        .select('disposition_name')
+        .not('disposition_name', 'is', null);
+      if (!outcomesError && outcomeRows) {
+        const counts: Record<string, number> = {};
+        outcomeRows.forEach(row => {
+          const key = row.disposition_name || 'No Disposition';
+          counts[key] = (counts[key] || 0) + 1;
+        });
+        const total = Object.values(counts).reduce((a, b) => a + b, 0);
+        const formatted = Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([name, value]) => ({
+            name,
+            value,
+            pct: total > 0 ? `${Math.round((value / total) * 100)}%` : '0%'
+          }));
+        setOutcomesData(formatted);
+        setOutcomesTotal(total);
+        setOutcomesLoading(false);
+      }
+
       if (comparing) {
         const cc = await fetchCallsRaw(compRange, effectiveAgent);
         setCompCalls(cc);
@@ -166,6 +192,7 @@ const Reports: React.FC = () => {
       console.error("Reports fetch error:", e);
     } finally {
       setLoading(false);
+      setOutcomesLoading(false);
     }
   }, [range, effectiveAgent, comparing, compRange]);
 
@@ -339,7 +366,18 @@ const Reports: React.FC = () => {
           <CallVolumeChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <DispositionsPieChart calls={activeCalls} dispositions={dispositions} grouping={grouping} loading={loading} />
+            {outcomesLoading ? (
+              <div className="bg-card rounded-xl border p-5">
+                <div className="h-6 w-48 bg-muted animate-pulse rounded mb-4" />
+                <div className="h-[350px] bg-muted animate-pulse rounded" />
+              </div>
+            ) : outcomesData.length === 0 ? (
+              <div className="bg-card rounded-xl border p-5 flex items-center justify-center h-[200px]">
+                <p className="text-sm text-muted-foreground text-center">No call data available for this period</p>
+              </div>
+            ) : (
+              <DispositionsPieChart calls={activeCalls} dispositions={dispositions} grouping={grouping} loading={loading} />
+            )}
             <PoliciesSoldChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
           </div>
 

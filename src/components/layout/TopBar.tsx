@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -10,7 +10,8 @@ import {
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
-import { useNotifications, type DbNotification } from "@/contexts/NotificationContext";
+import { useNotifications } from "@/contexts/NotificationContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const pageTitles: Record<string, string> = {
@@ -75,7 +76,22 @@ const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout } = useAuth();
   const { dialerOverride } = useAgentStatus();
-  const { notifications, unreadCount, isLoading, markRead, markAllRead, deleteNotification } = useNotifications();
+  const { markRead, markAllRead, deleteNotification } = useNotifications();
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('id, type, title, body, created_at, read, action_label, action_url')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (!error && data) setNotifications(data);
+    };
+    fetchNotifications();
+  }, []);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -125,9 +141,10 @@ const TopBar: React.FC = () => {
     return counts;
   }, [notifications]);
 
-  const handleNotifClick = async (n: DbNotification) => {
+  const handleNotifClick = async (n: any) => {
     if (!n.read) {
       await markRead(n.id);
+      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
     }
     if (n.action_url) {
       navigate(n.action_url);
@@ -282,7 +299,7 @@ const TopBar: React.FC = () => {
               <div className="flex items-center gap-3">
                 {unreadCount > 0 && (
                   <button
-                    onClick={() => markAllRead()}
+                    onClick={async () => { await markAllRead(); setNotifications(prev => prev.map(x => ({ ...x, read: true }))); }}
                     className="text-xs text-primary hover:underline"
                   >
                     Mark All Read
@@ -327,11 +344,7 @@ const TopBar: React.FC = () => {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-                  <p className="text-sm">Loading notifications...</p>
-                </div>
-              ) : filteredNotifications.length === 0 ? (
+              {filteredNotifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
                   <Bell className="w-8 h-8 mb-2 opacity-30" />
                   <p className="text-sm">No notifications</p>
@@ -360,7 +373,7 @@ const TopBar: React.FC = () => {
                       </div>
                     </button>
                     <button
-                      onClick={() => deleteNotification(n.id)}
+                      onClick={async () => { await deleteNotification(n.id); setNotifications(prev => prev.filter(x => x.id !== n.id)); }}
                       className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
                       aria-label="Delete notification"
                     >
