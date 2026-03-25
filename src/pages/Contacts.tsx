@@ -20,9 +20,7 @@ import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 type UserWithProfile = User & { profile: UserProfile };
 import type { Json } from "@/integrations/supabase/types";
 import { calcAging, getAgentName, getAgentInitials } from "@/lib/data-helpers";
-import ContactModal from "@/components/contacts/ContactModal";
-import ClientModal from "@/components/contacts/ClientModal";
-import RecruitModal from "@/components/contacts/RecruitModal";
+import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import AgentModal from "@/components/contacts/AgentModal";
 import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1615,9 +1613,40 @@ const Contacts: React.FC = () => {
       <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} contactType="Lead" />
       <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
       <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} contactType="Recruit" />
-      <ContactModal lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={handleUpdateLead} onDelete={handleDeleteLead} onConvert={() => { fetchData(); setSelectedLead(null); }} />
-      <ClientModal client={selectedClient} onClose={() => setSelectedClient(null)} onUpdate={async (id, data) => { await clientsSupabaseApi.update(id, data); toast.success("Client updated"); fetchData(); }} onDelete={handleDeleteClient} />
-      <RecruitModal recruit={selectedRecruit} onClose={() => setSelectedRecruit(null)} onUpdate={async (id, data) => { await recruitsSupabaseApi.update(id, data); toast.success("Recruit updated"); fetchData(); }} onDelete={handleDeleteRecruit} />
+      {selectedLead && (
+        <FullScreenContactView 
+          contact={selectedLead} 
+          type="lead" 
+          onClose={() => setSelectedLead(null)} 
+          onUpdate={handleUpdateLead} 
+          onDelete={handleDeleteLead} 
+          onConvert={() => { fetchData(); setSelectedLead(null); }} 
+        />
+      )}
+      {selectedClient && (
+        <FullScreenContactView 
+          contact={selectedClient} 
+          type="client" 
+          onClose={() => setSelectedClient(null)} 
+          onUpdate={async (id, data) => { 
+            await clientsSupabaseApi.update(id, data); 
+            fetchData(); 
+          }} 
+          onDelete={handleDeleteClient} 
+        />
+      )}
+      {selectedRecruit && (
+        <FullScreenContactView 
+          contact={selectedRecruit} 
+          type="recruit" 
+          onClose={() => setSelectedRecruit(null)} 
+          onUpdate={async (id, data) => { 
+            await recruitsSupabaseApi.update(id, data); 
+            fetchData(); 
+          }} 
+          onDelete={handleDeleteRecruit} 
+        />
+      )}
       <AgentModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDeleteLeads} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal
