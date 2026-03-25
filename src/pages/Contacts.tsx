@@ -415,7 +415,6 @@ const Contacts: React.FC = () => {
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
-  const [sourcePerfOpen, setSourcePerfOpen] = useState(false);
   const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
 
   // Column visibility per tab
@@ -1260,11 +1259,12 @@ const Contacts: React.FC = () => {
       <h1 className="text-2xl font-bold text-foreground">Contacts</h1>
 
       {/* Tabs */}
-      <div className="flex border-b">
+      <div className="flex items-center border-b">
         {tabs.map(t => (
           <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
             className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}>{t}</button>
         ))}
+        <div className="w-px h-5 bg-border mx-1 self-center" />
       </div>
 
       {/* Controls */}
@@ -1326,40 +1326,6 @@ const Contacts: React.FC = () => {
       {/* ===== LEADS TAB - Table View ===== */}
       {!loading && tab === "Leads" && view === "table" && (
         <>
-          {/* Source Performance */}
-          <div className="bg-card rounded-xl border border-border">
-            <button onClick={() => setSourcePerfOpen(prev => !prev)} className="w-full flex items-center justify-between px-4 py-3 text-left">
-              <h3 className="text-sm font-semibold text-foreground">Lead Source Performance</h3>
-              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${sourcePerfOpen ? "rotate-180" : ""} `} />
-            </button>
-            <div className="overflow-hidden transition-all duration-200 ease-in-out" style={{ maxHeight: sourcePerfOpen ? "500px" : "0px", opacity: sourcePerfOpen ? 1 : 0 }}>
-              <div className="px-4 pb-4">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="text-muted-foreground border-b">
-                      <th className="text-left py-2 font-medium">Source</th>
-                      <th className="text-right py-2 font-medium">Leads</th>
-                      <th className="text-right py-2 font-medium">Contacted %</th>
-                      <th className="text-right py-2 font-medium">Conversion %</th>
-                      <th className="text-right py-2 font-medium">Policies Sold</th>
-                    </tr></thead>
-                    <tbody>
-                      {sourceStats.map(s => (
-                        <tr key={s.source} className="border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer" onClick={() => setSourceFilter(s.source)}>
-                          <td className="py-2 font-medium text-foreground">{s.source}</td>
-                          <td className="py-2 text-right text-foreground">{s.leads}</td>
-                          <td className="py-2 text-right text-foreground">{s.contacted}</td>
-                          <td className="py-2 text-right text-foreground">{s.conversion}</td>
-                          <td className="py-2 text-right text-foreground">{s.sold}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Bulk Actions */}
           {selectedIds.size > 0 && renderBulkActions(
             selectedIds.size,
@@ -1556,117 +1522,91 @@ const Contacts: React.FC = () => {
 
       {/* ===== AGENTS TAB ===== */}
       {!loading && tab === "Agents" && (
-        <>
-          {selectedAgentIds.size > 0 && renderBulkActions(
-            selectedAgentIds.size,
-            () => setSelectedAgentIds(new Set()),
-            { showStatus: true, statusList: ["Active", "Inactive"], onStatusChange: handleBulkAgentStatusChange, onDelete: () => toast.error("Cannot delete agents from this view") }
-          )}
-          <div className="bg-card rounded-xl border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm table-fixed">
-                <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                  <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
-                    <input type="checkbox" checked={selectedAgentIds.size === agents.length && agents.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length; }} onChange={toggleAllAgents} className="rounded" />
-                  </th>
-                  {AGENT_COLUMNS.filter(c => visibleAgentCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
-                  <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
-                </tr></thead>
-                <tbody>
-                  {sortedAgents.map(u => (
-                    <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
-                      <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
-                      {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
-                        <td key={col.key} className={`py-3 ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
-                      ))}
-                      <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
-                        <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="flex gap-4 items-start">
+          <div className="flex-1 flex flex-col gap-4 min-w-0">
+            {selectedAgentIds.size > 0 && renderBulkActions(
+              selectedAgentIds.size,
+              () => setSelectedAgentIds(new Set()),
+              { showStatus: true, statusList: ["Active", "Inactive"], onStatusChange: handleBulkAgentStatusChange, onDelete: () => toast.error("Cannot delete agents from this view") }
+            )}
+            <div className="bg-card rounded-xl border overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm table-fixed">
+                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                    <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
+                      <input type="checkbox" checked={selectedAgentIds.size === agents.length && agents.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length; }} onChange={toggleAllAgents} className="rounded" />
+                    </th>
+                    {AGENT_COLUMNS.filter(c => visibleAgentCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
+                    <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
+                  </tr></thead>
+                  <tbody>
+                    {sortedAgents.map(u => (
+                      <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
+                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
+                        {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
+                          <td key={col.key} className={`py-3 ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
+                        ))}
+                        <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
+                          <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </>
-      )}
 
-      {/* Import History (below leads table) */}
-      {tab === "Leads" && (
-        <div className="bg-card rounded-xl border">
-          <button
-            onClick={() => setImportHistoryOpen(!importHistoryOpen)}
-            className="w-full flex items-center justify-between p-4 text-sm font-medium text-foreground hover:bg-accent/30 transition-colors duration-150 rounded-xl"
-          >
-            <div className="flex items-center gap-2">
-              Import History
-              {importHistory.length > 0 && (
-                <span className="text-xs px-1.5 py-0.5 bg-muted text-muted-foreground rounded-full">{importHistory.length}</span>
-              )}
+          {/* Import History panel */}
+          <div className="w-80 shrink-0 bg-card rounded-xl border border-border flex flex-col">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+              <Upload className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">Import History</h3>
             </div>
-            {importHistoryOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-          {importHistoryOpen && (
-            <div className="px-4 pb-4">
+            <div className="overflow-y-auto max-h-96">
               {importHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No imports yet. Use the Import CSV button above to get started.</p>
+                <p className="text-sm text-muted-foreground text-center py-6">No imports yet</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-muted-foreground">
-                        <th className="text-left py-2 font-medium">File Name</th>
-                        <th className="text-right py-2 font-medium">Total</th>
-                        <th className="text-right py-2 font-medium">Imported</th>
-                        <th className="text-right py-2 font-medium">Duplicates</th>
-                        <th className="text-right py-2 font-medium">Errors</th>
-                        <th className="text-left py-2 font-medium pl-4">When</th>
-                        <th className="text-right py-2 font-medium">Undo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importHistory.map(h => {
-                        const dateObj = new Date(h.date);
-                        const msSince = Date.now() - dateObj.getTime();
-                        const hoursSince = msSince / (1000 * 60 * 60);
-                        const canUndo = hoursSince < 24;
-                        const formattedTime = formatDateTime(dateObj);
-
-                        return (
-                          <tr key={h.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors duration-150">
-                            <td className="py-2 text-foreground">{h.fileName}</td>
-                            <td className="py-2 text-right text-foreground">{h.totalRecords}</td>
-                            <td className="py-2 text-right text-success">{h.imported}</td>
-                            <td className="py-2 text-right text-warning">{h.duplicates}</td>
-                            <td className="py-2 text-right text-destructive">{h.errors}</td>
-                            <td className="py-2 text-left pl-4 text-muted-foreground">{formattedTime}</td>
-                            <td className="py-2 text-right">
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      disabled={!canUndo}
-                                      onClick={() => setUndoConfirm(h)}
-                                      className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150"
-                                    >
-                                      <Undo2 className="w-4 h-4" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    {canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="divide-y divide-border">
+                  {importHistory.map(h => {
+                    const dateObj = new Date(h.date);
+                    const msSince = Date.now() - dateObj.getTime();
+                    const hoursSince = msSince / (1000 * 60 * 60);
+                    const canUndo = hoursSince < 24;
+                    const formattedTime = formatDateTime(dateObj);
+                    return (
+                      <div key={h.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-sm font-medium text-foreground truncate">{h.fileName}</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  disabled={!canUndo}
+                                  onClick={() => setUndoConfirm(h)}
+                                  className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150 shrink-0"
+                                >
+                                  <Undo2 className="w-4 h-4" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>{canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{formattedTime}</p>
+                        <div className="flex flex-wrap gap-2 mt-1 text-xs">
+                          <span className="text-foreground">{h.totalRecords} total</span>
+                          <span className="text-success">{h.imported} imported</span>
+                          <span className="text-warning">{h.duplicates} dupes</span>
+                          <span className="text-destructive">{h.errors} errors</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
