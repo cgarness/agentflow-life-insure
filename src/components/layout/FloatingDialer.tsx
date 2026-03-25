@@ -27,8 +27,6 @@ interface DispositionRow {
   callback_scheduler: boolean;
   automation_trigger: boolean;
   automation_id: string | null;
-  campaign_action: string | null;
-  dnc_auto_add: boolean | null;
 }
 
 interface RecentCall {
