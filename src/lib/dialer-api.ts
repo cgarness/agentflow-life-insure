@@ -31,6 +31,7 @@ export async function getCampaignLeads(campaignId: string, limit = 100, offset =
     return {
       ...(lead || {}),
       ...campaignLead,
+      state: campaignLead.state || lead?.state || "",
       id: campaignLead.id, // Ensure this is the campaign_lead ID
       lead_id: lead?.id || campaignLead.lead_id // Ensure this is the master lead ID
     };

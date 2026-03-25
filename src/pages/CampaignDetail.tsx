@@ -608,8 +608,18 @@ const CampaignDetail: React.FC = () => {
   const fetchLeads = useCallback(async (silent = false) => {
     if (!id) return;
     if (!silent) setLeadsLoading(true);
-    const { data } = await supabase.from("campaign_leads").select("*").eq("campaign_id", id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
-    setLeads((data as CampaignLead[]) || []);
+    const { data } = await supabase.from("campaign_leads").select("*, lead:leads(*)").eq("campaign_id", id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
+    const mapped = (data || []).map((row: any) => {
+      const { lead, ...cl } = row;
+      return {
+        ...lead,
+        ...cl,
+        state: cl.state || lead?.state || "",
+        id: cl.id,
+        lead_id: lead?.id || cl.lead_id
+      };
+    });
+    setLeads(mapped as CampaignLead[]);
     if (!silent) setLeadsLoading(false);
   }, [id]);
 
