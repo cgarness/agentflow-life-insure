@@ -36,16 +36,11 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a motivational sales coach for life insurance agents. Give ONE brief, actionable sales or business tip of the day. 
-            Keep it to 2-3 sentences max. Be specific and practical, not generic. 
-            Vary topics: objection handling, prospecting, follow-up, mindset, closing techniques, time management, client relationships.
-            Today is ${weekday}, ${month} ${day}, day ${dayOfYear} of the year. Use this date and day of the week to ensure your tip is unique and feels fresh. 
-            DO NOT repeat common platitudes. Give a tip that feels like it was written for TODAY specifically. 
-            Address the agent by first name if provided.`,
+            content: `You are a sales coach for life insurance agents. Give ONE short, practical tip — 1 sentence only. Topics: objection handling, prospecting, follow-up, closing, client relationships, or insurance sales tactics. Today is ${weekday}, ${month} ${day} (day ${dayOfYear}). Make the tip unique to today. No fluff, no platitudes. Address agent by first name if provided.`,
           },
           {
             role: "user",
-            content: `Give me today's sales tip. My name is ${firstName || "Agent"}.`,
+            content: `Tip for ${firstName || "me"} today.`,
           },
         ],
       }),
