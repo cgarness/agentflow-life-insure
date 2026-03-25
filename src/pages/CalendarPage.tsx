@@ -133,7 +133,15 @@ const CalendarPage: React.FC = () => {
   useEffect(() => {
     fetchAppointments();
     checkGoogleStatus();
-  }, [fetchAppointments]);
+    
+    // Handle URL persistence sync
+    const contactId = searchParams.get("contact");
+    if (contactId) {
+      // Small delay to ensure appointments are loaded if needed, 
+      // though handleOpenContact might fetch the lead directly.
+      setTimeout(() => handleOpenContact(contactId), 500);
+    }
+  }, [fetchAppointments, checkGoogleStatus, searchParams]);
 
   const handleSyncNow = async () => {
     setSyncing(true);

@@ -181,6 +181,7 @@ const getCampaignTypeColor = (type: string) => {
 export default function DialerPage() {
   /* --- state --- */
   const [searchParams, setSearchParams] = useSearchParams();
+  const [fetchingFromUrl, setFetchingFromUrl] = useState(false);
   const [campaigns, setCampaigns] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const selectedCampaignId = searchParams.get("campaign");
   const setSelectedCampaignId = (id: string | null) => {
@@ -225,6 +226,18 @@ export default function DialerPage() {
   const [aptEndTime, setAptEndTime] = useState("10:30 AM");
   const [aptNotes, setAptNotes] = useState("");
   const [dialerStats, setDialerStats] = useState<DialerDailyStats | null>(null);
+
+  useEffect(() => {
+    const contactId = searchParams.get("contact");
+    if (contactId && !showFullViewDrawer && !fetchingFromUrl) {
+      // If already in queue, just switch to it
+      const match = leadQueue.find(l => (l.lead_id === contactId || l.id === contactId));
+      if (match) {
+        setCurrentLeadIndex(leadQueue.indexOf(match));
+        setShowFullViewDrawer(true);
+      }
+    }
+  }, [searchParams, leadQueue, showFullViewDrawer, fetchingFromUrl]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [sessionElapsed, setSessionElapsed] = useState(0);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);

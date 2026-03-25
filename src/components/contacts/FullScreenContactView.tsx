@@ -85,11 +85,11 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
   const display = String(value);
   if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic">—</span>;
   return (
-    <div className="flex items-center justify-between group w-full">
-      <span className="text-sm font-medium text-foreground">{display}</span>
+    <div className="flex items-center justify-between group w-full min-w-0">
+      <span className="text-foreground font-medium truncate mr-2" title={display}>{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
       >
         <Clipboard className="w-3.5 h-3.5" />
       </button>
@@ -150,10 +150,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const threadRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (contact?.id) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("contact", contact.id);
+      url.searchParams.set("type", type);
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [contact?.id, type]);
+
+  useEffect(() => {
     async function loadData() {
       if (!contact) return;
       setEditForm({ ...contact });
-      setLocalStatus(contact.status || contact.policyType || "New"); // client uses policyType visually if no status, but actually policyType is separate. For client, status isn't used as much.
+      setLocalStatus(contact.status || contact.policyType || "New");
 
       const [fetchedNotes, fetchedActivities] = await Promise.all([
         notesSupabaseApi.getByContact(contact.id),
@@ -168,7 +177,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         setPipelineStages(fetchedStages);
       }
 
-      // Fetch campaigns if lead
       if (type === "lead") {
         const { data: campaignLinks } = await supabase
           .from("campaign_leads")
@@ -299,6 +307,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     if (hasUnsavedChanges) {
       setConfirmDiscard(true);
     } else {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("contact");
+      url.searchParams.delete("type");
+      window.history.replaceState({}, "", url.toString());
       onClose();
     }
   };
@@ -387,7 +399,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 {options?.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : fieldType === "textarea" ? (
-              <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`\${inputCls} min-h-[72px] py-2`} />
+              <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
             ) : (
               <input type={fieldType} value={val} onChange={e => handleFieldChange(key, fieldType === "number" ? Number(e.target.value) : e.target.value)}
                 className={inputCls} />
@@ -395,7 +407,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
         ) : (
-          <div className="mt-1 text-sm text-foreground break-words overflow-hidden"><CopyField value={val} /></div>
+          <CopyField value={val} />
         )}
       </div>
     );
@@ -404,7 +416,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const availableStatuses = type === "recruit" ? recruitStatuses : (pipelineStages.length > 0 ? pipelineStages.map(s => s.name) : allStatuses);
 
   return (
-    <div className="absolute inset-0 bg-background z-40 animate-in slide-in-from-right-2 duration-300 flex flex-col w-full h-full overflow-hidden min-w-0">
+    <div className="fixed inset-0 bg-background z-[100] flex flex-col animate-in slide-in-from-right-2 duration-300 h-screen overflow-hidden">
       {/* HEADER */}
       <div className="bg-card border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
@@ -413,7 +425,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           </button>
           
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full text-white flex items-center justify-center text-sm font-bold \${type === 'client' ? 'bg-green-500' : type === 'recruit' ? 'bg-orange-500' : 'bg-blue-500'}`}>
+            <div className={`w-10 h-10 rounded-full text-white flex items-center justify-center text-sm font-bold ${type === 'client' ? 'bg-green-500' : type === 'recruit' ? 'bg-orange-500' : 'bg-blue-500'}`}>
               {contact.firstName?.[0]}{contact.lastName?.[0]}
             </div>
             <div>
@@ -427,8 +439,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                     {statusDropdownOpen && (
                       <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[140px]">
                         {availableStatuses.map((s: string) => (
-                          <button key={s} onClick={() => handleStatusChange(s)} className={`w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted flex items-center gap-2 \${localStatus === s ? "font-semibold" : ""}`}>
-                            <span className={`w-2 h-2 rounded-full shrink-0 \${statusDotColor[s] || "bg-gray-400"}`} /> {s}
+                          <button key={s} onClick={() => handleStatusChange(s)} className={`w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted flex items-center gap-2 ${localStatus === s ? "font-semibold" : ""}`}>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${statusDotColor[s] || "bg-gray-400"}`} /> {s}
                           </button>
                         ))}
                       </div>
@@ -461,8 +473,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       <div className="flex flex-1 overflow-hidden min-w-0 w-full">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-64 shrink-0 min-w-0 flex flex-col overflow-hidden bg-card border-r border-border">
-          <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border-r border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+          <div className="p-4 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
             <h3 className="font-semibold text-sm">Contact Profile</h3>
             {!editMode ? (
               <button onClick={() => setEditMode(true)} className="flex items-center gap-1 text-sm text-primary hover:underline transition-colors"><Pencil className="w-3.5 h-3.5" /> Edit</button>
@@ -474,15 +486,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
           </div>
           
-          <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+          <div className="flex-1 overflow-y-auto p-5 space-y-6">
             {editMode && hasUnsavedChanges && (
               <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> <span>You have unsaved changes.</span>
               </div>
             )}
             
-            <div className="space-y-3">
-              <div className="flex flex-col gap-2">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
                 {renderField("First Name", "firstName")}
                 {renderField("Last Name", "lastName")}
               </div>
@@ -569,7 +581,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
              </div>
              <div className="flex gap-1.5">
                 {["All", "Calls", "SMS", "Email"].map(f => (
-                  <button key={f} onClick={() => setConvoFilter(f as any)} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${convoFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>{f}</button>
+                  <button key={f} onClick={() => setConvoFilter(f as any)} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${convoFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>{f}</button>
                 ))}
              </div>
           </div>
@@ -598,7 +610,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                     <div className="bg-card border border-border rounded-2xl px-5 py-3 text-sm shadow-sm max-w-[85%]">
                       <div className="flex items-center justify-between gap-6 mb-1">
                         <div className="flex items-center gap-2">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center \${item.direction === 'inbound' ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${item.direction === 'inbound' ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
                              <Phone className="w-3 h-3" />
                           </div>
                           <span className="font-medium text-foreground text-[13px]">{item.direction === "outbound" ? "Outbound Call" : "Inbound Call"}</span>
@@ -625,9 +637,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               
               if (item._type === "sms") {
                 return (
-                  <div key={item.id} className={`flex \${isOutbound ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex flex-col max-w-[75%] \${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm \${isOutbound ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-card border border-border text-foreground rounded-bl-sm"}`}>
+                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
+                    <div className={`flex flex-col max-w-[75%] ${isOutbound ? "items-end" : "items-start"}`}>
+                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${isOutbound ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-card border border-border text-foreground rounded-bl-sm"}`}>
                          <p>{item.body}</p>
                        </div>
                        <p className="text-[10px] text-muted-foreground mt-1 mx-1">{new Date(item.sent_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
@@ -638,9 +650,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               
               if (item._type === "email") {
                 return (
-                  <div key={item.id} className={`flex \${isOutbound ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex flex-col max-w-[85%] \${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-xl px-5 py-3.5 text-[13px] leading-relaxed shadow-sm border \${isOutbound ? "bg-card border-border text-foreground rounded-br-sm" : "bg-card border-border text-foreground rounded-bl-sm"}`}>
+                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
+                    <div className={`flex flex-col max-w-[85%] ${isOutbound ? "items-end" : "items-start"}`}>
+                       <div className={`rounded-xl px-5 py-3.5 text-[13px] leading-relaxed shadow-sm border ${isOutbound ? "bg-card border-border text-foreground rounded-br-sm" : "bg-card border-border text-foreground rounded-bl-sm"}`}>
                          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50">
                             <Mail className="w-3.5 h-3.5 text-muted-foreground" />
                             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</span>
@@ -660,15 +672,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           <div className="bg-card border-t border-border p-4 shrink-0 shadow-sm z-10 relative">
              <div className="flex gap-1.5 mb-3">
                {["SMS", "Email"].map(t => (
-                 <button key={t} onClick={() => setComposeTab(t as any)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors \${composeTab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>{t}</button>
+                 <button key={t} onClick={() => setComposeTab(t as any)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${composeTab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>{t}</button>
                ))}
              </div>
              <div className="flex items-end gap-2 bg-accent/50 p-2 rounded-xl border border-border focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all">
                 <textarea 
                    value={composeText} 
-                   onChange={e => setComposeText(e.target.value)} 
+                   onChange={e => { setComposeText(e.target.value); }} 
                    placeholder={`Message ${contact.firstName || 'contact'}...`}
-                   rows={Math.max(1, Math.min(3, composeText.split('\\n').length))}
+                   rows={Math.max(1, Math.min(3, composeText.split('\n').length))}
                    className="flex-1 min-h-[40px] max-h-[120px] px-3 py-2.5 bg-transparent resize-none text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none"
                    onKeyDown={(e) => {
                      if (e.key === 'Enter' && !e.shiftKey) {
@@ -692,13 +704,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-60 shrink-0 min-w-0 flex flex-col overflow-hidden bg-card border-l border-border">
-          <div className="px-5 py-4 border-b border-border shrink-0">
-            <div className="flex gap-1.5">
-              <button onClick={() => setRightTab("Activity")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Activity" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Activity</button>
-              <button onClick={() => setRightTab("Notes")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Notes" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Notes</button>
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card border-l border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+          <div className="p-3 border-b border-border shrink-0 bg-muted/10">
+            <div className="flex bg-accent rounded-lg p-1">
+              <button onClick={() => setRightTab("Activity")} className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${rightTab === "Activity" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Activity</button>
+              <button onClick={() => setRightTab("Notes")} className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${rightTab === "Notes" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Notes</button>
                {type === "lead" && (
-                  <button onClick={() => setRightTab("Campaigns")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Campaigns" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Campaigns</button>
+                  <button onClick={() => setRightTab("Campaigns")} className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${rightTab === "Campaigns" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Campaigns</button>
                )}
             </div>
           </div>

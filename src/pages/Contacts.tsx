@@ -790,7 +790,6 @@ const Contacts: React.FC = () => {
       const match = leads.find(l => l.id === openContactId);
       if (match) {
         setSelectedLead(match);
-        window.history.replaceState({}, document.title);
       }
     }
   }, [location.state, leads]);
@@ -804,7 +803,6 @@ const Contacts: React.FC = () => {
       const match = leads.find(l => l.id === contactId);
       if (match) {
         setSelectedLead(match);
-        window.history.replaceState({}, "", "/contacts");
         return;
       }
     }
@@ -814,7 +812,6 @@ const Contacts: React.FC = () => {
       const match = clients.find(c => c.id === contactId);
       if (match) {
         setSelectedClient(match);
-        window.history.replaceState({}, "", "/contacts");
         return;
       }
     }
@@ -824,7 +821,6 @@ const Contacts: React.FC = () => {
       const match = recruits.find(r => r.id === contactId);
       if (match) {
         setSelectedRecruit(match);
-        window.history.replaceState({}, "", "/contacts");
         return;
       }
     }
@@ -834,7 +830,6 @@ const Contacts: React.FC = () => {
       const match = agents.find(u => u.id === contactId);
       if (match) {
         setSelectedAgent(match);
-        window.history.replaceState({}, "", "/contacts");
         return;
       }
     }
