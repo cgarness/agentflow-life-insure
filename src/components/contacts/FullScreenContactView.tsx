@@ -458,7 +458,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       </div>
 
       {/* 3 COLUMN LAYOUT */}
-      <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* LEFT DOCK - Contacts Overview */}
         <div className="w-[320px] min-w-[320px] bg-card border-r border-border flex flex-col min-h-0 overflow-y-auto">
