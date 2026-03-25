@@ -585,7 +585,7 @@ const FloatingDialer: React.FC = () => {
 
       // Auto-add to DNC if enabled
       const phoneForDnc = selectedContact?.phone || dialedNumber;
-      if (disp.dnc_auto_add && phoneForDnc && user) {
+      if ((disp as any).dnc_auto_add && phoneForDnc && user) { // eslint-disable-line @typescript-eslint/no-explicit-any
         try {
           const { data: existing } = await supabase
             .from('dnc_list')
