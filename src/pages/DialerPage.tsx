@@ -358,16 +358,17 @@ export default function DialerPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('campaign_leads')
-        .select('campaign_id, state');
+        .select('campaign_id, state, lead:leads(state)');
       if (error) throw error;
       
       const stats: Record<string, { state: string, count: number }[]> = {};
       data.forEach(row => {
-        if (!row.state) return;
+        const leadState = row.state || (row.lead as any)?.state;
+        if (!leadState) return;
         if (!stats[row.campaign_id]) stats[row.campaign_id] = [];
-        let stateEntry = stats[row.campaign_id].find(s => s.state === row.state);
+        let stateEntry = stats[row.campaign_id].find(s => s.state === leadState);
         if (!stateEntry) {
-          stateEntry = { state: row.state, count: 0 };
+          stateEntry = { state: leadState, count: 0 };
           stats[row.campaign_id].push(stateEntry);
         }
         stateEntry.count++;
