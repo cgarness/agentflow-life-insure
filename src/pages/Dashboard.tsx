@@ -12,7 +12,6 @@ import {
   PhoneMissed,
   Gift,
   Plus,
-  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,9 +27,7 @@ import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidge
 import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
 import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget";
 import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWidget";
-import PerformanceChart from "@/components/dashboard/widgets/PerformanceChart";
 import DashboardDetailModal, { ModalType } from "@/components/dashboard/DashboardDetailModal";
-import QuickActions from "@/components/dashboard/widgets/QuickActions";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import {
@@ -53,8 +50,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 
 const DEFAULT_WIDGET_ORDER = [
-  "performance",
-  "quick_actions",
   "callbacks",
   "appointments",
   "goal_progress",
@@ -64,8 +59,6 @@ const DEFAULT_WIDGET_ORDER = [
 ];
 
 const WIDGET_LABELS: Record<string, string> = {
-  performance: "Weekly Performance",
-  quick_actions: "Quick Actions",
   callbacks: "Callbacks",
   appointments: "Appointments",
   goal_progress: "Goal Progress",
@@ -75,8 +68,6 @@ const WIDGET_LABELS: Record<string, string> = {
 };
 
 const WIDGET_ICONS: Record<string, React.ElementType> = {
-  performance: TrendingUp,
-  quick_actions: Plus,
   callbacks: Phone,
   appointments: Calendar,
   goal_progress: Target,
@@ -86,8 +77,6 @@ const WIDGET_ICONS: Record<string, React.ElementType> = {
 };
 
 const WIDGET_COLORS: Record<string, { bg: string; text: string; border: string; gradient: string }> = {
-  performance: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20", gradient: "premium-gradient-blue" },
-  quick_actions: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20", gradient: "premium-gradient-violet" },
   callbacks: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-blue-500/20", gradient: "premium-gradient-blue" },
   appointments: { bg: "bg-violet-500/10", text: "text-violet-500", border: "border-violet-500/20", gradient: "premium-gradient-violet" },
   goal_progress: { bg: "bg-emerald-500/10", text: "text-emerald-500", border: "border-emerald-500/20", gradient: "premium-gradient-emerald" },
@@ -202,7 +191,6 @@ const Dashboard: React.FC = () => {
       appointments: "appointments",
       missed_calls: "missed_calls",
       anniversaries: "anniversaries",
-      performance: "premium_sold",
     };
 
     if (supportedTypes[key]) {
@@ -434,10 +422,6 @@ const Dashboard: React.FC = () => {
 
   const renderWidget = (key: string) => {
     switch (key) {
-      case "performance":
-        return <PerformanceChart userId={userId} timeRange={timeRange} />;
-      case "quick_actions":
-        return <QuickActions />;
       case "callbacks":
         return (
           <CallbacksWidget
