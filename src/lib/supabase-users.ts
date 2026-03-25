@@ -248,7 +248,7 @@ export const usersSupabaseApi = {
     return u.profile;
   },
 
-  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string }, organizationId: string | null): Promise<void> {
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string | null }, organizationId: string | null): Promise<void> {
     const { error } = await supabase
       .from("profiles")
       .insert({
@@ -260,6 +260,7 @@ export const usersSupabaseApi = {
         commission_level: data.commissionLevel,
         licensed_states: data.licensedStates,
         organization_id: organizationId,
+        upline_id: data.uplineId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       } as any);

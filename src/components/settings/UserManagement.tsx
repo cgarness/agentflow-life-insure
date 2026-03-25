@@ -326,11 +326,24 @@ const AvatarUpload: React.FC<{
 };
 
 // ---- INVITE MODAL (with Copy Invite Link) ----
-const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () => void }> = ({ open, onClose, onSuccess }) => {
+const InviteModal: React.FC<{ 
+  open: boolean; 
+  onClose: () => void; 
+  onSuccess: () => void;
+  managers: UserWithProfile[];
+}> = ({ open, onClose, onSuccess, managers }) => {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
-  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "Agent" as UserRole, licensedStates: [] as { state: string; licenseNumber: string }[], commissionLevel: "50%" });
+  const [form, setForm] = useState({ 
+    firstName: "", 
+    lastName: "", 
+    email: "", 
+    role: "Agent" as UserRole, 
+    licensedStates: [] as { state: string; licenseNumber: string }[], 
+    commissionLevel: "50%",
+    uplineId: null as string | null
+  });
 
   const { organizationId } = useOrganization();
 
@@ -343,7 +356,7 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
     try {
       await usersApi.invite(form, organizationId);
       toast({ title: "Invitation sent", description: `Invitation sent to ${form.email}` });
-      setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%" });
+      setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%", uplineId: null });
       onSuccess();
       onClose();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -387,16 +400,30 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
             <div><Label>Last Name *</Label><Input value={form.lastName} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} /></div>
           </div>
           <div><Label>Email *</Label><Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
-          <div>
-            <Label>Role</Label>
-            <Select value={form.role} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Admin">Admin</SelectItem>
-                <SelectItem value="Team Leader">Team Leader</SelectItem>
-                <SelectItem value="Agent">Agent</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Role</Label>
+              <Select value={form.role} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Admin">Admin</SelectItem>
+                  <SelectItem value="Team Leader">Team Leader</SelectItem>
+                  <SelectItem value="Agent">Agent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Upline Manager</Label>
+              <Select value={form.uplineId || "_none"} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
+                <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">None</SelectItem>
+                  {managers.map(m => (
+                    <SelectItem key={m.id} value={m.id}>{m.firstName} {m.lastName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div><Label>Licensed States</Label><StateMultiSelect selected={form.licensedStates} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} /></div>
           <div><Label>Commission Level</Label><Input value={form.commissionLevel} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
@@ -1105,9 +1132,9 @@ const UserManagement: React.FC = () => {
                 <th className="text-left py-3 px-4 font-medium">User</th>
                 <th className="text-left py-3 font-medium">Email</th>
                 <th className="text-left py-3 font-medium">Role</th>
+                <th className="text-left py-3 font-medium">Manager</th>
                 <th className="text-left py-3 font-medium">Status</th>
                 <th className="text-left py-3 font-medium">Availability</th>
-                <th className="text-left py-3 font-medium">Last Login</th>
                 <th className="text-right py-3 pr-4 font-medium">Actions</th>
               </tr>
             </thead>
@@ -1132,9 +1159,15 @@ const UserManagement: React.FC = () => {
                   </td>
                   <td className="py-3 text-muted-foreground">{u.email}</td>
                   <td className="py-3"><Badge className={ROLE_BADGE[u.role]}>{u.role}</Badge></td>
+                  <td className="py-3 text-muted-foreground text-xs">
+                    {u.profile.uplineId ? (
+                      allUsers.find(manager => manager.id === u.profile.uplineId) 
+                        ? `${allUsers.find(manager => manager.id === u.profile.uplineId)?.firstName} ${allUsers.find(manager => manager.id === u.profile.uplineId)?.lastName}`
+                        : "Unknown"
+                    ) : "-"}
+                  </td>
                   <td className="py-3"><Badge className={STATUS_BADGE[u.status]}>{u.status}</Badge></td>
                   <td className="py-3"><span className={`w-2.5 h-2.5 rounded-full inline-block ${AVAIL_COLORS[u.availabilityStatus]}`} title={u.availabilityStatus} /></td>
-                  <td className="py-3 text-muted-foreground text-xs">{formatDate(u.lastLoginAt)}</td>
                   <td className="py-3 pr-4 text-right" onClick={e => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -1178,7 +1211,12 @@ const UserManagement: React.FC = () => {
       </div>
 
       {/* Invite Modal */}
-      <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} onSuccess={fetchUsers} />
+      <InviteModal 
+        open={inviteOpen} 
+        onClose={() => setInviteOpen(false)} 
+        onSuccess={fetchUsers} 
+        managers={allUsers.filter(u => u.role === "Admin" || u.role === "Team Leader")}
+      />
 
       {/* Profile Modal */}
       <UserProfileModal
