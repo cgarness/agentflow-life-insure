@@ -378,7 +378,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     const val = editForm[key] ?? "";
     return (
       <div className="bg-muted/50 rounded-lg px-3 py-2">
-        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">{label}</label>
+        <label className="text-xs text-muted-foreground block mb-1">{label}</label>
         {editMode ? (
           <>
             {fieldType === "select" ? (
@@ -395,7 +395,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
         ) : (
-          <div className="mt-1"><CopyField value={val} /></div>
+          <div className="mt-1 text-sm text-foreground break-words overflow-hidden"><CopyField value={val} /></div>
         )}
       </div>
     );
@@ -404,7 +404,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const availableStatuses = type === "recruit" ? recruitStatuses : (pipelineStages.length > 0 ? pipelineStages.map(s => s.name) : allStatuses);
 
   return (
-    <div className="absolute inset-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300">
+    <div className="absolute inset-0 bg-background z-40 animate-in slide-in-from-right-2 duration-300 flex flex-col w-full h-full overflow-hidden min-w-0">
       {/* HEADER */}
       <div className="bg-card border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
@@ -458,10 +458,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       </div>
 
       {/* 3 COLUMN LAYOUT */}
-      <div className="flex flex-row h-full overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-w-0 w-full">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-72 shrink-0 bg-card border-r border-border flex flex-col h-full overflow-y-auto">
+        <div className="w-64 shrink-0 min-w-0 flex flex-col overflow-hidden bg-card border-r border-border">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
             <h3 className="font-semibold text-sm">Contact Profile</h3>
             {!editMode ? (
@@ -482,27 +482,27 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
             
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-2">
                 {renderField("First Name", "firstName")}
                 {renderField("Last Name", "lastName")}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-2">
                 {renderField("Phone", "phone", "text")}
                 {renderField("Email", "email", "email")}
               </div>
               
               {type === "lead" && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
                     {renderField("State", "state", "select", US_STATES)}
                     {renderField("Source", "leadSource", "select", leadSources)}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
                     {renderField("Score", "leadScore", "number")}
                     {renderField("Age", "age", "number")}
                   </div>
                   {renderField("DOB", "dateOfBirth", "date")}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
                     {renderField("Health", "healthStatus", "select", healthStatuses)}
                     {renderField("Best Time", "bestTimeToCall", "select", bestTimes)}
                   </div>
@@ -512,15 +512,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               
               {type === "client" && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
                     {renderField("Policy Type", "policyType", "select", policyTypes)}
                     {renderField("Carrier", "carrier")}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
                     {renderField("Policy #", "policyNumber")}
                     {renderField("Premium", "premiumAmount")}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
                     {renderField("Face Amount", "faceAmount")}
                     {renderField("Issue Date", "issueDate", "date")}
                   </div>
@@ -528,7 +528,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               )}
               
               {type === "recruit" && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-2">
                    {renderField("Status", "status", "select", recruitStatuses)}
                 </div>
               )}
@@ -561,7 +561,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         </div>
 
         {/* CENTER COLUMN - Conversations */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <div className="px-5 py-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
              <div className="flex items-center gap-3">
                 <MessageSquare className="w-4 h-4 text-muted-foreground" />
@@ -692,7 +692,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-64 shrink-0 bg-card border-l border-border flex flex-col h-full overflow-y-auto">
+        <div className="w-60 shrink-0 min-w-0 flex flex-col overflow-hidden bg-card border-l border-border">
           <div className="px-5 py-4 border-b border-border shrink-0">
             <div className="flex gap-1.5">
               <button onClick={() => setRightTab("Activity")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Activity" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Activity</button>
