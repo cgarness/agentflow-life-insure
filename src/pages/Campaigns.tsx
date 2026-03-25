@@ -161,7 +161,7 @@ const CreateCampaignModal: React.FC<{
       description: description.trim(),
       assigned_agent_ids: selectedAgents,
       tags: tags,
-      status: "Draft",
+      status: "Active",
       created_by: user?.id || null,
       organization_id: organizationId,
     } as any); // eslint-disable-line @typescript-eslint/no-explicit-any

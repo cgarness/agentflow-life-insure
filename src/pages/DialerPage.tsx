@@ -443,7 +443,7 @@ export default function DialerPage() {
       const { data, error } = await supabase
         .from('campaigns')
         .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled')
-        .in('status', ['Active', 'Paused'])
+        .in('status', ['Active', 'Paused', 'Draft'])
         .order('name', { ascending: true });
       if (!error && data) setCampaigns(data);
       setCampaignsLoading(false);
