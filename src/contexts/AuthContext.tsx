@@ -20,7 +20,7 @@ interface Profile {
   upline_id: string;
   onboarding_complete: boolean;
   monthly_call_goal: number;
-  monthly_sales_goal: number;
+  monthly_policies_goal: number;
   weekly_appointment_goal: number;
   monthly_talk_time_goal_hours: number;
   npn: string;
@@ -42,7 +42,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
+  signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
@@ -134,13 +134,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) throw error;
   }, []);
 
-  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string) => {
+  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/login`,
-        data: { first_name: firstName, last_name: lastName },
+        data: { 
+          first_name: firstName, 
+          last_name: lastName,
+          organization_id: orgId || null
+        },
       },
     });
     if (error) throw error;

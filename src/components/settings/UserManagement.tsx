@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
 
@@ -331,6 +332,8 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
   const [copying, setCopying] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "Agent" as UserRole, licensedStates: [] as { state: string; licenseNumber: string }[], commissionLevel: "50%" });
 
+  const { organizationId } = useOrganization();
+
   const handleSubmit = async () => {
     if (!form.firstName || !form.lastName || !form.email) {
       toast({ title: "Missing fields", description: "Please fill in all required fields.", variant: "destructive" });
@@ -338,7 +341,7 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
     }
     setSaving(true);
     try {
-      await usersApi.invite(form);
+      await usersApi.invite(form, organizationId);
       toast({ title: "Invitation sent", description: `Invitation sent to ${form.email}` });
       setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%" });
       onSuccess();
@@ -357,11 +360,11 @@ const InviteModal: React.FC<{ open: boolean; onClose: () => void; onSuccess: () 
     }
     setCopying(true);
     try {
-      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role });
+      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role }, organizationId);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
       // Also create the pending user
-      await usersApi.invite(form);
+      await usersApi.invite(form, organizationId);
       onSuccess();
       onClose();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -460,7 +463,6 @@ const UserProfileModal: React.FC<{
         commissionLevel: user.profile.commissionLevel,
         uplineId: user.profile.uplineId,
         monthlyCallGoal: user.profile.monthlyCallGoal,
-        monthlySalesGoal: user.profile.monthlySalesGoal,
         monthlyPoliciesGoal: user.profile.monthlyPoliciesGoal,
         weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal,
         monthlyTalkTimeGoalHours: user.profile.monthlyTalkTimeGoalHours,
@@ -963,6 +965,7 @@ const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
   const { profile: currentProfile } = useAuth();
+  const { organizationId } = useOrganization();
   const [allUsers, setAllUsers] = useState<UserWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1044,7 +1047,7 @@ const UserManagement: React.FC = () => {
 
   const handleCopyInviteLink = async (u: UserWithProfile) => {
     try {
-      const link = await usersApi.generateInviteLink({ firstName: u.firstName, lastName: u.lastName, email: u.email, role: u.role });
+      const link = await usersApi.generateInviteLink({ firstName: u.firstName, lastName: u.lastName, email: u.email, role: u.role }, organizationId);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard." });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any

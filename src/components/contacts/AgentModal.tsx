@@ -71,7 +71,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                 uplineId: data.upline_id,
                 onboardingComplete: data.onboarding_complete || false,
                 monthlyCallGoal: data.monthly_call_goal || 0,
-                monthlySalesGoal: data.monthly_sales_goal || 0,
+                monthlyPoliciesGoal: data.monthly_policies_goal || 0,
                 weeklyAppointmentGoal: data.weekly_appointment_goal || 0,
                 monthlyTalkTimeGoalHours: data.monthly_talk_time_goal_hours || 0,
                 npn: data.npn || "",
@@ -146,7 +146,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                                     <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Resident State</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{profile?.residentState || "—"}</p></div>
                                     <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Commission Level</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{profile?.commissionLevel || "—"}</p></div>
                                     <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Monthly Call Goal</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{profile?.monthlyCallGoal || "—"}</p></div>
-                                    <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Monthly Sales Goal</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{profile?.monthlySalesGoal || "—"}</p></div>
+                                    <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Monthly Policies Goal</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{profile?.monthlyPoliciesGoal || "—"}</p></div>
                                     <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Weekly Appt. Goal</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{profile?.weeklyAppointmentGoal || "—"}</p></div>
                                     <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Last Login</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{agent.lastLoginAt ? new Date(agent.lastLoginAt).toLocaleDateString() : "Never"}</p></div>
                                     <div><label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Member Since</label><p className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">{new Date(agent.createdAt).toLocaleDateString()}</p></div>

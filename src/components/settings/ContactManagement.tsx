@@ -7,7 +7,8 @@ import {
 } from "@/lib/supabase-settings";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { PipelineStage, CustomField, LeadSource, HealthStatus } from "@/lib/types";
+import { useOrganization } from "@/hooks/useOrganization";
+import { PipelineStage, CustomField, LeadSource, HealthStatus, ContactManagementSettings } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
@@ -1033,26 +1034,55 @@ const HealthStatusesTab: React.FC = () => {
 
 // ==================== DUPLICATE DETECTION TAB ====================
 
-const DuplicateDetectionTab: React.FC = () => {
-  const [detectionRule, setDetectionRule] = useState("phone_or_email");
-  const [detectionScope, setDetectionScope] = useState("all_agents");
-  const [manualAction, setManualAction] = useState("warn");
-  const [csvAction, setCsvAction] = useState("flag");
+const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
+  const [detectionRule, setDetectionRule] = useState(settings?.duplicateDetectionRule || "phone_or_email");
+  const [detectionScope, setDetectionScope] = useState(settings?.duplicateDetectionScope || "all_agents");
+  const [manualAction, setManualAction] = useState(settings?.manualAction || "warn");
+  const [csvAction, setCsvAction] = useState(settings?.csvAction || "flag");
   const [allowMerge, setAllowMerge] = useState(true);
   const [mergeWinner, setMergeWinner] = useState("newest");
   const [mergePermission, setMergePermission] = useState("agents_admins");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
+  useEffect(() => {
+    if (settings) {
+      setDetectionRule(settings.duplicateDetectionRule);
+      setDetectionScope(settings.duplicateDetectionScope);
+      setManualAction(settings.manualAction);
+      setCsvAction(settings.csvAction);
+      setDirty(false);
+    }
+  }, [settings]);
+
   const markDirty = () => setDirty(true);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!settings?.organizationId) return;
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      setDirty(false);
+    try {
+      const { error } = await supabase
+        .from("contact_management_settings")
+        .upsert({
+          organization_id: settings.organizationId,
+          duplicate_detection_rule: detectionRule,
+          duplicate_detection_scope: detectionScope,
+          manual_action: manualAction,
+          csv_action: csvAction,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+      
       toast({ title: "Duplicate detection settings saved" });
-    }, 400);
+      onReload();
+      setDirty(false);
+    } catch (err) {
+      console.error("Error saving duplicate settings:", err);
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const RadioOption = ({ name, value, current, onChange, label, desc }: { name: string; value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
@@ -1164,25 +1194,54 @@ const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", 
 const CLIENT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"];
 
-const RequiredFieldsTab: React.FC = () => {
+const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
   const [leadRequired, setLeadRequired] = useState<Record<string, boolean>>(() => {
     const r: Record<string, boolean> = {};
-    LEAD_OPTIONAL.forEach(f => r[f] = false);
+    LEAD_OPTIONAL.forEach(f => r[f] = settings?.requiredFieldsLead?.[f] || false);
     return r;
   });
   const [clientRequired, setClientRequired] = useState<Record<string, boolean>>(() => {
     const r: Record<string, boolean> = {};
-    CLIENT_OPTIONAL.forEach(f => r[f] = false);
+    CLIENT_OPTIONAL.forEach(f => r[f] = settings?.requiredFieldsClient?.[f] || false);
     return r;
   });
   const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  useEffect(() => {
+    if (settings) {
+      const lr: Record<string, boolean> = {};
+      LEAD_OPTIONAL.forEach(f => lr[f] = settings.requiredFieldsLead?.[f] || false);
+      setLeadRequired(lr);
+
+      const cr: Record<string, boolean> = {};
+      CLIENT_OPTIONAL.forEach(f => cr[f] = settings.requiredFieldsClient?.[f] || false);
+      setClientRequired(cr);
+    }
+  }, [settings]);
+
+  const handleSave = async () => {
+    if (!settings?.organizationId) return;
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const { error } = await supabase
+        .from("contact_management_settings")
+        .upsert({
+          organization_id: settings.organizationId,
+          required_fields_lead: leadRequired,
+          required_fields_client: clientRequired,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+      
       toast({ title: "Required field settings saved" });
-    }, 400);
+      onReload();
+    } catch (err) {
+      console.error("Error saving required fields:", err);
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const FieldRow = ({ name, locked, checked, onChange }: { name: string; locked?: boolean; checked: boolean; onChange?: (v: boolean) => void }) => (
@@ -1258,16 +1317,41 @@ interface AgentProfile {
   initials: string;
 }
 
-const AssignmentRulesTab: React.FC = () => {
+const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
-  const [method, setMethod] = useState("unassigned");
-  const [specificAgent, setSpecificAgent] = useState("");
-  const [rotation, setRotation] = useState<Record<string, boolean>>({});
-  const [importOverride, setImportOverride] = useState(false);
-  const [importMethod, setImportMethod] = useState("unassigned");
-  const [importAgent, setImportAgent] = useState("");
-  const [importRotation, setImportRotation] = useState<Record<string, boolean>>({});
+  const [method, setMethod] = useState(settings?.assignmentMethod || "unassigned");
+  const [specificAgent, setSpecificAgent] = useState(settings?.assignmentSpecificAgentId || "");
+  const [rotation, setRotation] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    settings?.assignmentRotation?.forEach(id => r[id] = true);
+    return r;
+  });
+  const [importOverride, setImportOverride] = useState(settings?.importOverride || false);
+  const [importMethod, setImportMethod] = useState(settings?.importMethod || "unassigned");
+  const [importAgent, setImportAgent] = useState(settings?.importSpecificAgentId || "");
+  const [importRotation, setImportRotation] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    settings?.importRotation?.forEach(id => r[id] = true);
+    return r;
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setMethod(settings.assignmentMethod);
+      setSpecificAgent(settings.assignmentSpecificAgentId || "");
+      const r: Record<string, boolean> = {};
+      settings.assignmentRotation?.forEach(id => r[id] = true);
+      setRotation(r);
+      
+      setImportOverride(settings.importOverride);
+      setImportMethod(settings.importMethod);
+      setImportAgent(settings.importSpecificAgentId || "");
+      const ir: Record<string, boolean> = {};
+      settings.importRotation?.forEach(id => ir[id] = true);
+      setImportRotation(ir);
+    }
+  }, [settings]);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -1288,15 +1372,17 @@ const AssignmentRulesTab: React.FC = () => {
 
         setAgents(transformed);
         
-        // Initialize rotation maps
-        const rot: Record<string, boolean> = {};
-        const iRot: Record<string, boolean> = {};
-        transformed.forEach(a => {
-          rot[a.id] = true;
-          iRot[a.id] = true;
-        });
-        setRotation(rot);
-        setImportRotation(iRot);
+        // If rotation is empty, initialize it with all agents
+        if (!settings?.assignmentRotation?.length) {
+          const rot: Record<string, boolean> = {};
+          transformed.forEach(a => rot[a.id] = true);
+          setRotation(prev => Object.keys(prev).length ? prev : rot);
+        }
+        if (!settings?.importRotation?.length) {
+          const iRot: Record<string, boolean> = {};
+          transformed.forEach(a => iRot[a.id] = true);
+          setImportRotation(prev => Object.keys(prev).length ? prev : iRot);
+        }
       } catch (err) {
         console.error("Error fetching agents for assignment rules:", err);
       } finally {
@@ -1305,10 +1391,11 @@ const AssignmentRulesTab: React.FC = () => {
     };
 
     fetchAgents();
-  }, []);
+  }, [settings?.assignmentRotation?.length, settings?.importRotation?.length]);
+
   const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (method === "specific" && !specificAgent) {
       toast({ title: "Please select an agent before saving", variant: "destructive" });
       return;
@@ -1317,11 +1404,34 @@ const AssignmentRulesTab: React.FC = () => {
       toast({ title: "Please select an agent for import assignment", variant: "destructive" });
       return;
     }
+    if (!settings?.organizationId) return;
+    
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const { error } = await supabase
+        .from("contact_management_settings")
+        .upsert({
+          organization_id: settings.organizationId,
+          assignment_method: method,
+          assignment_specific_agent_id: specificAgent || null,
+          assignment_rotation: Object.keys(rotation).filter(id => rotation[id]),
+          import_override: importOverride,
+          import_method: importMethod,
+          import_specific_agent_id: importAgent || null,
+          import_rotation: Object.keys(importRotation).filter(id => importRotation[id]),
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+      
       toast({ title: "Assignment rules saved" });
-    }, 400);
+      onReload();
+    } catch (err) {
+      console.error("Error saving assignment rules:", err);
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const firstInRotation = agents.find(a => rotation[a.id]);
@@ -1719,7 +1829,82 @@ const DisplaySettingsTab: React.FC = () => {
 // ==================== MAIN COMPONENT ====================
 
 const ContactManagement: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [activeTab, setActiveTab] = useState(0);
+  const [settings, setSettings] = useState<ContactManagementSettings | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
+  const fetchSettings = useCallback(async () => {
+    if (!organizationId) return;
+    try {
+      setLoadingSettings(true);
+      const { data, error } = await supabase
+        .from("contact_management_settings")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        setSettings({
+          id: data.id,
+          organizationId: data.organization_id,
+          duplicateDetectionRule: data.duplicate_detection_rule,
+          duplicateDetectionScope: data.duplicate_detection_scope,
+          manualAction: data.manual_action,
+          csvAction: data.csv_action,
+          requiredFieldsLead: data.required_fields_lead as Record<string, boolean>,
+          requiredFieldsClient: data.required_fields_client as Record<string, boolean>,
+          assignmentMethod: data.assignment_method,
+          assignmentSpecificAgentId: data.assignment_specific_agent_id,
+          assignmentRotation: data.assignment_rotation as string[],
+          importOverride: data.import_override,
+          importMethod: data.import_method,
+          importSpecificAgentId: data.import_specific_agent_id,
+          importRotation: data.import_rotation as string[],
+          updatedAt: data.updated_at,
+        });
+      } else {
+        // Initialize with defaults if no settings exist for this org
+        setSettings({
+          id: "",
+          organizationId: organizationId,
+          duplicateDetectionRule: 'phone_or_email',
+          duplicateDetectionScope: 'all_agents',
+          manualAction: 'warn',
+          csvAction: 'flag',
+          requiredFieldsLead: {},
+          requiredFieldsClient: {},
+          assignmentMethod: 'unassigned',
+          assignmentRotation: [],
+          importOverride: false,
+          importMethod: 'unassigned',
+          importRotation: [],
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching contact settings:", err);
+      toast({ title: "Error loading contact settings", variant: "destructive" });
+    } finally {
+      setLoadingSettings(false);
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (organizationId) {
+      fetchSettings();
+    }
+  }, [organizationId, fetchSettings]);
+
+  if (loadingSettings && organizationId) {
+    return (
+      <div className="flex items-center justify-center p-12 bg-card rounded-xl border border-border">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1754,9 +1939,9 @@ const ContactManagement: React.FC = () => {
       {activeTab === 1 && <CustomFieldsTab />}
       {activeTab === 2 && <LeadSourcesTab />}
       {activeTab === 3 && <HealthStatusesTab />}
-      {activeTab === 4 && <DuplicateDetectionTab />}
-      {activeTab === 5 && <RequiredFieldsTab />}
-      {activeTab === 6 && <AssignmentRulesTab />}
+      {activeTab === 4 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 5 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 6 && <AssignmentRulesTab settings={settings} onReload={fetchSettings} />}
       {activeTab === 7 && <DisplaySettingsTab />}
     </div>
   );

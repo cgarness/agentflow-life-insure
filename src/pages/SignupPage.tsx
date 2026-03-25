@@ -15,6 +15,7 @@ const SignupPage: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -27,6 +28,7 @@ const SignupPage: React.FC = () => {
         if (decoded.firstName) setFirstName(decoded.firstName);
         if (decoded.lastName) setLastName(decoded.lastName);
         if (decoded.email) setEmail(decoded.email);
+        if (decoded.organizationId) setOrganizationId(decoded.organizationId);
       } catch (e) {
         // If it's just a string ID, we can't do much without fetching, 
         // but the new system passes encoded objects.
@@ -40,7 +42,7 @@ const SignupPage: React.FC = () => {
     setError("");
     setLoading(true);
     try {
-      await signup(email, password, firstName, lastName);
+      await signup(email, password, firstName, lastName, organizationId);
       setSuccess(true);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message || "Signup failed");

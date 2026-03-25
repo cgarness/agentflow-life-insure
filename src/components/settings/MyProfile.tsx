@@ -137,7 +137,7 @@ const MyProfile: React.FC = () => {
 
   // Goals
   const [dailyCalls, setDailyCalls] = useState(profile?.monthly_call_goal ?? 50);
-  const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthly_sales_goal ?? 10);
+  const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthly_policies_goal ?? 10);
   const [weeklyAppts, setWeeklyAppts] = useState(profile?.weekly_appointment_goal ?? 15);
   const [monthlyTalkTime, setMonthlyTalkTime] = useState(profile?.monthly_talk_time_goal_hours ?? 40);
   const [goalSaving, setGoalSaving] = useState(false);
@@ -156,7 +156,7 @@ const MyProfile: React.FC = () => {
       setLicensedStates(profile.licensed_states || []);
       setSelectedCarriers(profile.carriers || []);
       setDailyCalls(profile.monthly_call_goal || 0);
-      setMonthlyPolicies(profile.monthly_sales_goal || 0);
+      setMonthlyPolicies(profile.monthly_policies_goal || 0);
       setWeeklyAppts(profile.weekly_appointment_goal || 0);
       setMonthlyTalkTime(profile.monthly_talk_time_goal_hours || 0);
       setResidentState(profile.resident_state || "");
@@ -332,7 +332,7 @@ const MyProfile: React.FC = () => {
     try {
       await updateProfile({ 
         monthly_call_goal: dailyCalls,
-        monthly_sales_goal: monthlyPolicies,
+        monthly_policies_goal: monthlyPolicies,
         weekly_appointment_goal: weeklyAppts,
         monthly_talk_time_goal_hours: monthlyTalkTime
       });

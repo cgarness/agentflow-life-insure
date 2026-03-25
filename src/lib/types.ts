@@ -39,17 +39,37 @@ export interface UserProfile {
   uplineId?: string;
   onboardingComplete: boolean;
   monthlyCallGoal: number;
-  monthlySalesGoal: number;
   monthlyPoliciesGoal: number;
   weeklyAppointmentGoal: number;
   monthlyTalkTimeGoalHours: number;
-  onboardingItems: OnboardingItem[];
+  onboardingItems?: any;
   npn: string;
   timezone: string;
   winSoundEnabled: boolean;
   emailNotificationsEnabled: boolean;
   smsNotificationsEnabled: boolean;
   pushNotificationsEnabled: boolean;
+  organizationId: string | null;
+  teamId: string | null;
+}
+
+export interface ContactManagementSettings {
+  id: string;
+  organizationId: string;
+  duplicateDetectionRule: 'phone_only' | 'email_only' | 'phone_or_email' | 'phone_and_email';
+  duplicateDetectionScope: 'all_agents' | 'assigned_only';
+  manualAction: 'warn' | 'block' | 'allow';
+  csvAction: 'flag' | 'skip' | 'overwrite';
+  requiredFieldsLead: Record<string, boolean>;
+  requiredFieldsClient: Record<string, boolean>;
+  assignmentMethod: 'unassigned' | 'specific' | 'round_robin' | 'weighted_distribution';
+  assignmentSpecificAgentId?: string | null;
+  assignmentRotation: string[];
+  importOverride: boolean;
+  importMethod: string;
+  importSpecificAgentId?: string | null;
+  importRotation: string[];
+  updatedAt: string;
 }
 
 export interface Lead {

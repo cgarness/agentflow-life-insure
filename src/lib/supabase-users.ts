@@ -25,7 +25,6 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       uplineId: row.upline_id,
       onboardingComplete: row.onboarding_complete || false,
       monthlyCallGoal: row.monthly_call_goal || 0,
-      monthlySalesGoal: row.monthly_sales_goal || 0,
       monthlyPoliciesGoal: row.monthly_policies_goal || 0,
       weeklyAppointmentGoal: row.weekly_appointment_goal || 0,
       monthlyTalkTimeGoalHours: row.monthly_talk_time_goal_hours || 0,
@@ -36,6 +35,8 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       smsNotificationsEnabled: row.sms_notifications_enabled ?? false,
       pushNotificationsEnabled: row.push_notifications_enabled ?? true,
       onboardingItems: row.onboarding_items || [],
+      organizationId: row.organization_id,
+      teamId: row.team_id,
     }
   };
 }
@@ -247,9 +248,23 @@ export const usersSupabaseApi = {
     return u.profile;
   },
 
-  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string }): Promise<void> {
-    console.log("Inviting user:", data);
-    return Promise.resolve();
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string }, organizationId: string | null): Promise<void> {
+    const { error } = await supabase
+      .from("profiles")
+      .insert({
+        first_name: data.firstName,
+        last_name: data.lastName,
+        email: data.email,
+        role: data.role,
+        status: "Pending",
+        commission_level: data.commissionLevel,
+        licensed_states: data.licensedStates,
+        organization_id: organizationId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      } as any);
+    
+    if (error) throw error;
   },
 
   async deactivate(id: string): Promise<void> {
@@ -282,15 +297,10 @@ export const usersSupabaseApi = {
     return Promise.resolve();
   },
 
-  async generateInviteLink(data: any): Promise<string> {
-    const params = new URLSearchParams();
-    if (typeof data === "string") {
-      params.set("invite", data);
-    } else {
-      const encoded = btoa(JSON.stringify(data));
-      params.set("invite", encoded);
-    }
-    return `${window.location.origin}/signup?${params.toString()}`;
+  async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole }, organizationId: string | null): Promise<string> {
+    const invitePayload = { ...data, organizationId };
+    const encoded = btoa(JSON.stringify(invitePayload));
+    return `${window.location.origin}/signup?invite=${encoded}`;
   },
 
   async deleteUser(id: string): Promise<void> {
