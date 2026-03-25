@@ -219,7 +219,7 @@ const FloatingDialer: React.FC = () => {
   useEffect(() => {
     supabase
       .from("dispositions")
-      .select("id, name, color, require_notes, min_note_chars, callback_scheduler, automation_trigger, automation_id, campaign_action, dnc_auto_add")
+      .select("id, name, color, require_notes, min_note_chars, callback_scheduler, automation_trigger, automation_id")
       .order("sort_order")
       .then(({ data }) => {
         if (data) setDispositions(data);
