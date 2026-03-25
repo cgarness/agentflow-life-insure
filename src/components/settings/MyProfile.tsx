@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "next-themes";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -286,17 +287,19 @@ const MyProfile: React.FC = () => {
   // Password save
   const handleUpdatePassword = async () => {
     setPwSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    if (currentPw !== "password") {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPw });
+      if (error) throw error;
+      
+      setCurrentPw("");
+      setNewPw("");
+      setConfirmPw("");
+      toast({ title: "Password updated successfully.", className: "bg-success text-success-foreground" });
+    } catch (err: any) {
+      toast({ title: "Failed to update password", description: err.message, variant: "destructive" });
+    } finally {
       setPwSaving(false);
-      toast({ title: "Current password is incorrect.", variant: "destructive" });
-      return;
     }
-    setPwSaving(false);
-    setCurrentPw("");
-    setNewPw("");
-    setConfirmPw("");
-    toast({ title: "Password updated successfully.", className: "bg-success text-success-foreground" });
   };
 
   // Preferences save

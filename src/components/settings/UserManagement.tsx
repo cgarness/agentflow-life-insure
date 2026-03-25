@@ -569,7 +569,7 @@ const UserProfileModal: React.FC<{
 
   const handleResetPassword = async () => {
     try {
-      await usersApi.resetPassword(user.id);
+      await usersApi.resetPassword(user.email);
       toast({ title: "Password reset email sent", description: `Password reset email sent to ${user.email}` });
       setResetPwOpen(false);
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1038,7 +1038,7 @@ const UserManagement: React.FC = () => {
 
   const handleResendInvite = async (u: UserWithProfile) => {
     try {
-      await usersApi.resendInvite(u.id);
+      await usersApi.resendInvite(u.email);
       toast({ title: "Invite resent", description: `Invitation resent to ${u.email}` });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });

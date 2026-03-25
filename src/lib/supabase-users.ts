@@ -287,14 +287,22 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
-  async resendInvite(id: string): Promise<void> {
-    console.log("Resending invite to:", id);
-    return Promise.resolve();
+  async resendInvite(email: string): Promise<void> {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
+    });
+    if (error) throw error;
   },
 
-  async resetPassword(id: string): Promise<void> {
-    console.log("Resetting password for:", id);
-    return Promise.resolve();
+  async resetPassword(email: string): Promise<void> {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) throw error;
   },
 
   async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole }, organizationId: string | null): Promise<string> {
