@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
 
 const US_STATES = [
@@ -463,8 +464,9 @@ const UserProfileModal: React.FC<{
   onSaved: (patch?: Partial<UserWithProfile>) => void;
   onDeleted: (id: string) => void;
   currentUserId: string;
+  currentUserRole: string;
   allUsers: UserWithProfile[];
-}> = ({ user, open, onClose, onSaved, onDeleted, currentUserId, allUsers }) => {
+}> = ({ user, open, onClose, onSaved, onDeleted, currentUserId, currentUserRole, allUsers }) => {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -477,6 +479,13 @@ const UserProfileModal: React.FC<{
   const [performance, setPerformance] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [perfLoading, setPerfLoading] = useState(false);
   const [resetPwOpen, setResetPwOpen] = useState(false);
+
+  // My Team tab state
+  const [teamMembers, setTeamMembers] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [addAgentOpen, setAddAgentOpen] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [agentSearch, setAgentSearch] = useState("");
 
   // Agents/Team Leaders for upline dropdown
   const uplineCandidates = useMemo(() =>
@@ -508,6 +517,9 @@ const UserProfileModal: React.FC<{
       setEditMode(true);
       setTab("profile");
       setPerformance(null);
+      setTeamMembers([]);
+      setAddAgentOpen(false);
+      setAgentSearch("");
     }
   }, [user]);
 
@@ -515,6 +527,20 @@ const UserProfileModal: React.FC<{
     if (user && (tab === "performance" || tab === "goals") && !performance) {
       setPerfLoading(true);
       usersApi.getPerformance(user.id).then(p => { setPerformance(p); setPerfLoading(false); });
+    }
+  }, [user, tab]);
+
+  useEffect(() => {
+    if (user && tab === "myteam") {
+      setTeamLoading(true);
+      supabase
+        .from("profiles")
+        .select("id, first_name, last_name, email, role, upline_id, avatar_url")
+        .eq("upline_id", user.id)
+        .then(({ data, error }) => {
+          if (!error) setTeamMembers(data || []);
+          setTeamLoading(false);
+        });
     }
   }, [user, tab]);
 
@@ -669,6 +695,9 @@ const UserProfileModal: React.FC<{
                 <TabsTrigger value="goals" className="flex-1">Goals</TabsTrigger>
                 <TabsTrigger value="onboarding" className="flex-1">Onboarding</TabsTrigger>
                 <TabsTrigger value="performance" className="flex-1">Performance</TabsTrigger>
+                {user.role === "Team Leader" && (
+                  <TabsTrigger value="myteam" className="flex-1">My Team</TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
           </div>
@@ -953,6 +982,155 @@ const UserProfileModal: React.FC<{
                   </div>
                 )}
               </TabsContent>
+
+              {/* My Team Tab Section */}
+              {user.role === "Team Leader" && (
+                <TabsContent value="myteam" className="space-y-4 mt-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-foreground">
+                      {teamLoading ? "" : `${teamMembers.length} agent${teamMembers.length !== 1 ? "s" : ""} assigned`}
+                    </p>
+                    {currentUserRole === "Admin" && (
+                      <div className="relative">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            if (addAgentOpen) { setAddAgentOpen(false); return; }
+                            const { data } = await supabase
+                              .from("profiles")
+                              .select("id, first_name, last_name, email, role, avatar_url")
+                              .eq("role", "Agent")
+                              .is("upline_id", null);
+                            const currentIds = new Set(teamMembers.map((m: any) => m.id)); // eslint-disable-line @typescript-eslint/no-explicit-any
+                            setAvailableAgents((data || []).filter((a: any) => !currentIds.has(a.id))); // eslint-disable-line @typescript-eslint/no-explicit-any
+                            setAgentSearch("");
+                            setAddAgentOpen(true);
+                          }}
+                        >
+                          <Users className="w-3.5 h-3.5 mr-1.5" />
+                          Add Agent
+                        </Button>
+                        {addAgentOpen && (
+                          <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-card border border-border rounded-lg shadow-lg">
+                            <div className="p-2 border-b border-border">
+                              <Input
+                                placeholder="Search agents..."
+                                value={agentSearch}
+                                onChange={e => setAgentSearch(e.target.value)}
+                                className="h-8"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="max-h-52 overflow-y-auto p-1">
+                              {availableAgents
+                                .filter((a: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                                  const q = agentSearch.toLowerCase();
+                                  return !q || `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) || (a.email || "").toLowerCase().includes(q);
+                                })
+                                .map((agent: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                                  <button
+                                    key={agent.id}
+                                    type="button"
+                                    className="w-full flex items-center gap-2.5 px-2 py-2 rounded hover:bg-accent text-left text-sm"
+                                    onClick={async () => {
+                                      const { error } = await supabase
+                                        .from("profiles")
+                                        .update({ upline_id: user.id })
+                                        .eq("id", agent.id);
+                                      if (error) {
+                                        toast({ title: "Failed to assign agent", variant: "destructive" });
+                                      } else {
+                                        setTeamMembers(prev => [...prev, { ...agent, upline_id: user.id }]);
+                                        setAddAgentOpen(false);
+                                        toast({ title: "Agent assigned successfully" });
+                                      }
+                                    }}
+                                  >
+                                    <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 overflow-hidden">
+                                      {agent.avatar_url
+                                        ? <img src={agent.avatar_url} alt="" className="w-full h-full object-cover" />
+                                        : `${(agent.first_name || "")[0] || ""}${(agent.last_name || "")[0] || ""}`
+                                      }
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-foreground truncate">{agent.first_name} {agent.last_name}</p>
+                                      <p className="text-xs text-muted-foreground truncate">{agent.email}</p>
+                                    </div>
+                                  </button>
+                                ))
+                              }
+                              {availableAgents.filter((a: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                                const q = agentSearch.toLowerCase();
+                                return !q || `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) || (a.email || "").toLowerCase().includes(q);
+                              }).length === 0 && (
+                                <p className="text-xs text-muted-foreground text-center py-4">No unassigned agents found.</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Loading skeleton */}
+                  {teamLoading && (
+                    <div className="space-y-2">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {!teamLoading && teamMembers.length === 0 && (
+                    <div className="py-12 text-center border rounded-lg bg-accent/10">
+                      <p className="text-sm text-muted-foreground">No agents assigned to this team leader yet.</p>
+                    </div>
+                  )}
+
+                  {/* Team member list */}
+                  {!teamLoading && teamMembers.length > 0 && (
+                    <div className="space-y-2">
+                      {teamMembers.map((member: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                        <div key={member.id} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0 overflow-hidden">
+                            {member.avatar_url
+                              ? <img src={member.avatar_url} alt="" className="w-full h-full object-cover" />
+                              : `${(member.first_name || "")[0] || ""}${(member.last_name || "")[0] || ""}`
+                            }
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{member.first_name} {member.last_name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                          </div>
+                          <Badge className={ROLE_BADGE[member.role] || ""}>{member.role}</Badge>
+                          {currentUserRole === "Admin" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:bg-destructive/10 shrink-0"
+                              onClick={async () => {
+                                const { error } = await supabase
+                                  .from("profiles")
+                                  .update({ upline_id: null })
+                                  .eq("id", member.id);
+                                if (error) {
+                                  toast({ title: "Failed to remove agent", variant: "destructive" });
+                                } else {
+                                  setTeamMembers(prev => prev.filter((m: any) => m.id !== member.id)); // eslint-disable-line @typescript-eslint/no-explicit-any
+                                }
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+              )}
             </Tabs>
           </div>
         </DialogContent>
@@ -1237,6 +1415,7 @@ const UserManagement: React.FC = () => {
           setSelectedUser(null);
         }}
         currentUserId={currentUser?.id || ""}
+        currentUserRole={currentProfile?.role || ""}
         allUsers={users}
       />
 
