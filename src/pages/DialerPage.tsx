@@ -518,7 +518,7 @@ export default function DialerPage() {
         // Check for saved queue position
         if (user?.id) {
           try {
-            const { data: savedState } = await supabase
+            const { data: savedState } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
               .from('dialer_queue_state')
               .select('current_lead_id, queue_index')
               .eq('user_id', user.id)
