@@ -212,7 +212,7 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
     age: row.age ?? undefined,
     dateOfBirth: row.date_of_birth ?? undefined,
     healthStatus: row.health_status ?? undefined,
-    best_time_to_call: row.best_time_to_call ?? undefined,
+    bestTimeToCall: row.best_time_to_call ?? undefined,
     spouseInfo: row.spouse_info ?? undefined,
     notes: row.notes ?? undefined,
     assignedAgentId: row.assigned_agent_id,

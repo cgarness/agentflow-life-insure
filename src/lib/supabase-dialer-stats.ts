@@ -66,7 +66,7 @@ export async function getTodayStats(
  */
 export async function deleteTodayStats(agentId: string): Promise<void> {
   const today = new Date().toISOString().split("T")[0];
-  const { error } = await supabase
+  const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .from("dialer_daily_stats")
     .delete()
     .eq("agent_id", agentId)
