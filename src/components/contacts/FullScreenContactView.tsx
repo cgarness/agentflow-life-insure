@@ -29,9 +29,19 @@ const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", 
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
 
-const statusBadgeColor: Record<string, string> = {
-  New: "bg-gray-500 text-white", Contacted: "bg-blue-500 text-white", Interested: "bg-yellow-500 text-white", "Follow Up": "bg-orange-500 text-white", Hot: "bg-red-500 text-white", "Not Interested": "bg-gray-400 text-white", "Closed Won": "bg-green-500 text-white", "Closed Lost": "bg-red-700 text-white",
-  Prospect: "bg-gray-500 text-white", Interview: "bg-yellow-500 text-white", Licensed: "bg-purple-500 text-white", Active: "bg-green-500 text-white",
+const statusBadgeStyle: Record<string, { backgroundColor: string; color: string }> = {
+  New: { backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6' },
+  Contacted: { backgroundColor: 'rgba(234, 179, 8, 0.15)', color: '#CA8A04' },
+  Interested: { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' },
+  "Follow Up": { backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#9333EA' },
+  Hot: { backgroundColor: 'rgba(249, 115, 22, 0.15)', color: '#EA580C' },
+  "Not Interested": { backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#DC2626' },
+  "Closed Won": { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' },
+  "Closed Lost": { backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#DC2626' },
+  Prospect: { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' },
+  Interview: { backgroundColor: 'rgba(234, 179, 8, 0.15)', color: '#CA8A04' },
+  Licensed: { backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#9333EA' },
+  Active: { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' },
 };
 
 const statusDotColor: Record<string, string> = {
@@ -65,12 +75,18 @@ const activityDotColor = (type: string) => {
   }
 };
 
+const formatName = (name: string) => {
+  if (!name) return '';
+  return name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+};
+
 const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
-  if (!value && value !== 0) return <span className="text-muted-foreground">—</span>;
+  if (!value && value !== 0) return <span className="text-muted-foreground italic">—</span>;
   const display = String(value);
+  if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic">—</span>;
   return (
     <div className="flex items-center justify-between group w-full">
-      <span className="text-foreground font-medium">{display}</span>
+      <span className="text-sm font-medium text-foreground">{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
@@ -329,7 +345,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           method: "POST",
           headers: {
              "Content-Type": "application/json",
-             Authorization: `Bearer \${session.access_token}`,
+             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
              to: contact.phone,
@@ -347,7 +363,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       toast.success("Message sent");
       setComposeText("");
       // Optimistically add message
-      const optimMsg = { id: `optim-\${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() };
+      const optimMsg = { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() };
       setConvoItems(prev => [...prev, optimMsg]);
     } catch (err: any) {
       toast.error(err.message || "Failed to send message");
@@ -361,8 +377,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
     const val = editForm[key] ?? "";
     return (
-      <div>
-        <label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">{label}</label>
+      <div className="bg-muted/50 rounded-lg px-3 py-2">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">{label}</label>
         {editMode ? (
           <>
             {fieldType === "select" ? (
@@ -379,7 +395,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
         ) : (
-          <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center"><CopyField value={val} /></div>
+          <div className="mt-1"><CopyField value={val} /></div>
         )}
       </div>
     );
@@ -390,7 +406,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   return (
     <div className="absolute inset-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300">
       {/* HEADER */}
-      <div className="h-16 px-6 border-b border-border flex items-center justify-between shrink-0 bg-card">
+      <div className="bg-card border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <button onClick={tryClose} className="p-2 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="w-5 h-5" />
@@ -401,11 +417,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               {contact.firstName?.[0]}{contact.lastName?.[0]}
             </div>
             <div>
-              <h2 className="text-lg font-bold text-foreground leading-none">{contact.firstName} {contact.lastName}</h2>
+              <h2 className="text-xl font-bold text-foreground leading-none">{formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}</h2>
               <div className="flex items-center gap-2 mt-1">
                 {type !== "client" && (
                   <div className="relative" ref={statusDropdownRef}>
-                    <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className={`text-[10px] px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 transition-colors \${statusBadgeColor[localStatus] || 'bg-muted text-muted-foreground'}`}>
+                    <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="text-xs px-3 py-1 rounded-full font-medium inline-flex items-center gap-1 transition-colors" style={statusBadgeStyle[localStatus] || { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
                       {localStatus} <ChevronDown className="w-2.5 h-2.5" />
                     </button>
                     {statusDropdownOpen && (
@@ -426,30 +442,30 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                     <Clock className="w-2.5 h-2.5" /> <ContactLocalTime state={contact.state} />
                   </span>
                 )}
-                <span className="text-[10px] text-muted-foreground capitalize border border-border px-2 py-0.5 rounded-full">{type}</span>
+                <span className="text-xs px-3 py-1 rounded-full font-medium bg-muted text-muted-foreground capitalize">{type}</span>
               </div>
             </div>
           </div>
         </div>
         
         <div className="flex items-center gap-2">
-          <Button className="px-4 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white" onClick={() => { logActivity(`Call initiated by \${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" /> Call</Button>
-          <Button className="px-4 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white" onClick={() => setShowAppt(true)}><Calendar className="size-4 mr-1" /> Schedule</Button>
+          <Button className="px-4 py-2 text-sm bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" /> Call</Button>
+          <Button className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white" onClick={() => setShowAppt(true)}><Calendar className="size-4 mr-1" /> Schedule</Button>
           {type === "lead" && onConvert && (
-            <Button className="px-4 py-2 text-sm bg-green-500 hover:bg-green-600 text-white" onClick={() => onConvert(contact)}><ArrowLeft className="size-4 mr-1 rotate-180" /> Convert</Button>
+            <Button className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white" onClick={() => onConvert(contact)}><ArrowLeft className="size-4 mr-1 rotate-180" /> Convert</Button>
           )}
         </div>
       </div>
 
       {/* 3 COLUMN LAYOUT */}
-      <div className="flex flex-1 min-h-0 bg-accent/20">
-        
+      <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[320px] 2xl:w-[380px] bg-card border-r border-border flex flex-col min-h-0 shadow-sm z-10">
-          <div className="p-4 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
+        <div className="w-[320px] min-w-[320px] bg-card border-r border-border flex flex-col min-h-0 overflow-y-auto">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
             <h3 className="font-semibold text-sm">Contact Profile</h3>
             {!editMode ? (
-              <button onClick={() => setEditMode(true)} className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"><Pencil className="w-3.5 h-3.5" /> Edit</button>
+              <button onClick={() => setEditMode(true)} className="flex items-center gap-1 text-sm text-primary hover:underline transition-colors"><Pencil className="w-3.5 h-3.5" /> Edit</button>
             ) : (
                <div className="flex items-center gap-2">
                 <button onClick={handleCancel} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
@@ -458,7 +474,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
             {editMode && hasUnsavedChanges && (
               <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> <span>You have unsaved changes.</span>
@@ -517,15 +533,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 </div>
               )}
               
-              <div>
-                <label className="text-[11px] font-bold text-foreground dark:text-muted-foreground uppercase tracking-wider block mb-1">Assigned Agent</label>
+              <div className="bg-muted/50 rounded-lg px-3 py-2">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Assigned Agent</label>
                 {editMode ? (
                   <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
                     <option value="">—</option>
                     {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
                   </select>
                 ) : (
-                  <div className="mt-1 px-3 py-2 rounded-md bg-muted/60 text-sm text-foreground min-h-[36px] flex items-center">
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
                     <CopyField value={getAgentDisplayName(contact.assignedAgentId)} />
                   </div>
                 )}
@@ -535,24 +552,24 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               <div>{renderField("System Notes", "notes", "textarea")}</div>
             </div>
             
-            <div className="pt-6 mt-6 border-t border-border">
-              <Button size="sm" variant="destructive" className="w-full text-xs" onClick={() => setConfirmDelete(true)}>
-                <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
-              </Button>
+            <div className="mt-auto pt-4 border-t border-border">
+              <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-sm text-destructive hover:underline">
+                <Trash2 className="w-3.5 h-3.5" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
             </div>
           </div>
         </div>
 
         {/* CENTER COLUMN - Conversations */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-[400px]">
-          <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0 bg-card z-10 shadow-sm">
+        <div className="flex-1 flex flex-col min-h-0 min-w-[400px] overflow-y-auto">
+          <div className="px-5 py-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
              <div className="flex items-center gap-3">
                 <MessageSquare className="w-4 h-4 text-muted-foreground" />
-                <h3 className="font-semibold text-sm">Conversations</h3>
+                <h3 className="text-base font-semibold text-foreground">Conversations</h3>
              </div>
              <div className="flex gap-1.5">
                 {["All", "Calls", "SMS", "Email"].map(f => (
-                  <button key={f} onClick={() => setConvoFilter(f as any)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors \${convoFilter === f ? "bg-primary text-primary-foreground" : "bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-accent"}`}>{f}</button>
+                  <button key={f} onClick={() => setConvoFilter(f as any)} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${convoFilter === f ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>{f}</button>
                 ))}
              </div>
           </div>
@@ -586,7 +603,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                           </div>
                           <span className="font-medium text-foreground text-[13px]">{item.direction === "outbound" ? "Outbound Call" : "Inbound Call"}</span>
                         </div>
-                        <span className="text-[11px] text-muted-foreground font-medium">{item.duration > 0 ? `\${Math.floor(item.duration/60)}:\${String(item.duration%60).padStart(2,'0')}` : 'No Answer'}</span>
+                        <span className="text-[11px] text-muted-foreground font-medium">{item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : 'No Answer'}</span>
                       </div>
                       <div className="flex items-center justify-between ml-8">
                          {item.disposition_name ? (
@@ -610,7 +627,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 return (
                   <div key={item.id} className={`flex \${isOutbound ? "justify-end" : "justify-start"}`}>
                     <div className={`flex flex-col max-w-[75%] \${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm \${isOutbound ? "bg-[#0b93f6] text-white rounded-br-sm" : "bg-card border border-border text-foreground rounded-bl-sm"}`}>
+                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm \${isOutbound ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-card border border-border text-foreground rounded-bl-sm"}`}>
                          <p>{item.body}</p>
                        </div>
                        <p className="text-[10px] text-muted-foreground mt-1 mx-1">{new Date(item.sent_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
@@ -650,7 +667,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 <textarea 
                    value={composeText} 
                    onChange={e => setComposeText(e.target.value)} 
-                   placeholder={`Message \${contact.firstName}...`} 
+                   placeholder={`Message ${contact.firstName || 'contact'}...`}
                    rows={Math.max(1, Math.min(3, composeText.split('\\n').length))}
                    className="flex-1 min-h-[40px] max-h-[120px] px-3 py-2.5 bg-transparent resize-none text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none"
                    onKeyDown={(e) => {
@@ -675,13 +692,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-[320px] xl:w-[350px] bg-card border-l border-border flex flex-col min-h-0 shadow-sm z-10">
-          <div className="p-3 border-b border-border shrink-0 bg-muted/10">
-            <div className="flex bg-accent rounded-lg p-1">
-              <button onClick={() => setRightTab("Activity")} className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors \${rightTab === "Activity" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Activity</button>
-              <button onClick={() => setRightTab("Notes")} className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors \${rightTab === "Notes" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Notes</button>
+        <div className="w-[320px] min-w-[320px] bg-card border-l border-border flex flex-col min-h-0 overflow-y-auto">
+          <div className="px-5 py-4 border-b border-border shrink-0">
+            <div className="flex gap-1.5">
+              <button onClick={() => setRightTab("Activity")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Activity" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Activity</button>
+              <button onClick={() => setRightTab("Notes")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Notes" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Notes</button>
                {type === "lead" && (
-                  <button onClick={() => setRightTab("Campaigns")} className={`flex-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors \${rightTab === "Campaigns" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Campaigns</button>
+                  <button onClick={() => setRightTab("Campaigns")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors \${rightTab === "Campaigns" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>Campaigns</button>
                )}
             </div>
           </div>
@@ -689,14 +706,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           <div className="flex-1 overflow-y-auto w-full">
             {/* ACTIVITY TAB */}
             {rightTab === "Activity" && (
-              <div className="p-4 space-y-4">
-                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-2">Recent Timeline</p>
-                 <div className="relative border-l-2 border-border/50 ml-2 space-y-6 pb-4">
+              <div className="px-5 py-5 space-y-4">
+                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Recent Timeline</p>
+                 <div className="space-y-2 pb-4">
                    {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
-                     <div key={a.id} className="relative pl-5">
-                       <span className={`absolute -left-[5px] top-1 w-2 h-2 rounded-full ring-4 ring-card \${activityDotColor(a.type)}`} />
+                     <div key={a.id} className="border-l-2 border-primary/30 pl-3 py-2 hover:bg-muted/50 rounded-r-md transition-colors">
                        <p className="text-[13px] text-foreground leading-snug">{a.description}</p>
-                       <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(a.createdAt)} • {a.agentName}</p>
+                       <p className="text-xs text-muted-foreground mt-1">{timeAgo(a.createdAt)} • {a.agentName}</p>
                      </div>
                    ))}
                    {activities.length === 0 && (
@@ -710,7 +726,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             
             {/* NOTES TAB */}
             {rightTab === "Notes" && (
-              <div className="p-4 flex flex-col h-full">
+              <div className="px-5 py-5 flex flex-col h-full">
                 <div className="space-y-3 shrink-0 mb-6">
                   <textarea 
                      value={newNote} 
@@ -765,7 +781,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             
             {/* CAMPAIGNS TAB */}
             {rightTab === "Campaigns" && type === "lead" && (
-               <div className="p-4">
+               <div className="px-5 py-5">
                   {campaigns.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                        <p className="text-sm text-foreground font-medium">Not in any campaigns</p>
@@ -797,7 +813,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete {type}</DialogTitle>
-            <DialogDescription>Delete {contact.firstName} {contact.lastName}? This permanently removes all associated data.</DialogDescription>
+            <DialogDescription>Delete {formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}? This permanently removes all associated data.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
@@ -847,11 +863,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           if (error) { toast.error("Failed to schedule appointment"); return; }
           
           addAppointment(data);
-          logActivity(`Appointment scheduled for \${new Date(data.date).toLocaleDateString()}`, "appointment");
+          logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
           setShowAppt(false);
           toast.success("Appointment scheduled");
         }}
-        prefillContactName={contact ? `\${contact.firstName} \${contact.lastName}` : undefined}
+        prefillContactName={contact ? `${contact.firstName} ${contact.lastName}` : undefined}
       />
     </div>
   );
