@@ -158,7 +158,7 @@ serve(async (req: Request) => {
       .replace("{{ .InviteURL }}", inviteURL);
 
     const { data, error } = await resend.emails.send({
-      from: "AgentFlow <onboarding@resend.dev>", // Replace with verified domain in production
+      from: "AgentFlow <team@fflagent.com>",
       to: [email],
       subject: "Invitation to join AgentFlow",
       html: personalizedHtml,

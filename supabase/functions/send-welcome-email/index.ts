@@ -217,7 +217,7 @@ serve(async (req: Request) => {
       .replace("{{ .SiteURL }}", Deno.env.get("PUBLIC_SITE_URL") || "https://agentflow.app");
 
     const { data, error } = await resend.emails.send({
-      from: "AgentFlow <onboarding@resend.dev>", // Replace with your verified domain
+      from: "AgentFlow <team@fflagent.com>",
       to: [email],
       subject: "Welcome to AgentFlow!",
       html: personalizedHtml,
