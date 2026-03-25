@@ -1838,7 +1838,7 @@ const ContactManagement: React.FC = () => {
     if (!organizationId) return;
     try {
       setLoadingSettings(true);
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .from("contact_management_settings")
         .select("*")
         .eq("organization_id", organizationId)
