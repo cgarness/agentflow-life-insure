@@ -482,6 +482,33 @@ const Dashboard: React.FC = () => {
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/10 via-background to-background border border-primary/10 p-8 shadow-2xl shadow-primary/5">
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-60 h-60 bg-violet-500/5 rounded-full blur-3xl" />
+
+        {/* Action buttons — top right corner */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2 }}
+          className="absolute top-4 right-4 z-20 flex items-center gap-2"
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEditMode(!editMode)}
+            className="bg-background/50 backdrop-blur-sm border-white/10 hover:bg-background/80 transition-all rounded-xl"
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1.5 text-primary" />
+            {editMode ? "Cancel Editing" : "Customize"}
+          </Button>
+          {!editMode && (
+            <Button
+              size="sm"
+              onClick={() => setShowBriefing(true)}
+              className="rounded-xl shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30"
+            >
+              Today's Briefing
+            </Button>
+          )}
+        </motion.div>
         
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
@@ -518,50 +545,21 @@ const Dashboard: React.FC = () => {
               </motion.div>
             </div>
           
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            className="flex items-center justify-between flex-1 gap-4"
-          >
-            <div>
-              {role === "Admin" && (
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="text-muted-foreground font-medium">Viewing Perspective:</span>
-                  <button
-                    onClick={() =>
-                      setAdminViewMode(adminViewMode === "team" ? "my" : "team")
-                    }
-                    className="px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-all border border-primary/20 shadow-sm"
-                  >
-                    {adminViewMode === "team"
-                      ? "Team Overview → Switch to Personal"
-                      : "Personal Stats → Switch to Team"}
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={() => setEditMode(!editMode)}
-                className="bg-background/50 backdrop-blur-sm border-white/10 hover:bg-background/80 transition-all rounded-xl"
+          {role === "Admin" && (
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-muted-foreground font-medium">Viewing Perspective:</span>
+              <button
+                onClick={() =>
+                  setAdminViewMode(adminViewMode === "team" ? "my" : "team")
+                }
+                className="px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-all border border-primary/20 shadow-sm"
               >
-                <Pencil className="h-4 w-4 mr-2 text-primary" />
-                {editMode ? "Cancel Editing" : "Customize"}
-              </Button>
-              {!editMode && (
-                <Button
-                  size="lg"
-                  onClick={() => setShowBriefing(true)}
-                  className="rounded-xl shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30"
-                >
-                  Today's Briefing
-                </Button>
-              )}
+                {adminViewMode === "team"
+                  ? "Team Overview → Switch to Personal"
+                  : "Personal Stats → Switch to Team"}
+              </button>
             </div>
-          </motion.div>
+          )}
         </div>
       </div>
 
