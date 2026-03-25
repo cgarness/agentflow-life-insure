@@ -81,6 +81,8 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                 smsNotificationsEnabled: data.sms_notifications_enabled ?? false,
                 pushNotificationsEnabled: data.push_notifications_enabled ?? true,
                 onboardingItems: data.onboarding_items || [],
+                organizationId: data.organization_id || null,
+                teamId: data.team_id || null,
             });
         });
     }, [agent]);

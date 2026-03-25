@@ -1035,10 +1035,10 @@ const HealthStatusesTab: React.FC = () => {
 // ==================== DUPLICATE DETECTION TAB ====================
 
 const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
-  const [detectionRule, setDetectionRule] = useState(settings?.duplicateDetectionRule || "phone_or_email");
-  const [detectionScope, setDetectionScope] = useState(settings?.duplicateDetectionScope || "all_agents");
-  const [manualAction, setManualAction] = useState(settings?.manualAction || "warn");
-  const [csvAction, setCsvAction] = useState(settings?.csvAction || "flag");
+  const [detectionRule, setDetectionRule] = useState<string>(settings?.duplicateDetectionRule || "phone_or_email");
+  const [detectionScope, setDetectionScope] = useState<string>(settings?.duplicateDetectionScope || "all_agents");
+  const [manualAction, setManualAction] = useState<string>(settings?.manualAction || "warn");
+  const [csvAction, setCsvAction] = useState<string>(settings?.csvAction || "flag");
   const [allowMerge, setAllowMerge] = useState(true);
   const [mergeWinner, setMergeWinner] = useState("newest");
   const [mergePermission, setMergePermission] = useState("agents_admins");
@@ -1061,7 +1061,7 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
     if (!settings?.organizationId) return;
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .from("contact_management_settings")
         .upsert({
           organization_id: settings.organizationId,
@@ -1223,7 +1223,7 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
     if (!settings?.organizationId) return;
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .from("contact_management_settings")
         .upsert({
           organization_id: settings.organizationId,
@@ -1320,7 +1320,7 @@ interface AgentProfile {
 const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
-  const [method, setMethod] = useState(settings?.assignmentMethod || "unassigned");
+  const [method, setMethod] = useState<string>(settings?.assignmentMethod || "unassigned");
   const [specificAgent, setSpecificAgent] = useState(settings?.assignmentSpecificAgentId || "");
   const [rotation, setRotation] = useState<Record<string, boolean>>(() => {
     const r: Record<string, boolean> = {};
@@ -1408,7 +1408,7 @@ const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null,
     
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .from("contact_management_settings")
         .upsert({
           organization_id: settings.organizationId,
@@ -1838,7 +1838,7 @@ const ContactManagement: React.FC = () => {
     if (!organizationId) return;
     try {
       setLoadingSettings(true);
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .from("contact_management_settings")
         .select("*")
         .eq("organization_id", organizationId)

@@ -518,7 +518,7 @@ export default function DialerPage() {
         // Check for saved queue position
         if (user?.id) {
           try {
-            const { data: savedState } = await supabase
+            const { data: savedState } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
               .from('dialer_queue_state')
               .select('current_lead_id, queue_index')
               .eq('user_id', user.id)
@@ -777,12 +777,12 @@ export default function DialerPage() {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!callingSettingsOpen || !effectiveCampaignId) return;
     setCallingSettingsLoading(true);
-    supabase
+    (supabase
       .from("campaigns")
       .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
-      .maybeSingle()
-      .then(({ data }) => {
+      .maybeSingle() as unknown as Promise<any>) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .then(({ data }: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         if (data) {
           setIsUnlimited(data.max_attempts === null);
           setMaxAttemptsValue(data.max_attempts ?? 3);
@@ -1376,7 +1376,7 @@ export default function DialerPage() {
     if (!user?.id || !selectedCampaignId || !currentLead) return;
     const leadId = currentLead.lead_id || currentLead.id;
     if (!leadId) return;
-    supabase
+    (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .from('dialer_queue_state')
       .upsert({
         user_id: user.id,
@@ -1918,7 +1918,7 @@ export default function DialerPage() {
           onClick={() => {
             // Clear saved queue position
             if (user?.id && selectedCampaignId) {
-              supabase
+              (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
                 .from('dialer_queue_state')
                 .delete()
                 .eq('user_id', user.id)
@@ -3226,7 +3226,7 @@ export default function DialerPage() {
               onClick={() => {
                 // Clear saved queue position
                 if (user?.id && selectedCampaignId) {
-                  supabase
+                  (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
                     .from('dialer_queue_state')
                     .delete()
                     .eq('user_id', user.id)

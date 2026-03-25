@@ -26,7 +26,7 @@ export async function upsertDialerStats(
     session_started_at?: string | null;
   }
 ): Promise<void> {
-  const { error } = await supabase.rpc("increment_dialer_stats", {
+  const { error } = await (supabase as any).rpc("increment_dialer_stats", { // eslint-disable-line @typescript-eslint/no-explicit-any
     p_agent_id: agentId,
     p_calls_made: updates.calls_made ?? 0,
     p_calls_connected: updates.calls_connected ?? 0,
@@ -48,7 +48,7 @@ export async function getTodayStats(
   agentId: string
 ): Promise<DialerDailyStats | null> {
   const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .from("dialer_daily_stats")
     .select("*")
     .eq("agent_id", agentId)
@@ -66,7 +66,7 @@ export async function getTodayStats(
  */
 export async function deleteTodayStats(agentId: string): Promise<void> {
   const today = new Date().toISOString().split("T")[0];
-  const { error } = await supabase
+  const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .from("dialer_daily_stats")
     .delete()
     .eq("agent_id", agentId)
