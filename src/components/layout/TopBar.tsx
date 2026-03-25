@@ -5,8 +5,10 @@ import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
   User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
-  Sparkles,
+  Sparkles, Eye,
 } from "lucide-react";
+import { useViewAs } from "@/contexts/ViewAsContext";
+import ViewAsModal from "@/components/layout/ViewAsModal";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
@@ -75,6 +77,11 @@ function timeAgo(dateStr: string): string {
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout } = useAuth();
+  const { isViewingAs, viewingAs } = useViewAs();
+  const [viewAsOpen, setViewAsOpen] = useState(false);
+
+  // Detect if current user is super admin
+  const isSuperAdmin = (user as any)?.is_super_admin === true || user?.email === "cgarness.ffl@gmail.com";
   const { dialerOverride } = useAgentStatus();
   const { markRead, markAllRead, deleteNotification } = useNotifications();
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -281,6 +288,21 @@ const TopBar: React.FC = () => {
                 <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
                 <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
                 <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><Keyboard className="w-4 h-4" />Keyboard Shortcuts</button>
+                {isSuperAdmin && (
+                  <>
+                    <div className="h-px bg-border mx-2 my-1" />
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors text-left"
+                      style={{ color: "#D97706" }}
+                      onMouseOver={e => (e.currentTarget.style.backgroundColor = "rgba(217,119,6,0.1)")}
+                      onMouseOut={e => (e.currentTarget.style.backgroundColor = "transparent")}
+                      onClick={() => { setUserDropdown(false); setViewAsOpen(true); }}
+                    >
+                      <Eye className="w-4 h-4" />
+                      {isViewingAs ? `Viewing as ${viewingAs?.firstName}…` : "View As"}
+                    </button>
+                  </>
+                )}
                 <div className="border-t my-1" />
                 <button onClick={() => { logout(); navigate("/login"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-destructive"><LogOut className="w-4 h-4" />Logout</button>
               </div>
@@ -385,6 +407,13 @@ const TopBar: React.FC = () => {
             </div>
           </div>
         </>
+      )}
+      {isSuperAdmin && (
+        <ViewAsModal
+          open={viewAsOpen}
+          onClose={() => setViewAsOpen(false)}
+          currentUserId={user?.id || ""}
+        />
       )}
     </>
   );
