@@ -168,7 +168,7 @@ export const leadsSupabaseApi = {
             age: row.age,
             dateOfBirth: row.dateOfBirth,
             healthStatus: row.healthStatus,
-            bestTimeToCall: row.best_time_to_call,
+            bestTimeToCall: row.bestTimeToCall,
             notes: row.notes,
           }), organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           if (error) { errors++; } else { imported++; }
