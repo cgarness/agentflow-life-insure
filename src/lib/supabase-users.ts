@@ -45,11 +45,11 @@ export const usersSupabaseApi = {
     const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
-      "resident_state", "commission_level", "upline_id", "onboarding_complete",
-      "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
-      "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
+      "resident_state", "commission_level", "upline_id", 
+      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
+      "monthly_talk_time_goal_hours", "npn", "timezone", 
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
-      "push_notifications_enabled", "carriers"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id"
     ];
 
     const safeColumns = [
@@ -107,11 +107,11 @@ export const usersSupabaseApi = {
     const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
-      "resident_state", "commission_level", "upline_id", "onboarding_complete",
-      "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
-      "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
+      "resident_state", "commission_level", "upline_id", 
+      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
+      "monthly_talk_time_goal_hours", "npn", "timezone", 
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
-      "push_notifications_enabled", "carriers"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id"
     ];
 
     const safeColumns = [
@@ -177,9 +177,7 @@ export const usersSupabaseApi = {
     if (data.residentState !== undefined) payload.resident_state = data.residentState;
     if (data.commissionLevel !== undefined) payload.commission_level = data.commissionLevel;
     if (data.uplineId !== undefined) payload.upline_id = data.uplineId;
-    if (data.onboardingComplete !== undefined) payload.onboarding_complete = data.onboardingComplete;
     if (data.monthlyCallGoal !== undefined) payload.monthly_call_goal = data.monthlyCallGoal;
-    if (data.monthlySalesGoal !== undefined) payload.monthly_sales_goal = data.monthlySalesGoal;
     if (data.monthlyPoliciesGoal !== undefined) payload.monthly_policies_goal = data.monthlyPoliciesGoal;
     if (data.weeklyAppointmentGoal !== undefined) payload.weekly_appointment_goal = data.weeklyAppointmentGoal;
     if (data.monthlyTalkTimeGoalHours !== undefined) payload.monthly_talk_time_goal_hours = data.monthlyTalkTimeGoalHours;
@@ -189,17 +187,16 @@ export const usersSupabaseApi = {
     if (data.emailNotificationsEnabled !== undefined) payload.email_notifications_enabled = data.emailNotificationsEnabled;
     if (data.smsNotificationsEnabled !== undefined) payload.sms_notifications_enabled = data.smsNotificationsEnabled;
     if (data.pushNotificationsEnabled !== undefined) payload.push_notifications_enabled = data.pushNotificationsEnabled;
-    if (data.onboardingItems !== undefined) payload.onboarding_items = data.onboardingItems;
     payload.updated_at = new Date().toISOString();
 
     const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
-      "resident_state", "commission_level", "upline_id", "onboarding_complete", 
-      "monthly_call_goal", "monthly_sales_goal", "monthly_policies_goal", "weekly_appointment_goal",
-      "monthly_talk_time_goal_hours", "npn", "timezone", "onboarding_items",
+      "resident_state", "commission_level", "upline_id", 
+      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
+      "monthly_talk_time_goal_hours", "npn", "timezone", 
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
-      "push_notifications_enabled", "carriers"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id"
     ];
 
     const safeColumns = [
