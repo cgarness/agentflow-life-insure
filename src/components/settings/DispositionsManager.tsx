@@ -5,7 +5,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, Info, BarChart3, TrendingUp,
   TrendingDown, Phone, Calendar, FileText, Zap, X, Check, AlertTriangle,
-  Users, ShieldBan,
+  Users, ShieldBan, Lock,
 } from "lucide-react";
 import type { CampaignAction } from "@/lib/types";
 import {
@@ -47,6 +47,8 @@ interface FormState {
   automationName: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
+  removeFromQueue: boolean;
+  autoAddToDnc: boolean;
 }
 
 const emptyForm: FormState = {
@@ -61,6 +63,8 @@ const emptyForm: FormState = {
   automationName: "",
   campaignAction: "none",
   dncAutoAdd: false,
+  removeFromQueue: false,
+  autoAddToDnc: false,
 };
 
 const DispositionsManager: React.FC = () => {
@@ -126,6 +130,8 @@ const DispositionsManager: React.FC = () => {
       automationName: d.automationName || "",
       campaignAction: d.campaignAction || "none",
       dncAutoAdd: d.dncAutoAdd || false,
+      removeFromQueue: d.removeFromQueue || false,
+      autoAddToDnc: d.autoAddToDnc || false,
     });
     setShowModal(true);
   };
@@ -159,13 +165,15 @@ const DispositionsManager: React.FC = () => {
           automationName: form.automationTrigger ? form.automationName : undefined,
           campaignAction: form.campaignAction,
           dncAutoAdd: form.dncAutoAdd,
+          removeFromQueue: form.removeFromQueue,
+          autoAddToDnc: form.autoAddToDnc,
         });
         toast({ title: "Disposition updated" });
       } else {
         await dispositionsApi.create({
           name: form.name,
           color: form.color,
-          isDefault: false,
+          isLocked: false,
           requireNotes: form.requireNotes,
           minNoteChars: form.requireNotes ? form.minNoteChars : 0,
           callbackScheduler: form.callbackScheduler,
@@ -175,6 +183,8 @@ const DispositionsManager: React.FC = () => {
           automationName: form.automationTrigger ? form.automationName : undefined,
           campaignAction: form.campaignAction,
           dncAutoAdd: form.dncAutoAdd,
+          removeFromQueue: form.removeFromQueue,
+          autoAddToDnc: form.autoAddToDnc,
           order: dispositions.length + 1,
         });
         toast({ title: "Disposition created" });
@@ -232,7 +242,9 @@ const DispositionsManager: React.FC = () => {
     }
   };
 
-  const isEditingDefault = editingId ? dispositions.find(d => d.id === editingId)?.isDefault : false;
+  const isEditingLocked = editingId
+    ? dispositions.find(d => d.id === editingId)?.isLocked ?? false
+    : false;
 
   return (
     <div className="space-y-6">
@@ -264,16 +276,18 @@ const DispositionsManager: React.FC = () => {
           {dispositions.map((d, idx) => (
             <div
               key={d.id}
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragOver={(e) => handleDragOver(e, idx)}
-              onDrop={() => handleDrop(idx)}
-              onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+              {...(!d.isLocked && {
+                draggable: true,
+                onDragStart: () => handleDragStart(idx),
+                onDragOver: (e: React.DragEvent) => handleDragOver(e, idx),
+                onDrop: () => handleDrop(idx),
+                onDragEnd: () => { setDragIdx(null); setOverIdx(null); },
+              })}
               className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${
                 overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
               } ${dragIdx === idx ? "opacity-50" : ""}`}
             >
-              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
+              <GripVertical className={`w-4 h-4 text-muted-foreground shrink-0 ${d.isLocked ? "cursor-default opacity-30" : "cursor-grab"}`} />
               <span className="w-6 h-6 rounded bg-muted text-muted-foreground text-xs font-bold flex items-center justify-center shrink-0">
                 {idx + 1}
               </span>
@@ -281,12 +295,12 @@ const DispositionsManager: React.FC = () => {
                 className="w-4 h-4 rounded-full shrink-0 border border-black/10"
                 style={{ backgroundColor: d.color }}
               />
-              <span className="flex-1 text-sm font-medium text-foreground">{d.name}</span>
+              <span className="flex-1 text-sm font-medium text-foreground flex items-center gap-1.5">
+                {d.name}
+                {d.isLocked && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
+              </span>
 
               <div className="flex items-center gap-1.5 flex-wrap">
-                {d.isDefault && (
-                  <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium">Default</span>
-                )}
                 {d.requireNotes && (
                   <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
                     <FileText className="w-2.5 h-2.5" /> Required Notes
@@ -330,20 +344,20 @@ const DispositionsManager: React.FC = () => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => !d.isDefault && setDeleteTarget(d)}
-                      disabled={d.isDefault}
+                      onClick={() => !d.isLocked && setDeleteTarget(d)}
+                      disabled={d.isLocked}
                       className={`p-1.5 rounded-md transition-colors ${
-                        d.isDefault
-                          ? "text-muted-foreground/30 cursor-not-allowed"
+                        d.isLocked
+                          ? "opacity-40 cursor-not-allowed pointer-events-none text-muted-foreground"
                           : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
                       }`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </TooltipTrigger>
-                  {d.isDefault && (
+                  {d.isLocked && (
                     <TooltipContent>
-                      <p>Default dispositions cannot be deleted</p>
+                      <p>Locked dispositions cannot be deleted</p>
                     </TooltipContent>
                   )}
                 </Tooltip>
@@ -447,11 +461,11 @@ const DispositionsManager: React.FC = () => {
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value.slice(0, 30) }))}
                 placeholder="e.g., Appointment Set"
-                disabled={isEditingDefault}
+                disabled={isEditingLocked}
                 maxLength={30}
               />
               <p className="text-xs text-muted-foreground mt-1 text-right">{form.name.length}/30</p>
-              {isEditingDefault && <p className="text-xs text-muted-foreground">Default disposition names cannot be changed.</p>}
+              {isEditingLocked && <p className="text-xs text-muted-foreground">This disposition is locked and cannot be renamed.</p>}
             </div>
 
             {/* Color */}
@@ -485,96 +499,104 @@ const DispositionsManager: React.FC = () => {
             </div>
 
             {/* Required Notes */}
-            <div className="rounded-lg border p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5" /> Required Notes
-                  </p>
-                  <p className="text-xs text-muted-foreground">Agent must type a note before advancing.</p>
-                </div>
-                <Switch
-                  checked={form.requireNotes}
-                  onCheckedChange={v => setForm(f => ({ ...f, requireNotes: v }))}
-                />
-              </div>
-              {form.requireNotes && (
-                <div>
-                  <label className="text-xs font-medium text-foreground block mb-1">Minimum characters</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={form.minNoteChars}
-                    onChange={e => setForm(f => ({ ...f, minNoteChars: Math.max(1, parseInt(e.target.value) || 1) }))}
-                    className="w-24"
+            {!isEditingLocked && (
+              <div className="rounded-lg border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5" /> Required Notes
+                    </p>
+                    <p className="text-xs text-muted-foreground">Agent must type a note before advancing.</p>
+                  </div>
+                  <Switch
+                    checked={form.requireNotes}
+                    onCheckedChange={v => setForm(f => ({ ...f, requireNotes: v }))}
                   />
                 </div>
-              )}
-            </div>
+                {form.requireNotes && (
+                  <div>
+                    <label className="text-xs font-medium text-foreground block mb-1">Minimum characters</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={form.minNoteChars}
+                      onChange={e => setForm(f => ({ ...f, minNoteChars: Math.max(1, parseInt(e.target.value) || 1) }))}
+                      className="w-24"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Callback Scheduler */}
-            <div className="rounded-lg border p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex-1 pr-4">
-                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" /> Callback Scheduler
-                  </p>
-                  <p className="text-xs text-muted-foreground">Opens date/time picker for a following call.</p>
+            {!isEditingLocked && (
+              <div className="rounded-lg border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" /> Callback Scheduler
+                    </p>
+                    <p className="text-xs text-muted-foreground">Opens date/time picker for a following call.</p>
+                  </div>
+                  <Switch
+                    checked={form.callbackScheduler}
+                    onCheckedChange={v => setForm(f => ({ ...f, callbackScheduler: v }))}
+                  />
                 </div>
-                <Switch
-                  checked={form.callbackScheduler}
-                  onCheckedChange={v => setForm(f => ({ ...f, callbackScheduler: v }))}
-                />
               </div>
-            </div>
+            )}
 
             {/* Appointment Scheduler */}
-            <div className="rounded-lg border p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex-1 pr-4">
-                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" /> Appointment Scheduler
-                  </p>
-                  <p className="text-xs text-muted-foreground">Opens the appointment modal for a new sale/meeting.</p>
+            {!isEditingLocked && (
+              <div className="rounded-lg border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" /> Appointment Scheduler
+                    </p>
+                    <p className="text-xs text-muted-foreground">Opens the appointment modal for a new sale/meeting.</p>
+                  </div>
+                  <Switch
+                    checked={form.appointmentScheduler}
+                    onCheckedChange={v => setForm(f => ({ ...f, appointmentScheduler: v }))}
+                  />
                 </div>
-                <Switch
-                  checked={form.appointmentScheduler}
-                  onCheckedChange={v => setForm(f => ({ ...f, appointmentScheduler: v }))}
-                />
               </div>
-            </div>
+            )}
 
             {/* Automation Trigger */}
-            <div className="rounded-lg border p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5" /> Automation Trigger
-                  </p>
-                  <p className="text-xs text-muted-foreground">Trigger an automation when this disposition is selected.</p>
+            {!isEditingLocked && (
+              <div className="rounded-lg border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5" /> Automation Trigger
+                    </p>
+                    <p className="text-xs text-muted-foreground">Trigger an automation when this disposition is selected.</p>
+                  </div>
+                  <Switch
+                    checked={form.automationTrigger}
+                    onCheckedChange={v => setForm(f => ({ ...f, automationTrigger: v, automationId: "", automationName: "" }))}
+                  />
                 </div>
-                <Switch
-                  checked={form.automationTrigger}
-                  onCheckedChange={v => setForm(f => ({ ...f, automationTrigger: v, automationId: "", automationName: "" }))}
-                />
+                {form.automationTrigger && (
+                  <select
+                    value={form.automationId}
+                    onChange={e => {
+                      const auto = MOCK_AUTOMATIONS.find(a => a.id === e.target.value);
+                      setForm(f => ({ ...f, automationId: e.target.value, automationName: auto?.name || "" }));
+                    }}
+                    className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="">Select automation...</option>
+                    {MOCK_AUTOMATIONS.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-              {form.automationTrigger && (
-                <select
-                  value={form.automationId}
-                  onChange={e => {
-                    const auto = MOCK_AUTOMATIONS.find(a => a.id === e.target.value);
-                    setForm(f => ({ ...f, automationId: e.target.value, automationName: auto?.name || "" }));
-                  }}
-                  className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
-                >
-                  <option value="">Select automation...</option>
-                  {MOCK_AUTOMATIONS.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
+            )}
 
             {/* Campaign Action */}
             <div className="rounded-lg border p-3 space-y-3">
@@ -601,7 +623,7 @@ const DispositionsManager: React.FC = () => {
               )}
             </div>
 
-            {/* Auto-Add to DNC */}
+            {/* Auto-Add to DNC (legacy) */}
             <div className="rounded-lg border p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex-1 pr-4">
@@ -616,6 +638,68 @@ const DispositionsManager: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* Remove from Dialing Queue */}
+            {(isEditingLocked && form.name === "DNC") ? (
+              <div className="rounded-lg border p-3 space-y-2 opacity-50 cursor-not-allowed pointer-events-none">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" /> Remove from Dialing Queue
+                      <Lock className="w-3 h-3 text-muted-foreground" />
+                    </p>
+                    <p className="text-xs text-muted-foreground">When selected, this lead will be removed from the active campaign queue.</p>
+                  </div>
+                  <Switch checked={true} onCheckedChange={() => {}} />
+                </div>
+              </div>
+            ) : !isEditingLocked ? (
+              <div className="rounded-lg border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" /> Remove from Dialing Queue
+                    </p>
+                    <p className="text-xs text-muted-foreground">When selected, this lead will be removed from the active campaign queue.</p>
+                  </div>
+                  <Switch
+                    checked={form.removeFromQueue}
+                    onCheckedChange={v => setForm(f => ({ ...f, removeFromQueue: v }))}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {/* Auto-add to DNC List */}
+            {(isEditingLocked && form.name === "DNC") ? (
+              <div className="rounded-lg border p-3 space-y-2 opacity-50 cursor-not-allowed pointer-events-none">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <ShieldBan className="w-3.5 h-3.5" /> Auto-add to DNC List
+                      <Lock className="w-3 h-3 text-muted-foreground" />
+                    </p>
+                    <p className="text-xs text-muted-foreground">Automatically adds this contact to the Do Not Call list when this disposition is selected.</p>
+                  </div>
+                  <Switch checked={true} onCheckedChange={() => {}} />
+                </div>
+              </div>
+            ) : !isEditingLocked ? (
+              <div className="rounded-lg border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <ShieldBan className="w-3.5 h-3.5" /> Auto-add to DNC List
+                    </p>
+                    <p className="text-xs text-muted-foreground">Automatically adds this contact to the Do Not Call list when this disposition is selected.</p>
+                  </div>
+                  <Switch
+                    checked={form.autoAddToDnc}
+                    onCheckedChange={v => setForm(f => ({ ...f, autoAddToDnc: v }))}
+                  />
+                </div>
+              </div>
+            ) : null}
 
           </div>
 

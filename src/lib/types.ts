@@ -238,7 +238,7 @@ export interface Disposition {
   id: string;
   name: string;
   color: string; // hex color
-  isDefault: boolean;
+  isLocked: boolean;
   requireNotes: boolean;
   minNoteChars: number;
   callbackScheduler: boolean;
@@ -248,6 +248,8 @@ export interface Disposition {
   automationName?: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
+  removeFromQueue: boolean;
+  autoAddToDnc: boolean;
   order: number;
   usageCount: number;
   createdAt: string;

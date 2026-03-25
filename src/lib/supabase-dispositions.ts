@@ -5,7 +5,7 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     id: row.id,
     name: row.name,
     color: row.color,
-    isDefault: row.is_default,
+    isLocked: row.is_locked ?? false,
     requireNotes: row.require_notes,
     minNoteChars: row.min_note_chars,
     callbackScheduler: row.callback_scheduler,
@@ -15,6 +15,8 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     automationName: row.automation_name ?? undefined,
     campaignAction: row.campaign_action ?? 'none',
     dncAutoAdd: row.dnc_auto_add ?? false,
+    removeFromQueue: row.remove_from_queue ?? false,
+    autoAddToDnc: row.auto_add_to_dnc ?? false,
     order: row.sort_order,
     usageCount: row.usage_count,
     createdAt: row.created_at,
@@ -45,7 +47,7 @@ export const dispositionsSupabaseApi = {
       .insert({
         name: input.name,
         color: input.color,
-        is_default: input.isDefault,
+        is_locked: input.isLocked ?? false,
         require_notes: input.requireNotes,
         min_note_chars: input.minNoteChars,
         callback_scheduler: input.callbackScheduler,
@@ -55,6 +57,8 @@ export const dispositionsSupabaseApi = {
         automation_name: input.automationName ?? null,
         campaign_action: input.campaignAction ?? 'none',
         dnc_auto_add: input.dncAutoAdd ?? false,
+        remove_from_queue: input.removeFromQueue ?? false,
+        auto_add_to_dnc: input.autoAddToDnc ?? false,
         sort_order: (count ?? 0) + 1,
         usage_count: 0,
       })
@@ -87,6 +91,9 @@ export const dispositionsSupabaseApi = {
         ...(input.automationName !== undefined && { automation_name: input.automationName }),
         ...(input.campaignAction !== undefined && { campaign_action: input.campaignAction }),
         ...(input.dncAutoAdd !== undefined && { dnc_auto_add: input.dncAutoAdd }),
+        ...(input.isLocked !== undefined && { is_locked: input.isLocked }),
+        ...(input.removeFromQueue !== undefined && { remove_from_queue: input.removeFromQueue }),
+        ...(input.autoAddToDnc !== undefined && { auto_add_to_dnc: input.autoAddToDnc }),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
@@ -98,11 +105,11 @@ export const dispositionsSupabaseApi = {
   async delete(id: string): Promise<void> {
     const { data: row, error: fetchError } = await supabase
       .from("dispositions")
-      .select("is_default")
+      .select("is_locked")
       .eq("id", id)
       .single();
     if (fetchError) throw new Error(fetchError.message);
-    if (row.is_default) throw new Error("Default dispositions cannot be deleted");
+    if (row.is_locked) throw new Error("Locked dispositions cannot be deleted");
     const { error } = await supabase
       .from("dispositions")
       .delete()
