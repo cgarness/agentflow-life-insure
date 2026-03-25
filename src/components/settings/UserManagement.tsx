@@ -994,7 +994,7 @@ const UserManagement: React.FC = () => {
     return allUsers.filter(u => {
       const role = currentProfile.role?.toLowerCase();
       
-      // Admin sees everyone
+      // Admin sees everyone (case-insensitive check already handled by .toLowerCase())
       if (role === "admin") return true;
       
       // Team Leader sees themselves and their team
