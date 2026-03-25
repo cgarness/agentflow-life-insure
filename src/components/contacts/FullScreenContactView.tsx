@@ -424,84 +424,116 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
   return (
     <div className={cn(
-      "fixed inset-0 bg-background z-[100] flex flex-col animate-in slide-in-from-right-2 duration-300 h-screen overflow-hidden",
+      "fixed top-16 right-0 bottom-0 bg-background z-[100] flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-hidden",
       collapsed ? "md:left-16" : "md:left-60"
     )}>
       {/* HEADER */}
-      <div className="bg-card border-b border-border px-6 h-20 flex items-center justify-between shrink-0">
+      <div className="bg-card border-b border-border px-6 h-16 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-6">
           <button onClick={tryClose} className="p-2 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
           
           <div className="flex items-center gap-4">
-            <div className={cn(
-              "w-12 h-12 rounded-full text-white flex items-center justify-center text-lg font-bold shadow-sm",
-              type === 'client' ? 'bg-green-500' : type === 'recruit' ? 'bg-orange-500' : 'bg-primary'
+            {/* CONTACT TYPE BADGE */}
+            <span className={cn(
+              "text-[10px] uppercase tracking-wider font-bold px-2.5 py-1 rounded-md shadow-sm border",
+              type === 'lead' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
+              type === 'client' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
+              'bg-orange-500/10 text-orange-500 border-orange-500/20'
             )}>
-              {contact.firstName?.[0]}{contact.lastName?.[0]}
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-bold text-foreground leading-none">{formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}</h2>
-              
-              <div className="h-6 w-px bg-border mx-1" />
+              {type}
+            </span>
 
-              {/* CONTACT TYPE BADGE */}
-              <span className={cn(
-                "text-[10px] uppercase tracking-wider font-bold px-2.5 py-1 rounded-md shadow-sm border",
-                type === 'lead' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
-                type === 'client' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                'bg-orange-500/10 text-orange-500 border-orange-500/20'
-              )}>
-                {type}
-              </span>
+            {/* LOCAL TIME - standout green */}
+            {contact.state && (
+              <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-3 py-1.5 rounded-lg border border-green-500/20 shadow-sm">
+                <Clock className="w-4 h-4" />
+                <div className="flex flex-col leading-none">
+                  <span className="text-[10px] font-semibold uppercase opacity-70">Local Time</span>
+                  <span className="text-sm font-bold"><ContactLocalTime state={contact.state} /></span>
+                </div>
+              </div>
+            )}
 
-              {/* LOCAL TIME - standout */}
-              {contact.state && (
-                <div className="flex items-center gap-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 px-3 py-1.5 rounded-lg border border-amber-500/20 shadow-sm">
-                  <Clock className="w-4 h-4" />
-                  <div className="flex flex-col leading-none">
-                    <span className="text-[10px] font-semibold uppercase opacity-70">Local Time</span>
-                    <span className="text-sm font-bold"><ContactLocalTime state={contact.state} /></span>
+            {/* STATUS DROPDOWN */}
+            {type !== "client" ? (
+              <div className="relative" ref={statusDropdownRef}>
+                <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="px-3 py-1.5 rounded-lg font-bold text-xs inline-flex items-center gap-2 transition-all shadow-sm border" style={statusBadgeStyle[localStatus] || { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
+                  <span className={cn("w-2 h-2 rounded-full", statusDotColor[localStatus] || "bg-gray-400")} />
+                  {localStatus.toUpperCase()} <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+                </button>
+                {statusDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase">Change Status</div>
+                    {availableStatuses.map((s: string) => (
+                      <button key={s} onClick={() => handleStatusChange(s)} className={cn(
+                        "w-full text-left px-4 py-2 text-sm text-foreground hover:bg-accent flex items-center gap-3 transition-colors",
+                        localStatus === s ? "bg-accent/50 font-semibold" : ""
+                      )}>
+                        <span className={cn("w-2.5 h-2.5 rounded-full", statusDotColor[s] || "bg-gray-400")} /> {s}
+                      </button>
+                    ))}
                   </div>
-                </div>
-              )}
-
-              {/* STATUS DROPDOWN */}
-              {type !== "client" ? (
-                <div className="relative" ref={statusDropdownRef}>
-                  <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="px-3 py-1.5 rounded-lg font-bold text-xs inline-flex items-center gap-2 transition-all shadow-sm border" style={statusBadgeStyle[localStatus] || { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
-                    <span className={cn("w-2 h-2 rounded-full", statusDotColor[localStatus] || "bg-gray-400")} />
-                    {localStatus.toUpperCase()} <ChevronDown className="w-3.5 h-3.5 opacity-50" />
-                  </button>
-                  {statusDropdownOpen && (
-                    <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
-                      <div className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase">Change Status</div>
-                      {availableStatuses.map((s: string) => (
-                        <button key={s} onClick={() => handleStatusChange(s)} className={cn(
-                          "w-full text-left px-4 py-2 text-sm text-foreground hover:bg-accent flex items-center gap-3 transition-colors",
-                          localStatus === s ? "bg-accent/50 font-semibold" : ""
-                        )}>
-                          <span className={cn("w-2.5 h-2.5 rounded-full", statusDotColor[s] || "bg-gray-400")} /> {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <span className="text-[10px] px-2.5 py-1 rounded-md font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border">{contact.policyType || 'Client'}</span>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <span className="text-[10px] px-2.5 py-1 rounded-md font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border">{contact.policyType || 'Client'}</span>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button className="px-4 py-2 text-sm bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => { logActivity(`Call initiated by ${AGENT_NAME}`, "call"); toast.info("Dialer opening..."); }}><Phone className="size-4 mr-1" /> Call</Button>
-          <Button className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white" onClick={() => setShowAppt(true)}><Calendar className="size-4 mr-1" /> Schedule</Button>
-          {type === "lead" && onConvert && (
-            <Button className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white" onClick={() => onConvert(contact)}><ArrowLeft className="size-4 mr-1 rotate-180" /> Convert</Button>
-          )}
+        <div className="flex items-center gap-3">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline"
+                  className="h-10 px-4 flex items-center gap-2 border-primary/20 text-primary hover:bg-primary/5 hover:text-primary transition-all font-semibold"
+                  onClick={() => {
+                    logActivity(`Call initiated by ${AGENT_NAME}`, "call");
+                    window.dispatchEvent(new CustomEvent("quick-call", {
+                      detail: {
+                        phone: contact.phone,
+                        contactId: contact.id,
+                        name: `${contact.firstName} ${contact.lastName}`
+                      }
+                    }));
+                  }}
+                >
+                  <Phone className="w-4 h-4 fill-current" /> Call
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Start call via dialer</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline"
+                  className="h-10 px-4 flex items-center gap-2 border-purple-500/20 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 transition-all font-semibold"
+                  onClick={() => setShowAppt(true)}
+                >
+                  <Calendar className="w-4 h-4" /> Schedule
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Schedule an appointment</TooltipContent>
+            </Tooltip>
+
+            {type === "lead" && onConvert && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    className="h-10 px-4 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
+                    onClick={() => onConvert(contact)}
+                  >
+                    <ArrowLeft className="w-4 h-4 rotate-180" /> Convert
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Convert lead to client</TooltipContent>
+              </Tooltip>
+            )}
+          </TooltipProvider>
         </div>
       </div>
 
@@ -511,7 +543,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         {/* LEFT DOCK - Contacts Overview */}
         <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border-r border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
           <div className="px-6 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
-            <h3 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Contact Profile</h3>
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "w-8 h-8 rounded-full text-white flex items-center justify-center text-xs font-bold shadow-sm",
+                type === 'client' ? 'bg-green-500' : type === 'recruit' ? 'bg-orange-500' : 'bg-primary'
+              )}>
+                {contact.firstName?.[0]}{contact.lastName?.[0]}
+              </div>
+              <h3 className="font-bold text-sm text-foreground truncate max-w-[180px]">{formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}</h3>
+            </div>
             {!editMode ? (
               <button onClick={() => setEditMode(true)} className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline transition-colors"><Pencil className="w-3 h-3" /> EDIT</button>
             ) : (
