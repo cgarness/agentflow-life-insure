@@ -89,6 +89,21 @@ export type Database = {
         }
         Relationships: []
       }
+      app_config: {
+        Row: {
+          key: string
+          value: string | null
+        }
+        Insert: {
+          key: string
+          value?: string | null
+        }
+        Update: {
+          key?: string
+          value?: string | null
+        }
+        Relationships: []
+      }
       appointments: {
         Row: {
           contact_id: string | null
@@ -304,6 +319,7 @@ export type Database = {
           flagged_for_coaching: boolean | null
           hangup_details: string | null
           id: string
+          is_missed: boolean | null
           mos: number | null
           notes: string | null
           outcome: string | null
@@ -337,6 +353,7 @@ export type Database = {
           flagged_for_coaching?: boolean | null
           hangup_details?: string | null
           id?: string
+          is_missed?: boolean | null
           mos?: number | null
           notes?: string | null
           outcome?: string | null
@@ -370,6 +387,7 @@ export type Database = {
           flagged_for_coaching?: boolean | null
           hangup_details?: string | null
           id?: string
+          is_missed?: boolean | null
           mos?: number | null
           notes?: string | null
           outcome?: string | null
@@ -956,6 +974,7 @@ export type Database = {
       dispositions: {
         Row: {
           appointment_scheduler: boolean
+          auto_add_to_dnc: boolean
           automation_id: string | null
           automation_name: string | null
           automation_trigger: boolean
@@ -963,9 +982,10 @@ export type Database = {
           color: string
           created_at: string
           id: string
-          is_default: boolean
+          is_locked: boolean
           min_note_chars: number
           name: string
+          remove_from_queue: boolean
           require_notes: boolean
           sort_order: number
           updated_at: string
@@ -973,6 +993,7 @@ export type Database = {
         }
         Insert: {
           appointment_scheduler?: boolean
+          auto_add_to_dnc?: boolean
           automation_id?: string | null
           automation_name?: string | null
           automation_trigger?: boolean
@@ -980,9 +1001,10 @@ export type Database = {
           color?: string
           created_at?: string
           id?: string
-          is_default?: boolean
+          is_locked?: boolean
           min_note_chars?: number
           name: string
+          remove_from_queue?: boolean
           require_notes?: boolean
           sort_order?: number
           updated_at?: string
@@ -990,6 +1012,7 @@ export type Database = {
         }
         Update: {
           appointment_scheduler?: boolean
+          auto_add_to_dnc?: boolean
           automation_id?: string | null
           automation_name?: string | null
           automation_trigger?: boolean
@@ -997,9 +1020,10 @@ export type Database = {
           color?: string
           created_at?: string
           id?: string
-          is_default?: boolean
+          is_locked?: boolean
           min_note_chars?: number
           name?: string
+          remove_from_queue?: boolean
           require_notes?: boolean
           sort_order?: number
           updated_at?: string
@@ -1543,9 +1567,14 @@ export type Database = {
           email_notifications_enabled: boolean | null
           first_name: string
           id: string
+          last_login_at: string | null
           last_name: string
           licensed_states: Json | null
           local_presence_enabled: boolean | null
+          monthly_call_goal: number | null
+          monthly_policies_goal: number | null
+          monthly_talk_time_goal: number | null
+          monthly_talk_time_goal_hours: number | null
           npn: string | null
           phone: string | null
           push_notifications_enabled: boolean | null
@@ -1557,6 +1586,8 @@ export type Database = {
           timezone: string | null
           updated_at: string
           upline_id: string | null
+          weekly_appointment_goal: number | null
+          weekly_appointments_goal: number | null
           win_sound_enabled: boolean | null
         }
         Insert: {
@@ -1570,9 +1601,14 @@ export type Database = {
           email_notifications_enabled?: boolean | null
           first_name?: string
           id: string
+          last_login_at?: string | null
           last_name?: string
           licensed_states?: Json | null
           local_presence_enabled?: boolean | null
+          monthly_call_goal?: number | null
+          monthly_policies_goal?: number | null
+          monthly_talk_time_goal?: number | null
+          monthly_talk_time_goal_hours?: number | null
           npn?: string | null
           phone?: string | null
           push_notifications_enabled?: boolean | null
@@ -1584,6 +1620,8 @@ export type Database = {
           timezone?: string | null
           updated_at?: string
           upline_id?: string | null
+          weekly_appointment_goal?: number | null
+          weekly_appointments_goal?: number | null
           win_sound_enabled?: boolean | null
         }
         Update: {
@@ -1597,9 +1635,14 @@ export type Database = {
           email_notifications_enabled?: boolean | null
           first_name?: string
           id?: string
+          last_login_at?: string | null
           last_name?: string
           licensed_states?: Json | null
           local_presence_enabled?: boolean | null
+          monthly_call_goal?: number | null
+          monthly_policies_goal?: number | null
+          monthly_talk_time_goal?: number | null
+          monthly_talk_time_goal_hours?: number | null
           npn?: string | null
           phone?: string | null
           push_notifications_enabled?: boolean | null
@@ -1611,6 +1654,8 @@ export type Database = {
           timezone?: string | null
           updated_at?: string
           upline_id?: string | null
+          weekly_appointment_goal?: number | null
+          weekly_appointments_goal?: number | null
           win_sound_enabled?: boolean | null
         }
         Relationships: [
