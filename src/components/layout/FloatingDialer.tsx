@@ -95,6 +95,9 @@ const FloatingDialer: React.FC = () => {
     toggleMute: telnyxToggleMute,
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
+    availableNumbers,
+    selectedCallerNumber,
+    setSelectedCallerNumber,
   } = useTelnyx();
 
   const [open, setOpen] = useState(false);
@@ -122,8 +125,6 @@ const FloatingDialer: React.FC = () => {
   // --- Keypad press state ---
   const [pressedKey, setPressedKey] = useState<string | null>(null);
 
-  // --- Owned phone numbers (loaded once on mount) ---
-  const ownedNumbers = useRef<any[]>([]);
   const lastUsedCallerId = useRef<string>("");
 
   // --- Caller ID warning modal state ---
@@ -138,8 +139,9 @@ const FloatingDialer: React.FC = () => {
   // --- Keypad state ---
   const [dialedNumber, setDialedNumber] = useState("");
 
-  // --- From Number Selection ---
-  const [fromNumber, setFromNumber] = useState<string>("");
+  // Alias for backward compatibility if needed, or simply use selectedCallerNumber
+  const setFromNumber = setSelectedCallerNumber;
+
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
 
   // --- Call state ---
@@ -210,23 +212,6 @@ const FloatingDialer: React.FC = () => {
       telnyxDestroy();
     }
   }, [open, telnyxInitialize, telnyxDestroy]);
-
-  // Load owned phone numbers for this organization
-  useEffect(() => {
-    if (!organizationId) return;
-    supabase
-      .from('phone_numbers')
-      .select('phone_number, is_default, spam_status, area_code, friendly_name')
-      .eq('organization_id', organizationId)
-      .eq('status', 'active')
-      .then(({ data }) => {
-        if (data) {
-          ownedNumbers.current = data;
-          const defaultNum = data.find(n => n.is_default)?.phone_number || data[0]?.phone_number || "";
-          setFromNumber(defaultNum);
-        }
-      });
-  }, [organizationId]);
 
   // Fetch dispositions for post-call
   useEffect(() => {
@@ -376,21 +361,13 @@ const FloatingDialer: React.FC = () => {
   };
 
   const initiateCall = async (destinationNumber: string, contactId: string | null) => {
-    let finalCallerId = fromNumber;
-
-    if (localPresenceEnabled && !fromNumber) {
-      const autoSelected = await selectCallerID(
-        { phone: destinationNumber } as any,
-        user?.id || "",
-        ownedNumbers.current,
-        true
-      );
-      if (autoSelected) finalCallerId = autoSelected;
+    let finalCallerId = selectedCallerNumber;
+    if (!finalCallerId && availableNumbers.length > 0) {
+      finalCallerId = availableNumbers.find(n => n.is_default)?.phone_number || availableNumbers[0].phone_number;
     }
 
-    if (!finalCallerId) {
-      finalCallerId = ownedNumbers.current.find(n => n.is_default)?.phone_number || ownedNumbers.current[0]?.phone_number || "";
-    }
+    const leadPhone = dialedNumber.trim() || destinationNumber;
+    if (!leadPhone) return;
 
     // For all calls, create record first if possible
     let callId;
@@ -414,8 +391,8 @@ const FloatingDialer: React.FC = () => {
       return;
     }
     const previousNumber = await getPreviousCallerId(contactId);
-    if (previousNumber && !fromNumber) {
-      const prevRecord = ownedNumbers.current.find(n => n.phone_number === previousNumber);
+    if (previousNumber && !selectedCallerNumber) {
+      const prevRecord = availableNumbers.find(n => n.phone_number === previousNumber);
       const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
       if (!prevIsFlagged) {
         proceedWithCall(destinationNumber, previousNumber, callId);
@@ -589,7 +566,7 @@ const FloatingDialer: React.FC = () => {
             cursor: isDragging ? 'grabbing' : 'default',
             touchAction: 'none',
           }}
-          className="fixed w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] h-auto bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
+          className="fixed w-[320px] max-w-[calc(100vw-2rem)] h-[540px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
@@ -623,7 +600,7 @@ const FloatingDialer: React.FC = () => {
           </div>
 
           {/* Tab Bar */}
-          <div className="px-4 pt-3 pb-1 shrink-0">
+          <div className="px-3 pt-2 pb-1 shrink-0">
             <div className="flex bg-accent rounded-lg p-0.5">
               <button
                 onClick={() => setActiveTab("dial")}
@@ -638,7 +615,7 @@ const FloatingDialer: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto min-h-0 bg-background/50">
             {activeTab === "recent" && (
-              <div className="p-4 space-y-4">
+              <div className="p-3 space-y-3">
                 {recentLoading && (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -689,7 +666,7 @@ const FloatingDialer: React.FC = () => {
             )}
 
             {activeTab === "dial" && (
-              <div className="p-4 space-y-4">
+              <div className="px-3 py-2 space-y-3">
                 {onCall && (
                   <div className="flex flex-col items-center space-y-4">
                     <p className="font-bold text-foreground text-lg text-center">{callDisplayName}</p>
@@ -772,12 +749,12 @@ const FloatingDialer: React.FC = () => {
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-70">From Number</span>
                         <select 
-                          value={fromNumber}
-                          onChange={(e) => setFromNumber(e.target.value)}
+                          value={selectedCallerNumber}
+                          onChange={(e) => setSelectedCallerNumber(e.target.value)}
                           className="bg-transparent border-none text-xs font-semibold focus:ring-0 p-0 h-auto cursor-pointer"
                         >
                           <option value="">AI Local Presence</option>
-                          {ownedNumbers.current.map(n => (
+                          {availableNumbers.map(n => (
                             <option key={n.phone_number} value={n.phone_number}>{n.friendly_name || n.phone_number}</option>
                           ))}
                         </select>
@@ -849,14 +826,14 @@ const FloatingDialer: React.FC = () => {
                         </div>
                         <button onClick={handleBackspace} className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center hover:bg-accent"><Delete className="w-5 h-5" /></button>
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-3 gap-1.5">
                         {keypadKeys.map(key => (
-                          <button key={key} onClick={() => handleKeyPress(key)} className="h-12 rounded-lg bg-muted text-lg font-semibold hover:bg-accent">{key}</button>
+                          <button key={key} onClick={() => handleKeyPress(key)} className="h-10 rounded-lg bg-muted text-base font-semibold hover:bg-accent">{key}</button>
                         ))}
                       </div>
                       {dialedNumber.length >= 10 && (
-                        <button onClick={handleCallFromKeypad} className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center justify-center gap-2">
-                          <Phone className="w-5 h-5" /> Call
+                        <button onClick={handleCallFromKeypad} className="w-full py-2.5 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center justify-center gap-2">
+                          <Phone className="w-4 h-4" /> Call
                         </button>
                       )}
                     </div>

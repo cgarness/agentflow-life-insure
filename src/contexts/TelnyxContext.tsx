@@ -23,6 +23,9 @@ interface TelnyxContextValue {
   hangUp: () => void;
   toggleMute: () => void;
   toggleHold: () => void;
+  availableNumbers: any[];
+  selectedCallerNumber: string;
+  setSelectedCallerNumber: (number: string) => void;
   initializeClient: () => Promise<void>;
   destroyClient: () => void;
 }
@@ -44,6 +47,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
+  const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
+  const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>("");
 
   const clientRef = useRef<any>(null);
   const callRef = useRef<any>(null);
@@ -81,21 +86,27 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [getRemoteAudioElement]);
 
-  // Fetch default caller number
-  useEffect(() => {
-    supabase
-      .from("phone_numbers")
-      .select("phone_number")
-      .eq("is_default", true)
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.phone_number) setDefaultCallerNumber(data.phone_number);
-      });
-  }, []);
-
   const { profile } = useAuth();
   const organizationId = (profile as any)?.organization_id;
+
+  // Fetch available numbers for the organization
+  useEffect(() => {
+    if (!profile || !organizationId) return;
+    
+    supabase
+      .from("phone_numbers")
+      .select("phone_number, is_default, spam_status, area_code, friendly_name")
+      .eq("organization_id", organizationId)
+      .eq("status", "active")
+      .then(({ data }) => {
+        if (data) {
+          setAvailableNumbers(data);
+          const defaultNum = data.find(n => n.is_default)?.phone_number || data[0]?.phone_number || "";
+          setSelectedCallerNumber(defaultNum);
+          setDefaultCallerNumber(defaultNum);
+        }
+      });
+  }, [profile, organizationId]);
 
   const initializeClient = useCallback(async () => {
     // 0. Wait for profile to load
@@ -403,6 +414,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isOnHold,
         defaultCallerNumber,
         isReady,
+        availableNumbers,
+        selectedCallerNumber,
+        setSelectedCallerNumber,
         makeCall,
         hangUp,
         toggleMute,

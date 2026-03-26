@@ -197,9 +197,12 @@ export default function DialerPage() {
   const {
     status: telnyxStatus,
     errorMessage: telnyxErrorMessage,
-    callState,
+    callState: telnyxCallState,
     callDuration: telnyxCallDuration,
     currentCall: telnyxCurrentCall,
+    availableNumbers,
+    selectedCallerNumber,
+    setSelectedCallerNumber,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     initializeClient: telnyxInitialize,
@@ -265,7 +268,6 @@ export default function DialerPage() {
 
   // ── Auto-Dial state ──
   const [autoDialer, setAutoDialer] = useState<AutoDialer | null>(null);
-  const [manualCallerId, setManualCallerId] = useState<string | null>(null);
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
@@ -436,21 +438,8 @@ export default function DialerPage() {
     staleTime: 1000 * 60 * 60, // 1 hour
   });
 
-  // ── Owned phone numbers (loaded once on mount) ──
-  const ownedNumbers = useRef<any[]>([]);
+  // ── Owned phone numbers (removed local fetching, now using TelnyxContext) ──
   const lastUsedCallerId = useRef<string>("");
-
-  useEffect(() => {
-    if (!organizationId) return;
-    supabase
-      .from('phone_numbers')
-      .select('phone_number, is_default, spam_status, area_code, friendly_name')
-      .eq('organization_id', organizationId)
-      .eq('status', 'active')
-      .then(({ data }) => {
-        if (data) ownedNumbers.current = data;
-      });
-  }, [organizationId]);
 
   /* --- effects for syncing query data to state if needed --- */
   // Note: We prefer using the data from useQuery directly, but some effects or 
@@ -920,8 +909,8 @@ export default function DialerPage() {
   /* --- caller ID selection --- */
 
   const selectCallerId = (leadPhone: string): string => {
-    if (manualCallerId) return manualCallerId;
-    if (!ownedNumbers.current || ownedNumbers.current.length === 0) return '';
+    if (selectedCallerNumber) return selectedCallerNumber;
+    if (!availableNumbers || availableNumbers.length === 0) return '';
     const digits = leadPhone.replace(/\D/g, '');
     const leadAreaCode = digits.startsWith('1') ? digits.substring(1, 4) : digits.substring(0, 3);
     const statusRank = (status: string) => {
@@ -930,9 +919,9 @@ export default function DialerPage() {
       if (status === 'Insufficient Data') return 2;
       return 3;
     };
-    const usable = ownedNumbers.current.filter(n => n.spam_status !== 'Flagged');
+    const usable = availableNumbers.filter(n => n.spam_status !== 'Flagged');
     if (usable.length === 0) {
-      return ownedNumbers.current.find(n => n.is_default)?.phone_number || '';
+      return availableNumbers.find(n => n.is_default)?.phone_number || '';
     }
     const campaignLocalPresence = selectedCampaign?.local_presence_enabled !== false;
     if (campaignLocalPresence) {
@@ -941,10 +930,8 @@ export default function DialerPage() {
         .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
       if (exactMatch) return exactMatch.phone_number;
     }
-    const cleanest = [...usable]
-      .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
     if (cleanest) return cleanest.phone_number;
-    return ownedNumbers.current.find(n => n.is_default)?.phone_number || '';
+    return availableNumbers.find(n => n.is_default)?.phone_number || '';
   };
 
   const getPreviousCallerId = async (contactId: string): Promise<string | null> => {
@@ -1002,7 +989,7 @@ export default function DialerPage() {
     }
 
     if (previousNumber) {
-      const prevRecord = ownedNumbers.current.find(n => n.phone_number === previousNumber);
+      const prevRecord = availableNumbers.find(n => n.phone_number === previousNumber);
       const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
       if (!prevIsFlagged) {
         proceedWithCall(leadPhone, previousNumber, callId);
@@ -2303,12 +2290,12 @@ export default function DialerPage() {
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">From:</span>
                 <select
-                  value={manualCallerId || ""}
-                  onChange={(e) => setManualCallerId(e.target.value || null)}
+                  value={selectedCallerNumber}
+                  onChange={(e) => setSelectedCallerNumber(e.target.value)}
                   className="bg-accent/50 border border-border rounded px-2 py-1 text-[10px] font-bold text-foreground focus:ring-1 focus:ring-primary outline-none cursor-pointer hover:bg-accent/80 transition-all"
                 >
                   <option value="">Auto-Select</option>
-                  {(ownedNumbers.current || []).map(n => (
+                  {availableNumbers.map(n => (
                     <option key={n.phone_number} value={n.phone_number}>
                       {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number} {n.is_default ? '(Default)' : ''}
                     </option>
