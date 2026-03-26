@@ -4,15 +4,34 @@ import { ContactNote, ContactType } from "@/lib/types";
 export const notesSupabaseApi = {
     // Get all notes for a specific contact
     async getByContact(contactId: string): Promise<ContactNote[]> {
-        const { data, error } = await (supabase as any)
+        const { data: notes, error: notesError } = await (supabase as any)
             .from("contact_notes")
-            .select("*, author:profiles(first_name, last_name, avatar_url)")
+            .select("*")
             .eq("contact_id", contactId)
             .order("pinned", { ascending: false })
             .order("created_at", { ascending: false });
 
-        if (error) throw new Error(error.message);
-        return (data ?? []).map(rowToNote);
+        if (notesError) throw new Error(notesError.message);
+        if (!notes || notes.length === 0) return [];
+
+        const authorIds = [...new Set(notes.map((n: any) => n.author_id).filter(Boolean))] as string[];
+        let profiles: any[] = [];
+
+        if (authorIds.length > 0) {
+            const { data, error: profilesError } = await supabase
+                .from("profiles")
+                .select("id, first_name, last_name, avatar_url")
+                .in("id", authorIds);
+            
+            if (!profilesError && data) {
+                profiles = data;
+            }
+        }
+
+        return notes.map((note: any) => {
+            const profile = profiles.find(p => p.id === note.author_id);
+            return rowToNote(note, profile);
+        });
     },
 
     // Add a new note
@@ -27,11 +46,19 @@ export const notesSupabaseApi = {
                 organization_id: organizationId,
                 pinned: pinned
             } as any)
-            .select("*, author:profiles(first_name, last_name, avatar_url)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);
-        return rowToNote(row);
+
+        // Fetch author profile separately
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("id, first_name, last_name, avatar_url")
+            .eq("id", agentId)
+            .single();
+
+        return rowToNote(row, profile);
     },
 
     // Toggle pinned status
@@ -40,11 +67,19 @@ export const notesSupabaseApi = {
             .from("contact_notes")
             .update({ pinned: !currentPinned })
             .eq("id", id)
-            .select("*, author:profiles(first_name, last_name, avatar_url)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);
-        return rowToNote(row);
+
+        // Fetch profile
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("id, first_name, last_name, avatar_url")
+            .eq("id", row.author_id)
+            .single();
+
+        return rowToNote(row, profile);
     },
 
     // Delete a note
@@ -58,8 +93,8 @@ export const notesSupabaseApi = {
     }
 };
 
-function rowToNote(row: any): ContactNote {
-    const authorName = row.author ? `${row.author.first_name} ${row.author.last_name}` : "Unknown Agent";
+function rowToNote(row: any, profile?: any): ContactNote {
+    const authorName = profile ? `${profile.first_name} ${profile.last_name}` : "Unknown Agent";
     return {
         id: row.id,
         contactId: row.contact_id,

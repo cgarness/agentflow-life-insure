@@ -4,14 +4,33 @@ import { ContactActivity, ContactType } from "@/lib/types";
 export const activitiesSupabaseApi = {
     // Get all activities for a specific contact
     async getByContact(contactId: string): Promise<ContactActivity[]> {
-        const { data, error } = await (supabase as any)
+        const { data: activities, error: activitiesError } = await (supabase as any)
             .from("contact_activities")
-            .select("*, agent:profiles(first_name, last_name, avatar_url)")
+            .select("*")
             .eq("contact_id", contactId)
             .order("created_at", { ascending: false });
 
-        if (error) throw new Error(error.message);
-        return (data ?? []).map(rowToActivity);
+        if (activitiesError) throw new Error(activitiesError.message);
+        if (!activities || activities.length === 0) return [];
+
+        const agentIds = [...new Set(activities.map((a: any) => a.agent_id).filter(Boolean))] as string[];
+        let profiles: any[] = [];
+
+        if (agentIds.length > 0) {
+            const { data, error: profilesError } = await supabase
+                .from("profiles")
+                .select("id, first_name, last_name, avatar_url")
+                .in("id", agentIds);
+            
+            if (!profilesError && data) {
+                profiles = data;
+            }
+        }
+
+        return activities.map((activity: any) => {
+            const profile = profiles.find(p => p.id === activity.agent_id);
+            return rowToActivity(activity, profile);
+        });
     },
 
     // Log a new activity
@@ -34,16 +53,28 @@ export const activitiesSupabaseApi = {
                 metadata: data.metadata || null,
                 organization_id: organizationId,
             } as any)
-            .select("*, agent:profiles(first_name, last_name, avatar_url)")
+            .select("*")
             .single();
 
         if (error) throw new Error(error.message);
-        return rowToActivity(row);
+
+        // Fetch agent profile separately
+        let profile = null;
+        if (data.agentId) {
+            const { data: p } = await supabase
+                .from("profiles")
+                .select("id, first_name, last_name, avatar_url")
+                .eq("id", data.agentId)
+                .single();
+            profile = p;
+        }
+
+        return rowToActivity(row, profile);
     },
 };
 
-function rowToActivity(row: any): ContactActivity { // eslint-disable-line @typescript-eslint/no-explicit-any
-    const agentName = row.agent ? `${row.agent.first_name} ${row.agent.last_name}` : (row.agent_id ? row.agent_id : "System");
+function rowToActivity(row: any, profile?: any): ContactActivity {
+    const agentName = profile ? `${profile.first_name} ${profile.last_name}` : (row.agent_id ? row.agent_id : "System");
 
     return {
         id: row.id,
