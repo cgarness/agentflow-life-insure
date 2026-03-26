@@ -159,8 +159,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         body: { connection_id: creds.connection_id },
       });
 
-      if (tokenError || !tokenData?.sip_username) {
-        const msg = tokenData?.error || tokenError?.message || "Failed to get SIP credentials";
+      if (tokenError || (!tokenData?.sip_username && !tokenData?.token)) {
+        const msg = tokenData?.error || tokenError?.message || "Failed to get SIP credentials or token";
         console.error("telnyx-token error:", msg);
         setStatus("error");
         setErrorMessage(msg);
