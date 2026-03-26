@@ -83,6 +83,7 @@ export async function createCall(data: {
   caller_id_used?: string;
   contact_name?: string;
   contact_phone?: string;
+  contact_type?: string;
 }, organizationId: string | null = null) {
   const { data: call, error } = await supabase
     .from("calls")
@@ -93,6 +94,7 @@ export async function createCall(data: {
       caller_id_used: data.caller_id_used || null,
       contact_name: data.contact_name || null,
       contact_phone: data.contact_phone || null,
+      contact_type: data.contact_type || null,
       direction: "outbound",
       status: "ringing",
       started_at: new Date().toISOString(),
@@ -117,6 +119,7 @@ export async function saveCall(data: {
   notes: string;
   outcome: string;
   caller_id_used?: string;
+  contact_type?: string;
 }, organizationId: string | null = null) {
   const callPayload = {
     contact_id: data.master_lead_id,
@@ -131,6 +134,7 @@ export async function saveCall(data: {
     caller_id_used: data.caller_id_used || null,
     status: "completed",
     ended_at: new Date().toISOString(),
+    contact_type: data.contact_type || null,
     organization_id: organizationId,
   } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 

@@ -578,7 +578,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         phone: contact.phone,
                         contactId: contact.id,
                         name: `${contact.firstName} ${contact.lastName}`,
-                        fromNumber: fromNumber
+                        fromNumber: fromNumber,
+                        type: type
                       }
                     }));
                   }}
