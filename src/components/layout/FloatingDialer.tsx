@@ -533,7 +533,7 @@ const FloatingDialer: React.FC = () => {
   return (
     <>
       {showCallerIdWarning && pendingCall && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/50 z-[1001] flex items-center justify-center">
           <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
             <div className="flex items-start gap-3">
               <span className="text-warning text-xl">⚠️</span>
@@ -586,7 +586,7 @@ const FloatingDialer: React.FC = () => {
             cursor: isDragging ? 'grabbing' : 'default',
             touchAction: 'none',
           }}
-          className="fixed w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] h-auto bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          className="fixed w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] h-auto bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
