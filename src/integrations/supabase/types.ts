@@ -995,6 +995,88 @@ export type Database = {
           },
         ]
       }
+      contact_management_settings: {
+        Row: {
+          assignment_method: string
+          assignment_rotation: Json
+          assignment_specific_agent_id: string | null
+          created_at: string
+          csv_action: string
+          duplicate_detection_rule: string
+          duplicate_detection_scope: string
+          id: string
+          import_method: string
+          import_override: boolean
+          import_rotation: Json
+          import_specific_agent_id: string | null
+          manual_action: string
+          organization_id: string
+          required_fields_client: Json
+          required_fields_lead: Json
+          updated_at: string
+        }
+        Insert: {
+          assignment_method?: string
+          assignment_rotation?: Json
+          assignment_specific_agent_id?: string | null
+          created_at?: string
+          csv_action?: string
+          duplicate_detection_rule?: string
+          duplicate_detection_scope?: string
+          id?: string
+          import_method?: string
+          import_override?: boolean
+          import_rotation?: Json
+          import_specific_agent_id?: string | null
+          manual_action?: string
+          organization_id: string
+          required_fields_client?: Json
+          required_fields_lead?: Json
+          updated_at?: string
+        }
+        Update: {
+          assignment_method?: string
+          assignment_rotation?: Json
+          assignment_specific_agent_id?: string | null
+          created_at?: string
+          csv_action?: string
+          duplicate_detection_rule?: string
+          duplicate_detection_scope?: string
+          id?: string
+          import_method?: string
+          import_override?: boolean
+          import_rotation?: Json
+          import_specific_agent_id?: string | null
+          manual_action?: string
+          organization_id?: string
+          required_fields_client?: Json
+          required_fields_lead?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_management_settings_assignment_specific_agent_id_fkey"
+            columns: ["assignment_specific_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_management_settings_import_specific_agent_id_fkey"
+            columns: ["import_specific_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_management_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_notes: {
         Row: {
           author_id: string | null
@@ -1151,8 +1233,10 @@ export type Database = {
           automation_name: string | null
           automation_trigger: boolean
           callback_scheduler: boolean
+          campaign_action: string
           color: string
           created_at: string
+          dnc_auto_add: boolean
           id: string
           is_locked: boolean
           min_note_chars: number
@@ -1171,8 +1255,10 @@ export type Database = {
           automation_name?: string | null
           automation_trigger?: boolean
           callback_scheduler?: boolean
+          campaign_action?: string
           color?: string
           created_at?: string
+          dnc_auto_add?: boolean
           id?: string
           is_locked?: boolean
           min_note_chars?: number
@@ -1191,8 +1277,10 @@ export type Database = {
           automation_name?: string | null
           automation_trigger?: boolean
           callback_scheduler?: boolean
+          campaign_action?: string
           color?: string
           created_at?: string
+          dnc_auto_add?: boolean
           id?: string
           is_locked?: boolean
           min_note_chars?: number
