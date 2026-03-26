@@ -85,7 +85,7 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
   if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic">—</span>;
   return (
     <div className="flex items-center justify-between group w-full min-w-0">
-      <span className="text-foreground font-medium truncate mr-2" title={display}>{display}</span>
+      <span className="text-foreground font-semibold truncate mr-2" title={display}>{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
@@ -420,8 +420,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
     const val = editForm[key] ?? "";
     return (
-      <div className="bg-muted/50 rounded-lg px-3 py-2">
-        <label className="text-xs text-muted-foreground block mb-1">{label}</label>
+      <div className="min-w-0 flex flex-col">
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-0.5">{label}</label>
         {editMode ? (
           <>
             {fieldType === "select" ? (
@@ -595,30 +595,30 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
             
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 {renderField("First Name", "firstName")}
                 {renderField("Last Name", "lastName")}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 {renderField("Phone", "phone", "text")}
                 {renderField("Email", "email", "email")}
               </div>
               
               {type === "lead" && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("State", "state", "select", US_STATES)}
                     {renderField("Source", "leadSource", "select", leadSources)}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("Score", "leadScore", "number")}
                     {renderField("Age", "age", "number")}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("DOB", "dateOfBirth", "date")}
                     <div />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("Health", "healthStatus", "select", healthStatuses)}
                     {renderField("Best Time", "bestTimeToCall", "select", bestTimes)}
                   </div>
@@ -628,15 +628,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               
               {type === "client" && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("Policy Type", "policyType", "select", policyTypes)}
                     {renderField("Carrier", "carrier")}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("Policy #", "policyNumber")}
                     {renderField("Premium", "premiumAmount")}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     {renderField("Face Amount", "faceAmount")}
                     {renderField("Issue Date", "issueDate", "date")}
                   </div>
@@ -887,7 +887,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto -mx-4 px-4 pb-4">
+                <div className="flex-1 overflow-y-auto px-4 pb-4">
                    {localNotes.length === 0 ? (
                      <div className="flex flex-col items-center justify-center py-12 text-center">
                         <FileText className="w-8 h-8 text-muted-foreground/50 mb-3" />
@@ -895,9 +895,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         <p className="text-xs text-muted-foreground mt-1">Important details and context will be stored here.</p>
                      </div>
                    ) : (
-                     <div className="space-y-3">
-                       {localNotes.map(n => (
-                         <div key={n.id} className={`rounded-xl border border-border p-3.5 bg-card shadow-sm ${n.pinned ? "ring-1 ring-yellow-500/50 bg-yellow-500/5" : ""}`}>
+                      <div className="space-y-4 pt-1">
+                        {localNotes.map(n => (
+                          <div key={n.id} className={`rounded-xl border border-border p-3.5 bg-card shadow-sm relative transition-all ${n.pinned ? "ring-2 ring-yellow-500/30 bg-yellow-500/[0.03] border-yellow-500/20" : ""}`}>
                             <div className="flex items-start justify-between gap-3">
                                <p className="text-[13px] text-foreground leading-relaxed whitespace-pre-wrap flex-1">{n.note}</p>
                                <div className="flex items-center gap-1 shrink-0 -mt-1 -mr-1">
