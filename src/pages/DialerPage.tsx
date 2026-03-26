@@ -196,6 +196,7 @@ export default function DialerPage() {
   // Call status from context
   const {
     status: telnyxStatus,
+    errorMessage: telnyxErrorMessage,
     callState,
     callDuration: telnyxCallDuration,
     currentCall: telnyxCurrentCall,
@@ -1022,7 +1023,7 @@ export default function DialerPage() {
       return;
     }
     if (telnyxStatus === "error") {
-      toast.error("Dialer error. Please check your settings.");
+      toast.error(telnyxErrorMessage || "Dialer error. Please check your settings.");
       return;
     }
     const now = new Date().toISOString();

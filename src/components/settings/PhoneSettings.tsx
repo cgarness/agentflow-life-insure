@@ -192,7 +192,7 @@ const PhoneSettings: React.FC = () => {
     try {
       const { data, error } = await supabase.functions.invoke("telnyx-token", { body: { connection_id: connectionId } });
       if (error) throw error;
-      if (data?.sip_username) {
+      if (data?.sip_username || data?.token) {
         setTestResult({ success: true, message: "Connection successful ✓" });
       } else {
         setTestResult({ success: false, message: data?.error || "Connection failed" });

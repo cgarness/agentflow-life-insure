@@ -85,6 +85,7 @@ const FloatingDialer: React.FC = () => {
 
   const {
     status: telnyxStatus,
+    errorMessage: telnyxErrorMessage,
     callState: telnyxCallState,
     callDuration: telnyxCallDuration,
     isMuted: telnyxIsMuted,
@@ -610,10 +611,10 @@ const FloatingDialer: React.FC = () => {
               {telnyxStatus === 'connecting' && <span className="text-[10px] text-muted-foreground">Connecting…</span>}
               {telnyxStatus === 'ready' && <span className="text-[10px] text-muted-foreground">Ready</span>}
               {telnyxStatus === 'error' && (
-                <>
-                  <span className="text-[10px] text-destructive">Connection failed —</span>
-                  <button onClick={() => telnyxInitialize()} className="text-[10px] text-primary underline underline-offset-2">retry</button>
-                </>
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-destructive leading-tight">{telnyxErrorMessage || "Connection failed"}</span>
+                  <button onClick={() => telnyxInitialize()} className="text-[10px] text-primary underline underline-offset-2 w-fit">retry</button>
+                </div>
               )}
             </div>
             <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
