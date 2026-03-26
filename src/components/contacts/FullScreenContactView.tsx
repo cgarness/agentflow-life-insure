@@ -137,6 +137,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+  const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
+  const [fromNumber, setFromNumber] = useState<string>("");
   const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
   const AGENT_ID = profile?.id || "u1";
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
@@ -195,6 +197,37 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         
         if (campaignLinks) {
           setCampaigns(campaignLinks.map((cl: any) => cl.campaigns).filter(Boolean));
+        }
+      }
+
+      // Fetch available phone numbers
+      const { data: phoneData } = await supabase
+        .from("phone_numbers")
+        .select("phone_number, friendly_name, is_default")
+        .eq("status", "Active");
+      
+      if (phoneData) {
+        const mapped = phoneData.map(p => ({
+          number: p.phone_number,
+          label: p.friendly_name || p.phone_number
+        }));
+        setAvailableNumbers(mapped);
+        
+        // Default to last used number or organization default
+        const { data: lastCall } = await supabase
+          .from("calls")
+          .select("caller_id_used")
+          .eq("contact_id", contact.id)
+          .not("caller_id_used", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastCall?.caller_id_used) {
+          setFromNumber(lastCall.caller_id_used);
+        } else {
+          const defaultNum = phoneData.find(p => p.is_default)?.phone_number || phoneData[0]?.phone_number || "";
+          setFromNumber(defaultNum);
         }
       }
 
@@ -454,16 +487,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       collapsed ? "md:left-16" : "md:left-60"
     )}>
       {/* HEADER */}
-      <div className="bg-card border-b border-border px-6 h-16 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-6">
-          <button onClick={tryClose} className="p-2 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+      <div className="h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
+        {/* LEFT SECTION - aligned with Left Column */}
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 overflow-hidden">
+          <button onClick={tryClose} className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </button>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 overflow-hidden">
             {/* CONTACT TYPE BADGE */}
             <span className={cn(
-              "h-9 px-3 flex items-center justify-center text-[11px] uppercase tracking-wider font-bold rounded-lg shadow-sm border whitespace-nowrap",
+              "h-8 px-2.5 flex items-center justify-center text-[10px] uppercase tracking-wider font-bold rounded-lg shadow-sm border whitespace-nowrap",
               type === 'lead' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
               type === 'client' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
               'bg-orange-500/10 text-orange-500 border-orange-500/20'
@@ -471,24 +505,24 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               {type}
             </span>
 
-            {/* LOCAL TIME - standout green */}
+            {/* LOCAL TIME */}
             {contact.state && (
-              <div className="h-9 px-3 flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 rounded-lg border border-green-500/20 shadow-sm whitespace-nowrap">
-                <Clock className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-bold uppercase tracking-wider"><ContactLocalTime state={contact.state} /></span>
+              <div className="h-8 px-2.5 flex items-center gap-1.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-lg border border-green-500/20 shadow-sm whitespace-nowrap">
+                <Clock className="w-3 h-3" />
+                <span className="text-[10px] font-bold uppercase tracking-wider"><ContactLocalTime state={contact.state} /></span>
               </div>
             )}
 
             {/* STATUS DROPDOWN */}
             {type !== "client" ? (
-              <div className="relative" ref={statusDropdownRef}>
+              <div className="relative shrink-0" ref={statusDropdownRef}>
                 <button 
                   onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} 
-                  className="h-9 px-3 rounded-lg font-bold text-[11px] uppercase tracking-wider inline-flex items-center gap-2 transition-all shadow-sm border" 
+                  className="h-8 px-2.5 rounded-lg font-bold text-[10px] uppercase tracking-wider inline-flex items-center gap-1.5 transition-all shadow-sm border truncate max-w-[120px]" 
                   style={getStatusColorStyle(getStatusColor(localStatus))}
                 >
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getStatusColor(localStatus) }} />
-                  {localStatus} <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getStatusColor(localStatus) }} />
+                  {localStatus} <ChevronDown className="w-3 h-3 opacity-50" />
                 </button>
                 {statusDropdownOpen && (
                   <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
@@ -505,12 +539,33 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 )}
               </div>
             ) : (
-              <span className="h-9 px-3 flex items-center justify-center text-[11px] font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border rounded-lg">{contact.policyType || 'Client'}</span>
+              <span className="h-8 px-2.5 flex items-center justify-center text-[10px] font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border rounded-lg whitespace-nowrap">{contact.policyType || 'Client'}</span>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* MIDDLE SECTION - Phone Selector */}
+        <div className="flex-1 flex justify-end px-4 overflow-hidden">
+          <div className="flex items-center gap-2 bg-muted/30 px-3 py-1.5 rounded-xl border border-border/50">
+             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From:</span>
+             <select 
+               value={fromNumber}
+               onChange={(e) => setFromNumber(e.target.value)}
+               className="bg-transparent border-none text-xs font-semibold focus:ring-0 cursor-pointer text-foreground max-w-[150px] truncate"
+             >
+               {availableNumbers.length === 0 ? (
+                 <option value="">No numbers available</option>
+               ) : (
+                 availableNumbers.map(n => (
+                   <option key={n.number} value={n.number}>{n.label}</option>
+                 ))
+               )}
+             </select>
+          </div>
+        </div>
+
+        {/* RIGHT SECTION - aligned with Right Column */}
+        <div className="w-[340px] flex items-center justify-end gap-3 shrink-0 pl-6">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -522,7 +577,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                       detail: {
                         phone: contact.phone,
                         contactId: contact.id,
-                        name: `${contact.firstName} ${contact.lastName}`
+                        name: `${contact.firstName} ${contact.lastName}`,
+                        fromNumber: fromNumber
                       }
                     }));
                   }}
