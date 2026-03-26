@@ -1380,7 +1380,7 @@ const Contacts: React.FC = () => {
       {/* LEADS Kanban */}
       {!loading && tab === "Leads" && view === "kanban" && (
         <div className="flex gap-3 overflow-x-auto pb-4">
-          {(Object.keys(leadStageColors).length > 0 ? Object.keys(leadStageColors) : allStatuses).map(status => {
+          {Object.keys(leadStageColors).map(status => {
             const items = leads.filter(l => l.status === status);
             return (
               <div key={status} className="min-w-[250px] bg-accent/50 rounded-xl p-3 space-y-2">
@@ -1497,7 +1497,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-4 p-3">
-                {(Object.keys(recruitStageColors).length > 0 ? Object.keys(recruitStageColors) : recruitStatuses).map(s => {
+                {Object.keys(recruitStageColors).map(s => {
                   const items = recruits.filter(r => r.status === s);
                   return (
                     <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
