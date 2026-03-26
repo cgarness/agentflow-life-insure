@@ -26,6 +26,7 @@ interface TelnyxContextValue {
   availableNumbers: any[];
   selectedCallerNumber: string;
   setSelectedCallerNumber: (number: string) => void;
+  getSmartCallerId: (contactPhone: string, contactId?: string | null) => Promise<string>;
   initializeClient: () => Promise<void>;
   destroyClient: () => void;
 }
@@ -48,7 +49,20 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isOnHold, setIsOnHold] = useState(false);
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
   const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
-  const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>("");
+  const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
+    return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
+  });
+
+  // Persist manual override to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (selectedCallerNumber) {
+        localStorage.setItem("telnyx_manual_caller_id", selectedCallerNumber);
+      } else {
+        localStorage.removeItem("telnyx_manual_caller_id");
+      }
+    }
+  }, [selectedCallerNumber]);
 
   const clientRef = useRef<any>(null);
   const callRef = useRef<any>(null);
@@ -101,12 +115,58 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .then(({ data }) => {
         if (data) {
           setAvailableNumbers(data);
+          // If no manual override is set, we still want to know the default
           const defaultNum = data.find(n => n.is_default)?.phone_number || data[0]?.phone_number || "";
-          setSelectedCallerNumber(defaultNum);
           setDefaultCallerNumber(defaultNum);
         }
       });
   }, [profile, organizationId]);
+
+  const getSmartCallerId = useCallback(async (contactPhone: string, contactId?: string | null): Promise<string> => {
+    // 1. Manual Override always wins
+    if (selectedCallerNumber) return selectedCallerNumber;
+
+    // 2. Check Contact History
+    if (contactId) {
+      try {
+        const { data } = await supabase
+          .from('calls')
+          .select('caller_id_used')
+          .eq('contact_id', contactId)
+          .not('caller_id_used', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (data?.caller_id_used) {
+          // Verify we still own this number and it's not flagged
+          const owned = availableNumbers.find(n => n.phone_number === data.caller_id_used);
+          if (owned && owned.spam_status !== 'Flagged') {
+            return data.caller_id_used;
+          }
+        }
+      } catch (err) {
+        console.warn("Error fetching contact call history:", err);
+      }
+    }
+
+    // 3. Local Presence or Area Code Match
+    if (contactPhone && availableNumbers.length > 0) {
+      const digits = contactPhone.replace(/\D/g, '');
+      const areaCode = digits.length >= 10 ? digits.substring(digits.length - 10, digits.length - 7) : null;
+      if (areaCode) {
+        const match = availableNumbers.find(n => n.area_code === areaCode && n.spam_status !== 'Flagged');
+        if (match) return match.phone_number;
+      }
+    }
+
+    // 4. Default to Org Default (unless it's flagged)
+    const def = availableNumbers.find(n => n.is_default && n.spam_status !== 'Flagged');
+    if (def) return def.phone_number;
+
+    // 5. Absolute fallback
+    return availableNumbers[0]?.phone_number || defaultCallerNumber || "";
+  }, [selectedCallerNumber, availableNumbers, defaultCallerNumber]);
 
   const initializeClient = useCallback(async () => {
     // 0. Wait for profile to load
@@ -417,6 +477,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,
+        getSmartCallerId,
         makeCall,
         hangUp,
         toggleMute,

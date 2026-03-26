@@ -98,6 +98,7 @@ const FloatingDialer: React.FC = () => {
     availableNumbers,
     selectedCallerNumber,
     setSelectedCallerNumber,
+    getSmartCallerId,
   } = useTelnyx();
 
   const [open, setOpen] = useState(false);
@@ -139,9 +140,8 @@ const FloatingDialer: React.FC = () => {
   // --- Keypad state ---
   const [dialedNumber, setDialedNumber] = useState("");
 
-  // Alias for backward compatibility if needed, or simply use selectedCallerNumber
-  const setFromNumber = setSelectedCallerNumber;
-
+  // --- From Number Selection ---
+  const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
 
   // --- Call state ---
@@ -181,7 +181,7 @@ const FloatingDialer: React.FC = () => {
           type: detail.type || "lead",
         });
         if (detail.fromNumber) {
-          setFromNumber(detail.fromNumber);
+          setSelectedCallerNumber(detail.fromNumber);
         }
         setSearchTerm(detail.name || detail.phone);
         setActiveTab("dial");
@@ -223,6 +223,15 @@ const FloatingDialer: React.FC = () => {
         if (data) setDispositions(data);
       });
   }, []);
+
+  // Resolve the "best" number to display when contact or override changes
+  useEffect(() => {
+    const resolve = async () => {
+      const smartId = await getSmartCallerId(selectedContact?.phone || searchTerm, selectedContact?.id);
+      setDisplayedFromNumber(smartId);
+    };
+    resolve();
+  }, [selectedContact, searchTerm, selectedCallerNumber, getSmartCallerId]);
 
   // Fetch recent calls when Recent tab is selected
   const fetchRecentCalls = useCallback(async () => {
@@ -361,7 +370,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const initiateCall = async (destinationNumber: string, contactId: string | null) => {
-    let finalCallerId = selectedCallerNumber;
+    let finalCallerId = selectedCallerNumber || displayedFromNumber;
     if (!finalCallerId && availableNumbers.length > 0) {
       finalCallerId = availableNumbers.find(n => n.is_default)?.phone_number || availableNumbers[0].phone_number;
     }
@@ -749,11 +758,10 @@ const FloatingDialer: React.FC = () => {
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-70">From Number</span>
                         <select 
-                          value={selectedCallerNumber}
+                          value={selectedCallerNumber || displayedFromNumber}
                           onChange={(e) => setSelectedCallerNumber(e.target.value)}
                           className="bg-transparent border-none text-xs font-semibold focus:ring-0 p-0 h-auto cursor-pointer"
                         >
-                          <option value="">AI Local Presence</option>
                           {availableNumbers.map(n => (
                             <option key={n.phone_number} value={n.phone_number}>{n.friendly_name || n.phone_number}</option>
                           ))}

@@ -207,7 +207,10 @@ export default function DialerPage() {
     hangUp: telnyxHangUp,
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
+    getSmartCallerId,
   } = useTelnyx();
+
+  const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
@@ -437,6 +440,17 @@ export default function DialerPage() {
     queryFn: pipelineSupabaseApi.getLeadStages,
     staleTime: 1000 * 60 * 60, // 1 hour
   });
+
+  // Resolve the "best" number to display when lead or override changes
+  useEffect(() => {
+    const resolve = async () => {
+      const contactPhone = currentLead?.phone || "";
+      const contactId = currentLead?.lead_id || currentLead?.id || "";
+      const smartId = await getSmartCallerId(contactPhone, contactId);
+      setDisplayedFromNumber(smartId);
+    };
+    resolve();
+  }, [currentLead, selectedCallerNumber, getSmartCallerId]);
 
   // ── Owned phone numbers (removed local fetching, now using TelnyxContext) ──
   const lastUsedCallerId = useRef<string>("");
@@ -705,7 +719,7 @@ export default function DialerPage() {
   // Trigger wrap-up when call ends (covers remote hangup)
   // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
-    if (callState === "ended") {
+    if (telnyxCallState === "ended") {
       telnyxHangUp();
       setShowWrapUp(true);
 
@@ -743,7 +757,7 @@ export default function DialerPage() {
 
       checkAmd();
     }
-  }, [callState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -766,7 +780,7 @@ export default function DialerPage() {
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-    if (!showWrapUp || callState === "active") return;
+    if (!showWrapUp || telnyxCallState === "active") return;
     const num = parseInt(e.key, 10);
     if (num >= 1 && num <= 9 && dispositions[num - 1]) {
       handleSelectDisposition(dispositions[num - 1]);
@@ -775,7 +789,7 @@ export default function DialerPage() {
   window.addEventListener("keydown", handleKey);
   return () => window.removeEventListener("keydown", handleKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showWrapUp, callState, dispositions]);
+}, [showWrapUp, telnyxCallState, dispositions]);
 
   // (Session duration ticker moved to mount effects above)
 
@@ -894,10 +908,11 @@ export default function DialerPage() {
 
   // ── Auto-dial call event → trigger TelnyxRTC ──
   useEffect(() => {
-    const handleAutoDialCall = (event: Event) => {
+    const handleAutoDialCall = async (event: Event) => {
       const { lead, callId } = (event as CustomEvent).detail;
       if (lead?.phone) {
-        const callerNum = selectCallerId(lead.phone);
+        const contactId = lead.lead_id || lead.id || "";
+        const callerNum = await getSmartCallerId(lead.phone, contactId); // Use getSmartCallerId
         proceedWithCall(lead.phone, callerNum, callId);
       }
     };
@@ -907,51 +922,7 @@ export default function DialerPage() {
   }, [telnyxMakeCall]);
 
   /* --- caller ID selection --- */
-
-  const selectCallerId = (leadPhone: string): string => {
-    if (selectedCallerNumber) return selectedCallerNumber;
-    if (!availableNumbers || availableNumbers.length === 0) return '';
-    const digits = leadPhone.replace(/\D/g, '');
-    const leadAreaCode = digits.startsWith('1') ? digits.substring(1, 4) : digits.substring(0, 3);
-    const statusRank = (status: string) => {
-      if (status === 'Clean') return 0;
-      if (status === 'At Risk') return 1;
-      if (status === 'Insufficient Data') return 2;
-      return 3;
-    };
-    const usable = availableNumbers.filter(n => n.spam_status !== 'Flagged');
-    if (usable.length === 0) {
-      return availableNumbers.find(n => n.is_default)?.phone_number || '';
-    }
-    const campaignLocalPresence = selectedCampaign?.local_presence_enabled !== false;
-    if (campaignLocalPresence) {
-      const exactMatch = [...usable]
-        .filter(n => n.area_code === leadAreaCode)
-        .sort((a, b) => statusRank(a.spam_status) - statusRank(b.spam_status))[0];
-      if (exactMatch) return exactMatch.phone_number;
-    }
-    if (cleanest) return cleanest.phone_number;
-    return availableNumbers.find(n => n.is_default)?.phone_number || '';
-  };
-
-  const getPreviousCallerId = async (contactId: string): Promise<string | null> => {
-    if (!contactId) return null;
-    try {
-      const { data } = await supabase
-        .from('calls')
-        .select('caller_id_used')
-        .eq('contact_id', contactId)
-        .not('caller_id_used', 'is', null)
-        .gt('duration', 0)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data?.caller_id_used || null;
-    } catch (err) {
-      console.warn('[DialerPage] getPreviousCallerId failed, defaulting to null', err);
-      return null;
-    }
-  };
+  // Redundant helper removed, now using getSmartCallerId from TelnyxContext
 
   /* --- call handlers --- */
 
@@ -970,8 +941,7 @@ export default function DialerPage() {
   };
 
   const initiateCall = async (leadPhone: string, contactId: string) => {
-    const previousNumber = await getPreviousCallerId(contactId);
-    const autoSelectedNumber = selectCallerId(leadPhone);
+    const smartCallerId = await getSmartCallerId(leadPhone, contactId);
     
     // For manual calls, we create the record first to get a callId
     let callId;
@@ -980,7 +950,7 @@ export default function DialerPage() {
         contact_id: contactId,
         agent_id: user?.id || "",
         campaign_id: selectedCampaignId || undefined,
-        caller_id_used: previousNumber || autoSelectedNumber,
+        caller_id_used: smartCallerId,
         contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
         contact_phone: leadPhone,
       }, organizationId);
@@ -988,20 +958,7 @@ export default function DialerPage() {
       console.error("Failed to create call record for manual call:", err);
     }
 
-    if (previousNumber) {
-      const prevRecord = availableNumbers.find(n => n.phone_number === previousNumber);
-      const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
-      if (!prevIsFlagged) {
-        proceedWithCall(leadPhone, previousNumber, callId);
-      } else {
-        setPendingCall({ leadPhone, contactId, proposedNumber: autoSelectedNumber, previousNumber });
-        setShowCallerIdWarning(true);
-        // We'll need to pass the callId to proceedWithCall when the user confirms the warning
-        // but for now let's store it in the pending state if needed
-      }
-    } else {
-      proceedWithCall(leadPhone, autoSelectedNumber, callId);
-    }
+    proceedWithCall(leadPhone, smartCallerId, callId);
   };
 
   function handleCall() {
@@ -2290,11 +2247,10 @@ export default function DialerPage() {
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">From:</span>
                 <select
-                  value={selectedCallerNumber}
+                  value={selectedCallerNumber || displayedFromNumber}
                   onChange={(e) => setSelectedCallerNumber(e.target.value)}
                   className="bg-accent/50 border border-border rounded px-2 py-1 text-[10px] font-bold text-foreground focus:ring-1 focus:ring-primary outline-none cursor-pointer hover:bg-accent/80 transition-all"
                 >
-                  <option value="">Auto-Select</option>
                   {availableNumbers.map(n => (
                     <option key={n.phone_number} value={n.phone_number}>
                       {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number} {n.is_default ? '(Default)' : ''}
@@ -2424,7 +2380,7 @@ export default function DialerPage() {
         <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
           {/* Top Actions: Hang Up / Skip */}
           <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
-            {callState === "active" || callState === "dialing" ? (
+            {telnyxCallState === "active" || telnyxCallState === "dialing" ? (
               <button
                 onClick={handleHangUp}
                 className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90 shadow-lg shadow-destructive/20"
