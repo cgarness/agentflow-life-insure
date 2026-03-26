@@ -118,7 +118,7 @@ const PhoneSettings: React.FC = () => {
     const [telnyxRes, settingsRes, numbersRes, agentsRes] = await Promise.all([
       (supabase as any).from("telnyx_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("phone_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
-      supabase.from("phone_numbers").select("*").order("created_at", { ascending: false }),
+      supabase.from("phone_numbers").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, first_name, last_name"),
     ]);
 

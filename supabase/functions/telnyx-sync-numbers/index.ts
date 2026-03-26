@@ -140,26 +140,24 @@ Deno.serve(async (req) => {
       (existingRows || []).map((r: { phone_number: string }) => r.phone_number)
     );
 
-    // 4. Insert missing numbers
-    const toInsert = allTelnyxNumbers.filter((n) => !existingSet.has(n));
+    // 4. Upsert all numbers to ensure organization_id is set
     let synced = 0;
-
-    if (toInsert.length > 0) {
-      const rows = toInsert.map((phone_number) => ({
+    if (allTelnyxNumbers.length > 0) {
+      const rows = allTelnyxNumbers.map((phone_number) => ({
         phone_number,
         status: "active",
         is_default: false,
         area_code: extractAreaCode(phone_number),
         organization_id: organizationId,
-        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }));
 
-      const { error: insertErr } = await supabaseClient
+      const { error: upsertErr } = await supabaseClient
         .from("phone_numbers")
-        .insert(rows);
+        .upsert(rows, { onConflict: "phone_number" });
 
-      if (insertErr) throw new Error(`Insert error: ${insertErr.message}`);
-      synced = toInsert.length;
+      if (upsertErr) throw new Error(`Sync error: ${upsertErr.message}`);
+      synced = allTelnyxNumbers.length;
     }
 
     const skipped = allTelnyxNumbers.length - synced;
