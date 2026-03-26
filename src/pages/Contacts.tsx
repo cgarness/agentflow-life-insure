@@ -980,7 +980,7 @@ const Contacts: React.FC = () => {
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
             style={getStatusColorStyle(getLeadStatusColor(l.status))}
           >
-            {(Object.keys(leadStageColors).length > 0 ? Object.keys(leadStageColors) : allStatuses).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
+            {Object.keys(leadStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -1039,7 +1039,7 @@ const Contacts: React.FC = () => {
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
             style={getStatusColorStyle(getRecruitStatusColor(r.status))}
           >
-            {(Object.keys(recruitStageColors).length > 0 ? Object.keys(recruitStageColors) : recruitStatuses).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
+            {Object.keys(recruitStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -1246,7 +1246,11 @@ const Contacts: React.FC = () => {
   );
 
   // Determine filter options per tab
-  const filterStatuses = tab === "Leads" ? allStatuses : tab === "Recruits" ? recruitStatuses : [];
+  const filterStatuses = tab === "Leads" 
+    ? Object.keys(leadStageColors)
+    : tab === "Recruits" 
+      ? Object.keys(recruitStageColors)
+      : [];
 
   // Which add modal contact type
   const addContactType = tab === "Clients" ? "Client" : tab === "Recruits" ? "Recruit" : "Lead";
@@ -1328,7 +1332,7 @@ const Contacts: React.FC = () => {
           {selectedIds.size > 0 && renderBulkActions(
             selectedIds.size,
             () => setSelectedIds(new Set()),
-            { showAssign: true, showStatus: true, statusList: allStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus), onDelete: handleBulkDeleteLeads }
+            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus), onDelete: handleBulkDeleteLeads }
           )}
 
           {/* Leads Table */}
@@ -1456,7 +1460,7 @@ const Contacts: React.FC = () => {
           {selectedRecruitIds.size > 0 && view === "table" && renderBulkActions(
             selectedRecruitIds.size,
             () => setSelectedRecruitIds(new Set()),
-            { showAssign: true, showStatus: true, statusList: recruitStatuses, onStatusChange: handleBulkRecruitStatusChange, onDelete: handleBulkDeleteRecruits }
+            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange, onDelete: handleBulkDeleteRecruits }
           )}
           <div className="bg-card rounded-xl border overflow-hidden">
             {recruits.length === 0 ? (

@@ -478,9 +478,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     );
   };
 
-  const availableStatuses = pipelineStages.length > 0 
-    ? pipelineStages.map(s => s.name) 
-    : (type === "recruit" ? recruitStatuses : allStatuses);
+  const availableStatuses = pipelineStages.map(s => s.name);
 
   return (
     <div className={cn(
@@ -490,12 +488,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       {/* HEADER */}
       <div className="h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
         {/* LEFT SECTION - aligned with Left Column */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 overflow-hidden">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 px-2">
           <button onClick={tryClose} className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </button>
           
-          <div className="flex items-center gap-2 overflow-hidden">
+          <div className="flex items-center gap-2">
             {/* CONTACT TYPE BADGE */}
             <span className={cn(
               "h-8 px-2.5 flex items-center justify-center text-[10px] uppercase tracking-wider font-bold rounded-lg shadow-sm border whitespace-nowrap",
