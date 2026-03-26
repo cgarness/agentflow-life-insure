@@ -121,13 +121,15 @@ interface ImportLeadsModalProps {
   open: boolean;
   onClose: () => void;
   existingLeads: Lead[];
-  onImportComplete: (newLeads: Lead[], historyEntry: ImportHistoryEntry) => void;
+  onImportComplete: (newLeads: Lead[], historyEntry: ImportHistoryEntry, strategy: DuplicateHandling) => void;
   campaigns?: CampaignOption[];
   onCampaignCreated?: (campaign: { id: string; name: string; type: string; description: string }) => void;
+  currentUserId?: string;
+  agentProfiles?: { id: string; firstName: string; lastName: string }[];
 }
 
 const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
-  open, onClose, existingLeads, onImportComplete, campaigns = [], onCampaignCreated,
+  open, onClose, existingLeads, onImportComplete, campaigns = [], onCampaignCreated, currentUserId = "u1", agentProfiles = [],
 }) => {
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -386,6 +388,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       return idx !== undefined ? row[idx]?.trim() || "" : "";
     };
 
+    const resolveAgentId = (val: string) => {
+      if (!val) return currentUserId;
+      const lowerVal = val.toLowerCase();
+      const match = agentProfiles.find(p => 
+        lowerVal === p.id.toLowerCase() || 
+        lowerVal === `${p.firstName} ${p.lastName}`.toLowerCase() ||
+        lowerVal === p.lastName.toLowerCase()
+      );
+      return match ? match.id : currentUserId;
+    };
+
     let progress = 0;
     const interval = setInterval(() => {
       progress += 2;
@@ -432,7 +445,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               healthStatus: getVal(r.row, "Health Status") || undefined,
               bestTimeToCall: getVal(r.row, "Best Time to Call") || undefined,
               notes: getVal(r.row, "Notes") || undefined,
-              assignedAgentId: "u1",
+              assignedAgentId: resolveAgentId(getVal(r.row, "Assigned Agent")),
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               customFields: {
@@ -457,7 +470,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         };
 
         setImportResult({ imported, duplicates, errors });
-        onImportComplete(newLeads, historyEntry);
+        onImportComplete(newLeads, historyEntry, duplicateHandling);
         toast.success(`${imported} leads imported successfully`);
         setStep(5);
       }

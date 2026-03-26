@@ -1663,8 +1663,28 @@ const Contacts: React.FC = () => {
         onClose={() => setImportModalOpen(false)}
         existingLeads={leads}
         campaigns={realCampaigns}
-        onImportComplete={async (newLeads, historyEntry) => {
-          const result = await importLeadsToSupabase(newLeads, organizationId);
+        currentUserId={user?.id}
+        agentProfiles={agentProfiles}
+        onCampaignCreated={async (campaign) => {
+          const { error } = await supabase.from("campaigns").insert({
+            id: campaign.id,
+            name: campaign.name,
+            type: campaign.type,
+            description: campaign.description,
+            status: "Active",
+            organization_id: organizationId,
+            created_by: user?.id,
+          });
+          if (error) {
+            toast.error("Failed to create campaign during import");
+          } else {
+            // Refresh campaigns list
+            const { data } = await supabase.from("campaigns").select("id, name, type, status");
+            if (data) setRealCampaigns(data);
+          }
+        }}
+        onImportComplete={async (newLeads, historyEntry, strategy) => {
+          const result = await importLeadsToSupabase(newLeads, organizationId, strategy as any);
           // Insert import history row into Supabase
           await supabase.from("import_history").insert({
             file_name: historyEntry.fileName,
