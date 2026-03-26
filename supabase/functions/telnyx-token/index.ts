@@ -116,11 +116,23 @@ Deno.serve(async (req) => {
           throw new Error(`Failed to generate Telnyx token: ${errorText}`);
         }
 
-        const token = await tokenRes.text();
+        const rawToken = await tokenRes.text();
+        let token = rawToken;
+        
+        // Telnyx sometimes returns {"data": "token"} even if docs say raw string
+        try {
+          const json = JSON.parse(rawToken);
+          if (json.data) token = json.data;
+          else if (typeof json === 'string') token = json;
+        } catch (e) {
+          // It's a raw string, use as is
+        }
+
+        console.log("Successfully retrieved token (length:", token.length, ")");
 
         return new Response(
           JSON.stringify({
-            token: token,
+            token: token.trim(),
             connection_id: connectionId,
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
