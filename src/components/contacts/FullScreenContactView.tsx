@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -108,6 +109,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
+  const { profile } = useAuth();
   const [showAppt, setShowAppt] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
   
@@ -135,7 +137,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
-  const AGENT_NAME = "Chris Garcia";
+  const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
+  const AGENT_ID = profile?.id || "u1";
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
 
   const getStatusColor = (status: string) => {
@@ -262,7 +265,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     setEditForm((f: any) => ({ ...f, status: newStatus }));
     
     await onUpdate(contact.id, { status: newStatus });
-    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: "u1" }, organizationId);
+    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: AGENT_ID }, organizationId);
     toast.success(`Status updated to ${newStatus}`);
   };
 
@@ -273,7 +276,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       contactType: type,
       type: activityType,
       description,
-      agentId: "u1",
+      agentId: AGENT_ID,
       agentName: AGENT_NAME,
       createdAt: new Date().toISOString(),
     };
@@ -298,8 +301,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     setEditMode(false);
     setHasChanges(false);
     setHasUnsavedChanges(false);
-
-    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: "u1" }, organizationId);
+    
+    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID }, organizationId);
     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully`);
   };
 
@@ -327,7 +330,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; }
     setNoteError("");
     try {
-      const addedNote = await notesSupabaseApi.add(contact.id, type, newNote.trim(), "u1", organizationId);
+      const addedNote = await notesSupabaseApi.add(contact.id, type, newNote.trim(), AGENT_ID, organizationId, pinNewNote);
       setLocalNotes(prev => {
         const next = [addedNote, ...prev];
         return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
@@ -341,11 +344,29 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     }
   };
 
+  const handleTogglePin = async (note: ContactNote) => {
+    try {
+      const updatedNote = await notesSupabaseApi.togglePin(note.id, note.pinned);
+      setLocalNotes(prev => {
+        const next = prev.map(n => n.id === note.id ? updatedNote : n);
+        return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+      });
+      toast.success(updatedNote.pinned ? "Note pinned" : "Note unpinned");
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   const handleDeleteNote = async (noteId: string) => {
-    setLocalNotes(prev => prev.filter(n => n.id !== noteId));
-    setDeleteNoteId(null);
-    logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
-    toast.success("Note deleted");
+    try {
+      await notesSupabaseApi.deleteNote(noteId);
+      setLocalNotes(prev => prev.filter(n => n.id !== noteId));
+      setDeleteNoteId(null);
+      logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
+      toast.success("Note deleted");
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -880,8 +901,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                             <div className="flex items-start justify-between gap-3">
                                <p className="text-[13px] text-foreground leading-relaxed whitespace-pre-wrap flex-1">{n.note}</p>
                                <div className="flex items-center gap-1 shrink-0 -mt-1 -mr-1">
-                                 <button onClick={() => toast.info("Pinning in progress")} className="p-1.5 rounded hover:bg-accent transition-colors">
-                                     <Pin className={`w-3.5 h-3.5 ${n.pinned ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"}`} />
+                                 <button onClick={() => handleTogglePin(n)} className="p-1.5 rounded hover:bg-accent transition-colors" title={n.pinned ? "Unpin note" : "Pin note"}>
+                                     <Pin className={`w-3.5 h-3.5 ${n.pinned ? "text-yellow-500 fill-yellow-500 rotate-45" : "text-muted-foreground hover:text-foreground"}`} />
                                  </button>
                                  <button onClick={() => setDeleteNoteId(n.id)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
                                     <Trash2 className="w-3.5 h-3.5" />
