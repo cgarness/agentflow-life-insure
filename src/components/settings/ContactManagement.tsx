@@ -56,6 +56,7 @@ const StageList: React.FC<{
   onReload: () => void;
   lockedPositiveId?: string;
 }> = ({ title, description, pipelineType, stages, onReload, lockedPositiveId }) => {
+  const { organizationId } = useOrganization();
   const [items, setItems] = useState(stages);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -114,7 +115,7 @@ const StageList: React.FC<{
           isDefault: false, 
           order: items.length + 1, 
           pipelineType,
-        });
+        }, organizationId);
         toast({ title: `${pipelineType === "lead" ? "Lead" : "Recruit"} stage created` });
       }
       setShowModal(false);
@@ -405,6 +406,7 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
 };
 
 const CustomFieldsTab: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [fields, setFields] = useState<CustomField[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -453,7 +455,7 @@ const CustomFieldsTab: React.FC = () => {
         await customFieldsApi.update(editingId, data);
         toast({ title: "Custom field updated" });
       } else {
-        await customFieldsApi.create(data);
+        await customFieldsApi.create(data, organizationId);
         toast({ title: "Custom field created" });
       }
       setShowModal(false);
@@ -643,6 +645,7 @@ const CustomFieldsTab: React.FC = () => {
 // ==================== LEAD SOURCES TAB ====================
 
 const LeadSourcesTab: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [sources, setSources] = useState<LeadSource[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -670,7 +673,7 @@ const LeadSourcesTab: React.FC = () => {
         await leadSourcesApi.update(editingId, { name: form.name, color: form.color });
         toast({ title: "Lead source updated" });
       } else {
-        await leadSourcesApi.create({ name: form.name, color: form.color, active: true, order: sources.length + 1 });
+        await leadSourcesApi.create({ name: form.name, color: form.color, active: true, order: sources.length + 1 }, organizationId);
         toast({ title: "Lead source created" });
       }
       setShowModal(false);
@@ -837,6 +840,7 @@ const LeadSourcesTab: React.FC = () => {
 // ==================== HEALTH STATUSES TAB ====================
 
 const HealthStatusesTab: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [statuses, setStatuses] = useState<HealthStatus[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -867,7 +871,7 @@ const HealthStatusesTab: React.FC = () => {
         await healthStatusesApi.update(editingId, { name: form.name, color: form.color, description: form.description });
         toast({ title: "Health status updated" });
       } else {
-        await healthStatusesApi.create({ name: form.name, color: form.color, description: form.description, isDefault: false, order: statuses.length + 1 });
+        await healthStatusesApi.create({ name: form.name, color: form.color, description: form.description, isDefault: false, order: statuses.length + 1 }, organizationId);
         toast({ title: "Health status created" });
       }
       setShowModal(false);

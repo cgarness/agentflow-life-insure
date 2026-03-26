@@ -115,7 +115,7 @@ export const customFieldsSupabaseApi = {
     if (error) throw error;
     return (data || []).map(rowToCustomField);
   },
-  async create(data: Omit<CustomField, "id" | "usageCount">): Promise<CustomField> {
+  async create(data: Omit<CustomField, "id" | "usageCount">, organizationId: string | null = null): Promise<CustomField> {
     const { data: result, error } = await (supabase as any)
       .from("custom_fields")
       .insert({
@@ -126,6 +126,7 @@ export const customFieldsSupabaseApi = {
         active: data.active,
         default_value: data.defaultValue,
         dropdown_options: data.dropdownOptions,
+        organization_id: organizationId,
       })
       .select()
       .single();
@@ -182,7 +183,7 @@ export const leadSourcesSupabaseApi = {
     if (error) throw error;
     return (data || []).map(rowToLeadSource);
   },
-  async create(data: Omit<LeadSource, "id" | "usageCount">): Promise<LeadSource> {
+  async create(data: Omit<LeadSource, "id" | "usageCount">, organizationId: string | null = null): Promise<LeadSource> {
     const { data: result, error } = await (supabase as any)
       .from("lead_sources")
       .insert({
@@ -190,6 +191,7 @@ export const leadSourcesSupabaseApi = {
         color: data.color,
         active: data.active,
         sort_order: data.order,
+        organization_id: organizationId,
       })
       .select()
       .single();
@@ -267,7 +269,7 @@ export const healthStatusesSupabaseApi = {
     if (error) throw error;
     return (data || []).map(rowToHealthStatus);
   },
-  async create(data: Omit<HealthStatus, "id">): Promise<HealthStatus> {
+  async create(data: Omit<HealthStatus, "id">, organizationId: string | null = null): Promise<HealthStatus> {
     const { data: result, error } = await (supabase as any)
       .from("health_statuses")
       .insert({
@@ -276,6 +278,7 @@ export const healthStatusesSupabaseApi = {
         description: data.description,
         is_default: data.isDefault,
         sort_order: data.order,
+        organization_id: organizationId,
       })
       .select()
       .single();

@@ -7,6 +7,7 @@ import {
   TrendingDown, Phone, Calendar, FileText, Zap, X, Check, AlertTriangle,
   Users, ShieldBan, Lock,
 } from "lucide-react";
+import { useOrganization } from "@/hooks/useOrganization";
 import type { CampaignAction } from "@/lib/types";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -68,6 +69,7 @@ const emptyForm: FormState = {
 };
 
 const DispositionsManager: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -186,7 +188,7 @@ const DispositionsManager: React.FC = () => {
           removeFromQueue: form.removeFromQueue,
           autoAddToDnc: form.autoAddToDnc,
           order: dispositions.length + 1,
-        });
+        }, organizationId);
         toast({ title: "Disposition created" });
       }
       setShowModal(false);
