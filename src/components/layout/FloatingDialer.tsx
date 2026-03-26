@@ -753,13 +753,13 @@ const FloatingDialer: React.FC = () => {
 
                 {!onCall && !showDisposition && (
                   <div className="space-y-4">
-                    <div className="p-2 bg-accent/30 rounded-lg border border-border/50">
+                    <div className="p-3 bg-accent/40 rounded-lg border border-border transition-colors hover:border-primary/50">
                       <div className="flex flex-col flex-1">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-70">From Number</span>
+                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight mb-1">Calling From</span>
                         <select 
                           value={selectedCallerNumber}
                           onChange={(e) => setSelectedCallerNumber(e.target.value)}
-                          className="bg-transparent border-none text-xs font-semibold focus:ring-0 p-0 h-auto cursor-pointer w-full"
+                          className="bg-transparent border-none text-sm font-bold focus:ring-0 p-0 h-auto cursor-pointer w-full text-foreground"
                         >
                           <option value="">AI Local Presence</option>
                           {availableNumbers.map(n => (
@@ -790,7 +790,7 @@ const FloatingDialer: React.FC = () => {
                             <button key={c.id} onClick={() => handleSelectContact(c)} className="w-full px-3 py-2 text-left hover:bg-accent flex items-center justify-between">
                               <div className="min-w-0">
                                 <p className="font-bold text-sm truncate">{c.first_name} {c.last_name}</p>
-                                <p className="text-xs text-muted-foreground">{c.phone}</p>
+                                <p className="text-xs font-medium text-primary">{c.phone}</p>
                               </div>
                               {c.type && (
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
@@ -809,7 +809,7 @@ const FloatingDialer: React.FC = () => {
                       <div className="bg-accent/50 rounded-lg p-3 flex items-center justify-between">
                         <div>
                           <p className="font-semibold text-sm">{selectedContact.first_name} {selectedContact.last_name}</p>
-                          <p className="text-xs text-muted-foreground">{selectedContact.phone}</p>
+                          <p className="text-xs font-medium text-primary">{selectedContact.phone}</p>
                         </div>
                         <button onClick={handleCallFromContact} className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-semibold flex items-center gap-1.5"><Phone className="w-4 h-4" /> Call</button>
                       </div>

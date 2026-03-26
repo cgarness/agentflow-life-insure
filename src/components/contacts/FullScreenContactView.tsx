@@ -85,7 +85,7 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
   if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic">—</span>;
   return (
     <div className="flex items-center justify-between group w-full min-w-0">
-      <span className="text-foreground font-semibold truncate mr-2" title={display}>{display}</span>
+      <span className="text-primary font-bold text-sm tracking-tight truncate mr-2" title={display}>{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
@@ -546,12 +546,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
         {/* MIDDLE SECTION - Phone Selector */}
         <div className="flex-1 flex justify-end px-4 overflow-hidden">
-          <div className="flex items-center gap-2 bg-muted/30 px-3 py-1.5 rounded-xl border border-border/50">
-             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From:</span>
+          <div className="flex items-center gap-3 bg-accent/30 px-3 py-1.5 rounded-xl border border-border">
+             <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight">Calling From:</span>
              <select 
                value={fromNumber}
                onChange={(e) => setFromNumber(e.target.value)}
-               className="bg-transparent border-none text-xs font-semibold focus:ring-0 cursor-pointer text-foreground max-w-[150px] truncate"
+               className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer text-foreground max-w-[150px] truncate outline-none"
              >
                {availableNumbers.length === 0 ? (
                  <option value="">No numbers available</option>

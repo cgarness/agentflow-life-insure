@@ -964,7 +964,7 @@ const Contacts: React.FC = () => {
   const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs">{l.phone}</span>;
+      case "phone": return <span className="text-primary font-bold text-sm tracking-tight">{l.phone}</span>;
       case "email": return <span className="text-muted-foreground">{l.email}</span>;
       case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{l.state}</span>;
       case "status": return (
@@ -1008,7 +1008,7 @@ const Contacts: React.FC = () => {
   const renderClientCell = (c: Client, key: ClientColumnKey) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground">{c.firstName} {c.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs">{c.phone}</span>;
+      case "phone": return <span className="text-primary font-bold text-sm tracking-tight">{c.phone}</span>;
       case "policyType": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span>;
       case "carrier": return <span className="text-muted-foreground">{c.carrier}</span>;
       case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
@@ -1022,7 +1022,7 @@ const Contacts: React.FC = () => {
   const renderRecruitCell = (r: Recruit, key: RecruitColumnKey) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground">{r.firstName} {r.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs">{r.phone}</span>;
+      case "phone": return <span className="text-primary font-bold text-sm tracking-tight">{r.phone}</span>;
       case "email": return <span className="text-muted-foreground">{r.email}</span>;
       case "status": return (
         <div className="relative group/status inline-block">
