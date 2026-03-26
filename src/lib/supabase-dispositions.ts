@@ -33,11 +33,18 @@ export const dispositionsSupabaseApi = {
     return (data ?? []).map(rowToDisposition);
   },
   async create(input: Omit<Disposition, "id" | "createdAt" | "updatedAt" | "usageCount">, organizationId: string | null = null): Promise<Disposition> {
-    const { data: existing } = await supabase
+    const query = supabase
       .from("dispositions")
       .select("id")
-      .ilike("name", input.name)
-      .maybeSingle();
+      .ilike("name", input.name);
+      
+    if (organizationId) {
+      query.eq("organization_id", organizationId);
+    } else {
+      query.is("organization_id", null);
+    }
+    
+    const { data: existing } = await query.maybeSingle();
     if (existing) throw new Error("A disposition with this name already exists");
     const { count } = await supabase
       .from("dispositions")
@@ -70,12 +77,25 @@ export const dispositionsSupabaseApi = {
   },
   async update(id: string, input: Partial<Disposition>): Promise<Disposition> {
     if (input.name) {
-      const { data: existing } = await supabase
+      const { data: current } = await supabase
+        .from("dispositions")
+        .select("organization_id")
+        .eq("id", id)
+        .single();
+        
+      const query = supabase
         .from("dispositions")
         .select("id")
         .ilike("name", input.name)
-        .neq("id", id)
-        .maybeSingle();
+        .neq("id", id);
+        
+      if (current?.organization_id) {
+        query.eq("organization_id", current.organization_id);
+      } else {
+        query.is("organization_id", null);
+      }
+      
+      const { data: existing } = await query.maybeSingle();
       if (existing) throw new Error("A disposition with this name already exists");
     }
     const { data, error } = await supabase

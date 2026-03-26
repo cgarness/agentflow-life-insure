@@ -1074,7 +1074,7 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
           manual_action: manualAction,
           csv_action: csvAction,
           updated_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'organization_id' });
 
       if (error) throw error;
       
@@ -1234,7 +1234,7 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
           required_fields_lead: leadRequired,
           required_fields_client: clientRequired,
           updated_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'organization_id' });
 
       if (error) throw error;
       
@@ -1424,7 +1424,7 @@ const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null,
           import_specific_agent_id: importAgent || null,
           import_rotation: Object.keys(importRotation).filter(id => importRotation[id]),
           updated_at: new Date().toISOString(),
-        });
+        }, { onConflict: 'organization_id' });
 
       if (error) throw error;
       
