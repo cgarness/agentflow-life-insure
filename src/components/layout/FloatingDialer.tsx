@@ -142,7 +142,6 @@ const FloatingDialer: React.FC = () => {
 
   // --- From Number Selection ---
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
-  const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
 
   // --- Call state ---
   const [onCall, setOnCall] = useState(false);
@@ -754,26 +753,21 @@ const FloatingDialer: React.FC = () => {
 
                 {!onCall && !showDisposition && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-2 bg-accent/30 rounded-lg border border-border/50">
-                      <div className="flex flex-col">
+                    <div className="p-2 bg-accent/30 rounded-lg border border-border/50">
+                      <div className="flex flex-col flex-1">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-70">From Number</span>
                         <select 
-                          value={selectedCallerNumber || displayedFromNumber}
+                          value={selectedCallerNumber}
                           onChange={(e) => setSelectedCallerNumber(e.target.value)}
-                          className="bg-transparent border-none text-xs font-semibold focus:ring-0 p-0 h-auto cursor-pointer"
+                          className="bg-transparent border-none text-xs font-semibold focus:ring-0 p-0 h-auto cursor-pointer w-full"
                         >
+                          <option value="">AI Local Presence</option>
                           {availableNumbers.map(n => (
-                            <option key={n.phone_number} value={n.phone_number}>{n.friendly_name || n.phone_number}</option>
+                            <option key={n.phone_number} value={n.phone_number}>
+                              {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number}
+                            </option>
                           ))}
                         </select>
-                      </div>
-                      <div className="flex items-center gap-2 pr-1">
-                        <button
-                          onClick={() => setLocalPresenceEnabled(!localPresenceEnabled)}
-                          className={`w-8 h-4 rounded-full transition-colors relative ${localPresenceEnabled ? 'bg-primary' : 'bg-muted'}`}
-                        >
-                          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${localPresenceEnabled ? 'right-0.5' : 'left-0.5'}`} />
-                        </button>
                       </div>
                     </div>
 
