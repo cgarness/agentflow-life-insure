@@ -14,6 +14,7 @@ import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
+import { cn, getStatusColorStyle } from "@/lib/utils";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 
@@ -726,17 +727,21 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Fetch pipeline stage colors from settings
+  // Fetch pipeline stage colors and names from settings
   useEffect(() => {
     pipelineSupabaseApi.getLeadStages().then(stages => {
-      const map: Record<string, string> = {};
-      stages.forEach(s => { map[s.name] = s.color; });
-      setLeadStageColors(map);
+      if (stages.length > 0) {
+        const map: Record<string, string> = {};
+        stages.forEach(s => { map[s.name] = s.color; });
+        setLeadStageColors(map);
+      }
     });
     pipelineSupabaseApi.getRecruitStages().then(stages => {
-      const map: Record<string, string> = {};
-      stages.forEach(s => { map[s.name] = s.color; });
-      setRecruitStageColors(map);
+      if (stages.length > 0) {
+        const map: Record<string, string> = {};
+        stages.forEach(s => { map[s.name] = s.color; });
+        setRecruitStageColors(map);
+      }
     });
     // Fetch agent profiles for display
     supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
@@ -973,9 +978,9 @@ const Contacts: React.FC = () => {
             }}
             onClick={(e) => e.stopPropagation()}
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
-            style={{ backgroundImage: 'none', backgroundColor: `${getLeadStatusColor(l.status)}20`, color: getLeadStatusColor(l.status) }}
+            style={getStatusColorStyle(getLeadStatusColor(l.status))}
           >
-            {allStatuses.map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
+            {(Object.keys(leadStageColors).length > 0 ? Object.keys(leadStageColors) : allStatuses).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -1032,9 +1037,9 @@ const Contacts: React.FC = () => {
             }}
             onClick={(e) => e.stopPropagation()}
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
-            style={{ backgroundImage: 'none', backgroundColor: `${getRecruitStatusColor(r.status)}20`, color: getRecruitStatusColor(r.status) }}
+            style={getStatusColorStyle(getRecruitStatusColor(r.status))}
           >
-            {recruitStatuses.map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
+            {(Object.keys(recruitStageColors).length > 0 ? Object.keys(recruitStageColors) : recruitStatuses).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -1371,12 +1376,12 @@ const Contacts: React.FC = () => {
       {/* LEADS Kanban */}
       {!loading && tab === "Leads" && view === "kanban" && (
         <div className="flex gap-3 overflow-x-auto pb-4">
-          {allStatuses.map(status => {
+          {(Object.keys(leadStageColors).length > 0 ? Object.keys(leadStageColors) : allStatuses).map(status => {
             const items = leads.filter(l => l.status === status);
             return (
               <div key={status} className="min-w-[250px] bg-accent/50 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${getLeadStatusColor(status)}20`, color: getLeadStatusColor(status) }}>{status}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={getStatusColorStyle(getLeadStatusColor(status))}>{status}</span>
                   <span className="text-xs text-muted-foreground">{items.length}</span>
                 </div>
                 {items.map(l => (
@@ -1488,12 +1493,12 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-4 p-3">
-                {recruitStatuses.map(s => {
+                {(Object.keys(recruitStageColors).length > 0 ? Object.keys(recruitStageColors) : recruitStatuses).map(s => {
                   const items = recruits.filter(r => r.status === s);
                   return (
                     <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${getRecruitStatusColor(s)}20`, color: getRecruitStatusColor(s) }}>{s}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={getStatusColorStyle(getRecruitStatusColor(s))}>{s}</span>
                         <span className="text-xs text-muted-foreground">{items.length}</span>
                       </div>
                       {items.map(r => (

@@ -34,7 +34,7 @@ import {
   ListFilter,
   SortAsc,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -2178,11 +2178,7 @@ export default function DialerPage() {
                         value={currentLead?.status || ""}
                         onChange={(e) => handleStatusChange(e.target.value)}
                         className="w-full text-[10px] text-center uppercase tracking-widest font-bold rounded-md px-6 py-1 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
-                        style={{ 
-                          backgroundColor: currentStatusColor + '15',
-                          color: currentStatusColor,
-                          borderColor: currentStatusColor + '30'
-                        }}
+                        style={getStatusColorStyle(currentStatusColor)}
                       >
                         {leadStages.map(s => (
                           <option key={s.id} value={s.name} style={{ color: s.color }}>

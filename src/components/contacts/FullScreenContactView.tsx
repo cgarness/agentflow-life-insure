@@ -13,7 +13,7 @@ import AppointmentModal from "@/components/calendar/AppointmentModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useSidebarContext } from "@/contexts/SidebarContext";
-import { cn } from "@/lib/utils";
+import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 
 type ContactType = "lead" | "client" | "recruit";
@@ -31,24 +31,20 @@ const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", 
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
 
-const statusBadgeStyle: Record<string, { backgroundColor: string; color: string }> = {
-  New: { backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6' },
-  Contacted: { backgroundColor: 'rgba(234, 179, 8, 0.15)', color: '#CA8A04' },
-  Interested: { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' },
-  "Follow Up": { backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#9333EA' },
-  Hot: { backgroundColor: 'rgba(249, 115, 22, 0.15)', color: '#EA580C' },
-  "Not Interested": { backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#DC2626' },
-  "Closed Won": { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' },
-  "Closed Lost": { backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#DC2626' },
-  Prospect: { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' },
-  Interview: { backgroundColor: 'rgba(234, 179, 8, 0.15)', color: '#CA8A04' },
-  Licensed: { backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#9333EA' },
-  Active: { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' },
-};
-
-const statusDotColor: Record<string, string> = {
-  New: "bg-gray-500", Contacted: "bg-blue-500", Interested: "bg-yellow-500", "Follow Up": "bg-orange-500", Hot: "bg-red-500", "Not Interested": "bg-gray-400", "Closed Won": "bg-green-500", "Closed Lost": "bg-red-700",
-  Prospect: "bg-gray-500", Interview: "bg-yellow-500", Licensed: "bg-purple-500", Active: "bg-green-500",
+// Hardcoded fallbacks - will be matched against settings
+const fallbackStatusStyles: Record<string, string> = {
+  New: "#3B82F6",
+  Contacted: "#CA8A04",
+  Interested: "#16A34A",
+  "Follow Up": "#9333EA",
+  Hot: "#EA580C",
+  "Not Interested": "#DC2626",
+  "Closed Won": "#16A34A",
+  "Closed Lost": "#DC2626",
+  Prospect: "#6B7280",
+  Interview: "#CA8A04",
+  Licensed: "#9333EA",
+  Active: "#16A34A",
 };
 
 function timeAgo(dateStr: string) {
@@ -140,8 +136,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const AGENT_NAME = "Chris Garcia";
-  
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
+
+  const getStatusColor = (status: string) => {
+    const stage = pipelineStages.find(s => s.name === status);
+    if (stage) return stage.color;
+    return fallbackStatusStyles[status] || "#6B7280";
+  };
 
   // Conversations
   const [convoLoading, setConvoLoading] = useState(false);
@@ -177,7 +178,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       setActivities(fetchedActivities);
 
       if (type === "lead" || type === "recruit") {
-        const fetchedStages = await pipelineSupabaseApi.getLeadStages();
+        const fetchedStages = type === "recruit" 
+          ? await pipelineSupabaseApi.getRecruitStages() 
+          : await pipelineSupabaseApi.getLeadStages();
         setPipelineStages(fetchedStages);
       }
 
@@ -420,7 +423,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     );
   };
 
-  const availableStatuses = type === "recruit" ? recruitStatuses : (pipelineStages.length > 0 ? pipelineStages.map(s => s.name) : allStatuses);
+  const availableStatuses = pipelineStages.length > 0 
+    ? pipelineStages.map(s => s.name) 
+    : (type === "recruit" ? recruitStatuses : allStatuses);
 
   return (
     <div className={cn(
@@ -456,8 +461,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             {/* STATUS DROPDOWN */}
             {type !== "client" ? (
               <div className="relative" ref={statusDropdownRef}>
-                <button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="h-9 px-3 rounded-lg font-bold text-[11px] uppercase tracking-wider inline-flex items-center gap-2 transition-all shadow-sm border" style={statusBadgeStyle[localStatus] || { backgroundColor: 'rgba(107, 114, 128, 0.15)', color: '#6B7280' }}>
-                  <span className={cn("w-2 h-2 rounded-full", statusDotColor[localStatus] || "bg-gray-400")} />
+                <button 
+                  onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} 
+                  className="h-9 px-3 rounded-lg font-bold text-[11px] uppercase tracking-wider inline-flex items-center gap-2 transition-all shadow-sm border" 
+                  style={getStatusColorStyle(getStatusColor(localStatus))}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getStatusColor(localStatus) }} />
                   {localStatus} <ChevronDown className="w-3.5 h-3.5 opacity-50" />
                 </button>
                 {statusDropdownOpen && (
@@ -468,7 +477,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         "w-full text-left px-4 py-2 text-sm text-foreground hover:bg-accent flex items-center gap-3 transition-colors",
                         localStatus === s ? "bg-accent/50 font-semibold" : ""
                       )}>
-                        <span className={cn("w-2.5 h-2.5 rounded-full", statusDotColor[s] || "bg-gray-400")} /> {s}
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getStatusColor(s) }} /> {s}
                       </button>
                     ))}
                   </div>
