@@ -59,6 +59,26 @@ Deno.serve(async (req) => {
             Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
         );
 
+        // Get the user from the auth header
+        const authHeader = req.headers.get('Authorization');
+        if (!authHeader) throw new Error("No authorization header");
+        
+        const { data: { user }, error: userError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+        if (userError || !user) throw new Error("Invalid user token");
+
+        // Get the user's organization_id from their profile
+        const { data: profile, error: profileError } = await supabaseClient
+            .from("profiles")
+            .select("organization_id")
+            .eq("id", user.id)
+            .single();
+
+        if (profileError || !profile?.organization_id) {
+            throw new Error("User has no associated organization");
+        }
+
+        const organizationId = profile.organization_id;
+
         // 1. Get API Key - prefer directly passed key, fall back to telnyx_settings table
         let apiKey = directApiKey;
 
@@ -66,10 +86,21 @@ Deno.serve(async (req) => {
             const { data: config, error: fetchError } = await supabaseClient
                 .from("telnyx_settings")
                 .select("api_key")
+                .eq("organization_id", organizationId)
                 .maybeSingle();
 
             if (fetchError) throw fetchError;
             apiKey = config?.api_key;
+        }
+
+        // Fallback to global settings if no organization-specific settings exist
+        if (!apiKey) {
+            const { data: globalConfig } = await supabaseClient
+                .from("telnyx_settings")
+                .select("api_key")
+                .eq("id", "00000000-0000-0000-0000-000000000001")
+                .maybeSingle();
+            apiKey = globalConfig?.api_key;
         }
 
         if (!apiKey) throw new Error("Telnyx API key not found. Please save your API Key in Settings first.");
@@ -164,6 +195,7 @@ Deno.serve(async (req) => {
                 friendly_name: "Automated Line",
                 status: "active",
                 is_default: isFirstNumber,
+                organization_id: organizationId,
                 created_at: new Date().toISOString(),
             }]);
 
@@ -175,12 +207,12 @@ Deno.serve(async (req) => {
         await supabaseClient
             .from("phone_settings")
             .upsert({
-                id: SINGLETON_ID,
+                organization_id: organizationId,
                 application_sid: appId,
                 account_sid: sipUsername,
                 auth_token: sipPassword,
                 updated_at: new Date().toISOString()
-            });
+            }, { onConflict: "organization_id" });
 
         const warnings: string[] = [];
 

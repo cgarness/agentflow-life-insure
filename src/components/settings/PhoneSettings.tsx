@@ -112,8 +112,8 @@ const PhoneSettings: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [telnyxRes, settingsRes, numbersRes, agentsRes] = await Promise.all([
-      (supabase as any).from("telnyx_settings").select("*").eq("id", TELNYX_SETTINGS_ID).maybeSingle(),
-      supabase.from("phone_settings").select("*").eq("id", SINGLETON_ID).maybeSingle(),
+      (supabase as any).from("telnyx_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
+      supabase.from("phone_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("phone_numbers").select("*").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, first_name, last_name"),
     ]);
@@ -125,6 +125,13 @@ const PhoneSettings: React.FC = () => {
       setSipUsername(d.sip_username || "");
       setSipPassword(d.sip_password || "");
       setOriginals({ apiKey: d.api_key || "", connectionId: d.connection_id || "", sipUsername: d.sip_username || "", sipPassword: d.sip_password || "" });
+    } else {
+      // If no settings found for this organization, reset to empty
+      setApiKey("");
+      setConnectionId("");
+      setSipUsername("");
+      setSipPassword("");
+      setOriginals({ apiKey: "", connectionId: "", sipUsername: "", sipPassword: "" });
     }
 
     if (settingsRes.data) {
@@ -148,13 +155,13 @@ const PhoneSettings: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     const { error } = await (supabase as any).from("telnyx_settings").upsert({
-      id: TELNYX_SETTINGS_ID,
+      organization_id: organizationId,
       api_key: apiKey,
       connection_id: connectionId,
       sip_username: sipUsername,
       sip_password: sipPassword,
       updated_at: new Date().toISOString(),
-    } as any);
+    } as any, { onConflict: "organization_id" });
     setSaving(false);
     if (error) { toast.error("Failed to save credentials"); return; }
     setOriginals({ apiKey, connectionId, sipUsername, sipPassword });
@@ -334,7 +341,11 @@ const PhoneSettings: React.FC = () => {
   const handleLocalPresenceToggle = async (enabled: boolean) => {
     setLocalPresenceEnabled(enabled);
     const flags = JSON.stringify({ local_presence_enabled: enabled });
-    await supabase.from("phone_settings").upsert({ id: SINGLETON_ID, api_secret: flags, updated_at: new Date().toISOString() });
+    await supabase.from("phone_settings").upsert({
+      organization_id: organizationId,
+      api_secret: flags,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "organization_id" });
     toast.success(enabled ? "Local Presence enabled" : "Local Presence disabled");
   };
 
@@ -407,6 +418,7 @@ const PhoneSettings: React.FC = () => {
                   onChange={e => setApiKey(e.target.value)}
                   placeholder="KEY..."
                   className="pr-10 font-mono text-sm"
+                  autoComplete="new-password"
                 />
                 <button onClick={() => setShowApiKey(!showApiKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -415,11 +427,11 @@ const PhoneSettings: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Connection ID / Application ID</label>
-              <Input value={connectionId} onChange={e => setConnectionId(e.target.value)} placeholder="Connection ID" className="font-mono text-sm" />
+              <Input value={connectionId} onChange={e => setConnectionId(e.target.value)} placeholder="Connection ID" className="font-mono text-sm" autoComplete="off" />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">SIP Username</label>
-              <Input value={sipUsername} onChange={e => setSipUsername(e.target.value)} placeholder="SIP Username" className="font-mono text-sm" />
+              <Input value={sipUsername} onChange={e => setSipUsername(e.target.value)} placeholder="SIP Username" className="font-mono text-sm" autoComplete="off" />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">SIP Password</label>
@@ -430,6 +442,7 @@ const PhoneSettings: React.FC = () => {
                   onChange={e => setSipPassword(e.target.value)}
                   placeholder="SIP Password"
                   className="pr-10 font-mono text-sm"
+                  autoComplete="new-password"
                 />
                 <button onClick={() => setShowSipPass(!showSipPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showSipPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -692,6 +705,7 @@ const PhoneSettings: React.FC = () => {
                     value={searchAreaCode}
                     onChange={e => setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
                     onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -701,6 +715,7 @@ const PhoneSettings: React.FC = () => {
                     value={searchState}
                     onChange={e => setSearchState(e.target.value.toUpperCase().slice(0, 2))}
                     onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -710,6 +725,7 @@ const PhoneSettings: React.FC = () => {
                     value={searchLocality}
                     onChange={e => setSearchLocality(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
+                    autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -734,6 +750,7 @@ const PhoneSettings: React.FC = () => {
                       onChange={e => setSearchPattern(e.target.value.replace(/\D/g, ""))}
                       onKeyDown={e => e.key === "Enter" && handleSearchNumbers()}
                       className="flex-1"
+                      autoComplete="off"
                     />
                   </div>
                 </div>

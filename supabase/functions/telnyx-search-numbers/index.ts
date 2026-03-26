@@ -25,13 +25,38 @@ Deno.serve(async (req) => {
                 Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
             );
 
-            const { data: config, error: fetchError } = await supabaseClient
-                .from("telnyx_settings")
-                .select("api_key")
-                .maybeSingle();
+            // Get the user from the auth header
+            const authHeader = req.headers.get('Authorization');
+            if (authHeader) {
+                const { data: { user } } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+                if (user) {
+                    // Get the user's organization_id
+                    const { data: profile } = await supabaseClient
+                        .from("profiles")
+                        .select("organization_id")
+                        .eq("id", user.id)
+                        .single();
 
-            if (fetchError) throw fetchError;
-            apiKey = config?.api_key;
+                    if (profile?.organization_id) {
+                        const { data: config } = await supabaseClient
+                            .from("telnyx_settings")
+                            .select("api_key")
+                            .eq("organization_id", profile.organization_id)
+                            .maybeSingle();
+                        apiKey = config?.api_key;
+                    }
+                }
+            }
+
+            // Fallback to global settings if no organization-specific settings exist
+            if (!apiKey) {
+                const { data: globalConfig } = await supabaseClient
+                    .from("telnyx_settings")
+                    .select("api_key")
+                    .eq("id", "00000000-0000-0000-0000-000000000001")
+                    .maybeSingle();
+                apiKey = globalConfig?.api_key;
+            }
         }
 
         if (!apiKey) {

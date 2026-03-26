@@ -36,14 +36,47 @@ Deno.serve(async (req) => {
     );
 
     // 1. Read Telnyx API key from telnyx_settings
+    // Get the user from the auth header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error("No authorization header");
+    
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+    if (userError || !user) throw new Error("Invalid user token");
+
+    // Get the user's organization_id from their profile
+    const { data: profile, error: profileError } = await supabaseClient
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile?.organization_id) {
+      throw new Error("User has no associated organization");
+    }
+
+    const organizationId = profile.organization_id;
+
+    // Fetch settings for this organization
     const { data: settings, error: fetchError } = await supabaseClient
       .from("telnyx_settings")
       .select("api_key")
-      .eq("id", TELNYX_SETTINGS_ID)
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (fetchError) throw new Error(`DB error: ${fetchError.message}`);
-    if (!settings?.api_key) {
+
+    // Fallback to global settings if no organization-specific settings exist
+    let finalSettings = settings;
+    if (!finalSettings?.api_key) {
+      const { data: globalSettings } = await supabaseClient
+        .from("telnyx_settings")
+        .select("api_key")
+        .eq("id", TELNYX_SETTINGS_ID)
+        .maybeSingle();
+      finalSettings = globalSettings;
+    }
+
+    if (!finalSettings?.api_key) {
       return new Response(
         JSON.stringify({
           error: "No Telnyx API key found. Save it in Settings first.",
@@ -55,7 +88,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const apiKey = settings.api_key;
+    const apiKey = finalSettings.api_key;
 
     // 2. Fetch all phone numbers from Telnyx with pagination
     const allTelnyxNumbers: string[] = [];
@@ -117,6 +150,7 @@ Deno.serve(async (req) => {
         status: "active",
         is_default: false,
         area_code: extractAreaCode(phone_number),
+        organization_id: organizationId,
         created_at: new Date().toISOString(),
       }));
 

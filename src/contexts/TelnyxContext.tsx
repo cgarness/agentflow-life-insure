@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -92,6 +93,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, []);
 
+  const { profile } = useAuth();
+  const organizationId = (profile as any)?.organization_id;
+
   const initializeClient = useCallback(async () => {
     // Skip if already connecting or ready
     if (clientRef.current) return;
@@ -101,11 +105,21 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       // 1. Fetch credentials
-      const { data: settings } = await (supabase as any)
+      let { data: settings } = await (supabase as any)
         .from("telnyx_settings")
         .select("api_key, connection_id, sip_username, sip_password")
-        .eq("id", TELNYX_SETTINGS_ID)
+        .eq("organization_id", organizationId)
         .maybeSingle();
+
+      // Fallback to global settings if no organization-specific settings exist
+      if (!settings?.api_key) {
+        const { data: globalSettings } = await (supabase as any)
+          .from("telnyx_settings")
+          .select("api_key, connection_id, sip_username, sip_password")
+          .eq("id", TELNYX_SETTINGS_ID)
+          .maybeSingle();
+        settings = globalSettings;
+      }
 
       const creds = settings as any;
       if (!creds || !creds.api_key) {

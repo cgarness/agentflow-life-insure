@@ -25,19 +25,52 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
+    // Get the user from the auth header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error("No authorization header");
+    
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+    if (userError || !user) throw new Error("Invalid user token");
+
+    // Get the user's organization_id from their profile
+    const { data: profile, error: profileError } = await supabaseClient
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile?.organization_id) {
+      throw new Error("User has no associated organization");
+    }
+
+    const organizationId = profile.organization_id;
+
+    // Fetch settings for this organization
     const { data: settings, error: fetchError } = await supabaseClient
       .from("telnyx_settings")
       .select("api_key, connection_id, sip_username, sip_password")
-      .eq("id", TELNYX_SETTINGS_ID)
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (fetchError) throw new Error(`DB error: ${fetchError.message}`);
-    if (!settings) throw new Error("No Telnyx credentials found. Save them in Settings first.");
+    
+    // Fallback to global settings if no organization-specific settings exist
+    let finalSettings = settings;
+    if (!finalSettings) {
+      const { data: globalSettings } = await supabaseClient
+        .from("telnyx_settings")
+        .select("api_key, connection_id, sip_username, sip_password")
+        .eq("id", TELNYX_SETTINGS_ID)
+        .maybeSingle();
+      finalSettings = globalSettings;
+    }
 
-    const apiKey = Deno.env.get("TELNYX_API_KEY") || settings.api_key;
-    const sipUsername = settings.sip_username;
-    const sipPassword = settings.sip_password;
-    const connectionId = settings.connection_id;
+    if (!finalSettings) throw new Error("No Telnyx credentials found. Save them in Settings first.");
+
+    const apiKey = Deno.env.get("TELNYX_API_KEY") || finalSettings.api_key;
+    const sipUsername = finalSettings.sip_username;
+    const sipPassword = finalSettings.sip_password;
+    const connectionId = finalSettings.connection_id;
 
     if (!apiKey) throw new Error("No API key configured.");
     if (!sipUsername || !sipPassword) throw new Error("No SIP credentials configured. Enter SIP Username and Password in Settings.");

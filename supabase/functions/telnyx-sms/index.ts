@@ -33,17 +33,48 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
+    // Get the user from the auth header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error("No authorization header");
+    
+    const { data: { user }, error: userError } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+    if (userError || !user) throw new Error("Invalid user token");
+
+    // Get the user's organization_id from their profile
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile?.organization_id) {
+      throw new Error("User has no associated organization");
+    }
+
+    const organizationId = profile.organization_id;
+
     // Read Telnyx settings (api_key, connection_id as optional messaging_profile_id)
     const { data: settings, error: settingsError } = await supabase
       .from("telnyx_settings")
       .select("api_key, connection_id")
-      .eq("id", TELNYX_SETTINGS_ID)
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (settingsError) throw new Error(`DB error fetching settings: ${settingsError.message}`);
 
+    // Fallback to global settings if no organization-specific settings exist
+    let finalSettings = settings;
+    if (!finalSettings) {
+      const { data: globalSettings } = await supabase
+        .from("telnyx_settings")
+        .select("api_key, connection_id")
+        .eq("id", TELNYX_SETTINGS_ID)
+        .maybeSingle();
+      finalSettings = globalSettings;
+    }
+
     // API key: prefer env var, fall back to DB
-    const apiKey = Deno.env.get("TELNYX_API_KEY") || settings?.api_key;
+    const apiKey = Deno.env.get("TELNYX_API_KEY") || finalSettings?.api_key;
     if (!apiKey) throw new Error("No Telnyx API key configured.");
 
     // Sender number: read from phone_numbers table (first active number)
