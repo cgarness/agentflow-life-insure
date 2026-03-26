@@ -181,7 +181,7 @@ export const leadsSupabaseApi = {
   async getSourceStats() {
     const { data, error } = await supabase.from("leads").select("lead_source, status");
     if (error) throw new Error(error.message);
-    const sources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"];
+    const sources = Array.from(new Set((data ?? []).map((l: any) => l.lead_source).filter(Boolean)));
     return sources.map(source => {
       const srcLeads = (data ?? []).filter((l: any) => l.lead_source === source); // eslint-disable-line @typescript-eslint/no-explicit-any
       const contacted = srcLeads.filter((l: any) => l.status !== "New").length; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -240,5 +240,6 @@ function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { //
     notes: data.notes ?? null,
     assigned_agent_id: data.assignedAgentId,
     last_contacted_at: data.lastContactedAt ?? null,
+    custom_fields: data.customFields ?? null,
   };
 }

@@ -12,10 +12,11 @@ import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
+import { customFieldsSupabaseApi, leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
-import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
+import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile, CustomField } from "@/lib/types";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 
 type UserWithProfile = User & { profile: UserProfile };
@@ -159,6 +160,30 @@ const AddContactModal: React.FC<{
 }> = ({ open, onClose, onSave, initial, contactType = "Lead" }) => {
   const [form, setForm] = useState<Partial<Lead & Client & Recruit>>({});
   const [saving, setSaving] = useState(false);
+  const [leadSources, setLeadSources] = useState<string[]>(["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"]);
+  const [healthStatuses, setHealthStatuses] = useState<string[]>(["Excellent", "Good", "Fair", "Poor"]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+
+  useEffect(() => {
+    async function loadSettings() {
+      if (!open) return;
+      try {
+        const [sources, healths, fields] = await Promise.all([
+          leadSourcesSupabaseApi.getAll(),
+          healthStatusesSupabaseApi.getAll(),
+          customFieldsSupabaseApi.getAll()
+        ]);
+        if (sources.length > 0) setLeadSources(sources.map(s => s.name));
+        if (healths.length > 0) setHealthStatuses(healths.map(h => h.name));
+        
+        const typeKey = contactType === "Lead" ? "Leads" : contactType === "Client" ? "Clients" : "Recruits";
+        setCustomFields(fields.filter(f => f.active && f.appliesTo.includes(typeKey as any)));
+      } catch (err) {
+        console.error("Error loading settings in modal:", err);
+      }
+    }
+    loadSettings();
+  }, [open, contactType]);
 
   useEffect(() => {
     if (contactType === "Client") {
@@ -227,8 +252,8 @@ const AddContactModal: React.FC<{
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-                  <select value={form.leadSource || "Facebook Ads"} onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                    {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
+                  <select value={form.leadSource || (leadSources[0] || "")} onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                    {leadSources.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
@@ -250,7 +275,7 @@ const AddContactModal: React.FC<{
                   <label className="text-xs font-medium text-muted-foreground block mb-1">Health Status</label>
                   <select value={form.healthStatus || ""} onChange={e => setForm((f) => ({ ...f, healthStatus: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                     <option value="">Select...</option>
-                    {["Excellent", "Good", "Fair", "Poor"].map(s => <option key={s}>{s}</option>)}
+                    {healthStatuses.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
@@ -301,13 +326,45 @@ const AddContactModal: React.FC<{
             </>
           )}
 
-          {/* Recruit-specific fields */}
           {contactType === "Recruit" && (
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
-              <select value={form.status || "Prospect"} onChange={e => setForm((f) => ({ ...f, status: e.target.value as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+              <select value={(form as any).status || "Prospect"} onChange={e => setForm((f) => ({ ...f, status: e.target.value as any }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
                 {recruitStatuses.map(s => <option key={s}>{s}</option>)}
               </select>
+            </div>
+          )}
+
+          {/* Dynamic Custom Fields */}
+          {customFields.length > 0 && (
+            <div className="space-y-3 pt-2 border-t border-border mt-2">
+              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Custom Fields</h4>
+              <div className="grid grid-cols-2 gap-3">
+                {customFields.map(field => (
+                  <div key={field.id} className={field.type === 'Dropdown' ? 'col-span-2' : ''}>
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">{field.name} {field.required && '*'}</label>
+                    {field.type === 'Dropdown' ? (
+                      <select 
+                        required={field.required}
+                        value={(form.customFields as any)?.[field.name] || ""} 
+                        onChange={e => setForm(f => ({ ...f, customFields: { ...(f.customFields || {}), [field.name]: e.target.value } }))}
+                        className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                      >
+                        <option value="">Select...</option>
+                        {field.dropdownOptions?.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input 
+                        required={field.required}
+                        type={field.type === 'Text' ? 'text' : field.type === 'Number' ? 'number' : 'date'}
+                        value={(form.customFields as any)?.[field.name] || ""} 
+                        onChange={e => setForm(f => ({ ...f, customFields: { ...(f.customFields || {}), [field.name]: field.type === 'Number' ? Number(e.target.value) : e.target.value } }))}
+                        className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -409,6 +466,7 @@ const Contacts: React.FC = () => {
   const [editRecruit, setEditRecruit] = useState<Recruit | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [sourceStats, setSourceStats] = useState<{ source: string; leads: number; contacted: string; conversion: string; sold: number }[]>([]);
+  const [allLeadSources, setAllLeadSources] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
@@ -743,6 +801,12 @@ const Contacts: React.FC = () => {
         setRecruitStageColors(map);
       }
     });
+
+    // Fetch dynamic settings for filters
+    leadSourcesSupabaseApi.getAll().then(sources => {
+      if (sources.length > 0) setAllLeadSources(sources.map(s => s.name));
+    });
+
     // Fetch agent profiles for display
     supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
       if (data) setAgentProfiles(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1306,7 +1370,7 @@ const Contacts: React.FC = () => {
                     <label className="text-xs font-medium text-muted-foreground block mb-1">Source</label>
                     <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
                       <option value="">All</option>
-                      {["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar"].map(s => <option key={s}>{s}</option>)}
+                      {allLeadSources.map(s => <option key={s}>{s}</option>)}
                     </select>
                   </div>
                 )}

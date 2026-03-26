@@ -4,7 +4,8 @@ import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
-import { pipelineSupabaseApi } from "@/lib/supabase-settings";
+import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
+import { LeadSource, HealthStatus, CustomField } from "@/lib/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -26,8 +27,9 @@ const US_STATES = [
 ];
 
 const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
-const leadSources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"];
-const healthStatuses = ["Excellent", "Good", "Fair", "Poor"];
+// Fallbacks will be replaced by database data
+const initialLeadSources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"];
+const initialHealthStatuses = ["Excellent", "Good", "Fair", "Poor"];
 const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", "Anytime"];
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -136,6 +138,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
+  const [leadSources, setLeadSources] = useState<string[]>(initialLeadSources);
+  const [healthStatuses, setHealthStatuses] = useState<string[]>(initialHealthStatuses);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
@@ -187,6 +193,26 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           ? await pipelineSupabaseApi.getRecruitStages() 
           : await pipelineSupabaseApi.getLeadStages();
         setPipelineStages(fetchedStages);
+      }
+
+      // Fetch dynamic settings
+      try {
+        const [sources, healths, fields] = await Promise.all([
+          leadSourcesSupabaseApi.getAll(),
+          healthStatusesSupabaseApi.getAll(),
+          customFieldsSupabaseApi.getAll()
+        ]);
+        
+        if (sources.length > 0) setLeadSources(sources.map(s => s.name));
+        if (healths.length > 0) setHealthStatuses(healths.map(h => h.name));
+        
+        // Filter custom fields by appliesTo
+        const relevantFields = fields.filter(f => 
+          f.active && f.appliesTo.includes(type === 'lead' ? 'Leads' : type === 'client' ? 'Clients' : 'Recruits')
+        );
+        setCustomFields(relevantFields);
+      } catch (err) {
+        console.error("Error fetching dynamic settings:", err);
       }
 
       if (type === "lead") {
@@ -452,21 +478,40 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const inputCls = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
   const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
-    const val = editForm[key] ?? "";
+    let val: any;
+    if (key.includes('.')) {
+      const [parent, child] = key.split('.');
+      val = editForm[parent]?.[child] ?? "";
+    } else {
+      val = editForm[key] ?? "";
+    }
+
+    const handleChange = (newVal: any) => {
+      if (key.includes('.')) {
+        const [parent, child] = key.split('.');
+        handleFieldChange(parent, {
+          ...(editForm[parent] || {}),
+          [child]: newVal
+        });
+      } else {
+        handleFieldChange(key, newVal);
+      }
+    };
+
     return (
       <div className="min-w-0 flex flex-col">
         <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-0.5">{label}</label>
         {editMode ? (
           <>
             {fieldType === "select" ? (
-              <select value={val} onChange={e => handleFieldChange(key, e.target.value)} className={inputCls}>
+              <select value={val} onChange={e => handleChange(e.target.value)} className={inputCls}>
                 <option value="">—</option>
                 {options?.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : fieldType === "textarea" ? (
-              <textarea value={val} onChange={e => handleFieldChange(key, e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
+              <textarea value={val} onChange={e => handleChange(e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
             ) : (
-              <input type={fieldType} value={val} onChange={e => handleFieldChange(key, fieldType === "number" ? Number(e.target.value) : e.target.value)}
+              <input type={fieldType} value={val} onChange={e => handleChange(fieldType === "number" ? Number(e.target.value) : e.target.value)}
                 className={inputCls} />
             )}
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
@@ -674,10 +719,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                     {renderField("DOB", "dateOfBirth", "date")}
                     <div />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("Health", "healthStatus", "select", healthStatuses)}
-                    {renderField("Best Time", "bestTimeToCall", "select", bestTimes)}
-                  </div>
                   {renderField("Spouse Info", "spouseInfo")}
                 </>
               )}
@@ -702,6 +743,25 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               {type === "recruit" && (
                 <div className="flex flex-col gap-2">
                    {renderField("Status", "status", "select", recruitStatuses)}
+                </div>
+              )}
+
+              {/* Dynamic Custom Fields */}
+              {customFields.length > 0 && (
+                <div className="pt-4 border-t border-border mt-4 space-y-4">
+                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Custom Fields</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {customFields.map(field => (
+                      <div key={field.id}>
+                        {renderField(
+                          field.name,
+                          `customFields.${field.name}`,
+                          field.type === 'Dropdown' ? 'select' : field.type.toLowerCase() as any,
+                          field.dropdownOptions
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               
