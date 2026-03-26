@@ -586,7 +586,7 @@ const FloatingDialer: React.FC = () => {
             cursor: isDragging ? 'grabbing' : 'default',
             touchAction: 'none',
           }}
-          className="fixed w-[340px] max-w-[calc(100vw-2rem)] h-[580px] bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          className="fixed w-[340px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] h-auto bg-card border border-border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
@@ -779,8 +779,7 @@ const FloatingDialer: React.FC = () => {
                           ))}
                         </select>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase">AI LP</span>
+                      <div className="flex items-center gap-2 pr-1">
                         <button
                           onClick={() => setLocalPresenceEnabled(!localPresenceEnabled)}
                           className={`w-8 h-4 rounded-full transition-colors relative ${localPresenceEnabled ? 'bg-primary' : 'bg-muted'}`}
