@@ -73,7 +73,62 @@ Deno.serve(async (req) => {
     if (!apiKey) throw new Error("No API key configured.");
     if (!connectionId) throw new Error("No Connection ID configured.");
 
-    // If we have explicit SIP credentials, we can use them
+    // 1. If we have connection_id, prioritize generating a fresh token
+    if (connectionId) {
+      try {
+        console.log("Generating on-demand Telnyx token for connection:", connectionId);
+        
+        // Create Telephony Credential
+        const credRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ connection_id: connectionId }),
+        });
+
+        if (!credRes.ok) {
+          const errorText = await credRes.text();
+          console.error("Failed to create telephony credential:", errorText);
+          throw new Error(`Failed to create telephony credential: ${errorText}`);
+        }
+
+        const credData = await credRes.json();
+        const credId = credData.data.id;
+
+        // Generate Token
+        const tokenRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credId}/token`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!tokenRes.ok) {
+          const errorText = await tokenRes.text();
+          console.error("Failed to generate Telnyx token:", errorText);
+          throw new Error(`Failed to generate Telnyx token: ${errorText}`);
+        }
+
+        const tokenDataResponse = await tokenRes.json();
+        const token = tokenDataResponse.data;
+
+        return new Response(
+          JSON.stringify({
+            token: token,
+            connection_id: connectionId,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (tokenError: any) {
+        console.warn("Token generation failed, checking for SIP credentials fallback:", tokenError.message);
+        // Fall through to try SIP credentials if token fails
+      }
+    }
+
+    // 2. Fallback: If we have explicit SIP credentials, use them
     if (finalSettings.sip_username && finalSettings.sip_password) {
       return new Response(
         JSON.stringify({
@@ -85,51 +140,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Otherwise, generate an on-demand credential and token
-    console.log("Generating on-demand Telnyx token for connection:", connectionId);
-    
-    // 1. Create Telephony Credential
-    const credRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ connection_id: connectionId }),
-    });
-
-    if (!credRes.ok) {
-      const errorText = await credRes.text();
-      throw new Error(`Failed to create telephony credential: ${errorText}`);
-    }
-
-    const credData = await credRes.json();
-    const credId = credData.data.id;
-
-    // 2. Generate Token
-    const tokenRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credId}/token`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!tokenRes.ok) {
-      const errorText = await tokenRes.text();
-      throw new Error(`Failed to generate Telnyx token: ${errorText}`);
-    }
-
-    const tokenDataResponse = await tokenRes.json();
-    const token = tokenDataResponse.data;
-
-    return new Response(
-      JSON.stringify({
-        token: token,
-        connection_id: connectionId,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    throw new Error("No Connection ID or SIP credentials successfully initialized.");
 
   } catch (error) {
     return new Response(
