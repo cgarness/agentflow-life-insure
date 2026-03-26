@@ -440,13 +440,16 @@ export default function DialerPage() {
   const lastUsedCallerId = useRef<string>("");
 
   useEffect(() => {
+    if (!organizationId) return;
     supabase
       .from('phone_numbers')
       .select('phone_number, is_default, spam_status, area_code, friendly_name')
+      .eq('organization_id', organizationId)
+      .eq('status', 'active')
       .then(({ data }) => {
         if (data) ownedNumbers.current = data;
       });
-  }, []);
+  }, [organizationId]);
 
   /* --- effects for syncing query data to state if needed --- */
   // Note: We prefer using the data from useQuery directly, but some effects or 

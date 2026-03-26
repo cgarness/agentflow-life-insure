@@ -82,10 +82,12 @@ export class AutoDialer {
       console.warn('[AutoDialer] Failed to load campaign settings, defaulting local_presence_enabled=true', err);
     }
 
-    // Load phone numbers (cache for entire session)
+    // Load phone numbers for this organization
     const { data: phones } = await supabase
       .from('phone_numbers')
       .select('*')
+      .eq('organization_id', this.organizationId)
+      .eq('status', 'active')
       .order('is_default', { ascending: false });
 
     this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];

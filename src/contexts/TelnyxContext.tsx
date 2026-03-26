@@ -174,11 +174,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // Mic denied — still register; makeCall will handle the prompt
       }
 
-      // 4. Initialize TelnyxRTC with SIP credentials
-      const client = new TelnyxRTC({
-        login: tokenData.sip_username,
-        password: tokenData.sip_password,
-      } as any);
+      // 4. Initialize TelnyxRTC with either SIP credentials or token
+      const clientOptions: any = tokenData.token 
+        ? { token: tokenData.token }
+        : {
+            login: tokenData.sip_username,
+            password: tokenData.sip_password,
+          };
+
+      const client = new TelnyxRTC(clientOptions);
 
       client.on("telnyx.ready", () => {
         setStatus("ready");

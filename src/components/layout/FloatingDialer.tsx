@@ -210,12 +210,14 @@ const FloatingDialer: React.FC = () => {
     }
   }, [open, telnyxInitialize, telnyxDestroy]);
 
-  // Load owned phone numbers once on mount
+  // Load owned phone numbers for this organization
   useEffect(() => {
+    if (!organizationId) return;
     supabase
       .from('phone_numbers')
       .select('phone_number, is_default, spam_status, area_code, friendly_name')
-      .eq('status', 'Active')
+      .eq('organization_id', organizationId)
+      .eq('status', 'active')
       .then(({ data }) => {
         if (data) {
           ownedNumbers.current = data;
@@ -223,7 +225,7 @@ const FloatingDialer: React.FC = () => {
           setFromNumber(defaultNum);
         }
       });
-  }, []);
+  }, [organizationId]);
 
   // Fetch dispositions for post-call
   useEffect(() => {

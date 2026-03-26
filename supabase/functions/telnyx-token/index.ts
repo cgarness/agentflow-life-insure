@@ -68,18 +68,64 @@ Deno.serve(async (req) => {
     if (!finalSettings) throw new Error("No Telnyx credentials found. Save them in Settings first.");
 
     const apiKey = Deno.env.get("TELNYX_API_KEY") || finalSettings.api_key;
-    const sipUsername = finalSettings.sip_username;
-    const sipPassword = finalSettings.sip_password;
     const connectionId = finalSettings.connection_id;
 
     if (!apiKey) throw new Error("No API key configured.");
-    if (!sipUsername || !sipPassword) throw new Error("No SIP credentials configured. Enter SIP Username and Password in Settings.");
     if (!connectionId) throw new Error("No Connection ID configured.");
+
+    // If we have explicit SIP credentials, we can use them
+    if (finalSettings.sip_username && finalSettings.sip_password) {
+      return new Response(
+        JSON.stringify({
+          sip_username: finalSettings.sip_username,
+          sip_password: finalSettings.sip_password,
+          connection_id: connectionId,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Otherwise, generate an on-demand credential and token
+    console.log("Generating on-demand Telnyx token for connection:", connectionId);
+    
+    // 1. Create Telephony Credential
+    const credRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ connection_id: connectionId }),
+    });
+
+    if (!credRes.ok) {
+      const errorText = await credRes.text();
+      throw new Error(`Failed to create telephony credential: ${errorText}`);
+    }
+
+    const credData = await credRes.json();
+    const credId = credData.data.id;
+
+    // 2. Generate Token
+    const tokenRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credId}/token`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!tokenRes.ok) {
+      const errorText = await tokenRes.text();
+      throw new Error(`Failed to generate Telnyx token: ${errorText}`);
+    }
+
+    const tokenDataResponse = await tokenRes.json();
+    const token = tokenDataResponse.data;
 
     return new Response(
       JSON.stringify({
-        sip_username: sipUsername,
-        sip_password: sipPassword,
+        token: token,
         connection_id: connectionId,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
