@@ -854,7 +854,7 @@ export default function DialerPage() {
       dialer.pauseAutoDialer();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, user?.id]);
+  }, [selectedCampaignId, user?.id, telnyxInitialize]);
 
   // ── Auto-dial next lead event (auto-dial ON) ──
   useEffect(() => {

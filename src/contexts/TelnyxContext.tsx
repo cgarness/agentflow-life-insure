@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -97,22 +98,46 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const organizationId = (profile as any)?.organization_id;
 
   const initializeClient = useCallback(async () => {
-    // Skip if already connecting or ready
-    if (clientRef.current) return;
+    // 0. Wait for profile to load
+    if (!profile) {
+      console.log("TelnyxRTC waiting for profile...");
+      return;
+    }
+
+    if (!organizationId) {
+      console.warn("TelnyxRTC cannot initialize: User has no organization_id");
+      setStatus("error");
+      setErrorMessage("Your account is not associated with an organization. Please contact support.");
+      return;
+    }
+
+    // 1. Destroy existing client if already set (handles "retry" button)
+    if (clientRef.current) {
+      console.log("TelnyxRTC destroying existing client before re-initialization...");
+      try {
+        clientRef.current.disconnect();
+      } catch (e) {
+        console.warn("Error during disconnect:", e);
+      }
+      clientRef.current = null;
+    }
 
     setStatus("connecting");
     setErrorMessage(null);
 
     try {
       // 1. Fetch credentials
-      let { data: settings } = await (supabase as any)
+      let { data: settings, error: settingsError } = await (supabase as any)
         .from("telnyx_settings")
         .select("api_key, connection_id, sip_username, sip_password")
         .eq("organization_id", organizationId)
         .maybeSingle();
 
+      if (settingsError) throw new Error(`DB fetch error: ${settingsError.message}`);
+
       // Fallback to global settings if no organization-specific settings exist
       if (!settings?.api_key) {
+        console.log("No organization settings found, falling back to global settings...");
         const { data: globalSettings } = await (supabase as any)
           .from("telnyx_settings")
           .select("api_key, connection_id, sip_username, sip_password")
@@ -123,7 +148,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const creds = settings as any;
       if (!creds || !creds.api_key) {
+        console.warn("No Telnyx credentials found (global or org)");
         setStatus("idle");
+        setErrorMessage("Telnyx credentials not found. Please set them in Phone Settings.");
         return;
       }
 
@@ -133,8 +160,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       if (tokenError || !tokenData?.sip_username) {
+        const msg = tokenData?.error || tokenError?.message || "Failed to get SIP credentials";
+        console.error("telnyx-token error:", msg);
         setStatus("error");
-        setErrorMessage(tokenData?.error || tokenError?.message || "Failed to get SIP credentials");
+        setErrorMessage(msg);
         return;
       }
 
@@ -239,7 +268,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setStatus("error");
       setErrorMessage(err?.message || "Could not initialize dialer");
     }
-  }, [attachRemoteAudio]);
+  }, [attachRemoteAudio, profile, organizationId]);
 
   const destroyClient = useCallback(() => {
     if (clientRef.current) {
@@ -283,7 +312,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, clientState?: string) => {
     if (status !== "ready") {
+      const msg = status === "connecting" ? "Dialer is still connecting, please wait." : "Dialer is not connected. Check your credentials in Settings.";
       console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
+      toast.error(msg);
       return;
     }
     if (!clientRef.current) return;
