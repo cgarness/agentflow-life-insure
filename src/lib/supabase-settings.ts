@@ -319,3 +319,68 @@ export const healthStatusesSupabaseApi = {
     await Promise.all(updates);
   },
 };
+
+// ==================== CONTACT MANAGEMENT SETTINGS ====================
+
+export const contactManagementSettingsSupabaseApi = {
+  async getSettings(): Promise<any> {
+    const { data, error } = await (supabase as any)
+      .from("contact_management_settings")
+      .select("*")
+      .single();
+    if (error && error.code !== "PGRST116") throw error; // PGRST116 is "no rows returned"
+    
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      organizationId: data.organization_id,
+      duplicateDetectionRule: data.duplicate_detection_rule,
+      duplicate_detection_scope: data.duplicate_detection_scope,
+      manualAction: data.manual_action,
+      csvAction: data.csv_action,
+      requiredFieldsLead: data.required_fields_lead,
+      requiredFieldsClient: data.required_fields_client,
+      assignmentMethod: data.assignment_method,
+      assignmentSpecificAgentId: data.assignment_specific_agent_id,
+      assignmentRotation: data.assignment_rotation,
+      importOverride: data.import_override,
+      importMethod: data.import_method,
+      importSpecificAgentId: data.import_specific_agent_id,
+      importRotation: data.import_rotation,
+      fieldOrderLead: data.field_order_lead,
+      fieldOrderClient: data.field_order_client,
+      fieldOrderRecruit: data.field_order_recruit,
+      updatedAt: data.updated_at,
+    };
+  },
+  async updateSettings(organizationId: string, data: any): Promise<void> {
+    const payload: any = {};
+    if (data.duplicateDetectionRule !== undefined) payload.duplicate_detection_rule = data.duplicateDetectionRule;
+    if (data.duplicateDetectionScope !== undefined) payload.duplicate_detection_scope = data.duplicateDetectionScope;
+    if (data.manualAction !== undefined) payload.manual_action = data.manualAction;
+    if (data.csvAction !== undefined) payload.csv_action = data.csvAction;
+    if (data.requiredFieldsLead !== undefined) payload.required_fields_lead = data.requiredFieldsLead;
+    if (data.requiredFieldsClient !== undefined) payload.required_fields_client = data.requiredFieldsClient;
+    if (data.assignmentMethod !== undefined) payload.assignment_method = data.assignmentMethod;
+    if (data.assignmentSpecificAgentId !== undefined) payload.assignment_specific_agent_id = data.assignmentSpecificAgentId;
+    if (data.assignmentRotation !== undefined) payload.assignment_rotation = data.assignmentRotation;
+    if (data.importOverride !== undefined) payload.import_override = data.importOverride;
+    if (data.importMethod !== undefined) payload.import_method = data.importMethod;
+    if (data.importSpecificAgentId !== undefined) payload.import_specific_agent_id = data.importSpecificAgentId;
+    if (data.importRotation !== undefined) payload.import_rotation = data.importRotation;
+    if (data.fieldOrderLead !== undefined) payload.field_order_lead = data.fieldOrderLead;
+    if (data.fieldOrderClient !== undefined) payload.field_order_client = data.fieldOrderClient;
+    if (data.fieldOrderRecruit !== undefined) payload.field_order_recruit = data.fieldOrderRecruit;
+    payload.updated_at = new Date().toISOString();
+
+    const { error } = await (supabase as any)
+      .from("contact_management_settings")
+      .upsert({
+        organization_id: organizationId,
+        ...payload
+      }, { onConflict: 'organization_id' });
+      
+    if (error) throw error;
+  }
+};

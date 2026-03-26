@@ -69,6 +69,9 @@ export interface ContactManagementSettings {
   importMethod: string;
   importSpecificAgentId?: string | null;
   importRotation: string[];
+  fieldOrderLead?: string[];
+  fieldOrderClient?: string[];
+  fieldOrderRecruit?: string[];
   updatedAt: string;
 }
 

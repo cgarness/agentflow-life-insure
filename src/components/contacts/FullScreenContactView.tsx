@@ -141,6 +141,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const [leadSources, setLeadSources] = useState<string[]>(initialLeadSources);
   const [healthStatuses, setHealthStatuses] = useState<string[]>(initialHealthStatuses);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [fieldOrder, setFieldOrder] = useState<string[]>([]);
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
@@ -211,6 +212,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           f.active && f.appliesTo.includes(type === 'lead' ? 'Leads' : type === 'client' ? 'Clients' : 'Recruits')
         );
         setCustomFields(relevantFields);
+
+        // Fetch field order
+        const { data: settings } = await supabase
+          .from("contact_management_settings")
+          .select("field_order_lead, field_order_client, field_order_recruit")
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        
+        if (settings) {
+          if (type === "lead") setFieldOrder(settings.field_order_lead || []);
+          else if (type === "client") setFieldOrder(settings.field_order_client || []);
+          else setFieldOrder(settings.field_order_recruit || []);
+        }
       } catch (err) {
         console.error("Error fetching dynamic settings:", err);
       }
@@ -695,100 +709,161 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               </div>
             )}
             
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                {renderField("First Name", "firstName")}
-                {renderField("Last Name", "lastName")}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                {renderField("Phone", "phone", "text")}
-                {renderField("Email", "email", "email")}
-              </div>
-              
-              {type === "lead" && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("State", "state", "select", US_STATES)}
-                    {renderField("Source", "leadSource", "select", leadSources)}
+              <div className="space-y-4">
+                {/* Dynamic Unified Field Layout */}
+                {fieldOrder.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                    {fieldOrder.map(fieldId => {
+                      if (fieldId.startsWith('custom:')) {
+                        const fieldName = fieldId.replace('custom:', '');
+                        const field = customFields.find(f => f.name === fieldName);
+                        if (!field) return null;
+                        return (
+                          <div key={fieldId}>
+                            {renderField(
+                              field.name,
+                              `customFields.${field.name}`,
+                              field.type === 'Dropdown' ? 'select' : field.type.toLowerCase() as any,
+                              field.dropdownOptions
+                            )}
+                          </div>
+                        );
+                      }
+                      
+                      // Standard Fields mapping
+                      switch (fieldId) {
+                        case 'firstName': return renderField("First Name", "firstName");
+                        case 'lastName': return renderField("Last Name", "lastName");
+                        case 'phone': return renderField("Phone", "phone");
+                        case 'email': return renderField("Email", "email", "email");
+                        case 'state': return type === "lead" ? renderField("State", "state", "select", US_STATES) : null;
+                        case 'leadSource': return type === "lead" ? renderField("Source", "leadSource", "select", leadSources) : null;
+                        case 'leadScore': return type === "lead" ? renderField("Score", "leadScore", "number") : null;
+                        case 'age': return type === "lead" ? renderField("Age", "age", "number") : null;
+                        case 'dateOfBirth': return type === "lead" ? renderField("DOB", "dateOfBirth", "date") : null;
+                        case 'spouseInfo': return type === "lead" ? renderField("Spouse Info", "spouseInfo") : null;
+                        case 'policyType': return type === "client" ? renderField("Policy Type", "policyType", "select", policyTypes) : null;
+                        case 'carrier': return type === "client" ? renderField("Carrier", "carrier") : null;
+                        case 'policyNumber': return type === "client" ? renderField("Policy #", "policyNumber") : null;
+                        case 'premiumAmount': return type === "client" ? renderField("Premium", "premiumAmount") : null;
+                        case 'faceAmount': return type === "client" ? renderField("Face Amount", "faceAmount") : null;
+                        case 'issueDate': return type === "client" ? renderField("Issue Date", "issueDate", "date") : null;
+                        case 'status': return type === "recruit" ? renderField("Status", "status", "select", recruitStatuses) : null;
+                        case 'assignedAgentId': 
+                          return (
+                            <div key="assignedAgentId" className="bg-muted/50 rounded-lg px-3 py-2 col-span-2">
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-0.5">Assigned Agent</label>
+                              {editMode ? (
+                                <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
+                                </select>
+                              ) : (
+                                <div className="mt-1 flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                  <CopyField value={getAgentDisplayName(contact.assignedAgentId)} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        case 'notes': return <div key="notes" className="col-span-2">{renderField("System Notes", "notes", "textarea")}</div>;
+                        default: return null;
+                      }
+                    })}
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("Score", "leadScore", "number")}
-                    {renderField("Age", "age", "number")}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("DOB", "dateOfBirth", "date")}
-                    <div />
-                  </div>
-                  {renderField("Spouse Info", "spouseInfo")}
-                </>
-              )}
-              
-              {type === "client" && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("Policy Type", "policyType", "select", policyTypes)}
-                    {renderField("Carrier", "carrier")}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("Policy #", "policyNumber")}
-                    {renderField("Premium", "premiumAmount")}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("Face Amount", "faceAmount")}
-                    {renderField("Issue Date", "issueDate", "date")}
-                  </div>
-                </>
-              )}
-              
-              {type === "recruit" && (
-                <div className="flex flex-col gap-2">
-                   {renderField("Status", "status", "select", recruitStatuses)}
-                </div>
-              )}
-
-              {/* Dynamic Custom Fields */}
-              {customFields.length > 0 && (
-                <div className="pt-4 border-t border-border mt-4 space-y-4">
-                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Custom Fields</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    {customFields.map(field => (
-                      <div key={field.id}>
-                        {renderField(
-                          field.name,
-                          `customFields.${field.name}`,
-                          field.type === 'Dropdown' ? 'select' : field.type.toLowerCase() as any,
-                          field.dropdownOptions
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="bg-muted/50 rounded-lg px-3 py-2">
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Assigned Agent</label>
-                {editMode ? (
-                  <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
-                    <option value="">—</option>
-                    {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
-                  </select>
                 ) : (
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
-                    <CopyField value={getAgentDisplayName(contact.assignedAgentId)} />
+                  // Fallback to legacy hardcoded layout if no order is found
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderField("First Name", "firstName")}
+                      {renderField("Last Name", "lastName")}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderField("Phone", "phone", "text")}
+                      {renderField("Email", "email", "email")}
+                    </div>
+                    
+                    {type === "lead" && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          {renderField("State", "state", "select", US_STATES)}
+                          {renderField("Source", "leadSource", "select", leadSources)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          {renderField("Score", "leadScore", "number")}
+                          {renderField("Age", "age", "number")}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          {renderField("DOB", "dateOfBirth", "date")}
+                          <div />
+                        </div>
+                        {renderField("Spouse Info", "spouseInfo")}
+                      </>
+                    )}
+                    
+                    {type === "client" && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          {renderField("Policy Type", "policyType", "select", policyTypes)}
+                          {renderField("Carrier", "carrier")}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          {renderField("Policy #", "policyNumber")}
+                          {renderField("Premium", "premiumAmount")}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          {renderField("Face Amount", "faceAmount")}
+                          {renderField("Issue Date", "issueDate", "date")}
+                        </div>
+                      </>
+                    )}
+                    
+                    {type === "recruit" && (
+                      <div className="flex flex-col gap-2">
+                         {renderField("Status", "status", "select", recruitStatuses)}
+                      </div>
+                    )}
+
+                    {customFields.length > 0 && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {customFields.map(field => (
+                          <div key={field.id}>
+                            {renderField(
+                              field.name,
+                              `customFields.${field.name}`,
+                              field.type === 'Dropdown' ? 'select' : field.type.toLowerCase() as any,
+                              field.dropdownOptions
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    <div className="bg-muted/50 rounded-lg px-3 py-2">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Assigned Agent</label>
+                      {editMode ? (
+                        <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
+                          <option value="">—</option>
+                          {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
+                        </select>
+                      ) : (
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
+                          <CopyField value={getAgentDisplayName(contact.assignedAgentId)} />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div>{renderField("System Notes", "notes", "textarea")}</div>
                   </div>
                 )}
               </div>
               
-              {/* Only show overview notes map in overview, detailed notes are in tabs */}
-              <div>{renderField("System Notes", "notes", "textarea")}</div>
-            </div>
-            
-            <div className="mt-auto pt-4 border-t border-border">
-              <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-sm text-destructive hover:underline">
-                <Trash2 className="w-3.5 h-3.5" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
-              </button>
-            </div>
+              <div className="mt-auto pt-4 border-t border-border">
+                <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-sm text-destructive hover:underline">
+                  <Trash2 className="w-3.5 h-3.5" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              </div>
           </div>
         </div>
 

@@ -36,7 +36,7 @@ const PRESET_COLORS = [
   { name: "Teal", hex: "#14B8A6" },
 ];
 
-const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Health Statuses", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings"];
+const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Health Statuses", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings", "Field Layout"];
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -1867,6 +1867,9 @@ const ContactManagement: React.FC = () => {
           importMethod: data.import_method,
           importSpecificAgentId: data.import_specific_agent_id,
           importRotation: data.import_rotation as string[],
+          fieldOrderLead: data.field_order_lead as string[],
+          fieldOrderClient: data.field_order_client as string[],
+          fieldOrderRecruit: data.field_order_recruit as string[],
           updatedAt: data.updated_at,
         });
       } else {
@@ -1885,6 +1888,9 @@ const ContactManagement: React.FC = () => {
           importOverride: false,
           importMethod: 'unassigned',
           importRotation: [],
+          fieldOrderLead: ["firstName", "lastName", "phone", "email", "state", "leadSource", "leadScore", "age", "dateOfBirth", "spouseInfo", "assignedAgentId", "notes"],
+          fieldOrderClient: ["firstName", "lastName", "phone", "email", "policyType", "carrier", "policyNumber", "premiumAmount", "faceAmount", "issueDate", "assignedAgentId", "notes"],
+          fieldOrderRecruit: ["firstName", "lastName", "phone", "email", "status", "assignedAgentId", "notes"],
           updatedAt: new Date().toISOString(),
         });
       }
@@ -1955,6 +1961,203 @@ const ContactManagement: React.FC = () => {
       {activeTab === 5 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
       {activeTab === 6 && <AssignmentRulesTab settings={settings} onReload={fetchSettings} />}
       {activeTab === 7 && <DisplaySettingsTab />}
+      {activeTab === 8 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
+    </div>
+  );
+};
+
+// ==================== FIELD LAYOUT TAB ====================
+
+const STANDARD_FIELDS_LEAD = [
+  { id: "firstName", name: "First Name" },
+  { id: "lastName", name: "Last Name" },
+  { id: "phone", name: "Phone" },
+  { id: "email", name: "Email" },
+  { id: "state", name: "State" },
+  { id: "leadSource", name: "Source" },
+  { id: "leadScore", name: "Score" },
+  { id: "age", name: "Age" },
+  { id: "dateOfBirth", name: "DOB" },
+  { id: "spouseInfo", name: "Spouse Info" },
+  { id: "assignedAgentId", name: "Assigned Agent" },
+  { id: "notes", name: "System Notes" }
+];
+
+const STANDARD_FIELDS_CLIENT = [
+  { id: "firstName", name: "First Name" },
+  { id: "lastName", name: "Last Name" },
+  { id: "phone", name: "Phone" },
+  { id: "email", name: "Email" },
+  { id: "policyType", name: "Policy Type" },
+  { id: "carrier", name: "Carrier" },
+  { id: "policyNumber", name: "Policy #" },
+  { id: "premiumAmount", name: "Premium" },
+  { id: "faceAmount", name: "Face Amount" },
+  { id: "issueDate", name: "Issue Date" },
+  { id: "assignedAgentId", name: "Assigned Agent" },
+  { id: "notes", name: "System Notes" }
+];
+
+const STANDARD_FIELDS_RECRUIT = [
+  { id: "firstName", name: "First Name" },
+  { id: "lastName", name: "Last Name" },
+  { id: "phone", name: "Phone" },
+  { id: "email", name: "Email" },
+  { id: "status", name: "Status" },
+  { id: "assignedAgentId", name: "Assigned Agent" },
+  { id: "notes", name: "System Notes" }
+];
+
+const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onReload: () => void }> = ({ settings, onReload }) => {
+  const [activeType, setActiveType] = useState<"lead" | "client" | "recruit">("lead");
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [items, setItems] = useState<{ id: string, name: string, isCustom: boolean }[]>([]);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchCustomFields = useCallback(async () => {
+    try {
+      const data = await customFieldsApi.getAll();
+      setCustomFields(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCustomFields();
+  }, [fetchCustomFields]);
+
+  useEffect(() => {
+    if (!settings) return;
+
+    let standard: { id: string, name: string }[] = [];
+    let order: string[] = [];
+    let appliesTo: string = "";
+
+    if (activeType === "lead") {
+      standard = STANDARD_FIELDS_LEAD;
+      order = settings.fieldOrderLead || standard.map(f => f.id);
+      appliesTo = "Leads";
+    } else if (activeType === "client") {
+      standard = STANDARD_FIELDS_CLIENT;
+      order = settings.fieldOrderClient || standard.map(f => f.id);
+      appliesTo = "Clients";
+    } else {
+      standard = STANDARD_FIELDS_RECRUIT;
+      order = settings.fieldOrderRecruit || standard.map(f => f.id);
+      appliesTo = "Recruits";
+    }
+
+    const availableCustom = customFields
+      .filter(f => f.active && f.appliesTo?.includes(appliesTo as any))
+      .map(f => ({ id: `custom:${f.name}`, name: f.name, isCustom: true }));
+
+    // Merge standard and custom fields based on order
+    const allFields = [...standard.map(f => ({ ...f, isCustom: false })), ...availableCustom];
+    
+    // Create items based on saved order, then append any new fields
+    const orderedItems = order
+      .map(id => allFields.find(f => f.id === id))
+      .filter((f): f is { id: string, name: string, isCustom: boolean } => !!f);
+
+    const missingFields = allFields.filter(f => !order.includes(f.id));
+    
+    setItems([...orderedItems, ...missingFields]);
+  }, [settings, activeType, customFields]);
+
+  const handleDrop = (idx: number) => {
+    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return; }
+    const reordered = [...items];
+    const [moved] = reordered.splice(dragIdx, 1);
+    reordered.splice(idx, 0, moved);
+    setItems(reordered);
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  const handleSave = async () => {
+    if (!settings?.organizationId) return;
+    setSaving(true);
+    try {
+      const fieldIds = items.map(i => i.id);
+      const payload: any = {};
+      if (activeType === "lead") payload.field_order_lead = fieldIds;
+      else if (activeType === "client") payload.field_order_client = fieldIds;
+      else payload.field_order_recruit = fieldIds;
+
+      const { error } = await (supabase as any)
+        .from("contact_management_settings")
+        .upsert({
+          organization_id: settings.organizationId,
+          ...payload,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'organization_id' });
+
+      if (error) throw error;
+      toast({ title: "Field layout saved" });
+      onReload();
+    } catch (e: any) {
+      toast({ title: "Error saving layout", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-base font-semibold text-foreground">Field Layout</h4>
+          <p className="text-sm text-muted-foreground">Drag and drop fields to reorder how they appear on the contact view.</p>
+        </div>
+        <div className="flex bg-muted rounded-lg p-1">
+          {(["lead", "client", "recruit"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setActiveType(t)}
+              className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all uppercase tracking-wide ${activeType === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {t}s
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {items.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground italic">No fields configured for this type.</div>
+        ) : (
+          items.map((item, idx) => (
+            <div
+              key={item.id}
+              draggable
+              onDragStart={() => setDragIdx(idx)}
+              onDragOver={e => { e.preventDefault(); setOverIdx(idx); }}
+              onDrop={() => handleDrop(idx)}
+              onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+              className={`flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"} ${dragIdx === idx ? "opacity-50" : ""}`}
+            >
+              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
+              <div className="flex-1 flex items-center justify-between">
+                <span className="text-sm font-medium text-foreground">{item.name}</span>
+                {item.isCustom ? (
+                  <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded border border-blue-500/20 uppercase tracking-tight">Custom</span>
+                ) : (
+                  <span className="text-[10px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border uppercase tracking-tight">Standard</span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="flex justify-end">
+        <Button onClick={handleSave} disabled={saving} className="min-w-[120px]">
+          {saving ? "Saving..." : "Save Layout"}
+        </Button>
+      </div>
     </div>
   );
 };
