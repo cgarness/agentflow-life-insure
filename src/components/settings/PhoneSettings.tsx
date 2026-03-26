@@ -109,7 +109,11 @@ const PhoneSettings: React.FC = () => {
 
   const hasChanges = apiKey !== originals.apiKey || connectionId !== originals.connectionId || sipUsername !== originals.sipUsername || sipPassword !== originals.sipPassword;
 
+  const [telnyxSettingsId, setTelnyxSettingsId] = useState<string | null>(null);
+  const [phoneSettingsId, setPhoneSettingsId] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
+    if (!organizationId) return;
     setLoading(true);
     const [telnyxRes, settingsRes, numbersRes, agentsRes] = await Promise.all([
       (supabase as any).from("telnyx_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
@@ -120,12 +124,14 @@ const PhoneSettings: React.FC = () => {
 
     if (telnyxRes.data) {
       const d = telnyxRes.data as any;
+      setTelnyxSettingsId(d.id);
       setApiKey(d.api_key || "");
       setConnectionId(d.connection_id || "");
       setSipUsername(d.sip_username || "");
       setSipPassword(d.sip_password || "");
       setOriginals({ apiKey: d.api_key || "", connectionId: d.connection_id || "", sipUsername: d.sip_username || "", sipPassword: d.sip_password || "" });
     } else {
+      setTelnyxSettingsId(null);
       // If no settings found for this organization, reset to empty
       setApiKey("");
       setConnectionId("");
@@ -135,17 +141,20 @@ const PhoneSettings: React.FC = () => {
     }
 
     if (settingsRes.data) {
+      setPhoneSettingsId(settingsRes.data.id);
       // Local presence from api_secret JSON
       try {
         const flags = settingsRes.data.api_secret ? JSON.parse(settingsRes.data.api_secret) : {};
         setLocalPresenceEnabled(!!flags.local_presence_enabled);
       } catch { setLocalPresenceEnabled(false); }
+    } else {
+      setPhoneSettingsId(null);
     }
 
     setNumbers((numbersRes.data || []) as PhoneNumber[]);
     setAgents((agentsRes.data || []) as Profile[]);
     setLoading(false);
-  }, []);
+  }, [organizationId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -155,6 +164,7 @@ const PhoneSettings: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     const { error } = await (supabase as any).from("telnyx_settings").upsert({
+      id: telnyxSettingsId || undefined,
       organization_id: organizationId,
       api_key: apiKey,
       connection_id: connectionId,
@@ -163,9 +173,16 @@ const PhoneSettings: React.FC = () => {
       updated_at: new Date().toISOString(),
     } as any, { onConflict: "organization_id" });
     setSaving(false);
-    if (error) { toast.error("Failed to save credentials"); return; }
+    
+    if (error) {
+      console.error("Save error:", error);
+      toast.error(`Failed to save credentials: ${error.message}`);
+      return;
+    }
+    
     setOriginals({ apiKey, connectionId, sipUsername, sipPassword });
     toast.success("Credentials saved");
+    await fetchData(); // Refresh to get the new ID if it was an insert
   };
 
   // Test connection
@@ -341,11 +358,16 @@ const PhoneSettings: React.FC = () => {
   const handleLocalPresenceToggle = async (enabled: boolean) => {
     setLocalPresenceEnabled(enabled);
     const flags = JSON.stringify({ local_presence_enabled: enabled });
-    await supabase.from("phone_settings").upsert({
+    const { error } = await supabase.from("phone_settings").upsert({
+      id: phoneSettingsId || undefined,
       organization_id: organizationId,
       api_secret: flags,
       updated_at: new Date().toISOString()
     }, { onConflict: "organization_id" });
+
+    if (error) {
+      console.error("Phone settings error:", error);
+    }
     toast.success(enabled ? "Local Presence enabled" : "Local Presence disabled");
   };
 
