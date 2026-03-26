@@ -176,7 +176,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // 4. Initialize TelnyxRTC with either SIP credentials or token
       const clientOptions: any = tokenData.token 
-        ? { token: tokenData.token }
+        ? { login_token: tokenData.token }
         : {
             login: tokenData.sip_username,
             password: tokenData.sip_password,
