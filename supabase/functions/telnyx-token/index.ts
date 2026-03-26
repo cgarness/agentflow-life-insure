@@ -85,7 +85,11 @@ Deno.serve(async (req) => {
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ connection_id: connectionId }),
+          body: JSON.stringify({ 
+        connection_id: connectionId,
+        expires_at: new Date(Date.now() + 86400000).toISOString(), // 24 hours
+        name: `AgentFlow-${user.id.substring(0, 8)}`,
+      }),
         });
 
         if (!credRes.ok) {
@@ -112,8 +116,7 @@ Deno.serve(async (req) => {
           throw new Error(`Failed to generate Telnyx token: ${errorText}`);
         }
 
-        const tokenDataResponse = await tokenRes.json();
-        const token = tokenDataResponse.data;
+        const token = await tokenRes.text();
 
         return new Response(
           JSON.stringify({
