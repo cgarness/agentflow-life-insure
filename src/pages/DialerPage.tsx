@@ -1376,22 +1376,37 @@ export default function DialerPage() {
       const masterId = currentLead.lead_id || currentLead.id;
       const { first_name, last_name, phone, email, state, age, date_of_birth, health_status, best_time_to_call, spouse_info, source, ...customFields } = editForm;
       
+      const parsedAge = age ? parseInt(String(age)) : undefined;
       const updateData: any = {
         firstName: first_name,
         lastName: last_name,
         phone,
         email,
         state,
-        age: age ? parseInt(String(age)) : undefined,
+        age: isNaN(Number(parsedAge)) ? undefined : Number(parsedAge),
         dateOfBirth: date_of_birth,
         healthStatus: health_status,
         bestTimeToCall: best_time_to_call,
-        spouseInfo: spouse_info,
+        spouseInfo: spouse_info || "",
         leadSource: source,
         customFields
       };
 
       await leadsSupabaseApi.update(masterId, updateData);
+      
+      // Update denormalized fields in campaign_leads if it's a campaign lead
+      if (currentLead.id && currentLead.id !== masterId) {
+        await supabase
+          .from('campaign_leads')
+          .update({
+            first_name,
+            last_name,
+            phone,
+            email,
+            state
+          })
+          .eq('id', currentLead.id);
+      }
       
       // Update local queue
       setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { 
@@ -1401,7 +1416,7 @@ export default function DialerPage() {
         phone, 
         email, 
         state, 
-        age: age ? parseInt(String(age)) : l.age, 
+        age: isNaN(Number(parsedAge)) ? l.age : Number(parsedAge), 
         date_of_birth, 
         health_status, 
         best_time_to_call, 
@@ -1874,7 +1889,7 @@ export default function DialerPage() {
       )}
       <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
-      <div className="flex items-center border-b px-4 pt-1 pb-2 gap-4">
+      <div className="flex items-center border-b px-4 py-1 gap-4">
         {/* LEFT */}
         <button
           onClick={() => {
@@ -1902,9 +1917,9 @@ export default function DialerPage() {
         <div className="flex items-center justify-center flex-1 gap-2">
           {statsLoading ? (
             Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-[80px]">
-                <Skeleton className="h-2 w-12 mb-1" />
-                <Skeleton className="h-3 w-8" />
+              <div key={i} className="flex flex-col items-center px-3 py-1 bg-accent/30 border border-border/50 rounded-xl min-w-[70px]">
+                <Skeleton className="h-2 w-10 mb-1" />
+                <Skeleton className="h-2.5 w-6" />
               </div>
             ))
           ) : (
@@ -1918,9 +1933,9 @@ export default function DialerPage() {
             ].map((s) => (
               <div
                 key={s.label}
-                className="flex flex-col items-center px-4 py-1.5 bg-accent/30 border border-border/50 rounded-xl min-w-0 h-20 justify-center transition-all hover:bg-accent/50"
+                className="flex flex-col items-center px-3 py-1 bg-accent/30 border border-border/50 rounded-xl min-w-0 h-14 justify-center transition-all hover:bg-accent/50"
               >
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold truncate w-full text-center">{s.label}</div>
+                <div className="text-[8px] text-muted-foreground uppercase tracking-wider font-semibold truncate w-full text-center">{s.label}</div>
                 <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
               </div>
             ))
@@ -1976,45 +1991,9 @@ export default function DialerPage() {
           <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
             {selectedCampaign?.name ?? "No Campaign"}
           </span>
-          <button
-            onClick={() => setShowEndSessionConfirm(true)}
-            className="border border-destructive text-destructive text-xs px-3 py-1 rounded-lg hover:bg-destructive hover:text-destructive-foreground transition-colors"
-          >
-            Reset Stats
-          </button>
         </div>
       </div>
 
-      {/* Reset Stats confirmation */}
-      {showEndSessionConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border rounded-xl p-6 w-80 flex flex-col gap-4 shadow-xl">
-            <div className="flex flex-col gap-1">
-              <p className="text-sm font-semibold text-foreground">Reset today's stats?</p>
-              <p className="text-xs text-muted-foreground">This cannot be undone.</p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowEndSessionConfirm(false)}
-                className="flex-1 py-2 rounded-lg bg-accent text-foreground text-sm font-medium hover:bg-accent/80"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setDialerStats(null);
-                  setSessionElapsed(0);
-                  setShowEndSessionConfirm(false);
-                  if (user?.id) deleteTodayStats(user.id).catch(() => {});
-                }}
-                className="flex-1 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90"
-              >
-                Reset Stats
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── COLUMNS ── */}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
@@ -2022,10 +2001,38 @@ export default function DialerPage() {
         <div className="w-72 shrink-0 flex flex-col overflow-hidden">
           <div className="bg-card border rounded-xl flex flex-col overflow-hidden h-full">
             {/* Header section — shrink-0 */}
-            <div className="p-4 border-b flex flex-col gap-2 bg-card shrink-0">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-1">
+            <div className="p-3 border-b flex flex-col gap-2 bg-card shrink-0">
+              <div className="flex items-center justify-between gap-2 overflow-hidden">
+                {/* Name / Edit Fields */}
+                {currentLead && (
+                  <div className="flex-1 min-w-0">
+                    {isEditingContact ? (
+                      <div className="flex gap-1">
+                        <input 
+                          value={editForm.first_name || ""}
+                          onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                          className="bg-accent/50 border border-border rounded px-1.5 py-1 text-xs font-bold w-full focus:ring-1 focus:ring-primary outline-none"
+                          placeholder="First"
+                        />
+                        <input 
+                          value={editForm.last_name || ""}
+                          onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                          className="bg-accent/50 border border-border rounded px-1.5 py-1 text-xs font-bold w-full focus:ring-1 focus:ring-primary outline-none"
+                          placeholder="Last"
+                        />
+                      </div>
+                    ) : (
+                      <h2 className="text-sm font-bold text-foreground truncate" title={`${currentLead?.first_name ?? ""} ${currentLead?.last_name ?? ""}`.trim()}>
+                        {`${currentLead?.first_name ?? ""} ${currentLead?.last_name ?? ""}`.trim()}
+                      </h2>
+                    )}
+                  </div>
+                )}
+
+                {/* Actions Group (Arrows + View/Edit) */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {/* Arrows */}
+                  <div className="flex items-center">
                     <button 
                       onClick={() => {
                         if (currentLeadIndex > 0) {
@@ -2040,7 +2047,7 @@ export default function DialerPage() {
                       className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
                       title="Previous Lead"
                     >
-                      <ChevronLeft className="w-5 h-5" />
+                      <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={() => {
@@ -2056,94 +2063,74 @@ export default function DialerPage() {
                       className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
                       title="Next Lead"
                     >
-                      <ChevronRight className="w-5 h-5" />
+                      <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    <button 
-                      onClick={() => setShowFullViewDrawer(true)}
-                      className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
-                      title="Full View"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    {isEditingContact ? (
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={saveInlineEdit}
-                          className="p-1 px-1.5 bg-success/10 text-success hover:bg-success/20 rounded transition-colors"
-                          title="Save Edits"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => setIsEditingContact(false)}
-                          className="p-1 px-1.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded transition-colors"
-                          title="Cancel"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
+                  <div className="w-px h-4 bg-border mx-0.5" />
+
+                  {/* View/Edit */}
+                  <button 
+                    onClick={() => setShowFullViewDrawer(true)}
+                    className="p-1 px-1 text-primary hover:bg-primary/10 rounded transition-colors"
+                    title="Full View"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  {isEditingContact ? (
+                    <div className="flex items-center gap-0.5">
                       <button 
-                        onClick={startEditing}
-                        className="p-1 px-1.5 text-primary hover:bg-primary/10 rounded transition-colors"
-                        title="Edit Contact"
+                        onClick={saveInlineEdit}
+                        className="p-1 px-1 text-success hover:bg-success/10 rounded transition-colors"
+                        title="Save Edits"
                       >
-                        <Pencil className="w-4 h-4" />
+                        <Check className="w-4 h-4" />
                       </button>
-                    )}
-                  </div>
+                      <button 
+                        onClick={() => setIsEditingContact(false)}
+                        className="p-1 px-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={startEditing}
+                      className="p-1 px-1 text-primary hover:bg-primary/10 rounded transition-colors"
+                      title="Edit Contact"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
+              {/* Status and Time */}
               {currentLead && (
-                <div className="flex flex-col gap-1 mt-2">
-                  {isEditingContact ? (
-                    <div className="flex gap-2 justify-center px-4">
-                      <input 
-                        value={editForm.first_name || ""}
-                        onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-                        className="bg-accent/50 border border-border rounded-lg px-2 py-1.5 text-sm font-bold text-center flex-1 focus:ring-1 focus:ring-primary outline-none"
-                        placeholder="First Name"
-                      />
-                      <input 
-                        value={editForm.last_name || ""}
-                        onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-                        className="bg-accent/50 border border-border rounded-lg px-2 py-1.5 text-sm font-bold text-center flex-1 focus:ring-1 focus:ring-primary outline-none"
-                        placeholder="Last Name"
-                      />
-                    </div>
-                  ) : (
-                    <h2 className="text-xl font-bold text-foreground tracking-tight text-center">
-                      {`${currentLead?.first_name ?? ""} ${currentLead?.last_name ?? ""}`.trim()}
-                    </h2>
-                  )}
-                  <div className="flex flex-col gap-2 items-center">
-                    <div className="relative w-full">
-                      <select
-                        value={currentLead?.status || ""}
-                        onChange={(e) => handleStatusChange(e.target.value)}
-                        className="w-full text-[10px] text-center uppercase tracking-widest font-bold rounded-md px-6 py-1 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
-                        style={getStatusColorStyle(currentStatusColor)}
-                      >
-                        {leadStages.map(s => (
-                          <option key={s.id} value={s.name} style={{ color: s.color }}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
-                    </div>
-                    
-                    {contactLocalTimeDisplay && (
-                      <div className="inline-flex items-center justify-center text-green-500 text-[10px] font-bold">
-                        <Clock className="w-2.5 h-2.5 mr-1" />
-                        {contactLocalTimeDisplay}
-                      </div>
-                    )}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <select
+                      value={currentLead?.status || ""}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      className="w-full text-[10px] text-center uppercase tracking-widest font-bold rounded-md px-6 py-1 border border-transparent appearance-none focus:ring-0 cursor-pointer transition-colors"
+                      style={getStatusColorStyle(currentStatusColor)}
+                    >
+                      {leadStages.map(s => (
+                        <option key={s.id} value={s.name} style={{ color: s.color }}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
                   </div>
+                  
+                  {contactLocalTimeDisplay && (
+                    <div className="shrink-0 inline-flex items-center justify-center text-green-500 text-[10px] font-bold">
+                      <Clock className="w-2.5 h-2.5 mr-1" />
+                      {contactLocalTimeDisplay}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
