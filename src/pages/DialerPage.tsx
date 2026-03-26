@@ -2243,12 +2243,12 @@ export default function DialerPage() {
                 <MessageSquare className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-sm text-foreground">Conversation History</span>
               </div>
-              <div className="flex items-center gap-3 px-3 py-1.5 bg-accent/40 rounded-lg border border-border">
-                <span className="text-[11px] text-muted-foreground font-bold uppercase tracking-tight">Calling From:</span>
+              <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">From:</span>
                 <select
                   value={selectedCallerNumber}
                   onChange={(e) => setSelectedCallerNumber(e.target.value)}
-                  className="bg-transparent border-none text-sm font-bold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all"
+                  className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all"
                 >
                   <option value="">AI Local Presence</option>
                   {availableNumbers.map(n => (

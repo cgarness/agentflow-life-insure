@@ -110,8 +110,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     supabase
       .from("phone_numbers")
       .select("phone_number, is_default, spam_status, area_code, friendly_name")
-      .eq("organization_id", organizationId)
-      .eq("status", "active")
+      .or(`organization_id.eq.${organizationId},organization_id.is.null`)
+      .in("status", ["active", "Active"])
       .then(({ data }) => {
         if (data) {
           setAvailableNumbers(data);
