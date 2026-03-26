@@ -48,8 +48,6 @@ interface FormState {
   automationName: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
-  removeFromQueue: boolean;
-  autoAddToDnc: boolean;
 }
 
 const emptyForm: FormState = {
@@ -64,8 +62,6 @@ const emptyForm: FormState = {
   automationName: "",
   campaignAction: "none",
   dncAutoAdd: false,
-  removeFromQueue: false,
-  autoAddToDnc: false,
 };
 
 const DispositionsManager: React.FC = () => {
@@ -132,8 +128,6 @@ const DispositionsManager: React.FC = () => {
       automationName: d.automationName || "",
       campaignAction: d.campaignAction || "none",
       dncAutoAdd: d.dncAutoAdd || false,
-      removeFromQueue: d.removeFromQueue || false,
-      autoAddToDnc: d.autoAddToDnc || false,
     });
     setShowModal(true);
   };
@@ -167,8 +161,6 @@ const DispositionsManager: React.FC = () => {
           automationName: form.automationTrigger ? form.automationName : undefined,
           campaignAction: form.campaignAction,
           dncAutoAdd: form.dncAutoAdd,
-          removeFromQueue: form.removeFromQueue,
-          autoAddToDnc: form.autoAddToDnc,
         });
         toast({ title: "Disposition updated" });
       } else {
@@ -185,8 +177,6 @@ const DispositionsManager: React.FC = () => {
           automationName: form.automationTrigger ? form.automationName : undefined,
           campaignAction: form.campaignAction,
           dncAutoAdd: form.dncAutoAdd,
-          removeFromQueue: form.removeFromQueue,
-          autoAddToDnc: form.autoAddToDnc,
           order: dispositions.length + 1,
         }, organizationId);
         toast({ title: "Disposition created" });
@@ -625,7 +615,7 @@ const DispositionsManager: React.FC = () => {
               )}
             </div>
 
-            {/* Auto-Add to DNC (legacy) */}
+            {/* Auto-Add to DNC */}
             <div className="rounded-lg border p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex-1 pr-4">
@@ -640,68 +630,6 @@ const DispositionsManager: React.FC = () => {
                 />
               </div>
             </div>
-
-            {/* Remove from Dialing Queue */}
-            {(isEditingLocked && form.name === "DNC") ? (
-              <div className="rounded-lg border p-3 space-y-2 opacity-50 cursor-not-allowed pointer-events-none">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 pr-4">
-                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5" /> Remove from Dialing Queue
-                      <Lock className="w-3 h-3 text-muted-foreground" />
-                    </p>
-                    <p className="text-xs text-muted-foreground">When selected, this lead will be removed from the active campaign queue.</p>
-                  </div>
-                  <Switch checked={true} onCheckedChange={() => {}} />
-                </div>
-              </div>
-            ) : !isEditingLocked ? (
-              <div className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 pr-4">
-                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5" /> Remove from Dialing Queue
-                    </p>
-                    <p className="text-xs text-muted-foreground">When selected, this lead will be removed from the active campaign queue.</p>
-                  </div>
-                  <Switch
-                    checked={form.removeFromQueue}
-                    onCheckedChange={v => setForm(f => ({ ...f, removeFromQueue: v }))}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {/* Auto-add to DNC List */}
-            {(isEditingLocked && form.name === "DNC") ? (
-              <div className="rounded-lg border p-3 space-y-2 opacity-50 cursor-not-allowed pointer-events-none">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 pr-4">
-                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                      <ShieldBan className="w-3.5 h-3.5" /> Auto-add to DNC List
-                      <Lock className="w-3 h-3 text-muted-foreground" />
-                    </p>
-                    <p className="text-xs text-muted-foreground">Automatically adds this contact to the Do Not Call list when this disposition is selected.</p>
-                  </div>
-                  <Switch checked={true} onCheckedChange={() => {}} />
-                </div>
-              </div>
-            ) : !isEditingLocked ? (
-              <div className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 pr-4">
-                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                      <ShieldBan className="w-3.5 h-3.5" /> Auto-add to DNC List
-                    </p>
-                    <p className="text-xs text-muted-foreground">Automatically adds this contact to the Do Not Call list when this disposition is selected.</p>
-                  </div>
-                  <Switch
-                    checked={form.autoAddToDnc}
-                    onCheckedChange={v => setForm(f => ({ ...f, autoAddToDnc: v }))}
-                  />
-                </div>
-              </div>
-            ) : null}
 
           </div>
 

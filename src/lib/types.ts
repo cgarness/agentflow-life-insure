@@ -268,8 +268,6 @@ export interface Disposition {
   automationName?: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
-  removeFromQueue: boolean;
-  autoAddToDnc: boolean;
   order: number;
   usageCount: number;
   createdAt: string;

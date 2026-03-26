@@ -1888,9 +1888,17 @@ const ContactManagement: React.FC = () => {
           updatedAt: new Date().toISOString(),
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching contact settings:", err);
-      toast({ title: "Error loading contact settings", variant: "destructive" });
+      if (err?.code === "PGRST205") {
+        toast({ 
+          title: "Database setup required", 
+          description: "The settings table is missing. Please run the required SQL migrations in your Supabase dashboard.",
+          variant: "destructive" 
+        });
+      } else {
+        toast({ title: "Error loading contact settings", variant: "destructive" });
+      }
     } finally {
       setLoadingSettings(false);
     }
