@@ -23,7 +23,7 @@ interface ImportHistoryEntry {
 type DuplicateHandling = "skip" | "update" | "import_new";
 
 const AGENTFLOW_FIELDS = [
-  "First Name", "Last Name", "Phone", "Email", "State", "Lead Source",
+  "First Name", "Last Name", "Full Name", "Phone", "Email", "State", "Lead Source",
   "Age", "Date of Birth", "Health Status", "Best Time to Call", "Notes", "Assigned Agent",
 ] as const;
 
@@ -32,6 +32,7 @@ type AgentFlowField = typeof AGENTFLOW_FIELDS[number];
 const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
   "First Name": ["first name", "firstname", "first", "fname", "given name"],
   "Last Name": ["last name", "lastname", "last", "lname", "surname", "family name"],
+  "Full Name": ["full name", "fullname", "name", "complete name", "contact name", "customer name", "lead name"],
   "Phone": ["phone", "phone number", "cell", "mobile", "telephone", "contact number", "primary phone"],
   "Email": ["email", "email address", "e-mail", "mail"],
   "State": ["state", "st", "province", "region", "location"],
@@ -98,6 +99,17 @@ function fuzzyMatch(csvHeader: string): AgentFlowField | null {
 
 function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
+}
+
+function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const trimmed = fullName.trim();
+  if (!trimmed) return { firstName: "", lastName: "" };
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
 }
 
 function formatFileSize(bytes: number): string {
@@ -233,7 +245,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   }, [mappings]);
 
   const phoneIsMapped = useMemo(() => Object.values(mappings).includes("Phone"), [mappings]);
-  const nameIsMapped = useMemo(() => Object.values(mappings).includes("First Name") || Object.values(mappings).includes("Last Name"), [mappings]);
+  const nameIsMapped = useMemo(() => 
+    Object.values(mappings).includes("First Name") || 
+    Object.values(mappings).includes("Last Name") ||
+    Object.values(mappings).includes("Full Name"), 
+    [mappings]
+  );
 
   const duplicateMappings = useMemo(() => {
     const vals = Object.entries(mappings).filter(([, v]) => v !== "Do Not Import");
@@ -318,15 +335,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       const phoneIdx = fieldToColIdx["Phone"];
       const firstNameIdx = fieldToColIdx["First Name"];
       const lastNameIdx = fieldToColIdx["Last Name"];
+      const fullNameIdx = fieldToColIdx["Full Name"];
       const emailIdx = fieldToColIdx["Email"];
 
       const phone = phoneIdx !== undefined ? row[phoneIdx]?.trim() : "";
       const firstName = firstNameIdx !== undefined ? row[firstNameIdx]?.trim() : "";
       const lastName = lastNameIdx !== undefined ? row[lastNameIdx]?.trim() : "";
+      const fullName = fullNameIdx !== undefined ? row[fullNameIdx]?.trim() : "";
       const email = emailIdx !== undefined ? row[emailIdx]?.trim() : "";
 
       if (!phone) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Phone is missing" }); return; }
-      if (!firstName && !lastName) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Name is missing" }); return; }
+      if (!firstName && !lastName && !fullName) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Name is missing" }); return; }
 
       const normalizedPhone = normalizePhone(phone);
       const normalizedEmail = email.toLowerCase();
@@ -430,10 +449,20 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           if (r.status === "duplicate") { duplicates++; }
 
           if (r.status === "ready" || (r.status === "duplicate" && duplicateHandling !== "skip")) {
+            const rawFullName = getVal(r.row, "Full Name");
+            let firstName = getVal(r.row, "First Name");
+            let lastName = getVal(r.row, "Last Name");
+
+            if (!firstName && !lastName && rawFullName) {
+              const split = splitFullName(rawFullName);
+              firstName = split.firstName;
+              lastName = split.lastName;
+            }
+
             const lead: Lead = {
               id: uid(),
-              firstName: getVal(r.row, "First Name"),
-              lastName: getVal(r.row, "Last Name"),
+              firstName,
+              lastName,
               phone: getVal(r.row, "Phone"),
               email: getVal(r.row, "Email"),
               state: getVal(r.row, "State"),
@@ -451,6 +480,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               customFields: {
                 ...(campaignId ? { campaignId } : {}),
                 ...(tags.length > 0 ? { tags } : {}),
+                ...(rawFullName ? { "Full Name": rawFullName } : {}),
               },
             };
             newLeads.push(lead);
