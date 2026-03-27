@@ -662,7 +662,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               <TooltipTrigger asChild>
                 <Button 
                   className="h-10 px-4 flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
-                  onClick={() => setShowAppt(true)}
+                  onClick={(e) => { e.stopPropagation(); setShowAppt(true); }}
                 >
                   <Calendar className="w-4 h-4" /> Schedule
                 </Button>
