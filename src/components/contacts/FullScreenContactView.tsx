@@ -632,8 +632,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
         {/* RIGHT SECTION - aligned with Right Column */}
         <div className="w-[340px] flex items-center justify-end gap-3 shrink-0 pl-6">
-          <TooltipProvider>
-            <Tooltip>
+          <TooltipProvider disableHoverableContent={false}>
+            <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button 
                   className="h-10 px-4 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all font-semibold"
@@ -653,10 +653,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                   <Phone className="w-4 h-4 fill-current" /> Call
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Start call via dialer</TooltipContent>
+              <TooltipContent className="z-[200]" side="bottom" sideOffset={8}>Start call via dialer</TooltipContent>
             </Tooltip>
 
-            <Tooltip>
+            <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button 
                   className="h-10 px-4 flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
@@ -665,11 +665,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                   <Calendar className="w-4 h-4" /> Schedule
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Schedule an appointment</TooltipContent>
+              <TooltipContent className="z-[200]" side="bottom" sideOffset={8}>Schedule an appointment</TooltipContent>
             </Tooltip>
 
             {type === "lead" && onConvert && (
-              <Tooltip>
+              <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <Button 
                     className="h-10 px-4 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
@@ -678,7 +678,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                     <ArrowLeft className="w-4 h-4 rotate-180" /> Convert
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Convert lead to client</TooltipContent>
+                <TooltipContent className="z-[200]" side="bottom" sideOffset={8}>Convert lead to client</TooltipContent>
               </Tooltip>
             )}
           </TooltipProvider>
