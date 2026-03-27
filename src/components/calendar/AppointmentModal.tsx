@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, Phone, MessageSquare, Mail, Plus, Clock } from "lucide-react";
+import { Phone, MessageSquare, Mail, Plus, Clock } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 
 import { toast as toastSonner } from "sonner";
@@ -9,8 +9,10 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import ContactMiniCard from "./ContactMiniCard";
-
+import { cn } from "@/lib/utils";
 
 const TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Other"];
 const STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
@@ -86,7 +88,11 @@ const TimeSelect: React.FC<{
             onChange={(e) => onChange(e.target.value.toUpperCase())}
             onBlur={onBlur}
             placeholder={placeholder}
-            className={`${className} pr-10 ${error ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+            className={cn(
+              "pr-10 h-9",
+              error && "border-destructive focus-visible:ring-destructive",
+              className
+            )}
             onFocus={() => setOpen(true)}
           />
         </PopoverTrigger>
@@ -94,7 +100,6 @@ const TimeSelect: React.FC<{
       </div>
       <PopoverContent className="w-[220px] p-0 z-[200]" align="start">
         <div className="flex h-72 divide-x divide-border overflow-hidden">
-          {/* Hours */}
           <ScrollArea className="flex-1">
             <div className="p-1 space-y-0.5">
               <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase text-center sticky top-0 bg-popover z-10">Hr</div>
@@ -102,7 +107,10 @@ const TimeSelect: React.FC<{
                 <button
                   key={h}
                   type="button"
-                  className={`w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors ${h === currentH ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"}`}
+                  className={cn(
+                    "w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors",
+                    h === currentH ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"
+                  )}
                   onClick={() => updateValue(h)}
                 >
                   {h}
@@ -110,7 +118,6 @@ const TimeSelect: React.FC<{
               ))}
             </div>
           </ScrollArea>
-          {/* Minutes */}
           <ScrollArea className="flex-1 border-x border-border">
             <div className="p-1 space-y-0.5">
               <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase text-center sticky top-0 bg-popover z-10">Min</div>
@@ -118,7 +125,10 @@ const TimeSelect: React.FC<{
                 <button
                   key={m}
                   type="button"
-                  className={`w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors ${m === currentM ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"}`}
+                  className={cn(
+                    "w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors",
+                    m === currentM ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"
+                  )}
                   onClick={() => updateValue(undefined, m)}
                 >
                   {m}
@@ -126,7 +136,6 @@ const TimeSelect: React.FC<{
               ))}
             </div>
           </ScrollArea>
-          {/* AM/PM */}
           <ScrollArea className="w-[60px]">
             <div className="p-1 space-y-0.5">
               <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground uppercase text-center sticky top-0 bg-popover z-10"></div>
@@ -134,7 +143,10 @@ const TimeSelect: React.FC<{
                 <button
                   key={p}
                   type="button"
-                  className={`w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors ${p === currentP ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"}`}
+                  className={cn(
+                    "w-full text-center px-2 py-1.5 text-xs rounded-sm transition-colors",
+                    p === currentP ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-accent"
+                  )}
                   onClick={() => updateValue(undefined, undefined, p)}
                 >
                   {p}
@@ -148,8 +160,6 @@ const TimeSelect: React.FC<{
   );
 };
 
-
-
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -158,9 +168,7 @@ interface Props {
   editing?: CalendarAppointment | null;
   defaultDate?: Date;
   defaultTime?: string;
-  /** Pre-fill contact name (locks the contact field) */
   prefillContactName?: string;
-  /** Pre-fill contact id */
   prefillContactId?: string;
 }
 
@@ -193,17 +201,15 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [newPhone, setNewPhone] = useState("");
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
 
-  // Fetch active agents from Supabase
   useEffect(() => {
     supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
-      if (data) setAgents(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (data) setAgents(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" })));
     });
   }, []);
 
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Current user is Admin
   const currentUserRole = "Admin";
 
   useEffect(() => {
@@ -270,18 +276,12 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     fetchLeadInfo();
   }, [contactId]);
 
-  // Auto-populate end time based on duration
   useEffect(() => {
     if (editing || userInteractedWithEnd) return;
-    
     const startMin = timeToMinutes(startTime);
     const duration = TYPE_DURATIONS[type] || 30;
     setEndTime(minutesToTime(startMin + duration));
   }, [type, startTime, editing, userInteractedWithEnd]);
-
-  if (!open) return null;
-
-  const contactFirstName = contactName.split(" ")[0] || "Contact";
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -312,14 +312,12 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     onClose();
   };
 
-
   const handleDelete = () => {
     if (editing && onDelete) {
       onDelete(editing.id);
       toastSonner.error("Appointment deleted");
       onClose();
     }
-
   };
 
   const handleBadgeClick = (e: React.MouseEvent) => {
@@ -328,82 +326,93 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     setMiniCardOpen(true);
   };
 
-  const inputCls = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-full max-w-[560px] bg-card border border-border rounded-lg shadow-2xl mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-border">
-          <h2 className="text-lg font-semibold text-foreground">{editing ? "Edit Appointment" : "Schedule Appointment"}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors duration-150"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          {/* Contact Name — first field */}
+    <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
+      <DialogContent className="max-w-[480px] p-0 overflow-hidden border-none shadow-2xl bg-card">
+        <DialogHeader className="p-5 border-b border-border bg-muted/20">
+          <DialogTitle className="text-xl font-bold tracking-tight">
+            {editing ? "Edit Appointment" : "Schedule Appointment"}
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground font-medium text-xs">
+            Plan your next engagement with precision.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto no-scrollbar">
+          {/* Contact Section */}
           {(editing && contactId && contactInfo) || prefillContactName ? (
-            <div className="mb-6">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Contact</p>
-              <div className="flex items-center gap-3">
-                <button onClick={contactInfo ? handleBadgeClick : undefined}
-                  className="text-lg font-semibold px-4 py-2 rounded-full transition-colors duration-150"
-                  style={{ backgroundColor: "#14B8A626", color: "#14B8A6", border: "1px solid #14B8A64D", cursor: contactInfo ? "pointer" : "default" }}>
-                  {contactInfo?.name || prefillContactName}
+            <div className="bg-accent/30 rounded-xl p-4 border border-border/50">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 block">Designated Contact</label>
+              <div className="flex items-center justify-between">
+                <button 
+                  onClick={contactInfo ? handleBadgeClick : undefined}
+                  className="flex items-center gap-2 group transition-all"
+                >
+                  <div className="w-10 h-10 rounded-full bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-600 font-bold text-sm shadow-sm group-hover:bg-teal-500/20">
+                    {(contactInfo?.name || prefillContactName)?.[0]}
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{contactInfo?.name || prefillContactName}</p>
+                    <p className="text-[11px] text-muted-foreground font-medium">{contactInfo?.phone || "No phone listed"}</p>
+                  </div>
                 </button>
-                {contactInfo && (
-                  <button onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); setMiniCardOpen(false); onClose(); toastSonner.info(`Opening contact record for ${contactInfo.name}`); }}
-                    className="text-sm hover:underline cursor-pointer" style={{ color: "#3B82F6" }}>
-                    View Contact →
-                  </button>
+                {contactId && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 text-[11px] font-bold text-primary gap-1 hover:bg-primary/10"
+                    onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); onClose(); }}
+                  >
+                    View CRM <Plus className="w-3 h-3 rotate-45" />
+                  </Button>
                 )}
               </div>
             </div>
           ) : (
             <div className="relative">
-              <label className="text-sm font-medium text-foreground block mb-1">Contact Name</label>
-              <input
-                ref={contactInputRef}
-                value={contactName}
-                onChange={async (e) => {
-                  const val = e.target.value;
-                  setContactName(val);
-                  setShowCreateForm(false);
-                  setSelectedContactId("");
-                  
-                  if (val.trim().length >= 2) {
-                    setContactDropdownOpen(true);
-                    setSearchLoading(true);
-                    const { data, error } = await supabase
-                      .from('leads')
-                      .select('id, first_name, last_name, phone, email')
-                      .or(`first_name.ilike.%${val}%,last_name.ilike.%${val}%,phone.ilike.%${val}%`)
-                      .limit(5);
-                    if (!error && data) {
-                      setContactResults(data.map(l => ({ 
-                        id: l.id, 
-                        name: `${l.first_name} ${l.last_name}`, 
-                        phone: l.phone || "", 
-                        email: l.email || "" 
-                      })));
+              <label className="text-xs font-bold text-foreground uppercase tracking-wider mb-1.5 block">Contact Search</label>
+              <div className="relative">
+                <Input
+                  ref={contactInputRef}
+                  value={contactName}
+                  onChange={async (e) => {
+                    const val = e.target.value;
+                    setContactName(val);
+                    setShowCreateForm(false);
+                    setSelectedContactId("");
+                    if (val.trim().length >= 2) {
+                      setContactDropdownOpen(true);
+                      setSearchLoading(true);
+                      const { data, error } = await supabase
+                        .from('leads')
+                        .select('id, first_name, last_name, phone, email')
+                        .or(`first_name.ilike.%${val}%,last_name.ilike.%${val}%,phone.ilike.%${val}%`)
+                        .limit(5);
+                      if (!error && data) {
+                        setContactResults(data.map(l => ({ 
+                          id: l.id, 
+                          name: `${l.first_name} ${l.last_name}`, 
+                          phone: l.phone || "", 
+                          email: l.email || "" 
+                        })));
+                      }
+                      setSearchLoading(false);
+                    } else {
+                      setContactDropdownOpen(false);
+                      setContactResults([]);
                     }
-                    setSearchLoading(false);
-                  } else {
-                    setContactDropdownOpen(false);
-                    setContactResults([]);
-                  }
-                }}
-                onFocus={() => { if (contactName.trim().length >= 2) setContactDropdownOpen(true); }}
-                onBlur={() => { setTimeout(() => setContactDropdownOpen(false), 200); }}
-                placeholder="Search or enter contact name"
-                className={`${inputCls} text-base placeholder:text-muted-foreground`}
-                autoComplete="off"
-              />
-              {!showCreateForm && <p className="text-xs text-muted-foreground mt-1">Type 2+ chars to search leads</p>}
+                  }}
+                  onFocus={() => { if (contactName.trim().length >= 2) setContactDropdownOpen(true); }}
+                  placeholder="Search lead by name or phone..."
+                  className="h-10 text-sm shadow-sm border-border focus-visible:ring-primary/20"
+                />
+              </div>
 
-
-              {/* Search dropdown */}
               {contactDropdownOpen && !showCreateForm && (
-                 <div ref={dropdownRef} className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                    {searchLoading && <div className="px-3 py-2 text-xs text-muted-foreground italic">Searching leads...</div>}
+                 <div ref={dropdownRef} className="absolute z-50 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-xl max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150">
+                    {searchLoading && <div className="px-4 py-3 text-xs text-muted-foreground italic flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full border-2 border-primary border-t-transparent animate-spin" /> Searching...
+                    </div>}
                     {!searchLoading && contactResults.map(c => (
                       <button
                         key={c.id}
@@ -413,18 +422,16 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                           setContactName(c.name);
                           setSelectedContactId(c.id);
                           setContactDropdownOpen(false);
-                          if (!title.trim()) {
-                            setTitle(`Call with ${c.name.split(" ")[0]}`);
-                          }
+                          if (!title.trim()) setTitle(`Call with ${c.name.split(" ")[0]}`);
                         }}
-                        className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors duration-150 flex items-center justify-between"
+                        className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-accent flex items-center justify-between border-b border-border last:border-0 transition-colors"
                       >
-                        <span>{c.name}</span>
-                        <span className="text-xs text-muted-foreground">{c.phone}</span>
+                        <span className="font-semibold">{c.name}</span>
+                        <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{c.phone}</span>
                       </button>
                     ))}
                     {!searchLoading && contactResults.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">No leads found</div>
+                      <div className="px-4 py-3 text-xs text-muted-foreground font-medium">No results found</div>
                     )}
                     {!searchLoading && (
                       <button
@@ -436,234 +443,231 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                           const parts = contactName.trim().split(/\s+/);
                           setNewFirstName(parts[0] || "");
                           setNewLastName(parts.slice(1).join(" ") || "");
-                          setNewPhone("");
-                          setNewEmail("");
                         }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent/50 transition-colors duration-150 flex items-center gap-2"
-                        style={{ backgroundColor: "#3B82F60D" }}
+                        className="w-full text-left px-4 py-3 text-xs font-bold text-primary hover:bg-primary/5 flex items-center gap-2 bg-primary/10 transition-colors"
                       >
-                        <Plus className="w-4 h-4" style={{ color: "#3B82F6" }} />
-                        <span style={{ color: "#3B82F6" }} className="font-medium">Create new lead: {contactName}</span>
+                        <Plus className="w-4 h-4" />
+                        <span>Quick Create: "{contactName}"</span>
                       </button>
                     )}
                   </div>
               )}
 
-
-              {/* Inline mini-form for creating a new contact */}
               {showCreateForm && (
-                <div className="mt-3 p-4 rounded-lg border border-border bg-accent/30 space-y-3">
-                  <p className="text-sm font-semibold text-foreground">Create New Contact</p>
+                <div className="mt-3 p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-4 animate-in zoom-in-95 duration-200 shadow-inner">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-primary uppercase tracking-wider">New Lead Entry</p>
+                    <button onClick={() => setShowCreateForm(false)} className="text-[10px] text-muted-foreground hover:text-foreground underline">Back to Search</button>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
-                      <input value={newFirstName} onChange={e => setNewFirstName(e.target.value)} className={inputCls} placeholder="First name" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
-                      <input value={newLastName} onChange={e => setNewLastName(e.target.value)} className={inputCls} placeholder="Last name" />
-                    </div>
+                    <Input value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First Name *" className="h-9 text-xs" />
+                    <Input value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last Name *" className="h-9 text-xs" />
                   </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Phone Number *</label>
-                    <input value={newPhone} onChange={e => setNewPhone(e.target.value)} className={inputCls} placeholder="(555) 000-0000" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Email (optional)</label>
-                    <input value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputCls} placeholder="email@example.com" />
-                  </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!newFirstName.trim() || !newLastName.trim() || !newPhone.trim()) {
-                          toastSonner.error("First name, last name, and phone are required");
-                          return;
-                        }
-                        
-                        const { data: newLead, error } = await supabase
-                          .from('leads')
-                          .insert([{
-                            first_name: newFirstName.trim(),
-                            last_name: newLastName.trim(),
-                            phone: newPhone.trim(),
-                            email: newEmail.trim() || null,
-                            status: "New",
-                            organization_id: organizationId,
-                          }] as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-                          .select().single();
+                  <Input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Phone Number *" className="h-9 text-xs" />
+                  <Input value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email Address (Optional)" className="h-9 text-xs" />
+                  <Button
+                    size="sm"
+                    className="w-full h-8 text-[11px] font-bold uppercase tracking-wider bg-primary hover:bg-primary/90"
+                    onClick={async () => {
+                      if (!newFirstName.trim() || !newLastName.trim() || !newPhone.trim()) {
+                        toastSonner.error("Required fields missing");
+                        return;
+                      }
+                      const { data: newLead, error } = await supabase
+                        .from('leads')
+                        .insert([{
+                          first_name: newFirstName.trim(),
+                          last_name: newLastName.trim(),
+                          phone: newPhone.trim(),
+                          email: newEmail.trim() || null,
+                          status: "New",
+                          organization_id: organizationId,
+                        }])
+                        .select().single();
 
-                        if (error || !newLead) {
-                          toastSonner.error("Failed to create lead");
-                          return;
-                        }
-
-                        const fullName = `${newLead.first_name} ${newLead.last_name}`;
-                        setContactName(fullName);
-                        setSelectedContactId(newLead.id);
-                        setShowCreateForm(false);
-                        if (!title.trim()) {
-                          setTitle(`Call with ${newLead.first_name}`);
-                        }
-                        toastSonner.success("New lead created");
-                      }}
-                      className="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors duration-150"
-                      style={{ backgroundColor: "#3B82F6" }}
-                    >
-                      Save Lead & Continue
-
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateForm(false)}
-                      className="px-3 py-2 rounded-md text-sm font-medium text-muted-foreground border border-border hover:bg-accent transition-colors duration-150"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                      if (error || !newLead) {
+                        toastSonner.error("Lead creation failed");
+                        return;
+                      }
+                      setContactName(`${newLead.first_name} ${newLead.last_name}`);
+                      setSelectedContactId(newLead.id);
+                      setShowCreateForm(false);
+                      if (!title.trim()) setTitle(`Call with ${newLead.first_name}`);
+                      toastSonner.success("Lead registered");
+                    }}
+                  >
+                    Save & Proceed
+                  </Button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Title */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Title *</label>
-            <input value={title} onChange={e => { setTitle(e.target.value); if (errors.title) setErrors(p => { const n = {...p}; delete n.title; return n; }); }}
-              placeholder="Appointment title" className={`${inputCls} ${errors.title ? "border-red-500" : ""}`} />
-            {errors.title && <p className="text-xs text-red-500 mt-0.5">{errors.title}</p>}
-          </div>
-          {/* Type */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Appointment Type *</label>
-            <select value={type} onChange={e => setType(e.target.value as CalAppointmentType)} className={`${inputCls} ${errors.type ? "border-red-500" : ""}`}>
-              {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            {errors.type && <p className="text-xs text-red-500 mt-0.5">{errors.type}</p>}
-          </div>
-          {/* Status */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Status</label>
-            <select value={status} onChange={e => setStatus(e.target.value as CalAppointmentStatus)} className={inputCls}>
-              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          {/* Date */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Date *</label>
-            <input type="date" value={date} onChange={e => { setDate(e.target.value); if (errors.date) setErrors(p => { const n = {...p}; delete n.date; return n; }); }}
-              className={`${inputCls} ${errors.date ? "border-red-500" : ""}`} />
-            {errors.date && <p className="text-xs text-red-500 mt-0.5">{errors.date}</p>}
-          </div>
-          {/* Time Row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-muted-foreground block mb-1">Start Time *</label>
-              <TimeSelect 
-                value={startTime} 
-                onChange={setStartTime} 
-                placeholder="10:00 AM"
-                error={!!errors.startTime}
-              />
-              {errors.startTime && <p className="text-xs text-red-500 mt-0.5">{errors.startTime}</p>}
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground block mb-1">End Time *</label>
-              <TimeSelect 
-                value={endTime} 
-                onChange={val => {
-                  setEndTime(val);
-                  setUserInteractedWithEnd(true);
-                }} 
-                placeholder="10:30 AM"
-                error={!!errors.endTime}
-              />
-              {errors.endTime && <p className="text-xs text-red-500 mt-0.5">{errors.endTime}</p>}
-            </div>
-          </div>
-
-          {/* Agent */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Agent</label>
-            {currentUserRole === "Admin" || currentUserRole === "Team Leader" ? (
-              <select value={agent} onChange={e => setAgent(e.target.value)} className={inputCls}>
-                {agents.map(a => (
-                  <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
-                ))}
-              </select>
-            ) : (
-              <div className="w-full h-9 px-3 rounded-md text-sm text-foreground flex items-center cursor-default" style={{ backgroundColor: "#33415580" }}>
-                {agent}
+          {/* Appointment Details */}
+          <div className="space-y-4 pt-2 border-t border-border/50">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Subject *</label>
+                <Input 
+                  value={title} 
+                  onChange={e => { setTitle(e.target.value); if (errors.title) setErrors(p => { const n = {...p}; delete n.title; return n; }); }}
+                  placeholder="What is this call about?" 
+                  className={cn("h-10 text-sm shadow-sm", errors.title && "border-destructive ring-destructive/20")} 
+                />
               </div>
-            )}
+
+              <div>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Type</label>
+                <select 
+                  value={type} 
+                  onChange={e => setType(e.target.value as CalAppointmentType)} 
+                  className="w-full h-10 px-3 rounded-md bg-background text-sm text-foreground border border-input focus:ring-2 focus:ring-ring focus:outline-none shadow-sm"
+                >
+                  {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Status</label>
+                <select 
+                  value={status} 
+                  onChange={e => setStatus(e.target.value as CalAppointmentStatus)} 
+                  className="w-full h-10 px-3 rounded-md bg-background text-sm text-foreground border border-input focus:ring-2 focus:ring-ring focus:outline-none shadow-sm"
+                >
+                  {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Scheduled Date *</label>
+                <Input 
+                  type="date" 
+                  value={date} 
+                  onChange={e => { setDate(e.target.value); if (errors.date) setErrors(p => { const n = {...p}; delete n.date; return n; }); }}
+                  className={cn("h-10 text-sm shadow-sm", errors.date && "border-destructive ring-destructive/20")} 
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Starts *</label>
+                <TimeSelect 
+                  value={startTime} 
+                  onChange={setStartTime} 
+                  placeholder="Start Time"
+                  error={!!errors.startTime}
+                  className="shadow-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Ends *</label>
+                <TimeSelect 
+                  value={endTime} 
+                  onChange={val => { setEndTime(val); setUserInteractedWithEnd(true); }} 
+                  placeholder="End Time"
+                  error={!!errors.endTime}
+                  className="shadow-sm"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Assigned Advisor</label>
+                <select 
+                  value={agent} 
+                  onChange={e => setAgent(e.target.value)} 
+                  className="w-full h-10 px-3 rounded-md bg-background text-sm text-foreground border border-input focus:ring-2 focus:ring-ring focus:outline-none shadow-sm"
+                  disabled={currentUserRole !== "Admin" && currentUserRole !== "Team Leader"}
+                >
+                  {agents.map(a => (
+                    <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5 block">Internal Notes</label>
+                <textarea 
+                  value={notes} 
+                  onChange={e => setNotes(e.target.value)} 
+                  rows={3} 
+                  className="w-full min-h-[80px] px-3 py-2.5 rounded-md bg-background text-sm text-foreground border border-input focus:ring-2 focus:ring-ring focus:outline-none shadow-sm resize-none custom-scrollbar"
+                  placeholder="Add any specific context for the advisor..."
+                />
+              </div>
+            </div>
           </div>
-          {/* Notes */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground block mb-1">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
-          </div>
+          
+          {/* Action Row for Editing */}
+          {editing && (
+            <div className="grid grid-cols-3 gap-2 pt-4 border-t border-border/50">
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="text-[10px] font-bold uppercase gap-1.5 bg-green-500/5 text-green-600 border-green-500/20 hover:bg-green-500/10 h-8"
+                onClick={() => { toastSonner.success(`Preparing dialer...`); window.dispatchEvent(new CustomEvent("openDialer")); }}
+              >
+                <Phone className="w-3 h-3" /> Call {contactName.split(' ')[0]}
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="text-[10px] font-bold uppercase gap-1.5 bg-blue-500/5 text-blue-600 border-blue-500/20 hover:bg-blue-500/10 h-8"
+                onClick={() => toastSonner.success(`Confirmation SMS queued`)}
+              >
+                <MessageSquare className="w-3 h-3" /> SMS Conf
+              </Button>
+               <Button 
+                variant="outline" 
+                size="sm"
+                className="text-[10px] font-bold uppercase gap-1.5 bg-purple-500/5 text-purple-600 border-purple-500/20 hover:bg-purple-500/10 h-8"
+                onClick={() => toastSonner.success(`Confirmation Email queued`)}
+              >
+                <Mail className="w-3 h-3" /> Email Conf
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Action buttons (edit only) */}
-        {editing && (
-          <div className="px-5 pb-4">
-            <div className="border-t border-border pt-4">
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  disabled={!contactId}
-                  onClick={() => { toastSonner.success(`Opening dialer for ${contactName}`); window.dispatchEvent(new CustomEvent("openDialer")); }}
-                  className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${!contactId ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
-                  style={{ backgroundColor: "#22C55E1A", color: "#22C55E", border: "1px solid #22C55E4D" }}>
-                  <Phone className="w-3.5 h-3.5" /> Call {contactFirstName}
-                </button>
-                <button
-                  disabled={!contactId}
-                  onClick={() => toastSonner.success(`Appointment confirmation text sent to ${contactName}`)}
-                  className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${!contactId ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
-                  style={{ backgroundColor: "#3B82F61A", color: "#3B82F6", border: "1px solid #3B82F64D" }}>
-                  <MessageSquare className="w-3.5 h-3.5" /> Confirm via Text
-                </button>
-                <button
-                  disabled={!contactId}
-                  onClick={() => toastSonner.success(`Appointment confirmation email sent to ${contactName}`)}
-                  className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${!contactId ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
-                  style={{ backgroundColor: "#A855F71A", color: "#A855F7", border: "1px solid #A855F74D" }}>
-                  <Mail className="w-3.5 h-3.5" /> Confirm via Email
-                </button>
-
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between p-5 border-t border-border">
-          <div>
+        <DialogFooter className="p-5 border-t border-border bg-muted/20 flex items-center justify-between sm:justify-between">
+          <div className="flex-1">
             {editing && onDelete && (
               confirmDelete ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Delete this appointment?</span>
-                  <button onClick={handleDelete} className="text-sm font-medium text-red-500 hover:text-red-400">Yes</button>
-                  <button onClick={() => setConfirmDelete(false)} className="text-sm font-medium text-muted-foreground hover:text-foreground">No</button>
+                <div className="flex items-center gap-2 animate-in fade-in zoom-in-95 duration-200">
+                  <span className="text-[10px] font-bold text-destructive uppercase tracking-widest">Confirm?</span>
+                  <Button variant="ghost" size="sm" onClick={handleDelete} className="h-7 text-[10px] bg-destructive/10 text-destructive hover:bg-destructive/20 font-bold px-3">YES</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} className="h-7 text-[10px] font-bold px-3 uppercase">NO</Button>
                 </div>
               ) : (
-                <button onClick={() => setConfirmDelete(true)} className="px-3 py-1.5 rounded-md text-sm font-medium text-red-500 border border-red-500/30 hover:bg-red-500/10 transition-colors duration-150">Delete</button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setConfirmDelete(true)}
+                  className="h-8 text-[10px] font-bold text-destructive uppercase hover:bg-destructive/10 px-3 tracking-widest"
+                >
+                  Terminate
+                </Button>
               )
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={onClose} className="px-4 py-2 rounded-md text-sm font-medium text-muted-foreground border border-border hover:bg-accent transition-colors duration-150">Cancel</button>
-            <button onClick={handleSave} className="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors duration-150" style={{ backgroundColor: "#3B82F6" }}>
-              Save Appointment
-            </button>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-9 px-4 text-xs font-bold uppercase tracking-widest text-muted-foreground hover:bg-accent">
+              Cancel
+            </Button>
+            <Button 
+              size="sm" 
+              onClick={handleSave} 
+              className="h-9 px-6 text-xs font-bold uppercase tracking-widest bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+            >
+              {editing ? "Commit Changes" : "Confirm Schedule"}
+            </Button>
           </div>
-        </div>
-      </div>
+        </DialogFooter>
+      </DialogContent>
 
-      {/* Contact Mini Card */}
       {miniCardOpen && contactInfo && (
         <ContactMiniCard contact={contactInfo} anchorRect={miniCardRect} onClose={() => setMiniCardOpen(false)} onModalClose={onClose} />
       )}
-    </div>
+    </Dialog>
   );
 };
 
