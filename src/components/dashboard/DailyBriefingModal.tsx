@@ -155,9 +155,9 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
     <AnimatePresence>
       <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
         <motion.div
-          initial={{ opacity: 0, scale: 0.9, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.9, y: 20 }}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
           transition={{ type: "spring", damping: 25, stiffness: 300 }}
           className="bg-card rounded-2xl border border-border shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
         >
