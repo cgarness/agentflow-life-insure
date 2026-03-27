@@ -583,7 +583,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                   {localStatus} <ChevronDown className="w-3 h-3 opacity-50" />
                 </button>
                 {statusDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
+                  <div className="absolute top-full left-0 mt-2 z-[120] bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
                     <div className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase">Change Status</div>
                     {availableStatuses.map((s: string) => (
                       <button key={s} onClick={() => handleStatusChange(s)} className={cn(
