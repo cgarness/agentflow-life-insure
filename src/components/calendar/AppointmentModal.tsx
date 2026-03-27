@@ -575,15 +575,15 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
             )}
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-9 px-4 text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors">
-              Cancel
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-9 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors">
+              CANCEL
             </Button>
             <Button 
               size="sm" 
               onClick={handleSave} 
-              className="h-9 px-6 text-xs font-bold bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
+              className="h-9 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
             >
-              Confirm Schedule
+              CONFIRM
             </Button>
           </div>
         </DialogFooter>

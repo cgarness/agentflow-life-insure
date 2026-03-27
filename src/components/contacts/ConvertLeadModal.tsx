@@ -211,17 +211,17 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
         </div>
 
         <DialogFooter className="p-5 border-t border-border bg-muted/5 flex items-center justify-end gap-3">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={loading} className="h-9 px-4 text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors">
-            Cancel
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={loading} className="h-9 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors">
+            CANCEL
           </Button>
           <Button 
             size="sm" 
             onClick={handleConvert} 
             disabled={loading}
-            className="h-9 px-6 text-xs font-bold bg-green-600 shadow-lg shadow-green-600/20 hover:shadow-xl hover:translate-y-[-1px] transition-all flex items-center gap-2"
+            className="h-9 px-6 text-[10px] font-bold uppercase tracking-widest bg-green-600 shadow-lg shadow-green-600/20 hover:shadow-xl hover:translate-y-[-1px] transition-all flex items-center gap-2"
           >
             {loading && <Loader2 className="w-3 h-3 animate-spin" />}
-            Confirm Conversion
+            CONVERT LEAD
           </Button>
         </DialogFooter>
       </DialogContent>
