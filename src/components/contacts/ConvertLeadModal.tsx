@@ -65,7 +65,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && !loading && onClose()}>
-      <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card z-[110] rounded-xl">
+      <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
         <DialogHeader className="p-6 border-b border-border bg-green-500/5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-600">
