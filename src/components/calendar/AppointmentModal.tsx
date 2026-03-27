@@ -325,7 +325,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-[480px] w-[95vw] p-0 overflow-hidden border-none shadow-2xl bg-card z-[100] rounded-xl">
+      <DialogContent className="sm:max-w-[480px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card z-[100] rounded-xl">
         <DialogHeader className="p-4 border-b border-border bg-muted/10">
           <DialogTitle className="text-lg font-bold tracking-tight">
             {editing ? "Edit Appointment" : "Schedule"}
@@ -335,7 +335,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-5 space-y-5 max-h-[85vh] overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20">
+        <div className="p-5 space-y-5 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
           {/* Contact Section */}
           {(editing && contactId && contactInfo) || prefillContactName ? (
             <div className="bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center justify-between">

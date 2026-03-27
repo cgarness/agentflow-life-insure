@@ -1037,7 +1037,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
       <div className="fixed inset-0 bg-foreground/80 backdrop-blur-sm" onClick={step < 4 ? onClose : undefined} />
       {/* Fixed size modal */}
-      <div className="relative bg-card border border-border rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col w-[860px] min-w-[860px] max-w-[860px] h-[680px] max-sm:w-screen max-sm:h-screen max-sm:min-w-0 max-sm:max-w-none max-sm:rounded-none">
+      <div className="relative bg-card border border-border rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col w-[860px] max-w-[95vw] max-h-[90vh] max-sm:w-screen max-sm:h-screen max-sm:min-w-0 max-sm:max-w-none max-sm:rounded-none">
         {/* Fixed Header */}
         {step < 5 && stepTitles[step].title && (
           <div className="flex items-start justify-between p-6 pb-0 shrink-0">
