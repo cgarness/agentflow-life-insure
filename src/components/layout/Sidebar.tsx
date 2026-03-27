@@ -206,7 +206,7 @@ const Sidebar: React.FC = () => {
     <>
       {/* Desktop Sidebar */}
       <aside
-        className={`hidden md:flex fixed left-0 top-0 h-screen z-[120] sidebar-transition ${collapsed ? "w-16" : "w-60"}`}
+        className={`hidden md:flex fixed left-0 top-0 h-screen z-50 sidebar-transition ${collapsed ? "w-16" : "w-60"}`}
       >
         {sidebarContent}
       </aside>
@@ -219,7 +219,7 @@ const Sidebar: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-foreground/50 z-[120] md:hidden"
+              className="fixed inset-0 bg-foreground/50 z-50 md:hidden"
               onClick={() => setMobileOpen(false)}
             />
             <motion.aside
@@ -227,7 +227,7 @@ const Sidebar: React.FC = () => {
               animate={{ x: 0 }}
               exit={{ x: -240 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 h-screen w-60 z-[120] md:hidden"
+              className="fixed left-0 top-0 h-screen w-60 z-50 md:hidden"
             >
               <button
                 onClick={() => setMobileOpen(false)}

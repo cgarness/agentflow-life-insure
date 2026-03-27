@@ -547,28 +547,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       {/* HEADER */}
       <div className="h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
         {/* LEFT SECTION - aligned with Left Column */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 px-2 overflow-hidden">
-          <button 
-            onClick={tryClose} 
-            className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            title="Go back"
-          >
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 px-2">
+          <button onClick={tryClose} className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </button>
           
-          <div className="flex flex-col min-w-0">
-             <h2 className="text-lg font-bold text-foreground truncate">
-               {formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}
-             </h2>
-          </div>
-        </div>
-
-        {/* MIDDLE SECTION - Metadata & Selector */}
-        <div className="flex-1 flex items-center justify-center gap-8 px-4 overflow-hidden">
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2">
             {/* CONTACT TYPE BADGE */}
             <span className={cn(
-              "h-7 px-2.5 flex items-center justify-center text-[10px] uppercase tracking-wider font-bold rounded-lg border whitespace-nowrap",
+              "h-8 px-2.5 flex items-center justify-center text-[10px] uppercase tracking-wider font-bold rounded-lg shadow-sm border whitespace-nowrap",
               type === 'lead' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
               type === 'client' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
               'bg-orange-500/10 text-orange-500 border-orange-500/20'
@@ -578,29 +565,22 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
             {/* LOCAL TIME */}
             {contact.state && (
-              <div className="h-7 px-2.5 flex items-center gap-1.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-lg border border-green-500/20 whitespace-nowrap">
+              <div className="h-8 px-2.5 flex items-center gap-1.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-lg border border-green-500/20 shadow-sm whitespace-nowrap">
                 <Clock className="w-3 h-3" />
                 <span className="text-[10px] font-bold uppercase tracking-wider"><ContactLocalTime state={contact.state} /></span>
               </div>
             )}
-          </div>
 
-          <div className="h-4 w-px bg-border shrink-0" />
-
-          {/* STATUS DROPDOWN */}
-          <div className="shrink-0 min-w-[140px]">
+            {/* STATUS DROPDOWN */}
             {type !== "client" ? (
               <div className="relative shrink-0" ref={statusDropdownRef}>
                 <button 
                   onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} 
-                  className="h-8 w-full px-3 rounded-lg font-bold text-[10px] uppercase tracking-wider inline-flex items-center justify-between gap-1.5 transition-all border" 
+                  className="h-8 px-2.5 rounded-lg font-bold text-[10px] uppercase tracking-wider inline-flex items-center gap-1.5 transition-all shadow-sm border truncate max-w-[120px]" 
                   style={getStatusColorStyle(getStatusColor(localStatus))}
                 >
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: getStatusColor(localStatus) }} />
-                    <span className="truncate">{localStatus}</span>
-                  </div>
-                  <ChevronDown className="w-3 h-3 opacity-50 shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getStatusColor(localStatus) }} />
+                  {localStatus} <ChevronDown className="w-3 h-3 opacity-50" />
                 </button>
                 {statusDropdownOpen && (
                   <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
@@ -617,34 +597,33 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 )}
               </div>
             ) : (
-              <span className="h-8 px-3 flex items-center justify-center text-[10px] font-bold bg-green-500/10 text-green-600 border border-green-500/20 rounded-lg whitespace-nowrap uppercase tracking-wider">Active Client</span>
+              <span className="h-8 px-2.5 flex items-center justify-center text-[10px] font-bold bg-green-500 text-white shadow-sm uppercase tracking-wider border-green-600/20 border rounded-lg whitespace-nowrap">{contact.policyType || 'Client'}</span>
             )}
           </div>
+        </div>
 
-          <div className="h-4 w-px bg-border shrink-0" />
-
-          {/* From Selector */}
-          <div className="flex items-center gap-2 bg-accent/30 px-3 py-1.5 rounded-lg border border-border shrink-0 max-w-[200px]">
-             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider whitespace-nowrap">From:</span>
+        {/* MIDDLE SECTION - Phone Selector */}
+        <div className="flex-1 flex justify-end px-4 overflow-hidden">
+          <div className="flex items-center gap-2 bg-accent/30 px-2 py-1 rounded-lg border border-border">
+             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From:</span>
              <select 
-                value={fromNumber}
-                onChange={(e) => setFromNumber(e.target.value)}
-                className="bg-transparent border-none text-[11px] font-bold text-foreground focus:ring-0 cursor-pointer truncate outline-none"
+               value={fromNumber}
+               onChange={(e) => setFromNumber(e.target.value)}
+               className="bg-transparent border-none text-xs font-semibold focus:ring-0 cursor-pointer text-foreground max-w-[130px] truncate outline-none"
              >
-                {availableNumbers.length === 0 ? (
-                  <option value="">No numbers available</option>
-                ) : (
-                  availableNumbers.map(n => (
-                    <option key={n.number} value={n.number}>{n.label}</option>
-                  ))
-                )}
+               {availableNumbers.length === 0 ? (
+                 <option value="">No numbers available</option>
+               ) : (
+                 availableNumbers.map(n => (
+                   <option key={n.number} value={n.number}>{n.label}</option>
+                 ))
+               )}
              </select>
           </div>
         </div>
 
         {/* RIGHT SECTION - aligned with Right Column */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex items-center justify-end gap-3 shrink-0">
-
+        <div className="w-[340px] flex items-center justify-end gap-3 shrink-0 pl-6">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
