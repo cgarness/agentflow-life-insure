@@ -995,6 +995,88 @@ export type Database = {
           },
         ]
       }
+      contact_management_settings: {
+        Row: {
+          assignment_method: string
+          assignment_rotation: Json
+          assignment_specific_agent_id: string | null
+          created_at: string
+          csv_action: string
+          duplicate_detection_rule: string
+          duplicate_detection_scope: string
+          id: string
+          import_method: string
+          import_override: boolean
+          import_rotation: Json
+          import_specific_agent_id: string | null
+          manual_action: string
+          organization_id: string
+          required_fields_client: Json
+          required_fields_lead: Json
+          updated_at: string
+        }
+        Insert: {
+          assignment_method?: string
+          assignment_rotation?: Json
+          assignment_specific_agent_id?: string | null
+          created_at?: string
+          csv_action?: string
+          duplicate_detection_rule?: string
+          duplicate_detection_scope?: string
+          id?: string
+          import_method?: string
+          import_override?: boolean
+          import_rotation?: Json
+          import_specific_agent_id?: string | null
+          manual_action?: string
+          organization_id: string
+          required_fields_client?: Json
+          required_fields_lead?: Json
+          updated_at?: string
+        }
+        Update: {
+          assignment_method?: string
+          assignment_rotation?: Json
+          assignment_specific_agent_id?: string | null
+          created_at?: string
+          csv_action?: string
+          duplicate_detection_rule?: string
+          duplicate_detection_scope?: string
+          id?: string
+          import_method?: string
+          import_override?: boolean
+          import_rotation?: Json
+          import_specific_agent_id?: string | null
+          manual_action?: string
+          organization_id?: string
+          required_fields_client?: Json
+          required_fields_lead?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_management_settings_assignment_specific_agent_id_fkey"
+            columns: ["assignment_specific_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_management_settings_import_specific_agent_id_fkey"
+            columns: ["import_specific_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_management_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_notes: {
         Row: {
           author_id: string | null
@@ -1029,6 +1111,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "contact_notes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      custom_fields: {
+        Row: {
+          active: boolean | null
+          applies_to: Json
+          created_at: string | null
+          default_value: string | null
+          dropdown_options: Json | null
+          id: string
+          name: string
+          organization_id: string | null
+          required: boolean | null
+          type: string
+          updated_at: string | null
+          usage_count: number | null
+        }
+        Insert: {
+          active?: boolean | null
+          applies_to?: Json
+          created_at?: string | null
+          default_value?: string | null
+          dropdown_options?: Json | null
+          id?: string
+          name: string
+          organization_id?: string | null
+          required?: boolean | null
+          type: string
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Update: {
+          active?: boolean | null
+          applies_to?: Json
+          created_at?: string | null
+          default_value?: string | null
+          dropdown_options?: Json | null
+          id?: string
+          name?: string
+          organization_id?: string | null
+          required?: boolean | null
+          type?: string
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_fields_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1151,8 +1286,10 @@ export type Database = {
           automation_name: string | null
           automation_trigger: boolean
           callback_scheduler: boolean
+          campaign_action: string
           color: string
           created_at: string
+          dnc_auto_add: boolean
           id: string
           is_locked: boolean
           min_note_chars: number
@@ -1171,8 +1308,10 @@ export type Database = {
           automation_name?: string | null
           automation_trigger?: boolean
           callback_scheduler?: boolean
+          campaign_action?: string
           color?: string
           created_at?: string
+          dnc_auto_add?: boolean
           id?: string
           is_locked?: boolean
           min_note_chars?: number
@@ -1191,8 +1330,10 @@ export type Database = {
           automation_name?: string | null
           automation_trigger?: boolean
           callback_scheduler?: boolean
+          campaign_action?: string
           color?: string
           created_at?: string
+          dnc_auto_add?: boolean
           id?: string
           is_locked?: boolean
           min_note_chars?: number
@@ -1280,6 +1421,50 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "goals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_statuses: {
+        Row: {
+          color: string
+          created_at: string | null
+          description: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          organization_id: string | null
+          sort_order: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          organization_id?: string | null
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          organization_id?: string | null
+          sort_order?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_statuses_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1412,6 +1597,50 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "lead_source_costs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_sources: {
+        Row: {
+          active: boolean | null
+          color: string
+          created_at: string | null
+          id: string
+          name: string
+          organization_id: string | null
+          sort_order: number | null
+          updated_at: string | null
+          usage_count: number | null
+        }
+        Insert: {
+          active?: boolean | null
+          color?: string
+          created_at?: string | null
+          id?: string
+          name: string
+          organization_id?: string | null
+          sort_order?: number | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Update: {
+          active?: boolean | null
+          color?: string
+          created_at?: string | null
+          id?: string
+          name?: string
+          organization_id?: string | null
+          sort_order?: number | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_sources_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1840,7 +2069,7 @@ export type Database = {
           {
             foreignKeyName: "phone_settings_organization_id_fkey"
             columns: ["organization_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
@@ -2256,7 +2485,7 @@ export type Database = {
           {
             foreignKeyName: "telnyx_settings_organization_id_fkey"
             columns: ["organization_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
