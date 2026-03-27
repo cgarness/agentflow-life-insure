@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone,
   Calendar,
   PhoneMissed,
   Megaphone,
-  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
 
 interface DailyBriefingModalProps {
   userId: string;
@@ -17,8 +16,6 @@ interface DailyBriefingModalProps {
   onClose: () => void;
   onDismiss: () => void;
   onScrollTo: (widgetId: string) => void;
-  aiTip?: string | null;
-  tipLoading?: boolean;
 }
 
 const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
@@ -28,16 +25,12 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
   onClose,
   onDismiss,
   onScrollTo,
-  aiTip: initialAiTip,
-  tipLoading: initialTipLoading,
 }) => {
   const navigate = useNavigate();
   const [callbackCount, setCallbackCount] = useState<number | null>(null);
   const [appointmentCount, setAppointmentCount] = useState<number | null>(null);
   const [missedCallCount, setMissedCallCount] = useState<number | null>(null);
   const [campaignCount, setCampaignCount] = useState<number | null>(null);
-  const [aiTip, setAiTip] = useState<string | null>(initialAiTip || null);
-  const [tipLoading, setTipLoading] = useState(initialTipLoading ?? true);
 
   const isFiltered = role !== "Admin";
   const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
@@ -117,44 +110,6 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
     fetchData();
   }, [userId, isFiltered, todayStr]);
 
-  // Fetch AI tip if not provided or missing
-  useEffect(() => {
-    if (initialAiTip) {
-      setAiTip(initialAiTip);
-      setTipLoading(false);
-      return;
-    }
-
-    const fetchTip = async () => {
-      setTipLoading(true);
-      try {
-        // Check cache first
-        const cacheKey = `agentflow_tip_${todayStr}`;
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          setAiTip(cached);
-          setTipLoading(false);
-          return;
-        }
-
-        const { data, error } = await supabase.functions.invoke("daily-tip", {
-          body: { firstName },
-        });
-
-        if (error) throw error;
-        const tip = data?.tip || "Make every call count today! 💪";
-        setAiTip(tip);
-        localStorage.setItem(cacheKey, tip);
-      } catch (e) {
-        console.error("Failed to fetch AI tip:", e);
-        setAiTip("Stay focused and make every conversation count today! 🎯");
-      } finally {
-        setTipLoading(false);
-      }
-    };
-    fetchTip();
-  }, [firstName, todayStr, initialAiTip]);
-
   const handleView = (target: string) => {
     if (target === "campaigns") {
       onDismiss();
@@ -197,74 +152,68 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-      <div className="bg-card rounded-xl border border-border shadow-xl p-6 max-w-[560px] w-full mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Greeting */}
-        <h2 className="text-2xl font-bold text-foreground">
-          {greeting}, {firstName} 👋
-        </h2>
-        <p className="text-muted-foreground mt-1">{dateFormatted}</p>
-
-        {/* AI Tip of the Day */}
-        <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-primary">AI Tip of the Day</span>
+    <AnimatePresence>
+      <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.9, y: 20 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="bg-card rounded-2xl border border-border shadow-2xl p-8 max-w-[560px] w-full max-h-[90vh] overflow-y-auto"
+        >
+          {/* Greeting */}
+          <div className="mb-6">
+            <h2 className="text-3xl font-bold text-foreground">
+              {greeting}, {firstName} 👋
+            </h2>
+            <p className="text-muted-foreground mt-2 text-lg">{dateFormatted}</p>
           </div>
-          {tipLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              Generating your daily tip...
-            </div>
-          ) : (
-            <div className="text-sm text-foreground leading-relaxed prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown>{aiTip || ""}</ReactMarkdown>
-            </div>
-          )}
-        </div>
 
-        {/* Data rows */}
-        <div className="mt-5">
-          {rows.map((row, idx) => (
-            <div
-              key={idx}
-              className={`flex items-center justify-between py-3 ${
-                idx < rows.length - 1 ? "border-b border-border" : ""
-              }`}
+          {/* Data rows */}
+          <div className="space-y-1">
+            {rows.map((row, idx) => (
+              <div
+                key={idx}
+                className={`flex items-center justify-between py-4 ${
+                  idx < rows.length - 1 ? "border-b border-border" : ""
+                }`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-muted/50">
+                    <row.icon
+                      className="w-5 h-5"
+                      style={{ color: row.iconColor }}
+                    />
+                  </div>
+                  <span className="text-base font-medium text-foreground">{row.label}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-lg font-bold text-foreground">
+                    {row.count ?? "—"}
+                  </span>
+                  <button
+                    onClick={() => handleView(row.target)}
+                    className="px-3 py-1.5 rounded-lg text-sm font-semibold text-primary hover:bg-primary/10 transition-colors"
+                  >
+                    View →
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="mt-8">
+            <button
+              onClick={onDismiss}
+              className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-lg hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
             >
-              <div className="flex items-center gap-3">
-                <row.icon
-                  className="w-5 h-5"
-                  style={{ color: row.iconColor }}
-                />
-                <span className="text-sm text-foreground">{row.label}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-bold text-foreground">
-                  {row.count ?? "—"}
-                </span>
-                <button
-                  onClick={() => handleView(row.target)}
-                  className="text-sm text-primary hover:underline"
-                >
-                  View →
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Footer */}
-        <div className="mt-6 flex flex-col items-center gap-2">
-          <button
-            onClick={onDismiss}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
-          >
-            Let's Go →
-          </button>
-        </div>
+              Let's Go →
+            </button>
+          </div>
+        </motion.div>
       </div>
-    </div>
+    </AnimatePresence>
   );
 };
 

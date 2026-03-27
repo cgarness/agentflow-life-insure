@@ -173,8 +173,6 @@ const Dashboard: React.FC = () => {
 
   // Daily briefing
   const [showBriefing, setShowBriefing] = useState(false);
-  const [aiTip, setAiTip] = useState<string | null>(null);
-  const [tipLoading, setTipLoading] = useState(false);
 
   // Detail Modal
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -257,34 +255,10 @@ const Dashboard: React.FC = () => {
     
     if (!isDismissed) {
       setShowBriefing(true);
-      // Pre-fetch the tip if it's not already cached
-      fetchAiTip(today);
+      // Mark as seen immediately so it doesn't pop up again on refresh
+      localStorage.setItem(storageKey, "dismissed");
     }
   }, [userId]);
-
-  const fetchAiTip = async (dateStr: string) => {
-    const cacheKey = `agentflow_tip_${dateStr}`;
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      setAiTip(cached);
-      return;
-    }
-
-    setTipLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("daily-tip", {
-        body: { firstName },
-      });
-      if (error) throw error;
-      const tip = data?.tip || "Make every call count today! 💪";
-      setAiTip(tip);
-      localStorage.setItem(cacheKey, tip);
-    } catch (e) {
-      console.error("Failed to pre-fetch AI tip:", e);
-    } finally {
-      setTipLoading(false);
-    }
-  };
 
   // Unsaved changes guard
   useEffect(() => {
@@ -304,8 +278,6 @@ const Dashboard: React.FC = () => {
   }, [userId]);
 
   const openBriefing = useCallback(() => {
-    const today = new Date().toLocaleDateString('en-CA');
-    fetchAiTip(today);
     setShowBriefing(true);
   }, [firstName]);
 
@@ -569,8 +541,6 @@ const Dashboard: React.FC = () => {
           userId={userId}
           firstName={firstName}
           role={role}
-          aiTip={aiTip}
-          tipLoading={tipLoading}
           onClose={dismissBriefing}
           onDismiss={dismissBriefing}
           onScrollTo={scrollToWidget}
