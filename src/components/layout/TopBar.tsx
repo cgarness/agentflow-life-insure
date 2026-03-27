@@ -162,7 +162,7 @@ const TopBar: React.FC = () => {
   return (
     <>
       <header
-        className={`fixed top-0 right-0 h-16 bg-background/95 backdrop-blur-sm border-b z-[110] sidebar-transition flex items-center px-4 gap-4 ${collapsed ? "md:left-16" : "md:left-60"
+        className={`fixed top-0 right-0 h-16 bg-background/95 backdrop-blur-sm border-b z-50 sidebar-transition flex items-center px-4 gap-4 ${collapsed ? "md:left-16" : "md:left-60"
           } left-0`}
       >
         {/* Mobile Menu Button */}

@@ -551,7 +551,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
   return (
     <div className={cn(
-      "fixed top-16 right-0 bottom-0 bg-background z-[100] flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-hidden",
+      "fixed top-16 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-hidden",
       collapsed ? "md:left-16" : "md:left-60"
     )}>
       {/* HEADER */}
