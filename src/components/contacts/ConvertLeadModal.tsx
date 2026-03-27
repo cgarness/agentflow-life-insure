@@ -61,12 +61,12 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
   };
 
   const inputCls = "h-9 text-xs shadow-sm bg-background border-border placeholder:text-muted-foreground/50";
-  const labelCls = "text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1 block";
+  const labelCls = "text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5 block";
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && !loading && onClose()}>
       <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card z-[110] rounded-xl">
-        <DialogHeader className="p-4 border-b border-border bg-green-500/5">
+        <DialogHeader className="p-6 border-b border-border bg-green-500/5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-600">
               <Shield className="w-5 h-5" />
@@ -201,7 +201,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
           </div>
         </div>
 
-        <DialogFooter className="p-4 border-t border-border bg-muted/10">
+        <DialogFooter className="p-6 border-t border-border bg-muted/5">
           <div className="flex items-center justify-end gap-3 w-full">
             <Button 
               variant="ghost" 
