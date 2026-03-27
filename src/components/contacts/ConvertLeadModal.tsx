@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, ArrowRight, Shield, Check, Loader2 } from "lucide-react";
+import { X, ArrowRight, Shield, Check, Loader2, UserPlus, Calendar } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,16 +65,16 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && !loading && onClose()}>
-      <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
-        <DialogHeader className="p-6 border-b border-border bg-green-500/5">
+      <DialogContent className="sm:max-w-[480px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
+        <DialogHeader className="p-5 border-b border-green-500/10 bg-green-500/[0.03]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-600">
+            <div className="w-9 h-9 rounded-full bg-green-500/10 flex items-center justify-center text-green-600">
               <Shield className="w-5 h-5" />
             </div>
             <div>
-              <DialogTitle className="text-lg font-bold tracking-tight">Convert to Client</DialogTitle>
-              <DialogDescription className="text-muted-foreground text-[11px] -mt-0.5">
-                Closing the sale for {lead.firstName} {lead.lastName}. Enter policy details below.
+              <DialogTitle className="text-base font-bold tracking-tight text-green-700">Convert to Client</DialogTitle>
+              <DialogDescription className="text-muted-foreground text-[10px] -mt-0.5">
+                Closing the sale for {lead?.firstName} {lead?.lastName}. Enter policy details below.
               </DialogDescription>
             </div>
           </div>
@@ -140,48 +140,57 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
           <div className="h-px bg-border/50" />
 
-          {/* Dates & Beneficiary */}
-          <div className="grid grid-cols-2 gap-5">
-            <div className="space-y-3">
-              <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider">Dates</h4>
-              <div>
-                <label className={labelCls}>Issue Date</label>
-                <Input 
-                  type="date"
-                  value={formData.issueDate} 
-                  onChange={e => handleInputChange("issueDate", e.target.value)}
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Effective Date</label>
-                <Input 
-                  type="date"
-                  value={formData.effectiveDate} 
-                  onChange={e => handleInputChange("effectiveDate", e.target.value)}
-                  className={inputCls}
-                />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Dates</h4>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Issue Date</label>
+                  <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-muted/20 border border-border shadow-sm group focus-within:ring-1 focus-within:ring-primary transition-all">
+                    <Calendar className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                    <Input 
+                      type="date"
+                      value={formData.issueDate}
+                      onChange={e => handleInputChange("issueDate", e.target.value)}
+                      className="h-full text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Effective Date</label>
+                  <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-muted/20 border border-border shadow-sm group focus-within:ring-1 focus-within:ring-primary transition-all">
+                    <Calendar className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                    <Input 
+                      type="date"
+                      value={formData.effectiveDate}
+                      onChange={e => handleInputChange("effectiveDate", e.target.value)}
+                      className="h-full text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="space-y-3">
-              <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider">Beneficiary</h4>
-              <div>
-                <label className={labelCls}>Name</label>
-                <Input 
-                  value={formData.beneficiaryName} 
-                  onChange={e => handleInputChange("beneficiaryName", e.target.value)}
-                  placeholder="Primary beneficiary" 
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Relationship</label>
-                <Input 
-                  value={formData.beneficiaryRelationship} 
-                  onChange={e => handleInputChange("beneficiaryRelationship", e.target.value)}
-                  placeholder="e.g. Spouse, Child" 
-                  className={inputCls}
-                />
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Beneficiary</h4>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Name</label>
+                  <Input 
+                    value={formData.beneficiaryName} 
+                    onChange={e => handleInputChange("beneficiaryName", e.target.value)}
+                    placeholder="Primary beneficiary" 
+                    className="h-9 text-xs bg-muted/20 border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Relationship</label>
+                  <Input 
+                    value={formData.beneficiaryRelationship} 
+                    onChange={e => handleInputChange("beneficiaryRelationship", e.target.value)}
+                    placeholder="e.g. Spouse" 
+                    className="h-9 text-xs bg-muted/20 border-border"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -201,26 +210,19 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
           </div>
         </div>
 
-        <DialogFooter className="p-6 border-t border-border bg-muted/5">
-          <div className="flex items-center justify-end gap-3 w-full">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={onClose} 
-              disabled={loading}
-              className="h-9 px-4 text-xs font-bold uppercase text-muted-foreground"
-            >
-              Cancel
-            </Button>
-            <Button 
-              size="sm" 
-              onClick={handleConvert}
-              disabled={loading}
-              className="h-9 px-6 text-xs font-bold uppercase tracking-widest bg-green-600 hover:bg-green-700 text-white shadow-lg transition-all flex items-center gap-2"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Check className="w-4 h-4" /> Convert Lead</>}
-            </Button>
-          </div>
+        <DialogFooter className="p-5 border-t border-border bg-muted/5 flex items-center justify-end gap-3">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={loading} className="h-9 px-4 text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors">
+            Cancel
+          </Button>
+          <Button 
+            size="sm" 
+            onClick={handleConvert} 
+            disabled={loading}
+            className="h-9 px-6 text-xs font-bold bg-green-600 shadow-lg shadow-green-600/20 hover:shadow-xl hover:translate-y-[-1px] transition-all flex items-center gap-2"
+          >
+            {loading && <Loader2 className="w-3 h-3 animate-spin" />}
+            Confirm Conversion
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

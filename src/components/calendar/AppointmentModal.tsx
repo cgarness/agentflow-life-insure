@@ -98,8 +98,8 @@ const TimeSelect: React.FC<{
         </PopoverTrigger>
         <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
       </div>
-      <PopoverContent className="w-[180px] p-0 z-[201]" align="start">
-        <div className="flex h-60 divide-x divide-border overflow-hidden">
+      <PopoverContent className="w-[200px] p-0 z-[200] overflow-hidden shadow-xl border-border" align="start">
+        <div className="flex h-[200px] divide-x divide-border bg-popover">
           <ScrollArea className="flex-1">
             <div className="p-1 space-y-0.5">
               {hours.map(h => (
@@ -325,17 +325,18 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-[480px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
-        <DialogHeader className="p-6 border-b border-border bg-muted/5">
-          <DialogTitle className="text-lg font-bold tracking-tight">
+      <DialogContent className="sm:max-w-[460px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
+        <DialogHeader className="p-5 border-b border-primary/10 bg-primary/[0.03]">
+          <DialogTitle className="text-base font-bold tracking-tight text-primary flex items-center gap-2">
+            <CalendarIcon className="w-4 h-4" />
             {editing ? "Edit Appointment" : "Schedule"}
           </DialogTitle>
-          <DialogDescription className="text-muted-foreground text-[11px] -mt-0.5">
+          <DialogDescription className="text-muted-foreground text-[10px] -mt-0.5">
             Set your next meeting details below.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-6 space-y-6 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+        <div className="p-5 pt-4 space-y-4 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
           {/* Contact Section */}
           {(editing && contactId && contactInfo) || prefillContactName ? (
             <div className="bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center justify-between">
@@ -471,9 +472,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           )}
 
           {/* Appointment Details */}
-          <div className="space-y-3 pt-1">
-            <div>
-               <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5 block">Subject line</label>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+               <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Subject line</label>
               <Input 
                 value={title} 
                 onChange={e => { setTitle(e.target.value); if (errors.title) setErrors(p => { const n = {...p}; delete n.title; return n; }); }}
@@ -482,57 +483,57 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5 block">Type</label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Type</label>
                 <select 
                   value={type} 
                   onChange={e => setType(e.target.value as CalAppointmentType)} 
-                  className="w-full h-8 px-2 rounded-md bg-background text-[11px] text-foreground border border-input focus:ring-1 focus:ring-primary shadow-sm"
+                  className="w-full h-9 px-3 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 >
                   {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5 block">Status</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Status</label>
                 <select 
                   value={status} 
                   onChange={e => setStatus(e.target.value as CalAppointmentStatus)} 
-                  className="w-full h-8 px-2 rounded-md bg-background text-[11px] text-foreground border border-input focus:ring-1 focus:ring-primary shadow-sm"
+                  className="w-full h-9 px-3 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 >
                   {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
             </div>
 
-            <div className="p-3 bg-accent/20 rounded-lg space-y-3">
-              <div className="flex items-center gap-2">
-                <CalendarIcon className="w-3.5 h-3.5 text-muted-foreground" />
+            <div className="p-4 bg-muted/30 rounded-xl border border-border/50 space-y-4">
+              <div className="flex items-center gap-3 px-3 h-9 rounded-lg bg-background border border-border shadow-sm group focus-within:ring-1 focus-within:ring-primary transition-all">
+                <CalendarIcon className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                 <Input 
                   type="date" 
                   value={date} 
                   onChange={e => { setDate(e.target.value); if (errors.date) setErrors(p => { const n = {...p}; delete n.date; return n; }); }}
-                  className={cn("h-8 text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0", errors.date && "text-destructive")} 
+                  className={cn("h-full text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0", errors.date && "text-destructive")} 
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3 border-t border-border/50 pt-3">
-                <div>
-                  <label className="text-[8px] font-bold text-muted-foreground uppercase mb-1 block">Starts</label>
+              <div className="grid grid-cols-2 gap-4 border-t border-border/10 pt-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Starts</label>
                   <TimeSelect value={startTime} onChange={setStartTime} error={!!errors.startTime} />
                 </div>
-                <div>
-                  <label className="text-[8px] font-bold text-muted-foreground uppercase mb-1 block">Ends</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Ends</label>
                   <TimeSelect value={endTime} onChange={val => { setEndTime(val); setUserInteractedWithEnd(true); }} error={!!errors.endTime} />
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5 block">Assignee</label>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assignee</label>
               <select 
                 value={agent} 
                 onChange={e => setAgent(e.target.value)} 
-                className="w-full h-8 px-2 rounded-md bg-background text-[11px] text-foreground border border-input focus:ring-1 focus:ring-primary shadow-sm"
+                className="w-full h-9 px-3 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 disabled={currentUserRole !== "Admin" && currentUserRole !== "Team Leader"}
               >
                 {agents.map(a => (
@@ -553,7 +554,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </div>
         </div>
 
-        <DialogFooter className="p-6 border-t border-border bg-muted/5 flex items-center justify-between sm:justify-between gap-4">
+        <DialogFooter className="p-5 border-t border-border bg-muted/5 flex items-center justify-between sm:justify-between gap-4">
           <div className="flex-1">
             {editing && onDelete && (
               confirmDelete ? (
@@ -566,23 +567,23 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                   variant="ghost" 
                   size="sm" 
                   onClick={() => setConfirmDelete(true)}
-                  className="h-8 text-[9px] font-bold text-destructive uppercase px-2 hover:bg-destructive/5 tracking-wider"
+                  className="h-8 text-[10px] font-bold text-destructive uppercase px-2 hover:bg-destructive/5 tracking-wider"
                 >
-                  Delete
+                  Delete Appointment
                 </Button>
               )
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-8 px-3 text-[10px] font-bold uppercase text-muted-foreground">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-9 px-4 text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors">
               Cancel
             </Button>
             <Button 
               size="sm" 
               onClick={handleSave} 
-              className="h-8 px-4 text-[10px] font-bold uppercase tracking-wider bg-primary shadow-md hover:translate-y-[-1px] transition-transform"
+              className="h-9 px-6 text-xs font-bold bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
             >
-              Confirm
+              Confirm Schedule
             </Button>
           </div>
         </DialogFooter>
