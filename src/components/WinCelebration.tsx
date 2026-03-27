@@ -167,13 +167,18 @@ const WinCelebration: React.FC = () => {
 
     // Mark as celebrated in DB
     supabase.from("wins").update({ celebrated: true }).eq("id", next.id).then();
+  }, [currentWin, queue.length, soundEnabled]);
 
-    // Auto-hide after 3 seconds
+  // Auto-hide current win after 3 seconds
+  useEffect(() => {
+    if (!currentWin) return;
+    
     const timer = setTimeout(() => {
       setCurrentWin(null);
     }, 3000);
+    
     return () => clearTimeout(timer);
-  }, [currentWin, queue, soundEnabled]);
+  }, [currentWin]);
 
   return (
     <AnimatePresence>
