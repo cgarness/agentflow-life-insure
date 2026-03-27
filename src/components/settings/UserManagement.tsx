@@ -27,6 +27,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
+import TransferLeadsModal from "./TransferLeadsModal";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
@@ -473,6 +474,7 @@ const UserProfileModal: React.FC<{
   const [tab, setTab] = useState("profile");
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
 
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
@@ -637,12 +639,17 @@ const UserProfileModal: React.FC<{
     }
   };
 
-  const handleDeleteUser = async () => {
+  const handleTransferAndConfirm = async (transferToUserId?: string) => {
     setSaving(true);
     try {
-      await usersApi.deleteUser(user.id);
-      toast({ title: "User deleted successfully" });
-      setDeleteConfirmOpen(false);
+      await usersApi.deleteUser(user.id, transferToUserId);
+      toast({ 
+        title: "User deleted successfully",
+        description: transferToUserId 
+          ? "All contacts have been reassigned." 
+          : "Contacts remain unassigned."
+      });
+      setTransferModalOpen(false);
       onClose();
       onDeleted(user.id);
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -651,6 +658,10 @@ const UserProfileModal: React.FC<{
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDeleteUser = () => {
+    setTransferModalOpen(true);
   };
 
   const onboardingPct = onboardingItems.length ? Math.round(onboardingItems.filter(i => i.completed).length / onboardingItems.length * 100) : 0;
@@ -1136,8 +1147,14 @@ const UserProfileModal: React.FC<{
         </DialogContent>
       </Dialog>
 
-
-      {/* Reset Password Confirmation */}
+      <TransferLeadsModal
+        open={transferModalOpen}
+        onClose={() => setTransferModalOpen(false)}
+        onConfirm={handleTransferAndConfirm}
+        userToDelete={user}
+        activeAgents={allUsers}
+      />
+    {/* Reset Password Confirmation */}
       <Dialog open={resetPwOpen} onOpenChange={setResetPwOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
