@@ -168,10 +168,10 @@ const WinCelebration: React.FC = () => {
     // Mark as celebrated in DB
     supabase.from("wins").update({ celebrated: true }).eq("id", next.id).then();
 
-    // Auto-hide after 5 seconds
+    // Auto-hide after 3 seconds
     const timer = setTimeout(() => {
       setCurrentWin(null);
-    }, 5000);
+    }, 3000);
     return () => clearTimeout(timer);
   }, [currentWin, queue, soundEnabled]);
 
@@ -185,9 +185,7 @@ const WinCelebration: React.FC = () => {
           transition={{ type: "spring", damping: 20, stiffness: 300 }}
           className="fixed top-16 left-0 right-0 z-50 flex justify-center pointer-events-none"
         >
-          <div className="mx-4 max-w-2xl w-full bg-gradient-to-r from-success to-success/80 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
-            {/* Shimmer overlay */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-background/20 to-transparent animate-shimmer" />
+          <div className="mx-4 max-w-2xl w-full bg-gradient-to-r from-success to-success/90 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
             
             <div className="relative px-6 py-4 flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-background/20 flex items-center justify-center shrink-0">
