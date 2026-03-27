@@ -50,6 +50,13 @@ const fallbackRecruitColors: Record<string, string> = {
   "Interview": "#EAB308",
   "Licensed": "#3B82F6",
   "Active": "#22C55E",
+  "Appointment Set": "#9333EA",
+  "APPPINTMENT SET": "#9333EA",
+};
+
+const normalizeStatusDisplay = (status: string) => {
+  if (!status) return "";
+  return status.replace(/AP+PINTMENT/i, "Appointment");
 };
 
 const policyTypeColors: Record<string, string> = {
@@ -1044,7 +1051,7 @@ const Contacts: React.FC = () => {
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
             style={getStatusColorStyle(getLeadStatusColor(l.status))}
           >
-            {Object.keys(leadStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
+            {Object.keys(leadStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{normalizeStatusDisplay(s)}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
@@ -1103,7 +1110,7 @@ const Contacts: React.FC = () => {
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
             style={getStatusColorStyle(getRecruitStatusColor(r.status))}
           >
-            {Object.keys(recruitStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{s}</option>)}
+            {Object.keys(recruitStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{normalizeStatusDisplay(s)}</option>)}
           </select>
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>

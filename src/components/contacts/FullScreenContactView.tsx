@@ -48,6 +48,14 @@ const fallbackStatusStyles: Record<string, string> = {
   Interview: "#CA8A04",
   Licensed: "#9333EA",
   Active: "#16A34A",
+  "Appointment Set": "#9333EA",
+  "APPPINTMENT SET": "#9333EA",
+};
+
+const normalizeStatusDisplay = (status: string) => {
+  if (!status) return "";
+  // Fix the common typo APPPINTMENT -> Appointment
+  return status.replace(/AP+PINTMENT/i, "Appointment");
 };
 
 function timeAgo(dateStr: string) {
@@ -576,11 +584,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               <div className="relative shrink-0" ref={statusDropdownRef}>
                 <button 
                   onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} 
-                  className="h-8 px-2.5 rounded-lg font-bold text-[10px] uppercase tracking-wider inline-flex items-center gap-1.5 transition-all shadow-sm border truncate max-w-[120px]" 
+                  className="h-8 px-2.5 rounded-lg font-bold text-[10px] uppercase tracking-wider inline-flex items-center gap-1.5 transition-all shadow-sm border whitespace-nowrap min-w-fit" 
                   style={getStatusColorStyle(getStatusColor(localStatus))}
                 >
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getStatusColor(localStatus) }} />
-                  {localStatus} <ChevronDown className="w-3 h-3 opacity-50" />
+                  {normalizeStatusDisplay(localStatus)} <ChevronDown className="w-3 h-3 opacity-50" />
                 </button>
                 {statusDropdownOpen && (
                   <div className="absolute top-full left-0 mt-2 z-[120] bg-popover border border-border rounded-xl shadow-xl py-2 min-w-[180px] animate-in fade-in zoom-in-95 duration-150">
@@ -590,7 +598,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         "w-full text-left px-4 py-2 text-sm text-foreground hover:bg-accent flex items-center gap-3 transition-colors",
                         localStatus === s ? "bg-accent/50 font-semibold" : ""
                       )}>
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getStatusColor(s) }} /> {s}
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getStatusColor(s) }} /> {normalizeStatusDisplay(s)}
                       </button>
                     ))}
                   </div>

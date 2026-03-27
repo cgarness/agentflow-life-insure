@@ -176,6 +176,28 @@ const getCampaignTypeColor = (type: string) => {
   return "bg-muted text-muted-foreground border-border";
 };
 
+const normalizeStatusDisplay = (status: string) => {
+  if (!status) return "";
+  return status.replace(/AP+PINTMENT/i, "Appointment");
+};
+
+const fallbackStatusColors: Record<string, string> = {
+  "New": "#3B82F6",
+  "Contacted": "#A855F7",
+  "Interested": "#EAB308",
+  "Follow Up": "#14B8A6",
+  "Hot": "#F97316",
+  "Not Interested": "#EF4444",
+  "Closed Won": "#22C55E",
+  "Closed Lost": "#EF4444",
+  "Prospect": "#6B7280",
+  "Interview": "#EAB308",
+  "Licensed": "#3B82F6",
+  "Active": "#22C55E",
+  "Appointment Set": "#9333EA",
+  "APPPINTMENT SET": "#9333EA",
+};
+
 /* ─── Component ─── */
 
 export default function DialerPage() {
@@ -1318,7 +1340,7 @@ export default function DialerPage() {
     }
   };
 
-  const currentStatusColor = leadStages.find(s => s.name === currentLead?.status)?.color || "#6B7280";
+  const currentStatusColor = leadStages.find(s => s.name === currentLead?.status)?.color || (currentLead?.status ? fallbackStatusColors[currentLead.status] : null) || "#6B7280";
 
   function handleAdvance() {
     setShowWrapUp(false);
@@ -2118,7 +2140,7 @@ export default function DialerPage() {
                     >
                       {leadStages.map(s => (
                         <option key={s.id} value={s.name} style={{ color: s.color }}>
-                          {s.name}
+                          {normalizeStatusDisplay(s.name)}
                         </option>
                       ))}
                     </select>
