@@ -159,14 +159,14 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
           transition={{ type: "spring", damping: 25, stiffness: 300 }}
-          className="bg-card rounded-2xl border border-border shadow-2xl p-8 max-w-[560px] w-full max-h-[90vh] overflow-y-auto"
+          className="bg-card rounded-2xl border border-border shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
         >
           {/* Greeting */}
-          <div className="mb-6">
-            <h2 className="text-3xl font-bold text-foreground">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-foreground">
               {greeting}, {firstName} 👋
             </h2>
-            <p className="text-muted-foreground mt-2 text-lg">{dateFormatted}</p>
+            <p className="text-muted-foreground mt-1 text-sm">{dateFormatted}</p>
           </div>
 
           {/* Data rows */}
@@ -174,26 +174,26 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
             {rows.map((row, idx) => (
               <div
                 key={idx}
-                className={`flex items-center justify-between py-4 ${
+                className={`flex items-center justify-between py-2.5 ${
                   idx < rows.length - 1 ? "border-b border-border" : ""
                 }`}
               >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-muted/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-muted/50">
                     <row.icon
-                      className="w-5 h-5"
+                      className="w-4 h-4"
                       style={{ color: row.iconColor }}
                     />
                   </div>
-                  <span className="text-base font-medium text-foreground">{row.label}</span>
+                  <span className="text-sm font-medium text-foreground">{row.label}</span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-lg font-bold text-foreground">
+                <div className="flex items-center gap-3">
+                  <span className="text-base font-bold text-foreground">
                     {row.count ?? "—"}
                   </span>
                   <button
                     onClick={() => handleView(row.target)}
-                    className="px-3 py-1.5 rounded-lg text-sm font-semibold text-primary hover:bg-primary/10 transition-colors"
+                    className="px-2 py-1 rounded-md text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
                   >
                     View →
                   </button>
@@ -203,10 +203,10 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="mt-8">
+          <div className="mt-6">
             <button
               onClick={onDismiss}
-              className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-lg hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
+              className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
             >
               Let's Go →
             </button>
