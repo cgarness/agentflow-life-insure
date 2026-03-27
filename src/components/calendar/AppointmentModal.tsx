@@ -335,7 +335,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-4 space-y-4 overflow-y-auto flex-1">
+        <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0">
           {/* Contact Section */}
           {(editing && contactId && contactInfo) || prefillContactName ? (
             <div className="bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center justify-between">
