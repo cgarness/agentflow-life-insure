@@ -1695,7 +1695,7 @@ const Contacts: React.FC = () => {
           onClose={() => setSelectedLead(null)} 
           onUpdate={handleUpdateLead} 
           onDelete={handleDeleteLead} 
-          onConvert={() => { fetchData(); setSelectedLead(null); }} 
+          onConvert={() => { fetchData(); setSelectedLead(null); setTab("Clients"); }} 
         />
       )}
       {selectedClient && (

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
+import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useSidebarContext } from "@/contexts/SidebarContext";
@@ -121,6 +122,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const { addAppointment } = useCalendar();
   const { profile } = useAuth();
   const [showAppt, setShowAppt] = useState(false);
+  const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
   
   const [editMode, setEditMode] = useState(false);
@@ -222,16 +224,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         setCustomFields(relevantFields);
 
         // Fetch field order
-        const { data: settings } = await supabase
+        const { data: settings, error: settingsError } = await (supabase as any)
           .from("contact_management_settings")
-          .select("field_order_lead, field_order_client, field_order_recruit")
+          .select("*")
           .eq("organization_id", organizationId)
           .maybeSingle();
         
-        if (settings) {
+        if (!settingsError && settings) {
           if (type === "lead") setFieldOrder(settings.field_order_lead || []);
           else if (type === "client") setFieldOrder(settings.field_order_client || []);
-          else setFieldOrder(settings.field_order_recruit || []);
+          else if (type === "recruit") setFieldOrder(settings.field_order_recruit || []);
         }
       } catch (err) {
         console.error("Error fetching dynamic settings:", err);
@@ -673,7 +675,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 <TooltipTrigger asChild>
                   <Button 
                     className="h-10 px-4 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
-                    onClick={() => onConvert(contact)}
+                    onClick={() => setShowConvert(true)}
                   >
                     <ArrowLeft className="w-4 h-4 rotate-180" /> Convert
                   </Button>
@@ -1209,6 +1211,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           toast.success("Appointment scheduled");
         }}
         prefillContactName={contact ? `${contact.firstName} ${contact.lastName}` : undefined}
+      />
+
+      <ConvertLeadModal 
+        open={showConvert}
+        onClose={() => setShowConvert(false)}
+        lead={type === 'lead' ? contact : null}
+        onSuccess={(clientId) => {
+          onConvert && onConvert(contact);
+        }}
       />
     </div>
   );
