@@ -195,6 +195,24 @@ export const leadsSupabaseApi = {
       };
     });
   },
+
+  async reassignAllContacts(fromUserId: string, toUserId: string): Promise<{ leads: number; clients: number; recruits: number }> {
+    const [leadsRes, clientsRes, recruitsRes] = await Promise.all([
+      supabase.from("leads").update({ assigned_agent_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
+      supabase.from("clients").update({ assigned_agent_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
+      supabase.from("recruits").update({ assigned_agent_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
+    ]);
+
+    if (leadsRes.error) throw new Error(`Leads transfer failed: ${leadsRes.error.message}`);
+    if (clientsRes.error) throw new Error(`Clients transfer failed: ${clientsRes.error.message}`);
+    if (recruitsRes.error) throw new Error(`Recruits transfer failed: ${recruitsRes.error.message}`);
+
+    return {
+      leads: leadsRes.data?.length || 0,
+      clients: clientsRes.data?.length || 0,
+      recruits: recruitsRes.data?.length || 0,
+    };
+  },
 };
 
 // ---- HELPERS ----

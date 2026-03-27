@@ -7,6 +7,7 @@ import { Lead } from "@/lib/types";
 import { conversionSupabaseApi } from "@/lib/supabase-conversion";
 import { toast } from "sonner";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ConvertLeadModalProps {
   open: boolean;
@@ -19,6 +20,7 @@ const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
 
 const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess }) => {
   const { organizationId } = useOrganization();
+  const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     policyType: "Term",
@@ -49,6 +51,18 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     setLoading(true);
     try {
       const clientId = await conversionSupabaseApi.convertLeadToClient(lead, formData as any, organizationId);
+      
+      // Trigger celebration
+      window.dispatchEvent(new CustomEvent("win-celebration", {
+        detail: {
+          id: clientId,
+          agent_name: profile ? `${profile.first_name} ${profile.last_name}` : "An agent",
+          contact_name: `${lead.firstName} ${lead.lastName}`,
+          campaign_name: null,
+          created_at: new Date().toISOString()
+        }
+      }));
+
       toast.success(`${lead.firstName} ${lead.lastName} converted to client!`);
       onSuccess(clientId);
       onClose();

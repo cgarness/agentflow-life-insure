@@ -349,10 +349,19 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
-  async deleteUser(id: string): Promise<void> {
+  async deleteUser(id: string, transferToUserId?: string): Promise<void> {
+    if (transferToUserId) {
+      const { leadsSupabaseApi } = await import("./supabase-contacts");
+      await leadsSupabaseApi.reassignAllContacts(id, transferToUserId);
+    }
+
     const { error } = await supabase
       .from("profiles")
-      .update({ status: "Deleted" })
+      .update({ 
+        status: "Deleted",
+        availability_status: "Offline",
+        updated_at: new Date().toISOString()
+      })
       .eq("id", id);
     if (error) throw error;
   },
