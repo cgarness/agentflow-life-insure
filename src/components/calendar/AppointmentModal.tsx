@@ -325,7 +325,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden p-0 border-none shadow-2xl bg-card z-[100]">
+      <DialogContent className="sm:max-w-[480px] w-[95vw] p-0 overflow-hidden border-none shadow-2xl bg-card z-[100] rounded-xl">
         <DialogHeader className="p-4 border-b border-border bg-muted/10">
           <DialogTitle className="text-lg font-bold tracking-tight">
             {editing ? "Edit Appointment" : "Schedule"}
@@ -335,7 +335,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-4 space-y-4 overflow-y-auto flex-1 min-h-0">
+        <div className="p-5 space-y-5 max-h-[85vh] overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20">
           {/* Contact Section */}
           {(editing && contactId && contactInfo) || prefillContactName ? (
             <div className="bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center justify-between">
@@ -473,7 +473,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           {/* Appointment Details */}
           <div className="space-y-3 pt-1">
             <div>
-              <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1 block">Subject line</label>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1.5 block">Subject line</label>
               <Input 
                 value={title} 
                 onChange={e => { setTitle(e.target.value); if (errors.title) setErrors(p => { const n = {...p}; delete n.title; return n; }); }}
@@ -484,7 +484,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1 block">Type</label>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1.5 block">Type</label>
                 <select 
                   value={type} 
                   onChange={e => setType(e.target.value as CalAppointmentType)} 
@@ -494,7 +494,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                 </select>
               </div>
               <div>
-                <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1 block">Status</label>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1.5 block">Status</label>
                 <select 
                   value={status} 
                   onChange={e => setStatus(e.target.value as CalAppointmentStatus)} 
@@ -528,7 +528,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
             </div>
 
             <div className="grid grid-cols-1 gap-1">
-              <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1 block">Assignee</label>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1 mb-1.5 block">Assignee</label>
               <select 
                 value={agent} 
                 onChange={e => setAgent(e.target.value)} 

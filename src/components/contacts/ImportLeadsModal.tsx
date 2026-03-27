@@ -659,7 +659,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         </div>
       )}
 
-      <div className="overflow-auto border rounded-lg" style={{ maxHeight: creatingFieldForCol !== null ? "200px" : "340px" }}>
+      <div className="overflow-auto border rounded-lg scrollbar-thin scrollbar-thumb-muted-foreground/20" style={{ maxHeight: creatingFieldForCol !== null ? "250px" : "450px" }}>
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-card z-10">
             <tr className="border-b">
@@ -786,7 +786,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                       className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none mb-1"
                       placeholder="Search or select a campaign..."
                     />
-                    <div className="max-h-32 overflow-y-auto border rounded-md bg-background">
+                    <div className="max-h-[85vh] overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 rounded-md bg-background">
                       {filteredCampaigns.length === 0 ? (
                         <p className="text-xs text-muted-foreground p-2">No campaigns yet</p>
                       ) : filteredCampaigns.map(c => (
