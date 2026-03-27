@@ -138,11 +138,11 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
   if (!value && value !== 0) return <span className="text-muted-foreground">—</span>;
   const display = String(value);
   return (
-    <div className="flex items-center justify-between group w-full">
-      <span className="text-foreground font-medium">{display}</span>
+    <div className="flex items-center justify-between group w-full overflow-hidden">
+      <span className="text-foreground font-medium truncate flex-1">{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
       >
         <Clipboard className="w-3.5 h-3.5" />
       </button>
@@ -1027,10 +1027,10 @@ const Contacts: React.FC = () => {
   // Render cell value for a lead
   const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
     switch (key) {
-      case "name": return <span className="font-medium text-foreground">{l.firstName} {l.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs">{l.phone}</span>;
-      case "email": return <span className="text-muted-foreground">{l.email}</span>;
-      case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{l.state}</span>;
+      case "name": return <span className="font-medium text-foreground truncate block">{l.firstName} {l.lastName}</span>;
+      case "phone": return <span className="text-foreground font-mono text-xs truncate block">{l.phone}</span>;
+      case "email": return <span className="text-muted-foreground truncate block">{l.email}</span>;
+      case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full shrink-0">{l.state}</span>;
       case "status": return (
         <div className="relative group/status inline-block">
           <select
@@ -1071,10 +1071,10 @@ const Contacts: React.FC = () => {
 
   const renderClientCell = (c: Client, key: ClientColumnKey) => {
     switch (key) {
-      case "name": return <span className="font-medium text-foreground">{c.firstName} {c.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs">{c.phone}</span>;
-      case "policyType": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span>;
-      case "carrier": return <span className="text-muted-foreground">{c.carrier}</span>;
+      case "name": return <span className="font-medium text-foreground truncate block">{c.firstName} {c.lastName}</span>;
+      case "phone": return <span className="text-foreground font-mono text-xs truncate block">{c.phone}</span>;
+      case "policyType": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span>;
+      case "carrier": return <span className="text-muted-foreground truncate block">{c.carrier}</span>;
       case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
       case "faceAmount": return <span className="text-foreground">{c.faceAmount}</span>;
       case "issueDate": return <span className="text-muted-foreground">{formatDate(c.issueDate)}</span>;
@@ -1085,9 +1085,9 @@ const Contacts: React.FC = () => {
 
   const renderRecruitCell = (r: Recruit, key: RecruitColumnKey) => {
     switch (key) {
-      case "name": return <span className="font-medium text-foreground">{r.firstName} {r.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs">{r.phone}</span>;
-      case "email": return <span className="text-muted-foreground">{r.email}</span>;
+      case "name": return <span className="font-medium text-foreground truncate block">{r.firstName} {r.lastName}</span>;
+      case "phone": return <span className="text-foreground font-mono text-xs truncate block">{r.phone}</span>;
+      case "email": return <span className="text-muted-foreground truncate block">{r.email}</span>;
       case "status": return (
         <div className="relative group/status inline-block">
           <select
@@ -1126,11 +1126,11 @@ const Contacts: React.FC = () => {
           <span className="font-medium text-foreground truncate">{u.firstName} {u.lastName}</span>
         </div>
       );
-      case "email": return <span className="text-muted-foreground">{u.email}</span>;
-      case "licensedStates": return <span className="text-muted-foreground">{p?.licensedStates?.map((s: any) => typeof s === 'string' ? s : s.state).join(", ")}</span>;
-      case "commission": return <span className="text-foreground">{p?.commissionLevel}</span>;
-      case "role": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span>;
-      case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span>;
+      case "email": return <span className="text-muted-foreground truncate block">{u.email}</span>;
+      case "licensedStates": return <span className="text-muted-foreground truncate block">{p?.licensedStates?.map((s: any) => typeof s === 'string' ? s : s.state).join(", ")}</span>;
+      case "commission": return <span className="text-foreground truncate block">{p?.commissionLevel}</span>;
+      case "role": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span>;
+      case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span>;
       default: return null;
     }
   };
@@ -1181,7 +1181,7 @@ const Contacts: React.FC = () => {
         <Columns3 className="w-4 h-4" />Columns
       </button>
       {columnsOpen && (
-        <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-50">
+        <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-[120]">
           <p className="text-sm font-semibold text-foreground mb-2">Toggle Columns</p>
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {columns.map(col => (
@@ -1246,7 +1246,7 @@ const Contacts: React.FC = () => {
         <div className="relative">
           <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
           {bulkAssignOpen && (
-            <div className="absolute top-full mt-1 left-0 w-40 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
+            <div className="absolute top-full mt-1 left-0 w-40 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
               {agentProfiles.map(a => (
                 <button key={a.id} onClick={() => handleBulkAssign(`${a.firstName} ${a.lastName}`)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.firstName} {a.lastName}</button>
               ))}
@@ -1258,7 +1258,7 @@ const Contacts: React.FC = () => {
         <div className="relative">
           <button onClick={() => { setBulkStatusOpen(!bulkStatusOpen); setBulkAssignOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Change Status</button>
           {bulkStatusOpen && (
-            <div className="absolute top-full mt-1 left-0 w-44 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
+            <div className="absolute top-full mt-1 left-0 w-44 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
               {options.statusList.map(s => (
                 <button key={s} onClick={() => options.onStatusChange!(s)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{s}</button>
               ))}
@@ -1287,7 +1287,7 @@ const Contacts: React.FC = () => {
     <div className="relative" ref={actionMenuId === id ? actionMenuRef : undefined}>
       <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === id ? null : id); }} className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
       {actionMenuId === id && (
-        <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-50">
+        <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
           <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Pencil className="w-3.5 h-3.5" />Edit</button>
           {tab === "Leads" && (
             <button 
@@ -1400,7 +1400,7 @@ const Contacts: React.FC = () => {
           )}
 
           {/* Leads Table */}
-          <div className="bg-card rounded-xl border overflow-hidden">
+          <div className="bg-card rounded-xl border">
             {leads.length === 0 ? (
               <div className="text-center py-12">
                 <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
@@ -1425,7 +1425,7 @@ const Contacts: React.FC = () => {
                         <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedLead(l)}>
                           <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => { }} className="rounded" /></td>
                           {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
-                            <td key={col.key} className={`py-3 ${colAlign(col.key)} `}>{renderCell(l, col.key, aging)}</td>
+                            <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderCell(l, col.key, aging)}</td>
                           ))}
                           <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                             {renderActionMenu(l.id, () => setEditLead(l), () => handleDeleteLead(l.id))}
@@ -1480,7 +1480,7 @@ const Contacts: React.FC = () => {
             () => setSelectedClientIds(new Set()),
             { showAssign: true, onDelete: handleBulkDeleteClients }
           )}
-          <div className="bg-card rounded-xl border overflow-hidden">
+          <div className="bg-card rounded-xl border">
             {clients.length === 0 ? (
               <div className="text-center py-12">
                 <ShieldCheck className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
@@ -1503,7 +1503,7 @@ const Contacts: React.FC = () => {
                       <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedClient(c)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => { }} className="rounded" /></td>
                         {CLIENT_COLUMNS.filter(col => visibleClientCols.has(col.key)).map(col => (
-                          <td key={col.key} className={`py-3 ${colAlign(col.key)} `}>{renderClientCell(c, col.key)}</td>
+                          <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderClientCell(c, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                           {renderActionMenu(c.id, () => setEditClient(c), () => handleDeleteClient(c.id))}
@@ -1526,7 +1526,7 @@ const Contacts: React.FC = () => {
             () => setSelectedRecruitIds(new Set()),
             { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange, onDelete: handleBulkDeleteRecruits }
           )}
-          <div className="bg-card rounded-xl border overflow-hidden">
+          <div className="bg-card rounded-xl border">
             {recruits.length === 0 ? (
               <div className="text-center py-12">
                 <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
@@ -1549,7 +1549,7 @@ const Contacts: React.FC = () => {
                       <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedRecruit(r)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => { }} className="rounded" /></td>
                         {RECRUIT_COLUMNS.filter(col => visibleRecruitCols.has(col.key)).map(col => (
-                          <td key={col.key} className={`py-3 ${colAlign(col.key)}`} style={{ width: columnWidths[tab]?.[col.key], minWidth: columnWidths[tab]?.[col.key] }}>{renderRecruitCell(r, col.key)}</td>
+                          <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)}`} style={{ width: columnWidths[tab]?.[col.key], minWidth: columnWidths[tab]?.[col.key] }}>{renderRecruitCell(r, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                           {renderActionMenu(r.id, () => setEditRecruit(r), () => handleDeleteRecruit(r.id))}
@@ -1595,7 +1595,7 @@ const Contacts: React.FC = () => {
               () => setSelectedAgentIds(new Set()),
               { showStatus: true, statusList: ["Active", "Inactive"], onStatusChange: handleBulkAgentStatusChange, onDelete: () => toast.error("Cannot delete agents from this view") }
             )}
-            <div className="bg-card rounded-xl border overflow-hidden">
+            <div className="bg-card rounded-xl border">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
@@ -1610,7 +1610,7 @@ const Contacts: React.FC = () => {
                       <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
                         {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
-                          <td key={col.key} className={`py-3 ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
+                          <td key={col.key} className={`py-3 px-3 overflow-hidden ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                           <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
