@@ -97,12 +97,16 @@ export const DateInput: React.FC<DateInputProps> = ({ value, onChange, className
               <CalendarIcon className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0 z-[300]" align="end">
+          <PopoverContent className="w-[280px] p-0 z-[300]" align="end">
             <Calendar
               mode="single"
               selected={value ? new Date(value + "T00:00:00") : undefined}
               onSelect={handleDateSelect}
               initialFocus
+              captionLayout="dropdown"
+              fromYear={1900}
+              toYear={new Date().getFullYear() + 20}
+              fixedWeeks
             />
           </PopoverContent>
         </Popover>
