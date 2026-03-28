@@ -17,6 +17,9 @@ const SignupPage: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [uplineId, setUplineId] = useState<string | null>(null);
+  const [role, setRole] = useState<string>("Agent");
+  const [licensedStates, setLicensedStates] = useState<any[]>([]);
+  const [commissionLevel, setCommissionLevel] = useState<string>("0%");
   const location = useLocation();
 
   useEffect(() => {
@@ -31,6 +34,9 @@ const SignupPage: React.FC = () => {
         if (decoded.email) setEmail(decoded.email);
         if (decoded.organizationId) setOrganizationId(decoded.organizationId);
         if (decoded.uplineId) setUplineId(decoded.uplineId);
+        if (decoded.role) setRole(decoded.role);
+        if (decoded.licensedStates) setLicensedStates(decoded.licensedStates);
+        if (decoded.commissionLevel) setCommissionLevel(decoded.commissionLevel);
       } catch (e) {
         // If it's just a string ID, we can't do much without fetching, 
         // but the new system passes encoded objects.
@@ -44,7 +50,7 @@ const SignupPage: React.FC = () => {
     setError("");
     setLoading(true);
     try {
-      await signup(email, password, firstName, lastName, organizationId, uplineId);
+      await signup(email, password, firstName, lastName, organizationId, uplineId, role, licensedStates, commissionLevel);
       setSuccess(true);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message || "Signup failed");

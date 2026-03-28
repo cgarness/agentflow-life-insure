@@ -356,7 +356,15 @@ const InviteModal: React.FC<{
     }
     try {
       setSaving(true);
-      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, uplineId: form.uplineId }, organizationId);
+      const link = await usersApi.generateInviteLink({ 
+        firstName: form.firstName, 
+        lastName: form.lastName, 
+        email: form.email, 
+        role: form.role, 
+        uplineId: form.uplineId,
+        licensedStates: form.licensedStates,
+        commissionLevel: form.commissionLevel
+      }, organizationId);
       
       await usersApi.sendInviteEmail({
         email: form.email,
@@ -383,7 +391,15 @@ const InviteModal: React.FC<{
     }
     setCopying(true);
     try {
-      const link = await usersApi.generateInviteLink({ firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, uplineId: form.uplineId }, organizationId);
+      const link = await usersApi.generateInviteLink({ 
+        firstName: form.firstName, 
+        lastName: form.lastName, 
+        email: form.email, 
+        role: form.role, 
+        uplineId: form.uplineId,
+        licensedStates: form.licensedStates,
+        commissionLevel: form.commissionLevel
+      }, organizationId);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
       // Removed broken pending user creation

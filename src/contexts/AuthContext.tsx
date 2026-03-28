@@ -42,7 +42,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null) => Promise<void>;
+  signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
@@ -134,7 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) throw error;
   }, []);
 
-  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null) => {
+  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -144,7 +144,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           first_name: firstName, 
           last_name: lastName,
           organization_id: orgId || "a0600000-0000-0000-0000-000000000001",
-          upline_id: uplineId || null
+          upline_id: uplineId || null,
+          role: role || "Agent",
+          licensed_states: licensedStates || [],
+          commission_level: commissionLevel || "0%"
         },
       },
     });

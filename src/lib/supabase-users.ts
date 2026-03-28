@@ -336,7 +336,7 @@ export const usersSupabaseApi = {
   },
 
 
-  async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole; uplineId?: string | null }, organizationId: string | null): Promise<string> {
+  async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates?: { state: string; licenseNumber: string }[]; commissionLevel?: string; uplineId?: string | null }, organizationId: string | null): Promise<string> {
     const invitePayload = { ...data, organizationId };
     const encoded = btoa(JSON.stringify(invitePayload));
     return `${window.location.origin}/signup?invite=${encoded}`;
