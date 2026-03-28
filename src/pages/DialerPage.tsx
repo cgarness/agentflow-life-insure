@@ -793,7 +793,7 @@ export default function DialerPage() {
           const { data: callRecord, error: amdError } = await supabase
             .from('calls')
             .select('amd_result')
-            .eq('telnyx_call_id', callControlId)
+            .eq('id', currentCallId)
             .maybeSingle();
 
           if (amdError) {

@@ -126,11 +126,11 @@ async function isAmdEnabled(supabase: any, organizationId?: string): Promise<boo
 }
 
 // ─── Helper: get organization_id from a call record ───
-async function getCallOrgId(supabase: any, callControlId: string): Promise<string | null> {
+async function getCallOrgId(supabase: any, callSessionId: string): Promise<string | null> {
   const { data } = await supabase
     .from('calls')
     .select('organization_id')
-    .eq('telnyx_call_id', callControlId)
+    .eq('telnyx_call_id', callSessionId)
     .maybeSingle();
   return data?.organization_id || null;
 }
@@ -154,6 +154,7 @@ async function handleCallInitiated(supabase: any, payload: any) {
   }
 
   console.log('Call initiated:', {
+    callSessionId: payload.call_session_id,
     callControlId: payload.call_control_id,
     from: payload.from,
     to: payload.to,
@@ -163,7 +164,7 @@ async function handleCallInitiated(supabase: any, payload: any) {
   });
 
   const callData: any = {
-    telnyx_call_id: payload.call_control_id,
+    telnyx_call_id: payload.call_session_id, // Map using shared session ID
     direction: payload.direction,
     caller_id_used: payload.from,
     status: 'ringing',
@@ -191,12 +192,12 @@ async function handleCallInitiated(supabase: any, payload: any) {
 
 // Handler: call.answered
 async function handleCallAnswered(supabase: any, payload: any) {
-  console.log('Call answered:', payload.call_control_id);
+  console.log('Call answered:', payload.call_session_id);
 
   const { error } = await supabase
     .from('calls')
     .update({ status: 'connected' })
-    .eq('telnyx_call_id', payload.call_control_id);
+    .eq('telnyx_call_id', payload.call_session_id);
 
   if (error) {
     console.error('Error updating call to connected:', error);
@@ -206,11 +207,11 @@ async function handleCallAnswered(supabase: any, payload: any) {
   // We trigger AMD on 'answered' rather than 'initiated' to ensure
   // we don't analyze ringback tones or carrier announcements.
   if (payload.direction === 'outbound') {
-    const orgId = await getCallOrgId(supabase, payload.call_control_id);
+    const orgId = await getCallOrgId(supabase, payload.call_session_id);
     const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
 
     if (amdEnabled) {
-      console.log('AMD enabled — triggering AMD start on answer for call:', payload.call_control_id);
+      console.log('AMD enabled — triggering AMD start on answer for call:', payload.call_session_id);
       try {
         // Invoke the telnyx-amd-start edge function
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -244,7 +245,7 @@ async function handleCallHangup(supabase: any, payload: any) {
   const status = ['call_rejected', 'normal_clearing'].includes(hangupCause) ? 'completed' : 'failed';
 
   console.log('Call hangup:', {
-    callControlId: payload.call_control_id,
+    callSessionId: payload.call_session_id,
     hangupCause,
     duration,
     status,
@@ -258,7 +259,7 @@ async function handleCallHangup(supabase: any, payload: any) {
       hangup_details: hangupCause,
       updated_at: new Date().toISOString(),
     })
-    .eq('telnyx_call_id', payload.call_control_id);
+    .eq('telnyx_call_id', payload.call_session_id);
 
   if (error) {
     console.error('Error updating call on hangup:', error);
@@ -268,7 +269,7 @@ async function handleCallHangup(supabase: any, payload: any) {
   const { data: callRecord } = await supabase
     .from('calls')
     .select('contact_id, duration, disposition_name, direction, caller_id_used')
-    .eq('telnyx_call_id', payload.call_control_id)
+    .eq('telnyx_call_id', payload.call_session_id)
     .single();
 
   if (callRecord?.contact_id) {
@@ -293,9 +294,10 @@ async function handleCallHangup(supabase: any, payload: any) {
 // Handler: call.machine.detection.ended (Standard AMD)
 async function handleAMDResult(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
+  const callSessionId = payload.call_session_id;
   const amdResult = payload.result; // 'human' | 'machine' | 'not_sure'
 
-  console.log('AMD standard result:', { callControlId, amdResult });
+  console.log('AMD standard result:', { callSessionId, amdResult });
 
   // Normalize: 'not_sure' → treat as 'human' (better to connect agent than skip a prospect)
   const normalizedResult = amdResult === 'not_sure' ? 'human' : amdResult;
@@ -303,22 +305,23 @@ async function handleAMDResult(supabase: any, payload: any) {
   const { error } = await supabase
     .from('calls')
     .update({ amd_result: normalizedResult })
-    .eq('telnyx_call_id', callControlId);
+    .eq('telnyx_call_id', callSessionId);
 
   if (error) {
     console.error('Error updating AMD result:', error);
   }
 
-  await handleMachineDetected(supabase, callControlId, normalizedResult);
+  await handleMachineDetected(supabase, callControlId, callSessionId, normalizedResult);
 }
 
 // Handler: call.machine.premium.detection.ended (Premium AMD)
 async function handlePremiumAMDResult(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
+  const callSessionId = payload.call_session_id;
   const rawResult = payload.result;
   // Premium results: 'human_residence' | 'human_business' | 'machine' | 'silence' | 'fax_detected' | 'not_sure'
 
-  console.log('AMD premium result:', { callControlId, rawResult });
+  console.log('AMD premium result:', { callSessionId, rawResult });
 
   // Normalize to simple 'human' or 'machine'
   let normalizedResult: string;
@@ -332,21 +335,21 @@ async function handlePremiumAMDResult(supabase: any, payload: any) {
   const { error } = await supabase
     .from('calls')
     .update({ amd_result: normalizedResult })
-    .eq('telnyx_call_id', callControlId);
+    .eq('telnyx_call_id', callSessionId);
 
   if (error) {
     console.error('Error updating premium AMD result:', error);
   }
 
-  await handleMachineDetected(supabase, callControlId, normalizedResult);
+  await handleMachineDetected(supabase, callControlId, callSessionId, normalizedResult);
 }
 
 // ─── Shared: handle machine detection ───
-async function handleMachineDetected(supabase: any, callControlId: string, result: string) {
+async function handleMachineDetected(supabase: any, callControlId: string, callSessionId: string, result: string) {
   if (result !== 'machine') return;
 
   // Check if AMD auto-action is enabled
-  const orgId = await getCallOrgId(supabase, callControlId);
+  const orgId = await getCallOrgId(supabase, callSessionId);
   const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
 
   if (!amdEnabled) {
@@ -365,7 +368,7 @@ async function handleMachineDetected(supabase: any, callControlId: string, resul
       disposition_name: 'No Answer',
       updated_at: new Date().toISOString(),
     })
-    .eq('telnyx_call_id', callControlId);
+    .eq('telnyx_call_id', callSessionId);
 
   // 2. Auto-hangup via Telnyx REST API (server-side hangup — agent never needs to act)
   const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
@@ -378,16 +381,16 @@ async function handleMachineDetected(supabase: any, callControlId: string, resul
 
 // Handler: call.recording.saved
 async function handleRecordingSaved(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
+  const callSessionId = payload.call_session_id;
   const recordingUrl = payload.recording_urls?.mp3 || payload.recording_urls?.wav || null;
 
-  console.log('Recording saved:', { callControlId, recordingUrl });
+  console.log('Recording saved:', { callSessionId, recordingUrl });
 
   if (recordingUrl) {
     const { error } = await supabase
       .from('calls')
       .update({ recording_url: recordingUrl })
-      .eq('telnyx_call_id', callControlId);
+      .eq('telnyx_call_id', callSessionId);
 
     if (error) {
       console.error('Error saving recording URL:', error);
