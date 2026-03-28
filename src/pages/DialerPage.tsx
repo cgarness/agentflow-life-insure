@@ -788,7 +788,7 @@ export default function DialerPage() {
 
         try {
           // Brief delay to let webhook update the amd_result
-          await new Promise(r => setTimeout(r, 1500));
+          await new Promise(r => setTimeout(r, 2500));
 
           const { data: callRecord, error: amdError } = await supabase
             .from('calls')
