@@ -378,18 +378,97 @@ const ImportCSVModal: React.FC<{
 
   const doImport = async () => {
     setImporting(true);
-    const fieldToCol: Record<string, number> = {};
-    Object.entries(mappings).forEach(([idx, field]) => { if (field !== "skip") fieldToCol[field] = Number(idx); });
-    const getVal = (row: string[], field: string) => { const idx = fieldToCol[field]; return idx !== undefined ? row[idx]?.trim() || "" : ""; };
-    const toInsert = rows.map(row => ({ campaign_id: campaignId, first_name: getVal(row, "first_name"), last_name: getVal(row, "last_name"), phone: getVal(row, "phone"), email: getVal(row, "email"), state: getVal(row, "state"), status: "Queued", organization_id: organizationId })).filter(r => r.phone || r.first_name);
-    const { error } = await supabase.from("campaign_leads").insert(toInsert as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (error) { toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" }); }
-    else {
-      await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 } as any).eq("id", campaignId); // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast.success(`${toInsert.length} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
-      onImported(); onClose();
+    try {
+      const fieldToCol: Record<string, number> = {};
+      Object.entries(mappings).forEach(([idx, field]) => { if (field !== "skip") fieldToCol[field] = Number(idx); });
+      const getVal = (row: string[], field: string) => { const idx = fieldToCol[field]; return idx !== undefined ? row[idx]?.trim() || "" : ""; };
+      
+      const leadsToProcess = rows.map(row => ({
+        first_name: getVal(row, "first_name"),
+        last_name: getVal(row, "last_name"),
+        phone: getVal(row, "phone"),
+        email: getVal(row, "email"),
+        state: getVal(row, "state"),
+      })).filter(r => r.phone || r.first_name);
+
+      if (leadsToProcess.length === 0) {
+        setImporting(false);
+        return;
+      }
+
+      // 1. Process leads in batches to ensure they exist in the master 'leads' table
+      const processedLeads = [];
+      
+      for (const lead of leadsToProcess) {
+        // Try to find existing lead by phone or email
+        let existingId = null;
+        if (lead.phone || lead.email) {
+          const queryParts = [];
+          if (lead.phone) queryParts.push(`phone.eq.${lead.phone}`);
+          if (lead.email) queryParts.push(`email.eq.${lead.email}`);
+          
+          const { data: existingLeads } = await supabase
+            .from("leads")
+            .select("id")
+            .or(queryParts.join(','))
+            .maybeSingle();
+            
+          if (existingLeads) existingId = existingLeads.id;
+        }
+
+        if (!existingId) {
+          // Create new master lead
+          const { data: newLead, error: createError } = await supabase
+            .from("leads")
+            .insert({
+              first_name: lead.first_name,
+              last_name: lead.last_name,
+              phone: lead.phone,
+              email: lead.email,
+              state: lead.state,
+              status: "New",
+              organization_id: organizationId
+            } as any)
+            .select("id")
+            .single();
+          
+          if (createError) {
+            console.error("Failed to create master lead record:", createError);
+            continue; // Skip this one if we can't create a master record
+          }
+          existingId = newLead.id;
+        }
+        
+        processedLeads.push({
+          ...lead,
+          lead_id: existingId,
+          campaign_id: campaignId,
+          status: "Queued",
+          organization_id: organizationId
+        });
+      }
+
+      // 2. Insert into campaign_leads
+      if (processedLeads.length > 0) {
+        const { error } = await supabase.from("campaign_leads").insert(processedLeads as any);
+        if (error) {
+          toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
+        } else {
+          // Update campaign stats
+          await supabase.from("campaigns").update({ 
+            total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 
+          } as any).eq("id", campaignId);
+          
+          toast.success(`${processedLeads.length} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
+          onImported(); 
+          onClose();
+        }
+      }
+    } catch (err: any) {
+      toast.error("An error occurred during import: " + err.message);
+    } finally {
+      setImporting(false);
     }
-    setImporting(false);
   };
 
   if (!open) return null;
