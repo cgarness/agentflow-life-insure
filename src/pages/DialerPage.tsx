@@ -824,11 +824,24 @@ export default function DialerPage() {
             );
             if (noAnswerDisp) {
               setSelectedDisp(noAnswerDisp);
-              handleAutoDispose(noAnswerDisp);
+              // If autoDialer is active, use it to advance + trigger next call
+              if (autoDialer && autoDialer.isEnabled()) {
+                autoDialer.setIndex(currentLeadIndex);
+                await autoDialer.saveDispositionAndNext(noAnswerDisp.id);
+              } else {
+                handleAutoDispose(noAnswerDisp);
+              }
             } else {
               // No matching disposition — still advance
               console.warn('No "No Answer" disposition found, advancing without disposition');
-              setCurrentLeadIndex((i) => i + 1);
+              if (autoDialer && autoDialer.isEnabled()) {
+                const nextIdx = currentLeadIndex + 1;
+                autoDialer.setIndex(nextIdx);
+                setCurrentLeadIndex(nextIdx);
+                await autoDialer.dialNext();
+              } else {
+                setCurrentLeadIndex((i) => i + 1);
+              }
             }
             // Reset AMD status after brief display
             setTimeout(() => setAmdStatus('idle'), 2000);
@@ -852,7 +865,8 @@ export default function DialerPage() {
 
       checkAmd();
     }
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentLeadIndex]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -947,7 +961,7 @@ export default function DialerPage() {
   useEffect(() => {
     const agentId = user?.id;
     if (!selectedCampaignId || !agentId) return;
-    const dialer = new AutoDialer(sessionIdRef.current, selectedCampaignId, agentId);
+    const dialer = new AutoDialer(sessionIdRef.current, selectedCampaignId, agentId, organizationId);
     dialer.startSession();
     setAutoDialer(dialer);
     // Eagerly register TelnyxRTC so the client is ready before the first call

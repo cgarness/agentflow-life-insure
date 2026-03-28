@@ -4,6 +4,7 @@ import { createCall } from './dialer-api';
 
 interface CampaignLead {
   id: string;
+  lead_id: string; // master lead UUID from leads table
   phone: string;
   first_name: string;
   last_name: string;
@@ -98,12 +99,24 @@ export class AutoDialer {
     this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];
 
     // Load lead queue including Called leads that are eligible for retry
-    const { data: leads } = await supabase
+    // Join with leads table to get full lead data (aligned with getCampaignLeads in dialer-api.ts)
+    const { data: rawLeads } = await supabase
       .from('campaign_leads')
-      .select('*')
+      .select('*, lead:leads(*)')
       .eq('campaign_id', this.campaignId)
       .not('status', 'in', '("DNC","Completed","Removed")')
       .order('created_at', { ascending: true });
+
+    // Flatten joined data so lead fields are accessible at top level
+    const leads = (rawLeads || []).map((row: any) => {
+      const { lead, ...campaignLead } = row;
+      return {
+        ...(lead || {}),
+        ...campaignLead,
+        id: campaignLead.id,
+        lead_id: lead?.id || campaignLead.lead_id,
+      };
+    });
 
     // Filter by DNC, max attempts, and retry interval in JS
     const { data: dncNumbers } = await supabase
@@ -183,8 +196,9 @@ export class AutoDialer {
     console.log(`Dialing lead ${lead.id} with caller ID ${callerNumber}`);
 
     // Create call record in database
+    // Use lead.lead_id (master contact ID), not lead.id (campaign_lead junction ID)
     const callId = await createCall({
-      contact_id: lead.id,
+      contact_id: lead.lead_id || lead.id,
       agent_id: this.agentId,
       campaign_id: this.campaignId,
       caller_id_used: callerNumber,
@@ -264,6 +278,21 @@ export class AutoDialer {
     console.log('Auto-dial resumed');
     this.autoDialEnabled = true;
     this.dialNext();
+  }
+
+  /** Synchronize the internal lead index with the UI's index */
+  setIndex(index: number): void {
+    this.currentLeadIndex = index;
+  }
+
+  /** Get the current internal lead index */
+  getIndex(): number {
+    return this.currentLeadIndex;
+  }
+
+  /** Check if auto-dial is currently enabled */
+  isEnabled(): boolean {
+    return this.autoDialEnabled;
   }
 
   async endSession(): Promise<void> {

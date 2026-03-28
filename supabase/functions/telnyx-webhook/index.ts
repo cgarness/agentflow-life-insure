@@ -137,13 +137,29 @@ async function getCallOrgId(supabase: any, callControlId: string): Promise<strin
 
 // Handler: call.initiated
 async function handleCallInitiated(supabase: any, payload: any) {
-  const clientState = payload.client_state;
+  const rawClientState = payload.client_state;
+
+  // TelnyxRTC SDK base64-encodes the clientState before sending to Telnyx.
+  // We must decode it to recover the original UUID we passed from the frontend.
+  let decodedClientState: string | null = null;
+  if (rawClientState) {
+    try {
+      decodedClientState = new TextDecoder().decode(
+        Uint8Array.from(atob(rawClientState), (c) => c.charCodeAt(0))
+      );
+    } catch {
+      // If decoding fails, try using it raw (in case it wasn't encoded)
+      decodedClientState = rawClientState;
+    }
+  }
+
   console.log('Call initiated:', {
     callControlId: payload.call_control_id,
     from: payload.from,
     to: payload.to,
     direction: payload.direction,
-    clientState,
+    rawClientState,
+    decodedClientState,
   });
 
   const callData: any = {
@@ -154,13 +170,13 @@ async function handleCallInitiated(supabase: any, payload: any) {
     updated_at: new Date().toISOString(),
   };
 
-  if (clientState) {
-    // If clientState is provided, it's our internal call UUID
+  if (decodedClientState) {
+    // If clientState is provided, it's our internal call UUID (decoded from base64)
     const { error } = await supabase
       .from('calls')
       .update(callData)
-      .eq('id', clientState);
-    if (error) console.error('Error updating call with client_state:', error);
+      .eq('id', decodedClientState);
+    if (error) console.error('Error updating call with client_state:', error, 'decoded:', decodedClientState);
   } else {
     // Otherwise insert a new record
     const { error } = await supabase.from('calls').insert({
