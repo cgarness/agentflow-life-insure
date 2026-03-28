@@ -253,6 +253,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
+      console.log("Telnyx auth method:", tokenData.auth_method || (tokenData.token ? "token" : "sip_credentials"));
+
       // 3. Pre-acquire microphone so permission is already granted at call time
       try {
         mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -278,10 +280,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       client.on("telnyx.error", (error: any) => {
         const errorCode = error?.code || error?.error?.code;
-        const errorMessage = error?.message || error?.error?.message || '';
+        const errorMsg = error?.message || error?.error?.message || '';
         const isRemoteHangup =
           errorCode === -32002 ||
-          (typeof errorMessage === "string" && errorMessage.includes("CALL DOES NOT EXIST"));
+          (typeof errorMsg === "string" && errorMsg.includes("CALL DOES NOT EXIST"));
 
         if (isRemoteHangup) {
           console.log("Remote party ended call — normal cleanup (code -32002)");
@@ -306,16 +308,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         console.error('TelnyxRTC full error:', JSON.stringify(error, null, 2));
         setStatus('error');
-        
-        let details = '';
-        try {
-          details = JSON.stringify(error);
-        } catch (e) {
-          details = String(error);
+
+        // Login Incorrect: credentials are invalid or expired
+        if (errorCode === -32001 || (typeof errorMsg === "string" && errorMsg.includes("Login Incorrect"))) {
+          setErrorMessage("Login failed: Your Telnyx SIP credentials are invalid or expired. Please check your API Key, Connection ID, and SIP credentials in Phone Settings.");
+          return;
         }
-        
-        const msg = error?.message || error?.code || 'Connection failed';
-        setErrorMessage(`${msg} (${details})`);
+
+        const msg = errorMsg || String(errorCode) || 'Connection failed';
+        setErrorMessage(msg);
       });
 
       client.on("telnyx.notification", (notification: any) => {

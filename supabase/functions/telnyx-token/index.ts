@@ -134,6 +134,7 @@ Deno.serve(async (req) => {
           JSON.stringify({
             token: token.trim(),
             connection_id: connectionId,
+            auth_method: "token",
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -145,17 +146,19 @@ Deno.serve(async (req) => {
 
     // 2. Fallback: If we have explicit SIP credentials, use them
     if (finalSettings.sip_username && finalSettings.sip_password) {
+      console.log("Using SIP credential fallback for user:", user.id);
       return new Response(
         JSON.stringify({
           sip_username: finalSettings.sip_username,
           sip_password: finalSettings.sip_password,
           connection_id: connectionId,
+          auth_method: "sip_credentials",
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    throw new Error("No Connection ID or SIP credentials successfully initialized.");
+    throw new Error("Could not generate a login token and no SIP credentials are configured. Please verify your API Key and Connection ID in Phone Settings, or add SIP credentials as a fallback.");
 
   } catch (error) {
     return new Response(
