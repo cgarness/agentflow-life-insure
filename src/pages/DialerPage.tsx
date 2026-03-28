@@ -1124,8 +1124,8 @@ export default function DialerPage() {
       setAptType("Sales Call");
       const today = new Date().toISOString().split('T')[0];
       setAptDate(today);
-      setAptStartTime("10:00 AM");
-      setAptEndTime("10:30 AM");
+      setAptStartTime("");
+      setAptEndTime("");
     }
 
     if (d.name.toLowerCase().includes("no answer")) {
@@ -1401,7 +1401,14 @@ export default function DialerPage() {
     }
   };
 
-  const currentStatusColor = leadStages.find(s => s.name === currentLead?.status)?.color || (currentLead?.status ? fallbackStatusColors[currentLead.status] : null) || "#6B7280";
+  const currentStatusColor = useMemo(() => {
+    if (!currentLead?.status) return "#6B7280";
+    const status = currentLead.status.toLowerCase().trim();
+    const stage = leadStages.find(s => s.name.toLowerCase().trim() === status);
+    if (stage) return stage.color;
+    // Fallback search in fallbackStatusColors
+    return fallbackStatusColors[currentLead.status] || "#6B7280";
+  }, [leadStages, currentLead?.status]);
 
   function handleAdvance() {
     setShowWrapUp(false);
@@ -1970,7 +1977,7 @@ export default function DialerPage() {
           </div>
         </div>
       )}
-      <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
+      <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mt-4 lg:-mt-6 -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 py-1 gap-4">
         {/* LEFT */}
