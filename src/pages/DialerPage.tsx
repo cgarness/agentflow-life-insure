@@ -71,6 +71,7 @@ import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
+import { normalizeState } from "@/utils/stateUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
@@ -411,12 +412,14 @@ export default function DialerPage() {
       
       const stats: Record<string, { state: string, count: number }[]> = {};
       data.forEach(row => {
-        const leadState = row.state || (row.lead as any)?.state;
-        if (!leadState) return;
+        const rawState = row.state || (row.lead as any)?.state;
+        const normalizedState = normalizeState(rawState);
+        if (!normalizedState) return;
+        
         if (!stats[row.campaign_id]) stats[row.campaign_id] = [];
-        let stateEntry = stats[row.campaign_id].find(s => s.state === leadState);
+        let stateEntry = stats[row.campaign_id].find(s => s.state === normalizedState);
         if (!stateEntry) {
-          stateEntry = { state: leadState, count: 0 };
+          stateEntry = { state: normalizedState, count: 0 };
           stats[row.campaign_id].push(stateEntry);
         }
         stateEntry.count++;
@@ -624,7 +627,7 @@ export default function DialerPage() {
 
     // Apply filters
     if (queueFilter.status) q = q.filter(({ lead }) => lead.status === queueFilter.status);
-    if (queueFilter.state) q = q.filter(({ lead }) => (lead.state || '').toLowerCase() === queueFilter.state.toLowerCase());
+    if (queueFilter.state) q = q.filter(({ lead }) => normalizeState(lead.state) === queueFilter.state);
     if (queueFilter.leadSource) q = q.filter(({ lead }) => (lead.source || '').toLowerCase() === queueFilter.leadSource.toLowerCase());
     q = q.filter(({ lead }) => {
       const attempts = lead.call_attempts || 0;
@@ -657,7 +660,10 @@ export default function DialerPage() {
 
   // Unique values for filter dropdowns (derived from current queue)
   const uniqueStatuses = useMemo(() => [...new Set(leadQueue.map(l => l.status).filter(Boolean))], [leadQueue]);
-  const uniqueStates = useMemo(() => [...new Set(leadQueue.map(l => l.state).filter(Boolean))].sort(), [leadQueue]);
+  const uniqueStates = useMemo(() => {
+    const states = leadQueue.map(l => normalizeState(l.state)).filter(Boolean) as string[];
+    return [...new Set(states)].sort();
+  }, [leadQueue]);
   const uniqueSources = useMemo(() => [...new Set(leadQueue.map(l => l.source).filter(Boolean))].sort(), [leadQueue]);
 
   // Helper: render a preview field value for a lead card
@@ -668,7 +674,7 @@ export default function DialerPage() {
         const days = Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000);
         return days === 0 ? 'Today' : `${days}d old`;
       }
-      case 'state': return lead.state || '—';
+      case 'state': return normalizeState(lead.state) || '—';
       case 'score': return lead.lead_score != null ? `Score ${lead.lead_score}` : '—';
       case 'source': return lead.source || lead.lead_source || '—';
       case 'attempts': return `${lead.call_attempts || 0} attempt${(lead.call_attempts || 0) !== 1 ? 's' : ''}`;
