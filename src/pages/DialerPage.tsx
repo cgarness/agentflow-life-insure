@@ -697,7 +697,10 @@ export default function DialerPage() {
   }, []);
 
   useEffect(() => {
-    if (!currentLead) return;
+    if (!currentLead) {
+      setHistory([]);
+      return;
+    }
     fetchHistory(currentLead.lead_id || currentLead.id);
   }, [currentLead, fetchHistory]);
 
@@ -1451,11 +1454,16 @@ export default function DialerPage() {
     setSelectedDisp(null);
     setNoteText("");
     setNoteError(false);
+    setCurrentCallId(null);
     setCurrentLeadIndex((i) => i + 1);
   }
 
   function handleSkip() {
     setIsEditingContact(false);
+    setSelectedDisp(null);
+    setNoteText("");
+    setNoteError(false);
+    setCurrentCallId(null);
     setCurrentLeadIndex((i) => i + 1);
   }
 
