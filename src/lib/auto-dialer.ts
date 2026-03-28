@@ -36,6 +36,8 @@ export class AutoDialer {
   private leadQueue: CampaignLead[];
   private phoneNumbers: PhoneNumber[];
   private localPresenceEnabled: boolean;
+  private maxAttempts: number = 1;
+  private retryIntervalHours: number = 0;
 
   constructor(sessionId: string, campaignId: string, agentId: string, organizationId: string | null = null) {
     this.sessionId = sessionId;
@@ -70,16 +72,19 @@ export class AutoDialer {
     try {
       const { data: campaign } = await supabase
         .from('campaigns')
-        .select('local_presence_enabled')
+        .select('local_presence_enabled, max_attempts, retry_interval_hours')
         .eq('id', this.campaignId)
         .maybeSingle();
 
       this.localPresenceEnabled = (campaign as any)?.local_presence_enabled ?? true;
+      this.maxAttempts = (campaign as any)?.max_attempts ?? 1;
+      this.retryIntervalHours = (campaign as any)?.retry_interval_hours ?? 0;
+      
       if (!campaign) {
-        console.warn(`[AutoDialer] campaigns row not found for id=${this.campaignId}, defaulting local_presence_enabled=true`);
+        console.warn(`[AutoDialer] campaigns row not found for id=${this.campaignId}, using defaults`);
       }
     } catch (err) {
-      console.warn('[AutoDialer] Failed to load campaign settings, defaulting local_presence_enabled=true', err);
+      console.warn('[AutoDialer] Failed to load campaign settings', err);
     }
 
     // Load phone numbers for this organization
@@ -92,21 +97,41 @@ export class AutoDialer {
 
     this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];
 
-    // Load lead queue
+    // Load lead queue including Called leads that are eligible for retry
     const { data: leads } = await supabase
       .from('campaign_leads')
       .select('*')
       .eq('campaign_id', this.campaignId)
-      .eq('status', 'Queued')
+      .not('status', 'in', '("DNC","Completed","Removed")')
       .order('created_at', { ascending: true });
 
-    // Filter out DNC numbers
+    // Filter by DNC, max attempts, and retry interval in JS
     const { data: dncNumbers } = await supabase
       .from('dnc_list')
       .select('phone_number');
 
     const dncSet = new Set(dncNumbers?.map(d => d.phone_number) || []);
-    this.leadQueue = ((leads || []) as CampaignLead[]).filter(lead => !dncSet.has(lead.phone));
+    const now = new Date();
+
+    this.leadQueue = ((leads || []) as any[]).filter(lead => {
+      if (dncSet.has(lead.phone)) return false;
+      
+      if (lead.status === "Queued") return true;
+      
+      if (lead.status === "Called") {
+        const attempts = lead.call_attempts ?? 0;
+        if (attempts >= this.maxAttempts) return false;
+
+        if (this.retryIntervalHours > 0 && lead.last_called_at) {
+          const lastCalled = new Date(lead.last_called_at);
+          const hoursSince = (now.getTime() - lastCalled.getTime()) / (1000 * 60 * 60);
+          if (hoursSince < this.retryIntervalHours) return false;
+        }
+        return true;
+      }
+      
+      return false;
+    });
 
     console.log(`Session started: ${this.leadQueue.length} leads in queue`);
   }
@@ -208,14 +233,9 @@ export class AutoDialer {
       console.warn('Disposition may not have saved:', err);
     }
 
-    // Mark lead as Called
-    await supabase
-      .from('campaign_leads')
-      .update({
-        status: 'Called',
-        last_called_at: new Date().toISOString()
-      })
-      .eq('id', lead.id);
+    // Note: status, call_attempts, and last_called_at are handled by dialer-api's updateLeadStatus 
+    // which is called by the DialerPage before this method.
+    // Redundant update removed to prevent race conditions or stale data overwrites.
 
     if (this.autoDialEnabled) {
       // Advance to next lead and dial immediately (no countdown)

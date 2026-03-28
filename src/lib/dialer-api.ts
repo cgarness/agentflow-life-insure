@@ -16,26 +16,64 @@ export async function getCampaigns() {
 }
 
 export async function getCampaignLeads(campaignId: string, limit = 100, offset = 0) {
-  const { data, error } = await supabase
+  // 1. Fetch campaign settings for multi-attempt logic
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("max_attempts, retry_interval_hours")
+    .eq("id", campaignId)
+    .maybeSingle();
+
+  const maxAttempts = campaign?.max_attempts ?? 1;
+  const retryInterval = campaign?.retry_interval_hours ?? 0;
+
+  // 2. Build the query
+  // We want leads that are 'Queued' OR ('Called' AND attempts < max AND time passed)
+  // Since Postgrest filtering for complex OR with calculated dates is tricky,
+  // we'll fetch a slightly broader set and filter in JS, or use a more clever query.
+  // For simplicity and correctness with pagination, we'll use a filter that allows Queued and Called.
+  let query = supabase
     .from("campaign_leads")
     .select("*, lead:leads(*)")
     .eq("campaign_id", campaignId)
-    .not("status", "in", '("Called","DNC")')
-    .order("created_at", { ascending: true })
-    .range(offset, offset + limit - 1);
+    .not("status", "in", '("DNC","Completed","Removed")') // Exclude terminal statuses
+    .order("created_at", { ascending: true });
+
+  const { data, error } = await query.range(offset, offset + limit - 1);
   if (error) throw new Error(error.message);
-  
-  // Flatten the join results
-  return (data ?? []).map(row => {
-    const { lead, ...campaignLead } = row;
-    return {
-      ...(lead || {}),
-      ...campaignLead,
-      state: campaignLead.state || lead?.state || "",
-      id: campaignLead.id, // Ensure this is the campaign_lead ID
-      lead_id: lead?.id || campaignLead.lead_id // Ensure this is the master lead ID
-    };
-  });
+
+  const now = new Date();
+
+  // 3. Flatten and Filter by attempts/interval
+  return (data ?? [])
+    .map(row => {
+      const { lead, ...campaignLead } = row;
+      return {
+        ...(lead || {}),
+        ...campaignLead,
+        state: campaignLead.state || lead?.state || "",
+        id: campaignLead.id,
+        lead_id: lead?.id || campaignLead.lead_id
+      };
+    })
+    .filter(lead => {
+      // If Queued, always include
+      if (lead.status === "Queued") return true;
+      
+      // If Called, check attempts and interval
+      if (lead.status === "Called") {
+        const attempts = lead.call_attempts ?? 0;
+        if (attempts >= maxAttempts) return false;
+
+        if (retryInterval > 0 && lead.last_called_at) {
+          const lastCalled = new Date(lead.last_called_at);
+          const hoursSince = (now.getTime() - lastCalled.getTime()) / (1000 * 60 * 60);
+          if (hoursSince < retryInterval) return false;
+        }
+        return true;
+      }
+
+      return false; // Other statuses like 'Locked', 'Claimed' might be handled differently
+    });
 }
 
 export async function getLeadHistory(leadId: string) {
@@ -155,6 +193,23 @@ export async function saveCall(data: {
 
   if (error) throw new Error(error.message);
 
+  // 2. Increment call_attempts and update last_called_at on campaign_leads
+  if (data.campaign_lead_id) {
+    const { data: current } = await supabase
+      .from("campaign_leads")
+      .select("call_attempts")
+      .eq("id", data.campaign_lead_id)
+      .maybeSingle();
+
+    await supabase
+      .from("campaign_leads")
+      .update({ 
+        call_attempts: (current?.call_attempts ?? 0) + 1,
+        last_called_at: new Date().toISOString()
+      } as any)
+      .eq("id", data.campaign_lead_id);
+  }
+
   const { error: actError } = await supabase.from("contact_activities").insert({
     contact_id: data.master_lead_id,
     agent_id: data.agent_id,
@@ -181,18 +236,15 @@ export async function saveNote(data: {
 }
 
 export async function updateLeadStatus(campaignLeadId: string, masterLeadId: string, status: string, organizationId: string | null = null) {
-  // 1. Map business status to a valid campaign-internal status
-  // Most business status changes mean the lead has been "processed" for this campaign.
   const validCampaignStatuses = ["Queued", "Locked", "Claimed", "Called", "Skipped", "Completed", "Failed", "DNC"];
   const campaignStatus = validCampaignStatuses.includes(status) ? status : "Called";
 
-  // 2. Update campaign-specific record
   const { error: updateError } = await supabase
     .from("campaign_leads")
     .update({ 
       status: campaignStatus,
-      disposition: status // Save the actual business status as the disposition for the campaign record
-    })
+      disposition: status
+    } as any)
     .eq("id", campaignLeadId);
   if (updateError) throw new Error(updateError.message);
 
