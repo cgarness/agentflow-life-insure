@@ -1,3 +1,5 @@
+import { normalizeState } from './stateUtils';
+
 export const STATE_TIMEZONES: Record<string, string> = {
   AL: 'America/Chicago', AK: 'America/Anchorage', AZ: 'America/Phoenix',
   AR: 'America/Chicago', CA: 'America/Los_Angeles', CO: 'America/Denver',
@@ -19,7 +21,8 @@ export const STATE_TIMEZONES: Record<string, string> = {
 };
 
 export function getContactLocalTime(state: string): string {
-  const tz = STATE_TIMEZONES[state?.toUpperCase()];
+  const normalizedState = normalizeState(state);
+  const tz = normalizedState ? STATE_TIMEZONES[normalizedState.toUpperCase()] : null;
   if (!tz) return '';
   return new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
@@ -30,7 +33,8 @@ export function getContactLocalTime(state: string): string {
 }
 
 export function getContactTimezone(state: string): string {
-  const tz = STATE_TIMEZONES[state?.toUpperCase()];
+  const normalizedState = normalizeState(state);
+  const tz = normalizedState ? STATE_TIMEZONES[normalizedState.toUpperCase()] : null;
   if (!tz) return '';
   const abbr = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
@@ -40,7 +44,8 @@ export function getContactTimezone(state: string): string {
 }
 
 export function isGoodTimeToCall(state: string): 'good' | 'early' | 'late' | 'unknown' {
-  const tz = STATE_TIMEZONES[state?.toUpperCase()];
+  const normalizedState = normalizeState(state);
+  const tz = normalizedState ? STATE_TIMEZONES[normalizedState.toUpperCase()] : null;
   if (!tz) return 'unknown';
   const hour = parseInt(
     new Intl.DateTimeFormat('en-US', {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2 } from "lucide-react";
+import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
@@ -18,6 +18,7 @@ import { useSidebarContext } from "@/contexts/SidebarContext";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
+import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -142,6 +143,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   
   const [activities, setActivities] = useState<ContactActivity[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
   
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [localStatus, setLocalStatus] = useState<string>(contact?.status || "");
@@ -160,12 +162,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const AGENT_ID = profile?.id || "u1";
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
 
-  const getStatusColor = (status: string) => {
-    const stage = pipelineStages.find(s => s.name === status);
-    if (stage) return stage.color;
-    return fallbackStatusStyles[status] || "#6B7280";
-  };
-
   // Conversations
   const [convoLoading, setConvoLoading] = useState(false);
   const [convoItems, setConvoItems] = useState<any[]>([]);
@@ -176,14 +172,18 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const [messageSending, setMessageSending] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (contact?.id) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("contact", contact.id);
-      url.searchParams.set("type", type);
-      window.history.replaceState({}, "", url.toString());
-    }
-  }, [contact?.id, type]);
+  const loadConversations = async () => {
+    if (!contact?.id) return;
+    setConvoLoading(true);
+    const [callsRes, msgsRes] = await Promise.all([
+      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, started_at, caller_id_used").eq("contact_id", contact.id).order("started_at", { ascending: true }),
+      supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", contact.id).order("sent_at", { ascending: true })
+    ]);
+    const calls = (callsRes.data || []).map(c => ({ ...c, _type: "call", _ts: new Date((c as any).started_at).getTime() }));
+    const msgs = (msgsRes.data || []).map(m => ({ ...m, _type: "sms", _ts: new Date((m as any).sent_at).getTime() }));
+    setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
+    setConvoLoading(false);
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -195,91 +195,44 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         notesSupabaseApi.getByContact(contact.id),
         activitiesSupabaseApi.getByContact(contact.id)
       ]);
-
       setLocalNotes(fetchedNotes);
       setActivities(fetchedActivities);
 
       if (type === "lead" || type === "recruit") {
-        const fetchedStages = type === "recruit" 
-          ? await pipelineSupabaseApi.getRecruitStages() 
-          : await pipelineSupabaseApi.getLeadStages();
+        const fetchedStages = type === "recruit" ? await pipelineSupabaseApi.getRecruitStages() : await pipelineSupabaseApi.getLeadStages();
         setPipelineStages(fetchedStages);
       }
 
-      // Fetch dynamic settings
       try {
         const [sources, healths, fields] = await Promise.all([
           leadSourcesSupabaseApi.getAll(),
           healthStatusesSupabaseApi.getAll(),
           customFieldsSupabaseApi.getAll()
         ]);
-        
         if (sources.length > 0) setLeadSources(sources.map(s => s.name));
         if (healths.length > 0) setHealthStatuses(healths.map(h => h.name));
-        
-        // Filter custom fields by appliesTo
-        const relevantFields = fields.filter(f => 
-          f.active && f.appliesTo.includes(type === 'lead' ? 'Leads' : type === 'client' ? 'Clients' : 'Recruits')
-        );
+        const relevantFields = fields.filter(f => f.active && f.appliesTo.includes(type === 'lead' ? 'Leads' : type === 'client' ? 'Clients' : 'Recruits'));
         setCustomFields(relevantFields);
 
-        // Fetch field order
-        const { data: settings, error: settingsError } = await (supabase as any)
-          .from("contact_management_settings")
-          .select("*")
-          .eq("organization_id", organizationId)
-          .maybeSingle();
-        
-        if (!settingsError && settings) {
+        const { data: settings } = await (supabase as any).from("contact_management_settings").select("*").eq("organization_id", organizationId).maybeSingle();
+        if (settings) {
           if (type === "lead") setFieldOrder(settings.field_order_lead || []);
           else if (type === "client") setFieldOrder(settings.field_order_client || []);
           else if (type === "recruit") setFieldOrder(settings.field_order_recruit || []);
         }
-      } catch (err) {
-        console.error("Error fetching dynamic settings:", err);
-      }
+      } catch (err) { console.error("Error fetching dynamic settings:", err); }
 
       if (type === "lead") {
-        const { data: campaignLinks } = await supabase
-          .from("campaign_leads")
-          .select("campaign_id, campaigns(id, name, type, status)")
-          .eq("lead_id", contact.id);
-        
-        if (campaignLinks) {
-          setCampaigns(campaignLinks.map((cl: any) => cl.campaigns).filter(Boolean));
-        }
+        const { data: campaignLinks } = await supabase.from("campaign_leads").select("campaign_id, campaigns(id, name, type, status)").eq("lead_id", contact.id);
+        if (campaignLinks) setCampaigns(campaignLinks.map((cl: any) => cl.campaigns).filter(Boolean));
       }
 
-      // Fetch available phone numbers
-      const { data: phoneData } = await supabase
-        .from("phone_numbers")
-        .select("phone_number, friendly_name, is_default")
-        .or(`organization_id.eq.${organizationId},organization_id.is.null`)
-        .in("status", ["active", "Active"]);
-      
+      const { data: phoneData } = await supabase.from("phone_numbers").select("phone_number, friendly_name, is_default").or(`organization_id.eq.${organizationId},organization_id.is.null`).in("status", ["active", "Active"]);
       if (phoneData) {
-        const mapped = phoneData.map(p => ({
-          number: p.phone_number,
-          label: p.friendly_name || p.phone_number
-        }));
-        setAvailableNumbers(mapped);
-        
-        // Default to last used number or organization default
-        const { data: lastCall } = await supabase
-          .from("calls")
-          .select("caller_id_used")
-          .eq("contact_id", contact.id)
-          .not("caller_id_used", "is", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (lastCall?.caller_id_used) {
-          setFromNumber(lastCall.caller_id_used);
-        } else {
-          const defaultNum = phoneData.find(p => p.is_default)?.phone_number || phoneData[0]?.phone_number || "";
-          setFromNumber(defaultNum);
-        }
+        setAvailableNumbers(phoneData.map(p => ({ number: p.phone_number, label: p.friendly_name ? `${p.friendly_name} - ${p.phone_number}` : p.phone_number })));
+        const { data: lastCall } = await supabase.from("calls").select("caller_id_used").eq("contact_id", contact.id).not("caller_id_used", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (lastCall?.caller_id_used) setFromNumber(lastCall.caller_id_used);
+        else setFromNumber(phoneData.find(p => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
       }
 
       const { data: profileData } = await supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
@@ -295,75 +248,36 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       setStatusDropdownOpen(false);
       setShowAppt(false);
       setEmailSubject("");
-      
       loadConversations();
     }
     loadData();
   }, [contact, type]);
 
-  const loadConversations = async () => {
-    if (!contact?.id) return;
-    setConvoLoading(true);
-    
-    // Fetch calls and messages in parallel
-    const [callsRes, msgsRes] = await Promise.all([
-      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, started_at, caller_id_used").eq("contact_id", contact.id).order("started_at", { ascending: true }),
-      supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", contact.id).order("sent_at", { ascending: true })
-    ]);
-
-    const calls = (callsRes.data || []).map(c => ({ ...c, _type: "call", _ts: new Date((c as any).started_at).getTime() }));
-    const msgs = (msgsRes.data || []).map(m => ({ ...m, _type: "sms", _ts: new Date((m as any).sent_at).getTime() }));
-    
-    setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
-    setConvoLoading(false);
-  };
-
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    };
+    const handler = (e: MouseEvent) => { if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) setStatusDropdownOpen(false); };
     if (statusDropdownOpen) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [statusDropdownOpen]);
 
-  useEffect(() => {
-    if (threadRef.current) {
-      threadRef.current.scrollTop = threadRef.current.scrollHeight;
-    }
-  }, [convoItems, convoFilter]);
+  useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [convoItems, convoFilter]);
 
   if (!contact) return null;
 
   const filteredConvos = convoFilter === "All" ? convoItems : convoItems.filter(i => i._type === convoFilter.toLowerCase());
-
-  const getAgentDisplayName = (agentId: string) => {
-    const a = agents.find(ag => ag.id === agentId);
-    return a ? `${a.firstName} ${a.lastName}` : agentId;
-  };
+  const getAgentDisplayName = (agentId: string) => { const a = agents.find(ag => ag.id === agentId); return a ? `${a.firstName} ${a.lastName}` : agentId; };
+  const getStatusColor = (status: string) => { const stage = pipelineStages.find(s => s.name === status); return stage ? stage.color : fallbackStatusStyles[status] || "#6B7280"; };
 
   const handleStatusChange = async (newStatus: string) => {
     setStatusDropdownOpen(false);
     setLocalStatus(newStatus);
     setEditForm((f: any) => ({ ...f, status: newStatus }));
-    
     await onUpdate(contact.id, { status: newStatus });
     await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: AGENT_ID }, organizationId);
     toast.success(`Status updated to ${newStatus}`);
   };
 
   const logActivity = (description: string, activityType: string) => {
-    const entry: ContactActivity = {
-      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      contactId: contact.id,
-      contactType: type,
-      type: activityType,
-      description,
-      agentId: AGENT_ID,
-      agentName: AGENT_NAME,
-      createdAt: new Date().toISOString(),
-    };
+    const entry: ContactActivity = { id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, contactId: contact.id, contactType: type, type: activityType, description, agentId: AGENT_ID, agentName: AGENT_NAME, createdAt: new Date().toISOString() };
     setActivities(prev => [entry, ...prev]);
     setLastUpdated(new Date().toISOString());
   };
@@ -380,34 +294,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     if (!editForm.firstName?.trim()) errs.firstName = "First name is required";
     if (!editForm.lastName?.trim()) errs.lastName = "Last name is required";
     if (Object.keys(errs).length) { setErrors(errs); return; }
-    
     await onUpdate(contact.id, editForm);
-    setEditMode(false);
-    setHasChanges(false);
-    setHasUnsavedChanges(false);
-    
+    setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false);
     await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID }, organizationId);
     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully`);
   };
 
-  const handleCancel = () => {
-    setEditForm({ ...contact });
-    setEditMode(false);
-    setHasChanges(false);
-    setHasUnsavedChanges(false);
-    setErrors({});
-  };
+  const handleCancel = () => { setEditForm({ ...contact }); setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false); setErrors({}); };
 
   const tryClose = () => {
-    if (hasUnsavedChanges) {
-      setConfirmDiscard(true);
-    } else {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("contact");
-      url.searchParams.delete("type");
-      window.history.replaceState({}, "", url.toString());
-      onClose();
-    }
+    if (hasUnsavedChanges) setConfirmDiscard(true);
+    else { const url = new URL(window.location.href); url.searchParams.delete("contact"); url.searchParams.delete("type"); window.history.replaceState({}, "", url.toString()); onClose(); }
   };
 
   const handleAddNote = async () => {
@@ -415,30 +312,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     setNoteError("");
     try {
       const addedNote = await notesSupabaseApi.add(contact.id, type, newNote.trim(), AGENT_ID, organizationId, pinNewNote);
-      setLocalNotes(prev => {
-        const next = [addedNote, ...prev];
-        return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
-      });
-      setNewNote("");
-      setPinNewNote(false);
+      setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
+      setNewNote(""); setPinNewNote(false);
       logActivity(`Note added by ${AGENT_NAME}`, "note");
       toast.success("Note added");
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
   };
 
   const handleTogglePin = async (note: ContactNote) => {
     try {
       const updatedNote = await notesSupabaseApi.togglePin(note.id, note.pinned);
-      setLocalNotes(prev => {
-        const next = prev.map(n => n.id === note.id ? updatedNote : n);
-        return next.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
-      });
+      setLocalNotes(prev => prev.map(n => n.id === note.id ? updatedNote : n).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
       toast.success(updatedNote.pinned ? "Note pinned" : "Note unpinned");
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
   };
 
   const handleDeleteNote = async (noteId: string) => {
@@ -448,9 +334,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       setDeleteNoteId(null);
       logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
       toast.success("Note deleted");
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
   };
 
   const handleSendMessage = async () => {
@@ -458,68 +342,28 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     setMessageSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        toast.error("You must be logged in to send messages", { duration: 5000 });
-        setMessageSending(false);
-        return;
-      }
-      
-      const res = await fetch(
-        `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-sms`,
-        {
-          method: "POST",
-          headers: {
-             "Content-Type": "application/json",
-             Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-              to: contact.phone,
-              body: composeText.trim(),
-              subject: composeTab === "Email" ? emailSubject.trim() : undefined,
-              lead_id: contact.id,
-          }),
-        }
-      );
+      if (!session?.access_token) { toast.error("You must be logged in to send messages"); setMessageSending(false); return; }
+      const res = await fetch(`https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ to: contact.phone, body: composeText.trim(), subject: composeTab === "Email" ? emailSubject.trim() : undefined, lead_id: contact.id }),
+      });
       const result = await res.json();
-      if (!result.success) {
-        toast.error(result.error || "Failed to send message", { duration: 5000 });
-        setMessageSending(false);
-        return;
-      }
-      toast.success("Message sent");
-      setComposeText("");
-      setEmailSubject("");
-      // Optimistically add message
-      const optimMsg = { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() };
-      setConvoItems(prev => [...prev, optimMsg]);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to send message");
-    } finally {
-      setMessageSending(false);
-    }
+      if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
+      toast.success("Message sent"); setComposeText(""); setEmailSubject("");
+      setConvoItems(prev => [...prev, { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+    } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { setMessageSending(false); }
   };
 
   const inputCls = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
   const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
     let val: any;
-    if (key.includes('.')) {
-      const [parent, child] = key.split('.');
-      val = editForm[parent]?.[child] ?? "";
-    } else {
-      val = editForm[key] ?? "";
-    }
-
+    if (key.includes('.')) { const [parent, child] = key.split('.'); val = editForm[parent]?.[child] ?? ""; }
+    else { val = editForm[key] ?? ""; }
     const handleChange = (newVal: any) => {
-      if (key.includes('.')) {
-        const [parent, child] = key.split('.');
-        handleFieldChange(parent, {
-          ...(editForm[parent] || {}),
-          [child]: newVal
-        });
-      } else {
-        handleFieldChange(key, newVal);
-      }
+      if (key.includes('.')) { const [parent, child] = key.split('.'); handleFieldChange(parent, { ...(editForm[parent] || {}), [child]: newVal }); }
+      else { handleFieldChange(key, newVal); }
     };
 
     return (
@@ -535,14 +379,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             ) : fieldType === "textarea" ? (
               <textarea value={val} onChange={e => handleChange(e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
             ) : (
-              <input type={fieldType} value={val} onChange={e => handleChange(fieldType === "number" ? Number(e.target.value) : e.target.value)}
-                className={inputCls} />
+              <input type={fieldType} value={val} onChange={e => handleChange(fieldType === "number" ? Number(e.target.value) : e.target.value)} className={inputCls} />
             )}
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : (
-          <CopyField value={val} />
-        )}
+        ) : ( <CopyField value={val} /> )}
       </div>
     );
   };
@@ -1124,7 +965,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             
             {/* CAMPAIGNS TAB */}
             {rightTab === "Campaigns" && type === "lead" && (
-               <div className="px-5 py-5">
+               <div className="px-5 py-5 flex flex-col h-full">
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Dialer Campaigns</p>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-7 text-[10px] font-bold uppercase tracking-wider gap-1.5"
+                      onClick={() => setAddToCampaignOpen(true)}
+                    >
+                      <Plus className="w-3 h-3" /> Add to Campaign
+                    </Button>
+                  </div>
+
                   {campaigns.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                        <p className="text-sm text-foreground font-medium">Not in any campaigns</p>
@@ -1221,6 +1074,25 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
           onConvert && onConvert(contact);
         }}
       />
+
+      {type === "lead" && (
+        <AddToCampaignModal
+          open={addToCampaignOpen}
+          onClose={() => setAddToCampaignOpen(false)}
+          selectedContacts={[contact]}
+          onSuccess={async () => {
+            // Re-fetch campaigns local to this component
+            const { data: campaignLinks } = await supabase
+              .from("campaign_leads")
+              .select("campaign_id, campaigns(id, name, type, status)")
+              .eq("lead_id", contact.id);
+            
+            if (campaignLinks) {
+              setCampaigns(campaignLinks.map((cl: any) => cl.campaigns).filter(Boolean));
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
