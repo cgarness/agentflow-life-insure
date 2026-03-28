@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.daily-tip]
 verify_jwt = false
+
+[functions.telnyx-amd-start]
+verify_jwt = false

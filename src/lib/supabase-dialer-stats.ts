@@ -8,6 +8,7 @@ export interface DialerDailyStats {
   calls_connected: number;
   total_talk_seconds: number;
   policies_sold: number;
+  amd_skipped: number;
   session_started_at: string | null;
   last_updated_at: string;
 }
@@ -23,6 +24,7 @@ export async function upsertDialerStats(
     calls_connected?: number;
     total_talk_seconds?: number;
     policies_sold?: number;
+    amd_skipped?: number;
     session_started_at?: string | null;
   }
 ): Promise<void> {
@@ -33,6 +35,7 @@ export async function upsertDialerStats(
     p_total_talk_seconds: updates.total_talk_seconds ?? 0,
     p_policies_sold: updates.policies_sold ?? 0,
     p_session_started_at: updates.session_started_at ?? null,
+    p_amd_skipped: updates.amd_skipped ?? 0,
   });
   if (error) {
     console.error("[upsertDialerStats] error:", error);

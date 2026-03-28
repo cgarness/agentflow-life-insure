@@ -38,8 +38,14 @@ Deno.serve(async (req: Request) => {
         await handleCallHangup(supabase, body.data.payload);
         break;
 
+      // Standard AMD
       case 'call.machine.detection.ended':
         await handleAMDResult(supabase, body.data.payload);
+        break;
+
+      // Premium AMD (more granular: human_residence, human_business, machine, silence, fax_detected)
+      case 'call.machine.premium.detection.ended':
+        await handlePremiumAMDResult(supabase, body.data.payload);
         break;
 
       case 'call.recording.saved':
@@ -63,6 +69,71 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
+// ─── Helper: get Telnyx API key for a call ───
+async function getTelnyxApiKey(supabase: any, organizationId?: string): Promise<string | null> {
+  if (organizationId) {
+    const { data } = await supabase
+      .from('telnyx_settings')
+      .select('api_key')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    if (data?.api_key) return data.api_key;
+  }
+  // Fallback to global
+  const { data: global } = await supabase
+    .from('telnyx_settings')
+    .select('api_key')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .maybeSingle();
+  return global?.api_key || null;
+}
+
+// ─── Helper: hangup a call via Telnyx REST API ───
+async function telnyxHangup(apiKey: string, callControlId: string): Promise<void> {
+  try {
+    const resp = await fetch(
+      `https://api.telnyx.com/v2/calls/${callControlId}/actions/hangup`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    if (!resp.ok) {
+      console.error('Telnyx hangup failed:', resp.status, await resp.text());
+    }
+  } catch (err) {
+    console.error('Telnyx hangup error:', err);
+  }
+}
+
+// ─── Helper: check if AMD is enabled ───
+async function isAmdEnabled(supabase: any, organizationId?: string): Promise<boolean> {
+  try {
+    let query = supabase.from('phone_settings').select('amd_enabled');
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+    const { data } = await query.limit(1).maybeSingle();
+    return data?.amd_enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Helper: get organization_id from a call record ───
+async function getCallOrgId(supabase: any, callControlId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('calls')
+    .select('organization_id')
+    .eq('telnyx_call_id', callControlId)
+    .maybeSingle();
+  return data?.organization_id || null;
+}
 
 // Handler: call.initiated
 async function handleCallInitiated(supabase: any, payload: any) {
@@ -97,6 +168,41 @@ async function handleCallInitiated(supabase: any, payload: any) {
       created_at: new Date().toISOString(),
     });
     if (error) console.error('Error creating call record:', error);
+  }
+
+  // ── Trigger AMD if enabled ──
+  // After call is initiated, send AMD start command so detection begins
+  // when the call is answered. Agent is already connected via WebRTC
+  // so there's zero delay for human-answered calls.
+  if (payload.direction === 'outbound') {
+    const orgId = clientState
+      ? (await getCallOrgId(supabase, payload.call_control_id)) || undefined
+      : undefined;
+    const amdEnabled = await isAmdEnabled(supabase, orgId);
+
+    if (amdEnabled) {
+      console.log('AMD enabled — triggering AMD start for call:', payload.call_control_id);
+      try {
+        // Invoke the telnyx-amd-start edge function
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const resp = await fetch(`${supabaseUrl}/functions/v1/telnyx-amd-start`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${serviceKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            call_control_id: payload.call_control_id,
+            organization_id: orgId,
+          }),
+        });
+        const result = await resp.json();
+        console.log('AMD start result:', result);
+      } catch (err) {
+        console.error('Failed to trigger AMD start:', err);
+      }
+    }
   }
 }
 
@@ -169,38 +275,89 @@ async function handleCallHangup(supabase: any, payload: any) {
   }
 }
 
-// Handler: call.machine.detection.ended
+// Handler: call.machine.detection.ended (Standard AMD)
 async function handleAMDResult(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
   const amdResult = payload.result; // 'human' | 'machine' | 'not_sure'
 
-  console.log('AMD result:', { callControlId, amdResult });
+  console.log('AMD standard result:', { callControlId, amdResult });
+
+  // Normalize: 'not_sure' → treat as 'human' (better to connect agent than skip a prospect)
+  const normalizedResult = amdResult === 'not_sure' ? 'human' : amdResult;
 
   const { error } = await supabase
     .from('calls')
-    .update({ amd_result: amdResult })
+    .update({ amd_result: normalizedResult })
     .eq('telnyx_call_id', callControlId);
 
   if (error) {
     console.error('Error updating AMD result:', error);
   }
 
-  // If machine detected, check if AMD is enabled in phone_settings
-  if (amdResult === 'machine') {
-    const { data: settings } = await supabase
-      .from('phone_settings')
-      .select('amd_enabled')
-      .limit(1)
-      .single();
+  await handleMachineDetected(supabase, callControlId, normalizedResult);
+}
 
-    if (settings?.amd_enabled) {
-      // The frontend handles the actual hang up via the telnyx.notification event
-      // Log that machine was detected — frontend will auto-dispose and advance
-      await supabase
-        .from('calls')
-        .update({ status: 'completed', amd_result: 'machine' })
-        .eq('telnyx_call_id', callControlId);
-    }
+// Handler: call.machine.premium.detection.ended (Premium AMD)
+async function handlePremiumAMDResult(supabase: any, payload: any) {
+  const callControlId = payload.call_control_id;
+  const rawResult = payload.result;
+  // Premium results: 'human_residence' | 'human_business' | 'machine' | 'silence' | 'fax_detected' | 'not_sure'
+
+  console.log('AMD premium result:', { callControlId, rawResult });
+
+  // Normalize to simple 'human' or 'machine'
+  let normalizedResult: string;
+  if (rawResult === 'human_residence' || rawResult === 'human_business' || rawResult === 'not_sure') {
+    normalizedResult = 'human';
+  } else {
+    // machine, silence, fax_detected → all treated as "machine" (skip)
+    normalizedResult = 'machine';
+  }
+
+  const { error } = await supabase
+    .from('calls')
+    .update({ amd_result: normalizedResult })
+    .eq('telnyx_call_id', callControlId);
+
+  if (error) {
+    console.error('Error updating premium AMD result:', error);
+  }
+
+  await handleMachineDetected(supabase, callControlId, normalizedResult);
+}
+
+// ─── Shared: handle machine detection ───
+async function handleMachineDetected(supabase: any, callControlId: string, result: string) {
+  if (result !== 'machine') return;
+
+  // Check if AMD auto-action is enabled
+  const orgId = await getCallOrgId(supabase, callControlId);
+  const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
+
+  if (!amdEnabled) {
+    console.log('AMD detected machine but AMD auto-action is disabled');
+    return;
+  }
+
+  console.log('Machine detected with AMD enabled — auto-hanging up and disposing as No Answer');
+
+  // 1. Update call record with disposition and status
+  await supabase
+    .from('calls')
+    .update({
+      status: 'completed',
+      amd_result: 'machine',
+      disposition_name: 'No Answer',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('telnyx_call_id', callControlId);
+
+  // 2. Auto-hangup via Telnyx REST API (server-side hangup — agent never needs to act)
+  const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
+  if (apiKey) {
+    await telnyxHangup(apiKey, callControlId);
+  } else {
+    console.warn('Cannot auto-hangup: no API key found');
   }
 }
 

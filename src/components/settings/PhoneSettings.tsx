@@ -80,6 +80,7 @@ const PhoneSettings: React.FC = () => {
 
   // Local Presence
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(false);
+  const [amdEnabled, setAmdEnabled] = useState(false);
 
   // Add Manually Modal
   const [addManualOpen, setAddManualOpen] = useState(false);
@@ -142,6 +143,7 @@ const PhoneSettings: React.FC = () => {
 
     if (settingsRes.data) {
       setPhoneSettingsId(settingsRes.data.id);
+      setAmdEnabled(!!settingsRes.data.amd_enabled);
       // Local presence from api_secret JSON
       try {
         const flags = settingsRes.data.api_secret ? JSON.parse(settingsRes.data.api_secret) : {};
@@ -369,6 +371,24 @@ const PhoneSettings: React.FC = () => {
       console.error("Phone settings error:", error);
     }
     toast.success(enabled ? "Local Presence enabled" : "Local Presence disabled");
+  };
+
+  // AMD toggle
+  const handleAmdToggle = async (enabled: boolean) => {
+    setAmdEnabled(enabled);
+    const { error } = await supabase.from("phone_settings").upsert({
+      id: phoneSettingsId || undefined,
+      organization_id: organizationId,
+      amd_enabled: enabled,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "organization_id" });
+
+    if (error) {
+      console.error("AMD settings error:", error);
+      toast.error("Failed to update AMD settings");
+    } else {
+      toast.success(enabled ? "Answering Machine Detection enabled" : "Answering Machine Detection disabled");
+    }
   };
 
   // Sync numbers from Telnyx
@@ -652,6 +672,36 @@ const PhoneSettings: React.FC = () => {
       </Card>
 
       {/* Local Presence */}
+      {/* Answering Machine Detection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Radio className="w-4 h-4 text-primary" />
+            Answering Machine Detection (AMD)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Enable Answering Machine Detection</p>
+              <p className="text-xs text-muted-foreground">
+                Automatically skip answering machines during auto-dialing. 
+                Calls detected as machines will be auto-disposed as "No Answer".
+              </p>
+            </div>
+            <Switch checked={amdEnabled} onCheckedChange={handleAmdToggle} />
+          </div>
+          <div className="bg-primary/5 border border-primary/10 rounded-lg p-3">
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <Info className="w-3.5 h-3.5 text-primary" />
+              <span>
+                <strong>Zero Latency:</strong> Our hybrid approach connects you immediately on answer. machine detection runs in the background for the first 2 seconds of the call.
+              </span>
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

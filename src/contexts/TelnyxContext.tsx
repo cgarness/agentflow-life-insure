@@ -19,6 +19,7 @@ interface TelnyxContextValue {
   isOnHold: boolean;
   defaultCallerNumber: string;
   isReady: boolean;
+  amdEnabled: boolean;
   makeCall: (destinationNumber: string, callerNumber?: string, clientState?: string) => void;
   hangUp: () => void;
   toggleMute: () => void;
@@ -49,6 +50,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isOnHold, setIsOnHold] = useState(false);
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
   const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
+  const [amdEnabled, setAmdEnabled] = useState(false);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
     return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
   });
@@ -121,6 +123,19 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       });
   }, [profile, organizationId]);
+
+  // Fetch AMD enabled setting
+  useEffect(() => {
+    if (!organizationId) return;
+    supabase
+      .from("phone_settings")
+      .select("amd_enabled")
+      .eq("organization_id", organizationId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setAmdEnabled(data?.amd_enabled === true);
+      });
+  }, [organizationId]);
 
   const getSmartCallerId = useCallback(async (contactPhone: string, contactId?: string | null): Promise<string> => {
     // 1. Manual Override always wins
@@ -474,6 +489,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isOnHold,
         defaultCallerNumber,
         isReady,
+        amdEnabled,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,

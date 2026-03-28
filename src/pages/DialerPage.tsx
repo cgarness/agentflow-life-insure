@@ -230,6 +230,7 @@ export default function DialerPage() {
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
     getSmartCallerId,
+    amdEnabled,
   } = useTelnyx();
 
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
@@ -303,6 +304,10 @@ export default function DialerPage() {
   // Session end modal
   const [showSessionEnd, setShowSessionEnd] = useState(false);
   const [autoDialSessionStats, setAutoDialSessionStats] = useState<any>(null);
+
+  // ── AMD status ──
+  type AmdStatus = 'idle' | 'detecting' | 'human' | 'machine';
+  const [amdStatus, setAmdStatus] = useState<AmdStatus>('idle');
 
   // ── Calling Settings Modal state ──
   const [callingSettingsOpen, setCallingSettingsOpen] = useState(false);
@@ -738,19 +743,41 @@ export default function DialerPage() {
     setCurrentLeadIndex((i) => i + 1);
   }, [telnyxCurrentCall]);
 
+  // Set AMD status to 'detecting' when a call starts and AMD is enabled
+  useEffect(() => {
+    if (amdEnabled && (telnyxCallState === 'dialing' || telnyxCallState === 'active')) {
+      setAmdStatus('detecting');
+    } else if (telnyxCallState === 'idle') {
+      setAmdStatus('idle');
+    }
+  }, [telnyxCallState, amdEnabled]);
+
   // Trigger wrap-up when call ends (covers remote hangup)
   // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
     if (telnyxCallState === "ended") {
       telnyxHangUp();
-      setShowWrapUp(true);
 
       // Check for AMD machine detection
       const checkAmd = async () => {
+        if (!amdEnabled) {
+          // AMD not enabled — show normal wrap-up
+          setAmdStatus('idle');
+          setShowWrapUp(true);
+          return;
+        }
+
         const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
-        if (!callControlId) return;
+        if (!callControlId) {
+          setAmdStatus('idle');
+          setShowWrapUp(true);
+          return;
+        }
 
         try {
+          // Brief delay to let webhook update the amd_result
+          await new Promise(r => setTimeout(r, 1500));
+
           const { data: callRecord, error: amdError } = await supabase
             .from('calls')
             .select('amd_result')
@@ -759,27 +786,61 @@ export default function DialerPage() {
 
           if (amdError) {
             console.warn('AMD check failed, continuing with normal wrap-up:', amdError.message);
+            setAmdStatus('idle');
+            setShowWrapUp(true);
             return;
           }
 
           if (callRecord?.amd_result === 'machine') {
-            const vmDisposition = dispositions.find(d =>
-              d.name.toLowerCase().includes('voicemail') ||
+            setAmdStatus('machine');
+            toast.info('🤖 Machine detected — skipping to next lead', {
+              duration: 2000,
+            });
+
+            // Increment skip stat
+            if (user?.id) {
+              upsertDialerStats(user.id, { amd_skipped: 1 }).catch(err => {
+                console.warn('Failed to increment AMD skip stat:', err);
+              });
+            }
+
+            // Find the "No Answer" disposition
+            const noAnswerDisp = dispositions.find(d =>
+              d.name.toLowerCase() === 'no answer'
+            ) || dispositions.find(d =>
               d.name.toLowerCase().includes('no answer')
             );
-            if (vmDisposition) {
-              setSelectedDisp(vmDisposition);
-              handleAutoDispose(vmDisposition);
+            if (noAnswerDisp) {
+              setSelectedDisp(noAnswerDisp);
+              handleAutoDispose(noAnswerDisp);
+            } else {
+              // No matching disposition — still advance
+              console.warn('No "No Answer" disposition found, advancing without disposition');
+              setCurrentLeadIndex((i) => i + 1);
             }
+            // Reset AMD status after brief display
+            setTimeout(() => setAmdStatus('idle'), 2000);
+            return;
+          }
+
+          if (callRecord?.amd_result === 'human') {
+            setAmdStatus('human');
+            // Human detected — show normal wrap-up
+            setTimeout(() => setAmdStatus('idle'), 3000);
+          } else {
+            setAmdStatus('idle');
           }
         } catch (err) {
           console.warn('AMD check threw, continuing with normal wrap-up:', err);
+          setAmdStatus('idle');
         }
+
+        setShowWrapUp(true);
       };
 
       checkAmd();
     }
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -2397,6 +2458,17 @@ export default function DialerPage() {
                 <PhoneOff className="w-4 h-4" />
                 <span className="leading-none">Hang Up</span>
                 <span className="font-mono text-[9px] opacity-80">{fmtDuration(telnyxCallDuration)}</span>
+                {amdEnabled && amdStatus !== 'idle' && (
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                    amdStatus === 'detecting' ? 'bg-yellow-500/20 text-yellow-400 animate-pulse' :
+                    amdStatus === 'human' ? 'bg-emerald-500/20 text-emerald-400' :
+                    amdStatus === 'machine' ? 'bg-red-500/20 text-red-400' : ''
+                  }`}>
+                    {amdStatus === 'detecting' ? '🔍 AMD' :
+                     amdStatus === 'human' ? '👤 Human' :
+                     amdStatus === 'machine' ? '🤖 Machine' : ''}
+                  </span>
+                )}
               </button>
             ) : (
               <button
