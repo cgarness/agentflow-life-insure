@@ -834,13 +834,15 @@ export default function DialerPage() {
             } else {
               // No matching disposition — still advance
               console.warn('No "No Answer" disposition found, advancing without disposition');
+              setCurrentLeadIndex((i) => {
+                const next = i + 1;
+                autoDialer?.setIndex(next);
+                return next;
+              });
               if (autoDialer && autoDialer.isEnabled()) {
-                const nextIdx = currentLeadIndex + 1;
-                autoDialer.setIndex(nextIdx);
-                setCurrentLeadIndex(nextIdx);
-                await autoDialer.dialNext();
-              } else {
-                setCurrentLeadIndex((i) => i + 1);
+                autoDialer.dialNext().catch(err => {
+                  console.warn('[AMD] dialNext failed after no-disposition advance:', err);
+                });
               }
             }
             // Reset AMD status after brief display
@@ -1476,7 +1478,11 @@ export default function DialerPage() {
     setNoteText("");
     setNoteError(false);
     setCurrentCallId(null);
-    setCurrentLeadIndex((i) => i + 1);
+    setCurrentLeadIndex((i) => {
+      const next = i + 1;
+      autoDialer?.setIndex(next);
+      return next;
+    });
   }
 
   function handleSkip() {
@@ -1485,7 +1491,11 @@ export default function DialerPage() {
     setNoteText("");
     setNoteError(false);
     setCurrentCallId(null);
-    setCurrentLeadIndex((i) => i + 1);
+    setCurrentLeadIndex((i) => {
+      const next = i + 1;
+      autoDialer?.setIndex(next);
+      return next;
+    });
   }
 
   // ── Queue Position Persistence: save on every lead advance ──
