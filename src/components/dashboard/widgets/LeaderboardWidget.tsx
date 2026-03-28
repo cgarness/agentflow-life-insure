@@ -39,7 +39,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
             .from("profiles")
             .select("id, first_name, last_name, avatar_url")
             .in("role", ["Agent", "Team Leader"])
-            .neq("status", "Deleted"),
+            .eq("status", "Active"),
           supabase.from("wins").select("agent_id").gte("created_at", startOfMonth),
         ]);
 

@@ -430,8 +430,8 @@ const Campaigns: React.FC = () => {
     setAgentsLoading(true);
     const { data } = await supabase
       .from("profiles")
-      .select("id, first_name, last_name, email, role")
-      .neq("status", "Deleted");
+      .select("id, first_name, last_name, email, role, avatar_url")
+      .eq("status", "Active");
     if (data) {
       setAgents(data as AgentProfile[]);
     }

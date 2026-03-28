@@ -39,7 +39,7 @@ export async function fetchProfiles(): Promise<AgentProfile[]> {
   const { data } = await supabase
     .from("profiles")
     .select("id, first_name, last_name, role, email")
-    .neq("status", "Deleted")
+    .eq("status", "Active")
     .order("first_name");
   return (data || []) as AgentProfile[];
 }

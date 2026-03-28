@@ -357,11 +357,7 @@ export const usersSupabaseApi = {
 
     const { error } = await supabase
       .from("profiles")
-      .update({ 
-        status: "Deleted",
-        availability_status: "Offline",
-        updated_at: new Date().toISOString()
-      })
+      .delete()
       .eq("id", id);
     if (error) throw error;
   },

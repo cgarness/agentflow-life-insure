@@ -189,7 +189,7 @@ const Leaderboard: React.FC = () => {
     const dbPeriod = period === "Today" ? "daily" : period === "This Week" ? "weekly" : "monthly";
 
     const [profilesRes, goalsRes] = await Promise.all([
-      supabase.from("profiles").select("id, first_name, last_name, avatar_url, role").neq("status", "Deleted"),
+      supabase.from("profiles").select("id, first_name, last_name, avatar_url, role").eq("status", "Active"),
       supabase.from("goals").select("metric, target_value").eq("period", dbPeriod),
     ]);
 

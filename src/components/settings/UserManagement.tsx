@@ -530,7 +530,7 @@ const UserProfileModal: React.FC<{
 
   // Agents/Team Leaders for upline dropdown
   const uplineCandidates = useMemo(() =>
-    allUsers.filter(u => u.id !== user?.id && (u.role === "Agent" || u.role === "Team Leader" || u.role === "Admin"))
+    allUsers.filter(u => u.id !== user?.id && u.status === "Active" && (u.role === "Agent" || u.role === "Team Leader" || u.role === "Admin"))
   , [allUsers, user]);
 
   useEffect(() => {
@@ -1051,7 +1051,7 @@ const UserProfileModal: React.FC<{
                               .from("profiles")
                               .select("id, first_name, last_name, email, role, avatar_url")
                               .eq("role", "Agent")
-                              .neq("status", "Deleted")
+                              .eq("status", "Active")
                               .is("upline_id", null);
                             const currentIds = new Set(teamMembers.map((m: any) => m.id)); // eslint-disable-line @typescript-eslint/no-explicit-any
                             setAvailableAgents((data || []).filter((a: any) => !currentIds.has(a.id))); // eslint-disable-line @typescript-eslint/no-explicit-any
