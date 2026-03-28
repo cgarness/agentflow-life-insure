@@ -183,6 +183,8 @@ const normalizeStatusDisplay = (status: string) => {
 
 const fallbackStatusColors: Record<string, string> = {
   "New": "#3B82F6",
+  "New Lead": "#3B82F6",
+  "Queued": "#6366F1",
   "Contacted": "#A855F7",
   "Interested": "#EAB308",
   "Follow Up": "#14B8A6",
@@ -1424,9 +1426,22 @@ export default function DialerPage() {
     });
     if (partialStage) return partialStage.color;
 
-    // 3. Fallback search in fallbackStatusColors (case-insensitive)
+    // 3. Try exact match in fallbackStatusColors (case-insensitive)
     const fallbackKey = Object.keys(fallbackStatusColors).find(k => k.toLowerCase().trim() === status);
     if (fallbackKey) return fallbackStatusColors[fallbackKey];
+
+    // 4. Try fuzzy match in fallbackStatusColors
+    const fuzzyFallbackKey = Object.keys(fallbackStatusColors).find(k => {
+      const kLow = k.toLowerCase().trim();
+      return status.includes(kLow) || kLow.includes(status);
+    });
+    if (fuzzyFallbackKey) return fallbackStatusColors[fuzzyFallbackKey];
+    
+    // 5. If leadStages is loaded but no match, use the default stage color or first stage color
+    if (leadStages.length > 0) {
+      const defaultStage = leadStages.find(s => s.isDefault) || leadStages[0];
+      return defaultStage.color;
+    }
     
     return "#6B7280";
   }, [leadStages, currentLead?.status]);
