@@ -193,8 +193,9 @@ const Contacts: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
-    setSearchParams({ tab: newTab });
+    setSearchParams(prev => { const p = new URLSearchParams(prev); p.set("tab", newTab); p.delete("contact"); p.delete("contactType"); return p; });
   };
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
@@ -240,6 +241,42 @@ const Contacts: React.FC = () => {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedRecruit, setSelectedRecruit] = useState<Recruit | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<UserWithProfile | null>(null);
+  // Track a pending contactId from the URL that hasn't been resolved yet (data still loading)
+  const pendingContactId = useRef<string | null>(null);
+
+  // Helper: open a contact and persist its ID in the URL
+  const openContact = useCallback((type: "lead" | "client" | "recruit" | "agent", entity: Lead | Client | Recruit | UserWithProfile) => {
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev);
+      p.set("contact", entity.id);
+      p.set("contactType", type);
+      // Also set the tab so refresh lands on the right tab
+      if (type === "lead") p.set("tab", "Leads");
+      else if (type === "client") p.set("tab", "Clients");
+      else if (type === "recruit") p.set("tab", "Recruits");
+      else if (type === "agent") p.set("tab", "Agents");
+      return p;
+    });
+    if (type === "lead") setSelectedLead(entity as Lead);
+    else if (type === "client") setSelectedClient(entity as Client);
+    else if (type === "recruit") setSelectedRecruit(entity as Recruit);
+    else if (type === "agent") setSelectedAgent(entity as UserWithProfile);
+  }, [setSearchParams]);
+
+  // Helper: close a contact and remove the contact params from the URL
+  const closeContact = useCallback(() => {
+    setSelectedLead(null);
+    setSelectedClient(null);
+    setSelectedRecruit(null);
+    setSelectedAgent(null);
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev);
+      p.delete("contact");
+      p.delete("contactType");
+      return p;
+    });
+  }, [setSearchParams]);
+
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [editClient, setEditClient] = useState<Client | null>(null);
@@ -637,52 +674,46 @@ const Contacts: React.FC = () => {
     const openContactId = state?.openContactId;
     if (openContactId && typeof openContactId === "string" && leads.length > 0) {
       const match = leads.find(l => l.id === openContactId);
-      if (match) {
-        setSelectedLead(match);
-      }
+      if (match) openContact("lead", match);
     }
   }, [location.state, leads]);
 
+  // Restore contact view from URL on load/refresh.
+  // Uses a pendingContactId ref so if data isn't loaded yet we retry when it arrives.
   useEffect(() => {
-    const contactId = new URLSearchParams(location.search).get("contact");
+    const contactId = searchParams.get("contact");
+    if (!contactId) return;
+    pendingContactId.current = contactId;
+  }, [searchParams]);
+
+  useEffect(() => {
+    const contactId = pendingContactId.current;
     if (!contactId) return;
 
     // Check leads
     if (leads.length > 0) {
       const match = leads.find(l => l.id === contactId);
-      if (match) {
-        setSelectedLead(match);
-        return;
-      }
+      if (match) { setSelectedLead(match); pendingContactId.current = null; return; }
     }
 
     // Check clients
     if (clients.length > 0) {
       const match = clients.find(c => c.id === contactId);
-      if (match) {
-        setSelectedClient(match);
-        return;
-      }
+      if (match) { setSelectedClient(match); pendingContactId.current = null; return; }
     }
 
     // Check recruits
     if (recruits.length > 0) {
       const match = recruits.find(r => r.id === contactId);
-      if (match) {
-        setSelectedRecruit(match);
-        return;
-      }
+      if (match) { setSelectedRecruit(match); pendingContactId.current = null; return; }
     }
 
     // Check agents/users
     if (agents.length > 0) {
       const match = agents.find(u => u.id === contactId);
-      if (match) {
-        setSelectedAgent(match);
-        return;
-      }
+      if (match) { setSelectedAgent(match); pendingContactId.current = null; return; }
     }
-  }, [location.search, leads, clients, recruits, agents]);
+  }, [leads, clients, recruits, agents]);
 
   // ===== Lead CRUD =====
   const handleAddLead = async (data: Partial<Lead>) => {
@@ -699,7 +730,7 @@ const Contacts: React.FC = () => {
   const handleDeleteLead = async (id: string) => {
     await leadsSupabaseApi.delete(id);
     toast.success("Lead deleted");
-    setSelectedLead(null);
+    closeContact();
     fetchData();
   };
 
@@ -1094,7 +1125,7 @@ const Contacts: React.FC = () => {
                 e.stopPropagation(); 
                 setActionMenuId(null); 
                 const lead = leads.find(l => l.id === id);
-                if (lead) setSelectedLead(lead);
+                if (lead) openContact("lead", lead);
                 // The actual conversion flow is triggered via the Convert button in ContactModal
               }} 
               className="w-full text-left px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 dark:hover:bg-green-900/10 rounded-md flex items-center gap-2 transition-colors"
@@ -1227,7 +1258,7 @@ const Contacts: React.FC = () => {
                     {sortedLeads.map(l => {
                       const aging = calcAging(l.lastContactedAt);
                       return (
-                        <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedLead(l)}>
+                        <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("lead", l)}>
                           <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => { }} className="rounded" /></td>
                           {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
                             <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderCell(l, col.key, aging)}</td>
@@ -1258,7 +1289,7 @@ const Contacts: React.FC = () => {
                   <span className="text-xs text-muted-foreground">{items.length}</span>
                 </div>
                 {items.map(l => (
-                  <div key={l.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => setSelectedLead(l)}>
+                  <div key={l.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => openContact("lead", l)}>
                     <p className="text-sm font-medium text-foreground">{l.firstName} {l.lastName}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-muted-foreground">{l.state}</span>
@@ -1305,7 +1336,7 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedClients.map(c => (
-                      <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedClient(c)}>
+                      <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("client", c)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => { }} className="rounded" /></td>
                         {CLIENT_COLUMNS.filter(col => visibleClientCols.has(col.key)).map(col => (
                           <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderClientCell(c, col.key)}</td>
@@ -1351,7 +1382,7 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedRecruits.map(r => (
-                      <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedRecruit(r)}>
+                      <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("recruit", r)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => { }} className="rounded" /></td>
                         {RECRUIT_COLUMNS.filter(col => visibleRecruitCols.has(col.key)).map(col => (
                           <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)}`} style={{ width: columnWidths[tab]?.[col.key], minWidth: columnWidths[tab]?.[col.key] }}>{renderRecruitCell(r, col.key)}</td>
@@ -1375,7 +1406,7 @@ const Contacts: React.FC = () => {
                         <span className="text-xs text-muted-foreground">{items.length}</span>
                       </div>
                       {items.map(r => (
-                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => setSelectedRecruit(r)}>
+                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => openContact("recruit", r)}>
                           <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
                           <p className="text-xs text-muted-foreground">{r.email}</p>
                           <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId, agentProfiles)}</p>
@@ -1405,7 +1436,7 @@ const Contacts: React.FC = () => {
               </tr></thead>
               <tbody>
                 {sortedAgents.map(u => (
-                  <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
+                  <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("agent", u)}>
                     <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
                     {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
                       <td key={col.key} className={`py-3 px-3 overflow-hidden ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
@@ -1510,17 +1541,17 @@ const Contacts: React.FC = () => {
         <FullScreenContactView 
           contact={selectedLead} 
           type="lead" 
-          onClose={() => setSelectedLead(null)} 
+          onClose={closeContact} 
           onUpdate={handleUpdateLead} 
           onDelete={handleDeleteLead} 
-          onConvert={() => { fetchData(); setSelectedLead(null); setTab("Clients"); }} 
+          onConvert={() => { fetchData(); closeContact(); setTab("Clients"); }} 
         />
       )}
       {selectedClient && (
         <FullScreenContactView 
           contact={selectedClient} 
           type="client" 
-          onClose={() => setSelectedClient(null)} 
+          onClose={closeContact} 
           onUpdate={async (id, data) => { 
             await clientsSupabaseApi.update(id, data); 
             fetchData(); 
@@ -1532,7 +1563,7 @@ const Contacts: React.FC = () => {
         <FullScreenContactView 
           contact={selectedRecruit} 
           type="recruit" 
-          onClose={() => setSelectedRecruit(null)} 
+          onClose={closeContact} 
           onUpdate={async (id, data) => { 
             await recruitsSupabaseApi.update(id, data); 
             fetchData(); 
@@ -1540,7 +1571,7 @@ const Contacts: React.FC = () => {
           onDelete={handleDeleteRecruit} 
         />
       )}
-      <AgentModal agent={selectedAgent} onClose={() => setSelectedAgent(null)} />
+      <AgentModal agent={selectedAgent} onClose={closeContact} />
       <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDeleteLeads} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal
         open={bulkDeleteOpen}
