@@ -29,6 +29,7 @@ import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget"
 import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWidget";
 import DashboardDetailModal, { ModalType } from "@/components/dashboard/DashboardDetailModal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDashboardStats } from "@/hooks/useDashboardStats";
 
 import {
   DndContext,
@@ -159,13 +160,20 @@ const Dashboard: React.FC = () => {
 
   // Admin toggle
   const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("team");
+  const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
+
+  const { data: stats, loading: statsLoading } = useDashboardStats(
+    userId,
+    role,
+    adminViewMode,
+    timeRange
+  );
 
   // Edit mode
   const [editMode, setEditMode] = useState(false);
   const [widgetOrder, setWidgetOrder] = useState<string[]>(DEFAULT_WIDGET_ORDER);
   const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
-  const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
 
   // Daily briefing
   const [showBriefing, setShowBriefing] = useState(false);
@@ -382,7 +390,7 @@ const Dashboard: React.FC = () => {
           />
         );
       case "goal_progress":
-        return <GoalProgressWidget userId={userId} />;
+        return <GoalProgressWidget userId={userId} stats={stats} />;
       case "leaderboard":
         return <LeaderboardWidget userId={userId} />;
         return (
@@ -516,6 +524,8 @@ const Dashboard: React.FC = () => {
             userId={userId}
             adminToggle={adminViewMode}
             timeRange={timeRange}
+            stats={stats}
+            loading={statsLoading}
             onCardClick={handleCardClick}
           />
         </div>

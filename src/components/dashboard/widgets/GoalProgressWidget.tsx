@@ -3,9 +3,11 @@ import { Target, TrendingUp, PhoneCall, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { StatData } from "@/hooks/useDashboardStats";
 
 interface GoalProgressWidgetProps {
   userId: string;
+  stats?: StatData | null;
 }
 
 interface GoalData {
@@ -55,21 +57,57 @@ const ProgressBar: React.FC<{
   );
 };
 
-const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
+const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }) => {
   const navigate = useNavigate();
   const [data, setData] = useState<GoalData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchGoals = async () => {
+    const fetchGoalsAndStats = async () => {
+      if (!userId) return;
+      
       try {
-        const now = new Date();
-        const todayStr = now.toISOString().split("T")[0];
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        const startOfDay = `${todayStr}T00:00:00`;
+        // We only need to fetch the goals from the DB if they weren't passed in.
+        // Actually, even if stats are passed in, we still need the targets from the goals table.
+        const { data: goalsResult, error: goalsError } = await supabase
+          .from("goals")
+          .select("*");
+        
+        if (goalsError) throw goalsError;
+        const goals = goalsResult ?? [];
 
-        const [goalsResult, callsResult, winsResult, talkTimeResult] = await Promise.all([
-          supabase.from("goals").select("*"),
+        if (goals.length === 0) {
+          setData({ callsToday: 0, callsTarget: 0, policiesMonth: 0, policiesTarget: 0, talkTimeMinutes: 0, talkTimeTarget: 0, hasGoals: false });
+          setLoading(false);
+          return;
+        }
+
+        const findTarget = (metric: string) => {
+          const g = goals.find((goal) => goal.metric === metric);
+          return g?.target_value ?? 0;
+        };
+
+        // If stats are provided from the parent, use them to avoid redundant network calls.
+        if (stats) {
+          setData({
+            callsToday: stats.callsToday,
+            callsTarget: findTarget("Daily Calls"),
+            policiesMonth: stats.policiesThisMonth,
+            policiesTarget: findTarget("Monthly Policies"),
+            talkTimeMinutes: stats.talkTimeMinutes,
+            talkTimeTarget: findTarget("Monthly Talk Time") * 60, // Assuming goal is in hours
+            hasGoals: true,
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Fallback for independent use (though redirected to central stats normally)
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+        const [callsResult, winsResult, talkTimeResult] = await Promise.all([
           supabase
             .from("calls")
             .select("id", { count: "exact", head: true })
@@ -86,18 +124,6 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
             .eq("agent_id", userId)
             .gte("created_at", startOfMonth),
         ]);
-
-        const goals = goalsResult.data ?? [];
-        if (goals.length === 0) {
-          setData({ callsToday: 0, callsTarget: 0, policiesMonth: 0, policiesTarget: 0, talkTimeMinutes: 0, talkTimeTarget: 0, hasGoals: false });
-          setLoading(false);
-          return;
-        }
-
-        const findTarget = (metric: string) => {
-          const g = goals.find((goal) => goal.metric === metric);
-          return g?.target_value ?? 0;
-        };
 
         const talkTimeMinutes = Math.round(
           (talkTimeResult.data ?? []).reduce(
@@ -121,8 +147,8 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
         setLoading(false);
       }
     };
-    fetchGoals();
-  }, [userId]);
+    fetchGoalsAndStats();
+  }, [userId, stats]);
 
   if (loading) {
     return (

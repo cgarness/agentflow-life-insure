@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
+import { StatData } from "@/hooks/useDashboardStats";
 
 interface StatCardsProps {
   role: string;
@@ -9,149 +9,20 @@ interface StatCardsProps {
   adminToggle: "team" | "my";
   onCardClick?: (type: string) => void;
   timeRange?: "day" | "week" | "month" | "year";
+  stats?: StatData | null;
+  loading?: boolean;
 }
 
-interface StatData {
-  callsToday: number;
-  callsYesterday: number;
-  policiesThisMonth: number;
-  policiesLastMonth: number;
-  appointmentsToday: number;
-  appointmentsYesterday: number;
-  callsThisMonth: number;
-  winsThisMonth: number;
-  premiumThisMonth: number;
-  premiumLastMonth: number;
-  prevLabel: string;
-}
-
-const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCardClick, timeRange }) => {
-  const [data, setData] = useState<StatData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const isFiltered = role !== "Admin" || adminToggle === "my";
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const now = new Date();
-      const range = timeRange || "month";
-      
-      let startOfPeriod = new Date();
-      let startOfPrevPeriod = new Date();
-      let endOfPrevPeriod = new Date();
-      
-      let prevLabel = "yesterday";
-
-      if (range === "day") {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        startOfPrevPeriod = new Date(startOfPeriod);
-        startOfPrevPeriod.setDate(startOfPrevPeriod.getDate() - 1);
-        endOfPrevPeriod = new Date(startOfPeriod);
-        endOfPrevPeriod.setMilliseconds(-1);
-        prevLabel = "yesterday";
-      } else if (range === "week") {
-        const day = now.getDay();
-        const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
-        startOfPeriod = new Date(now.setDate(diff));
-        startOfPeriod.setHours(0, 0, 0, 0);
-        
-        startOfPrevPeriod = new Date(startOfPeriod);
-        startOfPrevPeriod.setDate(startOfPrevPeriod.getDate() - 7);
-        endOfPrevPeriod = new Date(startOfPeriod);
-        endOfPrevPeriod.setMilliseconds(-1);
-        prevLabel = "last week";
-      } else if (range === "month") {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
-        startOfPrevPeriod = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        endOfPrevPeriod = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-        prevLabel = "last month";
-      } else if (range === "year") {
-        startOfPeriod = new Date(now.getFullYear(), 0, 1);
-        startOfPrevPeriod = new Date(now.getFullYear() - 1, 0, 1);
-        endOfPrevPeriod = new Date(now.getFullYear(), 0, 0, 23, 59, 59);
-        prevLabel = "last year";
-      }
-
-      const startStr = startOfPeriod.toISOString();
-      const startPrevStr = startOfPrevPeriod.toISOString();
-      const endPrevStr = endOfPrevPeriod.toISOString();
-
-      const buildCallQuery = (start: string, end?: string) => {
-        let q = supabase
-          .from("calls")
-          .select("id", { count: "exact", head: true })
-          .gte("created_at", start);
-        if (end) q = q.lte("created_at", end);
-        if (isFiltered) q = q.eq("agent_id", userId);
-        return q;
-      };
-
-      const buildSalesQuery = (start: string, end?: string) => {
-        let q = supabase
-          .from("clients")
-          .select("id, premium", { count: "exact" })
-          .gte("created_at", start);
-        if (end) q = q.lte("created_at", end);
-        if (isFiltered) q = q.eq("assigned_agent_id", userId);
-        return q;
-      };
-
-      const buildApptQuery = (start: string, end?: string) => {
-        let q = supabase
-          .from("appointments")
-          .select("id", { count: "exact", head: true })
-          .gte("start_time", start)
-          .eq("status", "Scheduled");
-        if (end) q = q.lte("start_time", end);
-        if (isFiltered) q = q.eq("user_id", userId);
-        return q;
-      };
-
-      const [
-        callsNow,
-        callsPrev,
-        salesNow,
-        salesPrev,
-        apptsNow,
-        apptsPrev,
-      ] = await Promise.all([
-        buildCallQuery(startStr),
-        buildCallQuery(startPrevStr, endPrevStr),
-        buildSalesQuery(startStr),
-        buildSalesQuery(startPrevStr, endPrevStr),
-        buildApptQuery(startStr),
-        buildApptQuery(startPrevStr, endPrevStr),
-      ]);
-
-      const premiumNow = (salesNow.data as any[])?.reduce((sum, s) => sum + (Number(s.premium) || 0), 0) ?? 0;
-      const premiumPrev = (salesPrev.data as any[])?.reduce((sum, s) => sum + (Number(s.premium) || 0), 0) ?? 0;
-
-      setData({
-        callsToday: callsNow.count ?? 0,
-        callsYesterday: callsPrev.count ?? 0,
-        policiesThisMonth: salesNow.count ?? 0,
-        policiesLastMonth: salesPrev.count ?? 0,
-        appointmentsToday: apptsNow.count ?? 0,
-        appointmentsYesterday: apptsPrev.count ?? 0,
-        callsThisMonth: callsNow.count ?? 0, // Placeholder or remove if unused
-        winsThisMonth: salesNow.count ?? 0,
-        premiumThisMonth: premiumNow * 12, // Annual Premium
-        premiumLastMonth: premiumPrev * 12,
-        prevLabel, // Add this to the state if needed, or handle locally
-      } as any);
-    } catch (err) {
-      console.error("Error fetching stats:", err);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId, isFiltered, timeRange]);
-
-  useEffect(() => {
-    fetchStats();
-    const interval = setInterval(fetchStats, 60000);
-    return () => clearInterval(interval);
-  }, [fetchStats]);
+const StatCards: React.FC<StatCardsProps> = ({ 
+  role, 
+  userId, 
+  adminToggle, 
+  onCardClick, 
+  timeRange,
+  stats,
+  loading = false
+}) => {
+  const data = stats;
 
   const conversionRate =
     data && data.callsThisMonth > 0
