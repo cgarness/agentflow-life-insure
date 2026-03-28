@@ -418,19 +418,14 @@ const Dashboard: React.FC = () => {
   );
 
   return (
-    <div className="p-6 space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-700">
+    <div className="p-6 space-y-8 max-w-[1600px] mx-auto">
       {/* Hero Section */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/10 via-background to-background border border-primary/10 p-8 shadow-2xl shadow-primary/5">
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-60 h-60 bg-violet-500/5 rounded-full blur-3xl" />
 
         {/* Action buttons — top right corner */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          className="absolute top-4 right-4 z-20 flex items-center gap-2"
-        >
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -449,32 +444,18 @@ const Dashboard: React.FC = () => {
               Today's Briefing
             </Button>
           )}
-        </motion.div>
+        </div>
         
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <motion.h1 
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="text-3xl md:text-4xl font-bold tracking-tight text-foreground"
-            >
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
               Good Morning, {firstName} 👋
-            </motion.h1>
-              <motion.p 
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 }}
-                className="text-muted-foreground mt-2 text-lg"
-              >
+            </h1>
+              <p className="text-muted-foreground mt-2 text-lg">
                 Welcome back to AgentFlow. Here's what's happening.
-              </motion.p>
+              </p>
               
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="mt-6 inline-flex p-1 bg-muted/40 backdrop-blur-md rounded-2xl border border-white/5"
-              >
+              <div className="mt-6 inline-flex p-1 bg-muted/40 rounded-2xl border border-white/5">
                 <Tabs value={timeRange} onValueChange={(v: any) => setTimeRange(v)} className="w-auto">
                   <TabsList className="bg-transparent h-9 p-0 gap-1">
                     <TabsTrigger value="day" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Day</TabsTrigger>
@@ -483,7 +464,7 @@ const Dashboard: React.FC = () => {
                     <TabsTrigger value="year" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Year</TabsTrigger>
                   </TabsList>
                 </Tabs>
-              </motion.div>
+              </div>
             </div>
           
           {role === "Admin" && (
@@ -596,19 +577,16 @@ const Dashboard: React.FC = () => {
             const Icon = WIDGET_ICONS[key] || Target;
             const colors = WIDGET_COLORS[key] || { bg: "bg-muted", text: "text-muted-foreground", border: "border-border", gradient: "bg-muted" };
             return (
-              <motion.div
+              <div
                 key={key}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
                 ref={(el) => {
                   widgetRefs.current[key] = el;
                 }}
-                className={`glass-card rounded-2xl border ${colors.border} transition-all duration-300 hover:shadow-2xl hover:shadow-primary/5 group cursor-pointer`}
+                className={`glass-card rounded-2xl border ${colors.border} transition-shadow duration-200 hover:shadow-2xl hover:shadow-primary/5 group cursor-pointer`}
                 onClick={() => handleWidgetClick(key)}
               >
                 <div className={`flex items-center gap-3 px-6 py-4 border-b ${colors.border} bg-gradient-to-r ${colors.bg} to-transparent rounded-t-2xl`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors.gradient} shadow-lg shadow-black/5 transition-transform duration-300 group-hover:scale-110`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors.gradient} shadow-lg shadow-black/5 transition-transform duration-200 group-hover:scale-110`}>
                     <Icon className="w-4 h-4 text-white" />
                   </div>
                   <h3 className={`text-sm font-bold tracking-tight text-foreground uppercase`}>
@@ -616,7 +594,7 @@ const Dashboard: React.FC = () => {
                   </h3>
                 </div>
                 <div className="p-6">{renderWidget(key)}</div>
-              </motion.div>
+              </div>
             );
           })}
         </div>

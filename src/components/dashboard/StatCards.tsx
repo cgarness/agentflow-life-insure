@@ -98,13 +98,12 @@ const StatCards: React.FC<StatCardsProps> = ({
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card, index) => (
         <motion.div
-          key={`${card.id}-${timeRange}`}
+          key={card.id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: index * 0.1 }}
-          whileHover={{ y: -5, transition: { duration: 0.2 } }}
+          transition={{ duration: 0.3, delay: index * 0.08 }}
           onClick={() => onCardClick?.(card.id)}
-          className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-300 cursor-pointer`}
+          className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-200 cursor-pointer hover:-translate-y-1`}
         >
           {/* Background Glow */}
           <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl ${card.gradient}`} />

@@ -400,12 +400,12 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         {data.map((item, idx) => (
           <motion.div
             key={item.id || idx}
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: idx * 0.05 }}
-            whileHover={{ x: 4, backgroundColor: "var(--accent)" }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, delay: Math.min(idx, 8) * 0.03 }}
+            whileHover={{ x: 3 }}
             onClick={() => handleRowClick(item)}
-            className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 backdrop-blur-sm transition-all cursor-pointer overflow-hidden"
+            className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 transition-colors hover:bg-accent cursor-pointer overflow-hidden"
           >
             {/* Left Accent Bar */}
             <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
@@ -451,14 +451,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            className="absolute inset-0 bg-black/75"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.97, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-card/95 backdrop-blur-xl border border-border rounded-[2rem] shadow-[0_0_80px_-15px_rgba(0,0,0,0.3)] dark:shadow-[0_0_80px_-15px_rgba(0,0,0,0.6)]"
+            exit={{ opacity: 0, scale: 0.97, y: 12 }}
+            transition={{ type: "tween", duration: 0.18, ease: "easeOut" }}
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-card border border-border rounded-[2rem] shadow-[0_0_60px_-15px_rgba(0,0,0,0.4)] dark:shadow-[0_0_60px_-15px_rgba(0,0,0,0.7)]"
           >
             {/* Header with Visual Polish */}
             <div className="relative p-8 border-b border-border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
@@ -474,7 +474,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               </div>
 
               <div className="flex items-center gap-6">
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 group animate-pulse-ring ${
+                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 ${
                   type === 'calls_today' || type === 'callbacks' ? 'from-blue-500 to-indigo-600' :
                   type === 'policies_sold' ? 'from-emerald-500 to-teal-600' :
                   type === 'appointments' ? 'from-violet-500 to-purple-600' :

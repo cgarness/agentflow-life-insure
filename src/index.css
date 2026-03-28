@@ -101,7 +101,7 @@
   }
 
   .glass-card {
-    @apply bg-card/60 backdrop-blur-md border border-white/10 shadow-lg;
+    @apply bg-card/70 border border-white/10 shadow-lg;
   }
 
   .premium-gradient-blue {
