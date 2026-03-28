@@ -421,15 +421,38 @@ const InviteModal: React.FC<{
         </DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>First Name *</Label><Input value={form.firstName} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} /></div>
-            <div><Label>Last Name *</Label><Input value={form.lastName} onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} /></div>
+            <div>
+              <Label htmlFor="invite-first-name">First Name *</Label>
+              <Input 
+                id="invite-first-name"
+                value={form.firstName} 
+                autoFocus
+                onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} 
+              />
+            </div>
+            <div>
+              <Label htmlFor="invite-last-name">Last Name *</Label>
+              <Input 
+                id="invite-last-name"
+                value={form.lastName} 
+                onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} 
+              />
+            </div>
           </div>
-          <div><Label>Email *</Label><Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+          <div>
+            <Label htmlFor="invite-email">Email *</Label>
+            <Input 
+              id="invite-email"
+              type="email" 
+              value={form.email} 
+              onChange={e => setForm(p => ({ ...p, email: e.target.value }))} 
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Role</Label>
+              <Label htmlFor="invite-role">Role</Label>
               <Select value={form.role} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="invite-role"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Admin">Admin</SelectItem>
                   <SelectItem value="Team Leader">Team Leader</SelectItem>
@@ -438,9 +461,9 @@ const InviteModal: React.FC<{
               </Select>
             </div>
             <div>
-              <Label>Upline Manager</Label>
+              <Label htmlFor="invite-upline">Upline Manager</Label>
               <Select value={form.uplineId || "_none"} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
-                <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                <SelectTrigger id="invite-upline"><SelectValue placeholder="Select manager" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_none">None</SelectItem>
                   {managers.map(m => (
@@ -450,8 +473,8 @@ const InviteModal: React.FC<{
               </Select>
             </div>
           </div>
-          <div><Label>Licensed States</Label><StateMultiSelect selected={form.licensedStates} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} /></div>
-          <div><Label>Commission Level</Label><Input value={form.commissionLevel} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
+          <div><Label htmlFor="invite-states">Licensed States</Label><StateMultiSelect selected={form.licensedStates} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} /></div>
+          <div><Label htmlFor="invite-commission">Commission Level</Label><Input id="invite-commission" value={form.commissionLevel} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
         </div>
         <DialogFooter className="flex-col gap-3 sm:flex-col">
           <div className="flex gap-2 w-full justify-end">
@@ -1429,14 +1452,6 @@ const UserManagement: React.FC = () => {
         )}
       </div>
 
-      {/* Invite Modal */}
-      <InviteModal 
-        open={inviteOpen} 
-        onClose={() => setInviteOpen(false)} 
-        onSuccess={fetchUsers} 
-        managers={allUsers.filter(u => u.role === "Admin" || u.role === "Team Leader")}
-      />
-
       {/* Profile Modal */}
       <UserProfileModal
         user={selectedUser}
@@ -1451,6 +1466,14 @@ const UserManagement: React.FC = () => {
         currentUserId={currentUser?.id || ""}
         currentUserRole={currentProfile?.role || ""}
         allUsers={users}
+      />
+
+      {/* Invite Modal */}
+      <InviteModal 
+        open={inviteOpen} 
+        onClose={() => setInviteOpen(false)} 
+        onSuccess={fetchUsers} 
+        managers={allUsers.filter(u => u.role === "Admin" || u.role === "Team Leader")}
       />
 
       {/* Confirm Deactivate/Reactivate */}
