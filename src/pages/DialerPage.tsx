@@ -1110,6 +1110,14 @@ export default function DialerPage() {
   }
 
   function handleSelectDisposition(d: Disposition) {
+    if (selectedDisp?.id === d.id) {
+      setSelectedDisp(null);
+      setAptTitle("");
+      setAptDate("");
+      setAptStartTime("");
+      setAptEndTime("");
+      return;
+    }
     setSelectedDisp(d);
     
     // Reset/Initialize requirements
@@ -1404,10 +1412,23 @@ export default function DialerPage() {
   const currentStatusColor = useMemo(() => {
     if (!currentLead?.status) return "#6B7280";
     const status = currentLead.status.toLowerCase().trim();
+    
+    // 1. Try exact match in set stages
     const stage = leadStages.find(s => s.name.toLowerCase().trim() === status);
     if (stage) return stage.color;
-    // Fallback search in fallbackStatusColors
-    return fallbackStatusColors[currentLead.status] || "#6B7280";
+    
+    // 2. Try partial match in set stages (e.g. "New Lead" matches "New")
+    const partialStage = leadStages.find(s => {
+      const sName = s.name.toLowerCase().trim();
+      return status.includes(sName) || sName.includes(status);
+    });
+    if (partialStage) return partialStage.color;
+
+    // 3. Fallback search in fallbackStatusColors (case-insensitive)
+    const fallbackKey = Object.keys(fallbackStatusColors).find(k => k.toLowerCase().trim() === status);
+    if (fallbackKey) return fallbackStatusColors[fallbackKey];
+    
+    return "#6B7280";
   }, [leadStages, currentLead?.status]);
 
   function handleAdvance() {
