@@ -8,6 +8,8 @@ import { conversionSupabaseApi } from "@/lib/supabase-conversion";
 import { toast } from "sonner";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
+import { PhoneInput } from "@/components/shared/PhoneInput";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
 
 interface ConvertLeadModalProps {
   open: boolean;
@@ -202,6 +204,15 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
                     value={formData.beneficiaryRelationship} 
                     onChange={e => handleInputChange("beneficiaryRelationship", e.target.value)}
                     placeholder="e.g. Spouse" 
+                    className="h-9 text-xs bg-muted/20 border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Beneficiary Phone</label>
+                  <PhoneInput 
+                    value={formData.beneficiaryPhone} 
+                    onChange={val => handleInputChange("beneficiaryPhone", normalizePhoneNumber(val))} 
+                    placeholder="(555)555-5555" 
                     className="h-9 text-xs bg-muted/20 border-border"
                   />
                 </div>

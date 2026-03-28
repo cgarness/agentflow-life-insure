@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { formatPhoneNumber } from "@/utils/phoneUtils";
 
 export interface PhoneNumberEntry {
   id: string;
@@ -90,10 +91,5 @@ export function pickCallerId(
 
 /** Format a phone number for display: (XXX) XXX-XXXX */
 export function formatPhoneDisplay(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  const n = digits.startsWith("1") && digits.length === 11 ? digits.slice(1) : digits;
-  if (n.length === 10) {
-    return `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}`;
-  }
-  return phone;
+  return formatPhoneNumber(phone);
 }

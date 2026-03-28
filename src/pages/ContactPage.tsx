@@ -8,6 +8,7 @@ import {
 import MarketingNav from "@/components/marketing/MarketingNav";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
 import { toast } from "sonner";
+import { formatAsYouType, normalizePhoneNumber } from "@/utils/phoneUtils";
 
 /* ── ANIMATION HELPERS ── */
 const fadeUp = {
@@ -395,8 +396,11 @@ const Field: React.FC<FieldProps> = ({ label, value, onChange, error, required, 
       )}
       <input
         type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={type === "tel" ? formatAsYouType(value) : value}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(type === "tel" ? normalizePhoneNumber(v) : v);
+        }}
         maxLength={maxLength}
         className={`w-full h-10 rounded-lg bg-muted/30 border text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/50 transition-all ${
           icon ? "pl-9 pr-3" : "px-3"

@@ -8,6 +8,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { PhoneInput } from "@/components/shared/PhoneInput";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -170,12 +172,11 @@ export default function ProfileSetupModal({ open, onClose, onComplete }: Props) 
           {/* Phone */}
           <div className="space-y-1.5">
             <Label htmlFor="psm-phone" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Phone Number</Label>
-            <Input
+            <PhoneInput
               id="psm-phone"
-              type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 555-5555"
+              onChange={(val) => setPhone(normalizePhoneNumber(val))}
+              placeholder="(555)555-5555"
               className={cn("h-9 text-xs shadow-sm bg-muted/20 border-border", errors.phone && "border-destructive ring-destructive/20")}
             />
             {errors.phone && (

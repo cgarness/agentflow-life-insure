@@ -3,6 +3,8 @@ import { X, Loader2 } from "lucide-react";
 import { Recruit } from "@/lib/types";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { toast } from "sonner";
+import { PhoneInput } from "@/components/shared/PhoneInput";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
 
 interface AddRecruitModalProps {
   open: boolean;
@@ -87,7 +89,13 @@ const AddRecruitModal: React.FC<AddRecruitModalProps> = ({ open, onClose, onSave
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Phone *</label>
-            <input required value={form.phone || ""} onChange={e => setForm((f) => ({ ...f, phone: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="(555) 123-4567" />
+            <PhoneInput 
+              required 
+              value={form.phone || ""} 
+              onChange={val => setForm((f) => ({ ...f, phone: normalizePhoneNumber(val) }))} 
+              className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" 
+              placeholder="(555)123-4567" 
+            />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Email</label>

@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { useBranding } from "@/contexts/BrandingContext";
+import { formatPhoneNumber } from "@/utils/phoneUtils";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -807,7 +808,7 @@ const Contacts: React.FC = () => {
   const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground truncate block">{l.firstName} {l.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs truncate block">{l.phone}</span>;
+      case "phone": return <span className="text-foreground font-mono text-sm truncate block">{formatPhoneNumber(l.phone)}</span>;
       case "email": return <span className="text-muted-foreground truncate block">{l.email}</span>;
       case "state": return <span className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{l.state}</span>;
       case "status": return (
@@ -854,7 +855,7 @@ const Contacts: React.FC = () => {
   const renderClientCell = (c: Client, key: ClientColumnKey) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground truncate block">{c.firstName} {c.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs truncate block">{c.phone}</span>;
+      case "phone": return <span className="text-foreground font-mono text-sm truncate block">{formatPhoneNumber(c.phone)}</span>;
       case "policyType": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span>;
       case "carrier": return <span className="text-muted-foreground truncate block">{c.carrier}</span>;
       case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
@@ -871,7 +872,7 @@ const Contacts: React.FC = () => {
   const renderRecruitCell = (r: Recruit, key: RecruitColumnKey) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground truncate block">{r.firstName} {r.lastName}</span>;
-      case "phone": return <span className="text-foreground font-mono text-xs truncate block">{r.phone}</span>;
+      case "phone": return <span className="text-foreground font-mono text-sm truncate block">{formatPhoneNumber(r.phone)}</span>;
       case "email": return <span className="text-muted-foreground truncate block">{r.email}</span>;
       case "status": return (
         <div className="relative group/status inline-block">

@@ -18,16 +18,13 @@ import {
   MapPin, RefreshCw, Trash2, Search, Radio, Info
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
+import { PhoneInput } from "@/components/shared/PhoneInput";
 
 const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
-const formatPhone = (num: string) => {
-  const cleaned = num.replace(/\D/g, "");
-  const digits = cleaned.startsWith("1") && cleaned.length === 11 ? cleaned.slice(1) : cleaned;
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-  return num;
-};
+const formatPhone = formatPhoneNumber;
 
 const extractAreaCode = (num: string) => {
   const cleaned = num.replace(/\D/g, "");
@@ -740,7 +737,12 @@ const PhoneSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Phone Number</label>
-              <Input value={manualPhone} onChange={e => setManualPhone(e.target.value)} placeholder="+12135551234" className="font-mono" />
+              <PhoneInput 
+                value={manualPhone} 
+                onChange={val => setManualPhone(normalizePhoneNumber(val))} 
+                placeholder="(555)123-4567" 
+                className="font-mono" 
+              />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Friendly Name (optional)</label>

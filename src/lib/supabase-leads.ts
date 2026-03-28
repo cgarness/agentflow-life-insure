@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Lead } from "@/lib/types";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
 
 export type ImportStrategy = "skip" | "update" | "import_new";
 
@@ -32,7 +33,7 @@ export async function importLeadsToSupabase(
     const mappedRow = {
       first_name: row.firstName || "",
       last_name: row.lastName || "",
-      phone: row.phone || "",
+      phone: normalizePhoneNumber(row.phone || ""),
       email: row.email || "",
       state: row.state || "",
       status: row.status || "New",

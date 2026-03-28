@@ -4,6 +4,8 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
+import { PhoneInput } from "@/components/shared/PhoneInput";
 import {
     Ban, Search, Plus, Trash2, Upload,
     Loader2, ShieldAlert, Phone as PhoneIcon,
@@ -99,7 +101,7 @@ const DNCSettings: React.FC = () => {
             const { error } = await supabase
                 .from('dnc_list')
                 .insert({
-                    phone_number: newNumber.trim(),
+                    phone_number: normalizePhoneNumber(newNumber),
                     reason: newReason.trim() || null,
                     organization_id: organizationId,
                 } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -200,11 +202,11 @@ const DNCSettings: React.FC = () => {
                             <div className="grid gap-4 py-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="phone">Phone Number</Label>
-                                    <Input
+                                    <PhoneInput
                                         id="phone"
-                                        placeholder="(555) 000-0000"
+                                        placeholder="(555)000-0000"
                                         value={newNumber}
-                                        onChange={(e) => setNewNumber(e.target.value)}
+                                        onChange={(val) => setNewNumber(normalizePhoneNumber(val))}
                                     />
                                 </div>
                                 <div className="grid gap-2">
@@ -268,7 +270,7 @@ const DNCSettings: React.FC = () => {
                                         <TableCell className="font-mono font-medium">
                                             <div className="flex items-center gap-2">
                                                 <Ban className="w-3.5 h-3.5 text-destructive" />
-                                                {n.phone_number}
+                                                {formatPhoneNumber(n.phone_number)}
                                             </div>
                                         </TableCell>
                                         <TableCell>

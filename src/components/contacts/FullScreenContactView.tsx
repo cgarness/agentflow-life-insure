@@ -19,6 +19,8 @@ import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
+import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
+import { PhoneInput } from "@/components/shared/PhoneInput";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -229,7 +231,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
       const { data: phoneData } = await supabase.from("phone_numbers").select("phone_number, friendly_name, is_default").or(`organization_id.eq.${organizationId},organization_id.is.null`).in("status", ["active", "Active"]);
       if (phoneData) {
-        setAvailableNumbers(phoneData.map(p => ({ number: p.phone_number, label: p.friendly_name ? `${p.friendly_name} - ${p.phone_number}` : p.phone_number })));
+        setAvailableNumbers(phoneData.map(p => ({ 
+          number: p.phone_number, 
+          label: p.friendly_name ? `${p.friendly_name} - ${formatPhoneNumber(p.phone_number)}` : formatPhoneNumber(p.phone_number) 
+        })));
         const { data: lastCall } = await supabase.from("calls").select("caller_id_used").eq("contact_id", contact.id).not("caller_id_used", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
         if (lastCall?.caller_id_used) setFromNumber(lastCall.caller_id_used);
         else setFromNumber(phoneData.find(p => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
@@ -379,12 +384,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               </select>
             ) : fieldType === "textarea" ? (
               <textarea value={val} onChange={e => handleChange(e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
+            ) : key === "phone" ? (
+              <PhoneInput 
+                value={val} 
+                onChange={v => handleChange(normalizePhoneNumber(v))} 
+                className={inputCls} 
+                placeholder="(555)123-4567"
+              />
             ) : (
               <input type={fieldType} value={val} onChange={e => handleChange(fieldType === "number" ? Number(e.target.value) : e.target.value)} className={inputCls} />
             )}
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : ( <CopyField value={val} /> )}
+        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : val} /> )}
       </div>
     );
   };
