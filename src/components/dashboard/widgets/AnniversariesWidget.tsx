@@ -136,7 +136,8 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.05 }}
-            className="group relative flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-pink-500/20 hover:bg-pink-500/5 transition-all"
+            onClick={() => handleContact(item)}
+            className="group relative flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-pink-500/20 hover:bg-pink-500/5 transition-all cursor-pointer"
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center shrink-0">
@@ -153,14 +154,6 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
                 </div>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleContact(item)}
-              className="rounded-lg shadow-sm hover:bg-pink-500 hover:text-white hover:border-pink-500 transition-all px-4 h-9"
-            >
-              Wish
-            </Button>
           </motion.div>
         );
       })}

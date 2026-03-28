@@ -418,8 +418,8 @@ const Contacts: React.FC = () => {
   const { formatDate, formatDateTime } = useBranding();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents") || "Leads";
-  const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents") => {
+  const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
+  const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
     setSearchParams({ tab: newTab });
   };
   const [searchQuery, setSearchQuery] = useState("");
@@ -1337,14 +1337,20 @@ const Contacts: React.FC = () => {
           <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
             className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}>{t}</button>
         ))}
-        <div className="w-px h-5 bg-border mx-1 self-center" />
+        <div className="w-px h-5 bg-border mx-2 self-center" />
+        <button 
+          onClick={() => { setTab("Import History"); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
+          className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === "Import History" ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}
+        >
+          Import History
+        </button>
       </div>
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`} className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={tab === "Import History" ? "Search history..." : `Search ${tab.toLowerCase()}...`} className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
         </div>
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-lg p-0.5 border border-border">
@@ -1352,8 +1358,8 @@ const Contacts: React.FC = () => {
             <button onClick={() => setView("kanban")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><LayoutGrid className="w-4 h-4" /></button>
           </div>
         )}
-        {/* Columns toggle — shown for all tabs in table view */}
-        {view === "table" && (
+        {/* Columns toggle — shown for all tabs in table view except Import History */}
+        {view === "table" && tab !== "Import History" && (
           tab === "Leads" ? renderColumnsDropdown(ALL_COLUMNS, visibleCols as Set<string>, (s) => setVisibleCols(s as Set<ColumnKey>), DEFAULT_VISIBLE as Set<string>) :
             tab === "Clients" ? renderColumnsDropdown(CLIENT_COLUMNS, visibleClientCols as Set<string>, (s) => setVisibleClientCols(s as Set<ClientColumnKey>), DEFAULT_CLIENT_VISIBLE as Set<string>) :
               tab === "Recruits" ? renderColumnsDropdown(RECRUIT_COLUMNS, visibleRecruitCols as Set<string>, (s) => setVisibleRecruitCols(s as Set<RecruitColumnKey>), DEFAULT_RECRUIT_VISIBLE as Set<string>) :
@@ -1388,7 +1394,7 @@ const Contacts: React.FC = () => {
         )}
         <div className="flex-1" />
         {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Upload className="w-4 h-4" />Import CSV</button>}
-        {tab !== "Agents" && <button onClick={() => setAddModalOpen(true)} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" />Add {addContactType}</button>}
+        {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
       {/* Loading */}
@@ -1595,90 +1601,107 @@ const Contacts: React.FC = () => {
 
       {/* ===== AGENTS TAB ===== */}
       {!loading && tab === "Agents" && (
-        <div className="flex gap-4 items-start">
-          <div className="flex-1 flex flex-col gap-4 min-w-0">
-            {selectedAgentIds.size > 0 && renderBulkActions(
-              selectedAgentIds.size,
-              () => setSelectedAgentIds(new Set()),
-              { showStatus: true, statusList: ["Active", "Inactive"], onStatusChange: handleBulkAgentStatusChange, onDelete: () => toast.error("Cannot delete agents from this view") }
-            )}
-            <div className="bg-card rounded-xl border">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm table-fixed">
-                  <thead><tr className="text-muted-foreground border-b bg-accent/50">
-                    <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
-                      <input type="checkbox" checked={selectedAgentIds.size === agents.length && agents.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length; }} onChange={toggleAllAgents} className="rounded" />
-                    </th>
-                    {AGENT_COLUMNS.filter(c => visibleAgentCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
-                    <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
-                  </tr></thead>
-                  <tbody>
-                    {sortedAgents.map(u => (
-                      <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
-                        <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
-                        {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
-                          <td key={col.key} className={`py-3 px-3 overflow-hidden ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
-                        ))}
-                        <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
-                          <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
-                        </td>
-                      </tr>
+        <div className="bg-card rounded-xl border">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm table-fixed">
+              <thead><tr className="text-muted-foreground border-b bg-accent/50">
+                <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
+                  <input type="checkbox" checked={selectedAgentIds.size === agents.length && agents.length > 0} ref={el => { if (el) el.indeterminate = selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length; }} onChange={toggleAllAgents} className="rounded" />
+                </th>
+                {AGENT_COLUMNS.filter(c => visibleAgentCols.has(c.key)).map(col => renderSortHeader(col.key, col.label))}
+                <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
+              </tr></thead>
+              <tbody>
+                {sortedAgents.map(u => (
+                  <tr key={u.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedAgentIds.has(u.id) ? "bg-primary/5" : ""} `} onClick={() => setSelectedAgent(u)}>
+                    <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleAgentSelect(u.id); }}><input type="checkbox" checked={selectedAgentIds.has(u.id)} onChange={() => { }} className="rounded" /></td>
+                    {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
+                      <td key={col.key} className={`py-3 px-3 overflow-hidden ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                    <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
+                      <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        </div>
+      )}
 
-          {/* Import History panel */}
-          <div className="w-80 shrink-0 bg-card rounded-xl border border-border flex flex-col">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-              <Upload className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">Import History</h3>
-            </div>
-            <div className="overflow-y-auto max-h-96">
-              {importHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No imports yet</p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {importHistory.map(h => {
-                    const dateObj = new Date(h.date);
-                    const msSince = Date.now() - dateObj.getTime();
-                    const hoursSince = msSince / (1000 * 60 * 60);
-                    const canUndo = hoursSince < 24;
-                    const formattedTime = formatDateTime(dateObj);
-                    return (
-                      <div key={h.id} className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-sm font-medium text-foreground truncate">{h.fileName}</span>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  disabled={!canUndo}
-                                  onClick={() => setUndoConfirm(h)}
-                                  className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-150 shrink-0"
-                                >
-                                  <Undo2 className="w-4 h-4" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>{canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+      {/* ===== IMPORT HISTORY TAB ===== */}
+      {!loading && tab === "Import History" && (
+        <div className="bg-card rounded-xl border border-border flex flex-col max-w-4xl">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+            <Upload className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">Import History</h3>
+          </div>
+          <div className="overflow-y-auto">
+            {importHistory.length === 0 ? (
+              <div className="text-center py-12">
+                <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">When you import leads via CSV, your history will appear here.</p>
+                <button onClick={() => setImportModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {importHistory
+                  .filter(h => h.fileName.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map(h => {
+                  const dateObj = new Date(h.date);
+                  const msSince = Date.now() - dateObj.getTime();
+                  const hoursSince = msSince / (1000 * 60 * 60);
+                  const canUndo = hoursSince < 24;
+                  const formattedTime = formatDateTime(dateObj);
+                  return (
+                    <div key={h.id} className="px-6 py-4 hover:bg-accent/30 sidebar-transition">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground truncate">{h.fileName}</span>
+                            <span className="text-xs text-muted-foreground">• {formattedTime}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-4 mt-2 text-xs">
+                            <div className="flex flex-col">
+                              <span className="text-muted-foreground">Total Records</span>
+                              <span className="text-foreground font-medium">{h.totalRecords}</span>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-muted-foreground text-success">Imported</span>
+                              <span className="text-foreground font-medium">{h.imported}</span>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-muted-foreground text-warning">Duplicates</span>
+                              <span className="text-foreground font-medium">{h.duplicates}</span>
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-muted-foreground text-destructive">Errors</span>
+                              <span className="text-foreground font-medium">{h.errors}</span>
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">{formattedTime}</p>
-                        <div className="flex flex-wrap gap-2 mt-1 text-xs">
-                          <span className="text-foreground">{h.totalRecords} total</span>
-                          <span className="text-success">{h.imported} imported</span>
-                          <span className="text-warning">{h.duplicates} dupes</span>
-                          <span className="text-destructive">{h.errors} errors</span>
-                        </div>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                disabled={!canUndo}
+                                onClick={() => setUndoConfirm(h)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 shrink-0"
+                              >
+                                <Undo2 className="w-3.5 h-3.5" />
+                                Undo Import
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
