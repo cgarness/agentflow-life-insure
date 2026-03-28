@@ -1,12 +1,16 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   X, Upload, CloudUpload, ArrowLeft, ArrowRight, Check, AlertTriangle,
   FileText, Loader2, CheckCircle2, Download, RefreshCw, Plus, Megaphone, Settings,
 } from "lucide-react";
-import { Lead, LeadStatus, CustomField } from "@/lib/types";
+import { Lead, LeadStatus, CustomField, PipelineStage, LeadSource } from "@/lib/types";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { customFieldsSupabaseApi as customFieldsApi } from "@/lib/supabase-settings";
+import { 
+  customFieldsSupabaseApi as customFieldsApi,
+  pipelineSupabaseApi,
+  leadSourcesSupabaseApi
+} from "@/lib/supabase-settings";
 
 // ---- Types ----
 interface ImportHistoryEntry {
@@ -30,19 +34,19 @@ const AGENTFLOW_FIELDS = [
 type AgentFlowField = typeof AGENTFLOW_FIELDS[number];
 
 const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
-  "First Name": ["first name", "firstname", "first", "fname", "given name"],
-  "Last Name": ["last name", "lastname", "last", "lname", "surname", "family name"],
-  "Full Name": ["full name", "fullname", "name", "complete name", "contact name", "customer name", "lead name"],
-  "Phone": ["phone", "phone number", "cell", "mobile", "telephone", "contact number", "primary phone"],
-  "Email": ["email", "email address", "e-mail", "mail"],
-  "State": ["state", "st", "province", "region", "location"],
-  "Lead Source": ["lead source", "source", "how did you hear", "referral source", "origin"],
-  "Age": ["age", "years old", "current age"],
-  "Date of Birth": ["date of birth", "dob", "birth date", "birthday"],
-  "Health Status": ["health status", "health", "medical status", "condition"],
-  "Best Time to Call": ["best time to call", "best time", "call time", "preferred time", "contact time"],
-  "Notes": ["notes", "note", "comments", "comment", "additional info", "remarks"],
-  "Assigned Agent": ["assigned agent", "agent", "rep", "sales rep", "assigned to", "owner"],
+  "First Name": ["first name", "firstname", "first", "fname", "given name", "customer first name", "lead first name"],
+  "Last Name": ["last name", "lastname", "last", "lname", "surname", "family name", "customer last name", "lead last name"],
+  "Full Name": ["full name", "fullname", "name", "complete name", "contact name", "customer name", "lead name", "client name"],
+  "Phone": ["phone", "phone number", "cell", "mobile", "telephone", "contact number", "primary phone", "cell phone", "work phone", "home phone"],
+  "Email": ["email", "email address", "e-mail", "mail", "primary email", "contact email"],
+  "State": ["state", "st", "province", "region", "location", "customer state", "shipping state", "billing state"],
+  "Lead Source": ["lead source", "source", "how did you hear", "referral source", "origin", "marketing source", "traffic source"],
+  "Age": ["age", "years old", "current age", "customer age"],
+  "Date of Birth": ["date of birth", "dob", "birth date", "birthday", "birthdate"],
+  "Health Status": ["health status", "health", "medical status", "condition", "health condition", "medical history"],
+  "Best Time to Call": ["best time to call", "best time", "call time", "preferred time", "contact time", "callback time"],
+  "Notes": ["notes", "note", "comments", "comment", "additional info", "remarks", "description", "details"],
+  "Assigned Agent": ["assigned agent", "agent", "rep", "sales rep", "assigned to", "owner", "agent name", "staff"],
 };
 
 const TEMPLATE_HEADERS = [
@@ -55,16 +59,7 @@ const TEMPLATE_ROWS = [
   ["Jane", "Doe", "(555) 333-4444", "jane.doe@email.com", "TX", "Referral", "35", "1990-08-23", "Standard", "Afternoon", "Referred by Mike T."],
 ];
 
-const LEAD_STATUSES: { value: LeadStatus; color: string }[] = [
-  { value: "New", color: "hsl(217, 91%, 60%)" },
-  { value: "Contacted", color: "hsl(271, 91%, 65%)" },
-  { value: "Interested", color: "hsl(48, 96%, 53%)" },
-  { value: "Follow Up", color: "hsl(168, 80%, 55%)" },
-  { value: "Hot", color: "hsl(25, 95%, 53%)" },
-  { value: "Not Interested", color: "hsl(0, 0%, 50%)" },
-  { value: "Closed Won", color: "hsl(142, 71%, 45%)" },
-  { value: "Closed Lost", color: "hsl(0, 84%, 60%)" },
-];
+// Redundant LEAD_STATUSES removed
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
@@ -88,9 +83,26 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
 }
 
 function fuzzyMatch(csvHeader: string): AgentFlowField | null {
-  const h = csvHeader.toLowerCase().trim();
+  const h = csvHeader.toLowerCase().trim().replace(/[^a-z0-9]/g, " ");
+  const normalizedH = h.replace(/\s+/g, "");
+
+  // 1. Try exact match on field name or variations
   for (const [field, variations] of Object.entries(FIELD_VARIATIONS)) {
-    if (variations.some(v => h === v || h.includes(v) || v.includes(h))) {
+    const lowField = field.toLowerCase();
+    if (h === lowField || normalizedH === lowField.replace(/\s+/g, "")) {
+      return field as AgentFlowField;
+    }
+    if (variations.some(v => h === v || normalizedH === v.replace(/\s+/g, ""))) {
+      return field as AgentFlowField;
+    }
+  }
+
+  // 2. Try partial match with a stricter threshold
+  for (const [field, variations] of Object.entries(FIELD_VARIATIONS)) {
+    if (variations.some(v => {
+      if (v.length <= 2) return h === v; // Don't partial match short codes like "st"
+      return h.startsWith(v) || h.endsWith(v) || (h.includes(v) && v.length > 4);
+    })) {
       return field as AgentFlowField;
     }
   }
@@ -171,7 +183,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [newCampaignName, setNewCampaignName] = useState("");
   const [newCampaignType, setNewCampaignType] = useState("Personal");
   const [newCampaignDesc, setNewCampaignDesc] = useState("");
-  const [importStatus, setImportStatus] = useState<LeadStatus>("New");
+  const [importStatus, setImportStatus] = useState<string>("New");
+  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
+  const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
+  const [selectedSource, setSelectedSource] = useState<string>("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
 
@@ -184,9 +199,32 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setMappings({}); setCustomFieldNames([]); setCreatingFieldForCol(null);
     setDuplicateHandling("skip"); setImportProgress(0); setImportResult(null);
     setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
-    setNewCampaignType("Personal"); setNewCampaignDesc(""); setImportStatus("New");
+    setNewCampaignType("Personal"); setNewCampaignDesc(""); 
+    setImportStatus(pipelineStages.find(s => s.isDefault)?.name || "New");
+    setSelectedSource("");
     setTags([]); setTagInput("");
   };
+
+  // ---- Fetch Settings ----
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const [stages, sources] = await Promise.all([
+          pipelineSupabaseApi.getLeadStages(),
+          leadSourcesSupabaseApi.getAll()
+        ]);
+        setPipelineStages(stages);
+        setLeadSources(sources);
+        if (stages.length > 0) {
+          const defaultStage = stages.find(s => s.isDefault) || stages[0];
+          setImportStatus(defaultStage.name);
+        }
+      } catch (err) {
+        console.error("Error loading settings in ImportLeadsModal:", err);
+      }
+    }
+    if (open) loadSettings();
+  }, [open]);
 
   // ---- CSV Parsing ----
   const handleFile = useCallback((f: File) => {
@@ -466,8 +504,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               phone: getVal(r.row, "Phone"),
               email: getVal(r.row, "Email"),
               state: getVal(r.row, "State"),
-              status: importStatus,
-              leadSource: getVal(r.row, "Lead Source") || "CSV Import",
+              status: importStatus as LeadStatus,
+              leadSource: selectedSource || getVal(r.row, "Lead Source") || "CSV Import",
               leadScore: 5,
               age: parseInt(getVal(r.row, "Age")) || undefined,
               dateOfBirth: getVal(r.row, "Date of Birth") || undefined,
@@ -847,18 +885,39 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Lead Settings</span>
           </div>
           <div className="border rounded-lg p-4 bg-muted/20 space-y-4">
-            {/* Initial Status */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block">Set status for all imported leads</label>
-              <select
-                value={importStatus}
-                onChange={e => setImportStatus(e.target.value as LeadStatus)}
-                className="w-full max-w-xs h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
-              >
-                {LEAD_STATUSES.map(s => (
-                  <option key={s.value} value={s.value}>{s.value}</option>
-                ))}
-              </select>
+            {/* Initial Status & Source */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Lead Status</label>
+                <select
+                  value={importStatus}
+                  onChange={e => setImportStatus(e.target.value)}
+                  className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                >
+                  {pipelineStages.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                  {pipelineStages.length === 0 && (
+                    <>
+                      <option value="New">New</option>
+                      <option value="Contacted">Contacted</option>
+                    </>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Source</label>
+                <select
+                  value={selectedSource}
+                  onChange={e => setSelectedSource(e.target.value)}
+                  className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                >
+                  <option value="">Use CSV source (or "CSV Import")</option>
+                  {leadSources.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Tags */}
