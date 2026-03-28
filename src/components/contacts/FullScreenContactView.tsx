@@ -293,6 +293,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     const errs: Record<string, string> = {};
     if (!editForm.firstName?.trim()) errs.firstName = "First name is required";
     if (!editForm.lastName?.trim()) errs.lastName = "Last name is required";
+    if (!editForm.phone?.trim()) errs.phone = "Phone number is required";
     if (Object.keys(errs).length) { setErrors(errs); return; }
     await onUpdate(contact.id, editForm);
     setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false);

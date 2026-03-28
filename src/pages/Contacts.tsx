@@ -12,17 +12,20 @@ import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
-import { customFieldsSupabaseApi, leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
+import { leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
-import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile, CustomField } from "@/lib/types";
+import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 
 type UserWithProfile = User & { profile: UserProfile };
 import type { Json } from "@/integrations/supabase/types";
 import { calcAging, getAgentName, getAgentInitials } from "@/lib/data-helpers";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
+import AddLeadModal from "@/components/contacts/AddLeadModal";
+import AddClientModal from "@/components/contacts/AddClientModal";
+import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
 import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -154,238 +157,7 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
         <Clipboard className="w-3.5 h-3.5" />
       </button>
     </div>
-  );
-};
-
-// ---- Add/Edit Contact Modal ----
-const AddContactModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  onSave: (data: Partial<Lead & Client & Recruit>) => Promise<void>;
-  initial?: Partial<Lead & Client & Recruit> | null;
-  contactType?: string;
-}> = ({ open, onClose, onSave, initial, contactType = "Lead" }) => {
-  const [form, setForm] = useState<Partial<Lead & Client & Recruit>>({});
-  const [saving, setSaving] = useState(false);
-  const [leadSources, setLeadSources] = useState<string[]>(["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"]);
-  const [healthStatuses, setHealthStatuses] = useState<string[]>(["Excellent", "Good", "Fair", "Poor"]);
-  const [customFields, setCustomFields] = useState<CustomField[]>([]);
-
-  useEffect(() => {
-    async function loadSettings() {
-      if (!open) return;
-      try {
-        const [sources, healths, fields] = await Promise.all([
-          leadSourcesSupabaseApi.getAll(),
-          healthStatusesSupabaseApi.getAll(),
-          customFieldsSupabaseApi.getAll()
-        ]);
-        if (sources.length > 0) setLeadSources(sources.map(s => s.name));
-        if (healths.length > 0) setHealthStatuses(healths.map(h => h.name));
-        
-        const typeKey = contactType === "Lead" ? "Leads" : contactType === "Client" ? "Clients" : "Recruits";
-        setCustomFields(fields.filter(f => f.active && f.appliesTo.includes(typeKey as any)));
-      } catch (err) {
-        console.error("Error loading settings in modal:", err);
-      }
-    }
-    loadSettings();
-  }, [open, contactType]);
-
-  useEffect(() => {
-    if (contactType === "Client") {
-      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, policyType: initial.policyType || "Term", carrier: initial.carrier || "", premiumAmount: initial.premiumAmount || "", faceAmount: initial.faceAmount || "", issueDate: initial.issueDate || "" });
-      else setForm({ firstName: "", lastName: "", phone: "", email: "", policyType: "Term", carrier: "", premiumAmount: "", faceAmount: "", issueDate: "" });
-    } else if (contactType === "Recruit") {
-      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, status: initial.status as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" });
-      else setForm({ firstName: "", lastName: "", phone: "", email: "", status: "Prospect" as unknown as "New" | "Contacted" | "Interested" | "Follow Up" | "Hot" | "Not Interested" | "Closed Won" | "Closed Lost" });
-    } else {
-      if (initial) setForm({ firstName: initial.firstName, lastName: initial.lastName, phone: initial.phone, email: initial.email, state: initial.state, leadSource: initial.leadSource, status: initial.status || "New", age: initial.age as any || "", dateOfBirth: initial.dateOfBirth || "", healthStatus: initial.healthStatus || "", bestTimeToCall: initial.bestTimeToCall || "", notes: initial.notes || "" });
-      else setForm({ firstName: "", lastName: "", phone: "", email: "", state: "", leadSource: "Facebook Ads", status: "New", age: "" as any, dateOfBirth: "", healthStatus: "", bestTimeToCall: "", notes: "" });
-    }
-  }, [initial, open, contactType]);
-
-  if (!open) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await onSave(form);
-      onClose();
-    } catch (err: unknown) {
-      toast.error((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        <style dangerouslySetInnerHTML={{ __html: `::-webkit-scrollbar { display: none; }` }} />
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">{initial ? "Edit" : "Add New"} {contactType}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
-              <input required value={form.firstName || ""} onChange={e => setForm((f) => ({ ...f, firstName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
-              <input required value={form.lastName || ""} onChange={e => setForm((f) => ({ ...f, lastName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Phone *</label>
-            <input required value={form.phone || ""} onChange={e => setForm((f) => ({ ...f, phone: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="(555) 123-4567" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Email *</label>
-            <input required type="email" value={form.email || ""} onChange={e => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-          </div>
-
-          {/* Lead-specific fields */}
-          {contactType === "Lead" && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-                  <input value={form.state || ""} onChange={e => setForm((f) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="FL" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-                  <select value={form.leadSource || (leadSources[0] || "")} onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                    {leadSources.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {/* Additional Lead Info */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Date of Birth</label>
-                  <input type="date" value={form.dateOfBirth || ""} onChange={e => setForm((f) => ({ ...f, dateOfBirth: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Age</label>
-                  <input type="number" value={form.age || ""} onChange={e => setForm((f) => ({ ...f, age: e.target.value ? parseInt(e.target.value) : undefined }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="e.g. 45" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Health Status</label>
-                  <select value={form.healthStatus || ""} onChange={e => setForm((f) => ({ ...f, healthStatus: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                    <option value="">Select...</option>
-                    {healthStatuses.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Best Time to Call</label>
-                  <select value={form.bestTimeToCall || ""} onChange={e => setForm((f) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                    <option value="">Select...</option>
-                    {["Morning", "Afternoon", "Evening", "Anytime"].map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Initial Notes</label>
-                <textarea value={form.notes || ""} onChange={e => setForm((f) => ({ ...f, notes: e.target.value }))} className="w-full h-20 px-3 py-2 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none resize-none" placeholder="Add any background context..." />
-              </div>
-            </>
-          )}
-
-          {/* Client-specific fields */}
-          {contactType === "Client" && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Policy Type *</label>
-                  <select required value={form.policyType || "Term"} onChange={e => setForm((f) => ({ ...f, policyType: e.target.value as "Term" | "Whole Life" | "IUL" | "Final Expense" }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                    {["Term", "Whole Life", "IUL", "Final Expense"].map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Carrier *</label>
-                  <input required value={form.carrier || ""} onChange={e => setForm((f) => ({ ...f, carrier: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Premium</label>
-                  <input value={form.premiumAmount || ""} onChange={e => setForm((f) => ({ ...f, premiumAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$150/mo" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Face Amount</label>
-                  <input value={form.faceAmount || ""} onChange={e => setForm((f) => ({ ...f, faceAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$500,000" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
-                <input type="date" value={form.issueDate || ""} onChange={e => setForm((f) => ({ ...f, issueDate: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-              </div>
-            </>
-          )}
-
-          {contactType === "Recruit" && (
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
-              <select value={(form as any).status || "Prospect"} onChange={e => setForm((f) => ({ ...f, status: e.target.value as any }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                {recruitStatuses.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Dynamic Custom Fields */}
-          {customFields.length > 0 && (
-            <div className="space-y-3 pt-2 border-t border-border mt-2">
-              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Custom Fields</h4>
-              <div className="grid grid-cols-2 gap-3">
-                {customFields.map(field => (
-                  <div key={field.id} className={field.type === 'Dropdown' ? 'col-span-2' : ''}>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">{field.name} {field.required && '*'}</label>
-                    {field.type === 'Dropdown' ? (
-                      <select 
-                        required={field.required}
-                        value={(form.customFields as any)?.[field.name] || ""} 
-                        onChange={e => setForm(f => ({ ...f, customFields: { ...(f.customFields || {}), [field.name]: e.target.value } }))}
-                        className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                      >
-                        <option value="">Select...</option>
-                        {field.dropdownOptions?.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    ) : (
-                      <input 
-                        required={field.required}
-                        type={field.type === 'Text' ? 'text' : field.type === 'Number' ? 'number' : 'date'}
-                        value={(form.customFields as any)?.[field.name] || ""} 
-                        onChange={e => setForm(f => ({ ...f, customFields: { ...(f.customFields || {}), [field.name]: field.type === 'Number' ? Number(e.target.value) : e.target.value } }))}
-                        className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent sidebar-transition">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition disabled:opacity-50 flex items-center justify-center gap-2">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {initial ? "Save Changes" : `Add ${contactType}`}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+  );;
 };
 
 // ---- Delete Confirm ----
@@ -1726,10 +1498,13 @@ const Contacts: React.FC = () => {
       )}
 
       {/* Modals */}
-      <AddContactModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddContact} contactType={addContactType} />
-      <AddContactModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} contactType="Lead" />
-      <AddContactModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} contactType="Client" />
-      <AddContactModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} contactType="Recruit" />
+      {tab === "Leads" && <AddLeadModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddLead} />}
+      {tab === "Clients" && <AddClientModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddClient} />}
+      {tab === "Recruits" && <AddRecruitModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddRecruit} />}
+      
+      <AddLeadModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} />
+      <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} />
+      <AddRecruitModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} />
       {selectedLead && (
         <FullScreenContactView 
           contact={selectedLead} 

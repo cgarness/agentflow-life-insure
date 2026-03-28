@@ -497,6 +497,24 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               lastName = split.lastName;
             }
 
+            const customFieldsData: Record<string, any> = {
+              ...(campaignId ? { campaignId } : {}),
+              ...(tags.length > 0 ? { tags } : {}),
+              ...(rawFullName ? { "Full Name": rawFullName } : {}),
+            };
+
+            // Add all other mapped custom fields
+            Object.entries(mappings).forEach(([idx, field]) => {
+              if (
+                field !== "Do Not Import" && 
+                !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && 
+                field !== "Full Name"
+              ) {
+                const val = r.row[Number(idx)]?.trim();
+                if (val) customFieldsData[field] = val;
+              }
+            });
+
             const lead: Lead = {
               id: uid(),
               firstName,
@@ -515,11 +533,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               assignedAgentId: resolveAgentId(getVal(r.row, "Assigned Agent")),
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-              customFields: {
-                ...(campaignId ? { campaignId } : {}),
-                ...(tags.length > 0 ? { tags } : {}),
-                ...(rawFullName ? { "Full Name": rawFullName } : {}),
-              },
+              customFields: customFieldsData,
             };
             newLeads.push(lead);
             imported++;
