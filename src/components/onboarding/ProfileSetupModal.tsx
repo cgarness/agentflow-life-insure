@@ -20,6 +20,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 
 const US_STATES = [
   "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
@@ -120,134 +121,145 @@ export default function ProfileSetupModal({ open, onClose, onComplete }: Props) 
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
+      <DialogContent className="sm:max-w-[480px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
+        <DialogHeader className="p-5 border-b border-primary/10 bg-primary/[0.03]">
+          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-1.5 opacity-70">
             Step 1 of 1 — Profile Setup
           </p>
-          <DialogTitle className="text-2xl font-bold">
+          <DialogTitle className="text-xl font-bold tracking-tight text-primary flex items-center gap-2">
             Welcome to AgentFlow 👋
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-muted-foreground text-[11px] mt-1">
             Let's get your profile set up. This only takes a minute.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* First Name */}
-          <div className="space-y-1">
-            <Label htmlFor="psm-firstName">First Name</Label>
-            <Input
-              id="psm-firstName"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="First name"
-            />
-            {errors.firstName && (
-              <p className="text-sm text-destructive">{errors.firstName}</p>
-            )}
-          </div>
+        <div className="p-6 space-y-6 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+          <div className="grid grid-cols-2 gap-4">
+            {/* First Name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="psm-firstName" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">First Name</Label>
+              <Input
+                id="psm-firstName"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="First name"
+                className={cn("h-9 text-xs shadow-sm bg-muted/20 border-border", errors.firstName && "border-destructive ring-destructive/20")}
+              />
+              {errors.firstName && (
+                <p className="text-[10px] font-bold text-destructive">{errors.firstName}</p>
+              )}
+            </div>
 
-          {/* Last Name */}
-          <div className="space-y-1">
-            <Label htmlFor="psm-lastName">Last Name</Label>
-            <Input
-              id="psm-lastName"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Last name"
-            />
-            {errors.lastName && (
-              <p className="text-sm text-destructive">{errors.lastName}</p>
-            )}
+            {/* Last Name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="psm-lastName" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Last Name</Label>
+              <Input
+                id="psm-lastName"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Last name"
+                className={cn("h-9 text-xs shadow-sm bg-muted/20 border-border", errors.lastName && "border-destructive ring-destructive/20")}
+              />
+              {errors.lastName && (
+                <p className="text-[10px] font-bold text-destructive">{errors.lastName}</p>
+              )}
+            </div>
           </div>
 
           {/* Phone */}
-          <div className="space-y-1">
-            <Label htmlFor="psm-phone">Phone Number</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="psm-phone" className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Phone Number</Label>
             <Input
               id="psm-phone"
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="(555) 555-5555"
+              className={cn("h-9 text-xs shadow-sm bg-muted/20 border-border", errors.phone && "border-destructive ring-destructive/20")}
             />
             {errors.phone && (
-              <p className="text-sm text-destructive">{errors.phone}</p>
+              <p className="text-[10px] font-bold text-destructive">{errors.phone}</p>
             )}
           </div>
 
+          <div className="h-px bg-border/50 my-2" />
+
           {/* Resident State */}
-          <div className="space-y-1">
-            <Label>Resident State</Label>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Resident State</Label>
             <Select value={residentState} onValueChange={setResidentState}>
-              <SelectTrigger>
+              <SelectTrigger className={cn("h-9 text-xs shadow-sm bg-muted/20 border-border", errors.residentState && "border-destructive ring-destructive/20")}>
                 <SelectValue placeholder="Select your resident state" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[300]">
                 {US_STATES.map((state) => (
-                  <SelectItem key={state} value={state}>
+                  <SelectItem key={state} value={state} className="text-xs">
                     {state}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {errors.residentState && (
-              <p className="text-sm text-destructive">{errors.residentState}</p>
+              <p className="text-[10px] font-bold text-destructive">{errors.residentState}</p>
             )}
           </div>
 
           {/* Licensed States */}
-          <div className="space-y-1">
-            <Label>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
               Licensed States{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
+              <span className="text-muted-foreground font-normal lowercase">(optional)</span>
             </Label>
-            <div className="border border-border rounded-md p-3 max-h-48 overflow-y-auto space-y-2">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
+            <div className="border border-border rounded-lg p-3 bg-muted/10 max-h-40 overflow-y-auto space-y-2 scrollbar-thin">
+              <div className="flex items-center gap-2 pb-2 border-b border-border/50">
                 <Checkbox
                   id="psm-select-all"
                   checked={allSelected}
                   onCheckedChange={toggleSelectAll}
+                  className="rounded-sm"
                 />
                 <label
                   htmlFor="psm-select-all"
-                  className="text-sm font-medium cursor-pointer select-none"
+                  className="text-[11px] font-bold text-foreground cursor-pointer select-none"
                 >
-                  Select All
+                  Select All States
                 </label>
               </div>
-              {US_STATES.map((state) => (
-                <div key={state} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`psm-state-${state}`}
-                    checked={licensedStates.includes(state)}
-                    onCheckedChange={() => toggleState(state)}
-                  />
-                  <label
-                    htmlFor={`psm-state-${state}`}
-                    className="text-sm cursor-pointer select-none"
-                  >
-                    {state}
-                  </label>
-                </div>
-              ))}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-1.5">
+                {US_STATES.map((state) => (
+                  <div key={state} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`psm-state-${state}`}
+                      checked={licensedStates.includes(state)}
+                      onCheckedChange={() => toggleState(state)}
+                      className="rounded-sm h-3.5 w-3.5"
+                    />
+                    <label
+                      htmlFor={`psm-state-${state}`}
+                      className="text-[10px] text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors"
+                    >
+                      {state}
+                    </label>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Commission Level */}
-          <div className="space-y-1">
-            <Label>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
               Commission Level{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
+              <span className="text-muted-foreground font-normal lowercase">(optional)</span>
             </Label>
             <Select value={commissionLevel} onValueChange={setCommissionLevel}>
-              <SelectTrigger>
+              <SelectTrigger className="h-9 text-xs shadow-sm bg-muted/20 border-border text-foreground">
                 <SelectValue placeholder="Select commission level" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[300]">
                 {COMMISSION_LEVELS.map((level) => (
-                  <SelectItem key={level} value={level}>
+                  <SelectItem key={level} value={level} className="text-xs">
                     {level}
                   </SelectItem>
                 ))}
@@ -256,11 +268,22 @@ export default function ProfileSetupModal({ open, onClose, onComplete }: Props) 
           </div>
         </div>
 
-        <DialogFooter className="mt-4 gap-2 sm:gap-2">
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+        <DialogFooter className="p-5 border-t border-border bg-muted/5 flex items-center justify-end gap-3 sm:justify-end">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={onClose} 
+            disabled={isSaving}
+            className="h-9 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors"
+          >
             Skip for now
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button 
+            size="sm" 
+            onClick={handleSave} 
+            disabled={isSaving}
+            className="h-9 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
+          >
             {isSaving ? "Saving..." : "Save Profile"}
           </Button>
         </DialogFooter>
