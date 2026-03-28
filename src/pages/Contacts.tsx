@@ -1037,7 +1037,7 @@ const Contacts: React.FC = () => {
       case "name": return <span className="font-medium text-foreground truncate block">{l.firstName} {l.lastName}</span>;
       case "phone": return <span className="text-foreground font-mono text-xs truncate block">{l.phone}</span>;
       case "email": return <span className="text-muted-foreground truncate block">{l.email}</span>;
-      case "state": return <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full shrink-0">{l.state}</span>;
+      case "state": return <span className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{l.state}</span>;
       case "status": return (
         <div className="relative group/status inline-block">
           <select
@@ -1065,7 +1065,10 @@ const Contacts: React.FC = () => {
         const pill = agingPill(aging);
         return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${pill.cls}`}>{pill.label}</span>;
       }
-      case "agent": return <span className="text-foreground">{getAgentName(l.assignedAgentId, agentProfiles)}</span>;
+      case "agent": {
+        const name = getAgentName(l.assignedAgentId, agentProfiles);
+        return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
+      }
       case "dob": return <span className="text-muted-foreground text-xs">{l.dateOfBirth || "—"}</span>;
       case "health": return <span className="text-muted-foreground text-xs">{l.healthStatus || "—"}</span>;
       case "bestTime": return <span className="text-muted-foreground text-xs">{l.bestTimeToCall || "—"}</span>;
@@ -1085,7 +1088,10 @@ const Contacts: React.FC = () => {
       case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
       case "faceAmount": return <span className="text-foreground">{c.faceAmount}</span>;
       case "issueDate": return <span className="text-muted-foreground">{formatDate(c.issueDate)}</span>;
-      case "agent": return <span className="text-foreground">{getAgentName(c.assignedAgentId, agentProfiles)}</span>;
+      case "agent": {
+        const name = getAgentName(c.assignedAgentId, agentProfiles);
+        return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
+      }
       default: return null;
     }
   };
@@ -1115,7 +1121,10 @@ const Contacts: React.FC = () => {
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
       );
-      case "agent": return <span className="text-foreground">{getAgentName(r.assignedAgentId, agentProfiles)}</span>;
+      case "agent": {
+        const name = getAgentName(r.assignedAgentId, agentProfiles);
+        return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
+      }
       default: return null;
     }
   };
@@ -1134,7 +1143,17 @@ const Contacts: React.FC = () => {
         </div>
       );
       case "email": return <span className="text-muted-foreground truncate block">{u.email}</span>;
-      case "licensedStates": return <span className="text-muted-foreground truncate block">{p?.licensedStates?.map((s: any) => typeof s === 'string' ? s : s.state).join(", ")}</span>;
+      case "licensedStates": {
+        const states = p?.licensedStates?.map((s: any) => typeof s === 'string' ? s : s.state) || [];
+        return (
+          <div className="flex flex-wrap gap-1 max-w-[200px]">
+            {states.map((s: string) => (
+              <span key={s} className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{s}</span>
+            ))}
+            {states.length === 0 && <span className="text-muted-foreground">—</span>}
+          </div>
+        );
+      }
       case "commission": return <span className="text-foreground truncate block">{p?.commissionLevel}</span>;
       case "role": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span>;
       case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span>;
@@ -1156,7 +1175,7 @@ const Contacts: React.FC = () => {
       <th
         key={key}
         style={{ width: width ? `${width}px` : 'auto', minWidth: width ? `${width}px` : 'auto' }}
-        className={`${colAlign(key)} py-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group relative bg-transparent`}
+        className={`${colAlign(key)} py-3 px-3 font-medium select-none cursor-pointer hover:text-foreground transition-colors group relative bg-transparent`}
         onClick={() => !resizingCol && handleSort(key)}
       >
         <span className="inline-flex items-center gap-1">
@@ -1184,7 +1203,7 @@ const Contacts: React.FC = () => {
     const displaySet = pendingVisible ?? visible;
     return (
     <div className="relative" ref={columnsRef}>
-      <button onClick={() => { setColumnsOpen(!columnsOpen); setPendingVisible(columnsOpen ? null : new Set(visible)); }} className="h-9 px-3 rounded-md bg-background border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150">
+      <button onClick={() => { setColumnsOpen(!columnsOpen); setPendingVisible(columnsOpen ? null : new Set(visible)); }} className="h-10 px-4 rounded-xl bg-card border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150 shadow-sm">
         <Columns3 className="w-4 h-4" />Columns
       </button>
       {columnsOpen && (
@@ -1347,15 +1366,15 @@ const Contacts: React.FC = () => {
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-wrap items-center gap-4 mt-6">
+        <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={tab === "Import History" ? "Search history..." : `Search ${tab.toLowerCase()}...`} className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={tab === "Import History" ? "Search history..." : `Search ${tab.toLowerCase()}...`} className="w-full h-10 pl-9 pr-4 rounded-xl bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border shadow-sm" />
         </div>
         {(tab === "Leads" || tab === "Recruits") && (
-          <div className="flex bg-muted rounded-lg p-0.5 border border-border">
-            <button onClick={() => setView("table")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><List className="w-4 h-4" /></button>
-            <button onClick={() => setView("kanban")} className={`px-2.5 py-1 rounded-md sidebar-transition ${view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><LayoutGrid className="w-4 h-4" /></button>
+          <div className="flex bg-muted rounded-xl p-0.5 border border-border h-10 shadow-sm">
+            <button onClick={() => setView("table")} className={`px-3 py-1 rounded-lg sidebar-transition ${view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><List className="w-4 h-4" /></button>
+            <button onClick={() => setView("kanban")} className={`px-3 py-1 rounded-lg sidebar-transition ${view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><LayoutGrid className="w-4 h-4" /></button>
           </div>
         )}
         {/* Columns toggle — shown for all tabs in table view except Import History */}
@@ -1368,7 +1387,7 @@ const Contacts: React.FC = () => {
         {/* Filter */}
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="relative">
-            <button onClick={() => setFilterOpen(!filterOpen)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Filter className="w-4 h-4" />Filter</button>
+            <button onClick={() => setFilterOpen(!filterOpen)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Filter className="w-4 h-4" />Filter</button>
             {filterOpen && (
               <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-[120] space-y-3">
                 <div>
@@ -1393,8 +1412,8 @@ const Contacts: React.FC = () => {
           </div>
         )}
         <div className="flex-1" />
-        {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-9 px-3 rounded-lg bg-muted text-foreground text-sm flex items-center gap-2 hover:bg-accent sidebar-transition border border-border"><Upload className="w-4 h-4" />Import CSV</button>}
-        {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition"><Plus className="w-4 h-4" />Add {addContactType}</button>}
+        {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
+        {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
       {/* Loading */}
