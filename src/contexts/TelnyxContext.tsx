@@ -67,6 +67,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [selectedCallerNumber]);
 
   const clientRef = useRef<any>(null);
+  const statusRef = useRef<TelnyxStatus>("idle");
   const callRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
@@ -183,6 +184,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return availableNumbers[0]?.phone_number || defaultCallerNumber || "";
   }, [selectedCallerNumber, availableNumbers, defaultCallerNumber]);
 
+  // Keep statusRef in sync so initializeClient can read current status without stale closure
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
   const initializeClient = useCallback(async () => {
     // 0. Wait for profile to load
     if (!profile) {
@@ -197,7 +203,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    // 1. Destroy existing client if already set (handles "retry" button)
+    // Skip if already connected — prevents duplicate init from FloatingDialer + DialerPage
+    if (clientRef.current && (statusRef.current === "ready" || statusRef.current === "connecting")) {
+      console.log("TelnyxRTC already", statusRef.current, "— skipping re-initialization");
+      return;
+    }
+
+    // 1. Destroy existing client if already set (handles "retry" button after error)
     if (clientRef.current) {
       console.log("TelnyxRTC destroying existing client before re-initialization...");
       try {
