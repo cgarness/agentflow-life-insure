@@ -1212,6 +1212,45 @@ export type Database = {
           },
         ]
       }
+      dialer_daily_stats: {
+        Row: {
+          agent_id: string
+          amd_skipped: number
+          calls_connected: number
+          calls_made: number
+          id: string
+          last_updated_at: string
+          policies_sold: number
+          session_started_at: string | null
+          stat_date: string
+          total_talk_seconds: number
+        }
+        Insert: {
+          agent_id: string
+          amd_skipped?: number
+          calls_connected?: number
+          calls_made?: number
+          id?: string
+          last_updated_at?: string
+          policies_sold?: number
+          session_started_at?: string | null
+          stat_date?: string
+          total_talk_seconds?: number
+        }
+        Update: {
+          agent_id?: string
+          amd_skipped?: number
+          calls_connected?: number
+          calls_made?: number
+          id?: string
+          last_updated_at?: string
+          policies_sold?: number
+          session_started_at?: string | null
+          stat_date?: string
+          total_talk_seconds?: number
+        }
+        Relationships: []
+      }
       dialer_sessions: {
         Row: {
           agent_id: string | null
@@ -2593,6 +2632,18 @@ export type Database = {
       get_user_org_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_team_id: { Args: never; Returns: string }
+      increment_dialer_stats: {
+        Args: {
+          p_agent_id: string
+          p_amd_skipped?: number
+          p_calls_connected?: number
+          p_calls_made?: number
+          p_policies_sold?: number
+          p_session_started_at?: string
+          p_total_talk_seconds?: number
+        }
+        Returns: undefined
+      }
       is_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_team_leader: { Args: never; Returns: boolean }
