@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
 import { PhoneInput } from "@/components/shared/PhoneInput";
+import { calculateAge } from "@/utils/dateUtils";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -288,7 +289,14 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   };
 
   const handleFieldChange = (key: string, value: any) => {
-    setEditForm((f: any) => ({ ...f, [key]: value }));
+    setEditForm((f: any) => {
+      const next = { ...f, [key]: value };
+      if (key === "dateOfBirth" && value) {
+        const age = calculateAge(value);
+        if (age !== undefined) next.age = age;
+      }
+      return next;
+    });
     setHasChanges(true);
     setHasUnsavedChanges(true);
     if (errors[key]) setErrors(e => { const n = { ...e }; delete n[key]; return n; });
