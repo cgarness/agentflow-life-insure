@@ -69,6 +69,7 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
         let apptQ = supabase
           .from("appointments")
           .select("id", { count: "exact", head: true })
+          .eq("status", "Scheduled")
           .gte("start_time", startOfDay)
           .lte("start_time", endOfDay);
         if (isFiltered) apptQ = apptQ.eq("user_id", userId);
@@ -76,12 +77,9 @@ const DailyBriefingModal: React.FC<DailyBriefingModalProps> = ({
         let missedQ = supabase
           .from("calls")
           .select("id", { count: "exact", head: true })
-          .gte("created_at", since24h)
-          .in("disposition_name", [
-            "No Answer",
-            "Missed",
-            "No Answer / Voicemail",
-          ]);
+          .eq("direction", "inbound")
+          .eq("is_missed", true)
+          .gte("created_at", since24h);
         if (isFiltered) missedQ = missedQ.eq("agent_id", userId);
 
         const campaignQ = supabase

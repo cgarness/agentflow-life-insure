@@ -207,7 +207,7 @@ const StatCards: React.FC<StatCardsProps> = ({ role, userId, adminToggle, onCard
     },
     {
       id: "premium_sold",
-      label: "Premium Sold",
+      label: "Annual Premium Sold",
       value: data ? `$${data.premiumThisMonth.toLocaleString()}` : null,
       trend:
         data != null

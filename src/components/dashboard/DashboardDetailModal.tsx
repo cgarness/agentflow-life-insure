@@ -62,9 +62,9 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "missed_calls":
         return "Missed Calls (Recent)";
       case "anniversaries":
-        return "Upcoming Anniversaries";
+        return "Upcoming Anniversaries & Birthdays";
       case "premium_sold":
-        return `Premium Sold Analysis${rangeSuffix}`;
+        return `Annual Premium Sold Analysis${rangeSuffix}`;
       default:
         return "Details";
     }
@@ -175,19 +175,70 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             query = supabase
               .from("calls")
               .select("id, contact_name, contact_id, created_at, disposition_name, contact_phone")
+              .eq("direction", "inbound")
+              .eq("is_missed", true)
               .gte("created_at", since24h)
-              .in("disposition_name", ["No Answer", "Missed", "No Answer / Voicemail"])
               .order("created_at", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
 
           case "anniversaries":
-            query = supabase
-              .from("leads")
-              .select("id, first_name, last_name, date_of_birth, email")
-              .not("date_of_birth", "is", null)
-              .limit(20);
-            break;
+            // Fetch both birthdays (from leads) and policy anniversaries (from clients)
+            const [birthdaysRes, policiesRes] = await Promise.all([
+              supabase
+                .from("leads")
+                .select("id, first_name, last_name, date_of_birth, email")
+                .not("date_of_birth", "is", null)
+                .limit(50),
+              supabase
+                .from("clients")
+                .select("id, first_name, last_name, effective_date, policy_type, assigned_agent_id")
+                .not("effective_date", "is", null)
+                .eq(isFiltered ? "assigned_agent_id" : "", isFiltered ? userId : "")
+                .limit(50)
+            ]);
+
+            const now = new Date();
+            const combined: any[] = [];
+
+            // Process Birthdays
+            (birthdaysRes.data || []).forEach(l => {
+              const dob = new Date(l.date_of_birth);
+              let nextBday = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
+              if (nextBday < now) nextBday.setFullYear(now.getFullYear() + 1);
+              const days = Math.ceil((nextBday.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+              if (days <= 30) {
+                combined.push({
+                  id: l.id,
+                  contact_name: `${l.first_name} ${l.last_name}`,
+                  type: 'Birthday',
+                  date: l.date_of_birth,
+                  daysUntil: days
+                });
+              }
+            });
+
+            // Process Policy Anniversaries
+            (policiesRes.data || []).forEach(c => {
+              const eff = new Date(c.effective_date);
+              let nextAnniv = new Date(now.getFullYear(), eff.getMonth(), eff.getDate());
+              if (nextAnniv < now) nextAnniv.setFullYear(now.getFullYear() + 1);
+              const days = Math.ceil((nextAnniv.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+              if (days <= 30) {
+                combined.push({
+                  id: c.id,
+                  contact_name: `${c.first_name} ${c.last_name}`,
+                  type: 'Policy Anniversary',
+                  date: c.effective_date,
+                  policy_type: c.policy_type,
+                  daysUntil: days
+                });
+              }
+            });
+
+            setData(combined.sort((a, b) => a.daysUntil - b.daysUntil));
+            setLoading(false);
+            return;
 
           case "premium_sold":
             const { data: salesResult, error: salesError } = await supabase
@@ -285,10 +336,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "anniversaries":
         return (
           <div className="flex flex-col">
-            <span className="text-sm font-bold text-foreground">{item.first_name} {item.last_name}</span>
+            <span className="text-sm font-bold text-foreground">{item.contact_name}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Gift className="w-3 h-3" />
-              Birthday: {new Date(item.date_of_birth).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+              <Gift className="w-3 h-3 text-pink-500" />
+              {item.type}: {new Date(item.date).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+              {item.policy_type && ` (${item.policy_type})`}
+              <span className="ml-2 font-bold text-pink-500">
+                {item.daysUntil === 0 ? "Today!" : `in ${item.daysUntil} days`}
+              </span>
             </span>
           </div>
         );

@@ -76,9 +76,9 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
             .eq("agent_id", userId)
             .gte("created_at", startOfDay),
           supabase
-            .from("wins")
+            .from("clients")
             .select("id", { count: "exact", head: true })
-            .eq("agent_id", userId)
+            .eq("assigned_agent_id", userId)
             .gte("created_at", startOfMonth),
           supabase
             .from("calls")

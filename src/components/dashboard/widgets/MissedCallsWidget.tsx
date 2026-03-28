@@ -46,7 +46,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           .from("calls")
           .select("id, contact_id, contact_name, created_at, disposition_name")
           .eq("direction", "inbound")
-          .in("disposition_name", ["No Answer", "Missed", "No Answer / Voicemail"])
+          .eq("is_missed", true)
           .gte("created_at", since)
           .order("created_at", { ascending: false })
           .limit(5);

@@ -40,7 +40,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
             .select("id, first_name, last_name, avatar_url")
             .in("role", ["Agent", "Team Leader"])
             .eq("status", "Active"),
-          supabase.from("wins").select("agent_id").gte("created_at", startOfMonth),
+          supabase.from("clients").select("assigned_agent_id").gte("created_at", startOfMonth),
         ]);
 
         const profiles = profilesRes.data ?? [];
@@ -48,8 +48,8 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
 
         const winCounts = wins.reduce(
           (acc, w) => {
-            if (w.agent_id) {
-              acc[w.agent_id] = (acc[w.agent_id] ?? 0) + 1;
+            if (w.assigned_agent_id) {
+              acc[w.assigned_agent_id] = (acc[w.assigned_agent_id] ?? 0) + 1;
             }
             return acc;
           },
