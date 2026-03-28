@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import ContactMiniCard from "./ContactMiniCard";
+import { DateInput } from "@/components/shared/DateInput";
 import { cn } from "@/lib/utils";
 
 const TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Other"];
@@ -507,13 +508,11 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
             </div>
 
             <div className="p-4 bg-muted/30 rounded-xl border border-border/50 space-y-4">
-              <div className="flex items-center gap-3 px-3 h-9 rounded-lg bg-background border border-border shadow-sm group focus-within:ring-1 focus-within:ring-primary transition-all">
-                <CalendarIcon className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input 
-                  type="date" 
+              <div className="flex items-center gap-3 w-full">
+                <DateInput 
                   value={date} 
-                  onChange={e => { setDate(e.target.value); if (errors.date) setErrors(p => { const n = {...p}; delete n.date; return n; }); }}
-                  className={cn("h-full text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0", errors.date && "text-destructive")} 
+                  onChange={val => { setDate(val); if (errors.date) setErrors(p => { const n = {...p}; delete n.date; return n; }); }}
+                  className="w-full"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4 border-t border-border/10 pt-4">

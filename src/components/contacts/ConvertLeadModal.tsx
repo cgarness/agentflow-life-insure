@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
 import { PhoneInput } from "@/components/shared/PhoneInput";
+import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 
 interface ConvertLeadModalProps {
@@ -162,27 +163,17 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Issue Date</label>
-                  <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-muted/20 border border-border shadow-sm group focus-within:ring-1 focus-within:ring-primary transition-all">
-                    <Calendar className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                    <Input 
-                      type="date"
-                      value={formData.issueDate}
-                      onChange={e => handleInputChange("issueDate", e.target.value)}
-                      className="h-full text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0"
-                    />
-                  </div>
+                  <DateInput 
+                    value={formData.issueDate}
+                    onChange={val => handleInputChange("issueDate", val)}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Effective Date</label>
-                  <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-muted/20 border border-border shadow-sm group focus-within:ring-1 focus-within:ring-primary transition-all">
-                    <Calendar className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                    <Input 
-                      type="date"
-                      value={formData.effectiveDate}
-                      onChange={e => handleInputChange("effectiveDate", e.target.value)}
-                      className="h-full text-xs border-none bg-transparent shadow-none p-0 focus-visible:ring-0"
-                    />
-                  </div>
+                  <DateInput 
+                    value={formData.effectiveDate}
+                    onChange={val => handleInputChange("effectiveDate", val)}
+                  />
                 </div>
               </div>
             </div>

@@ -72,6 +72,7 @@ import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTim
 
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
 import { normalizeState } from "@/utils/stateUtils";
+import { DateInput } from "@/components/shared/DateInput";
 import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
@@ -2638,11 +2639,9 @@ export default function DialerPage() {
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
                                 <span className="text-[9px] text-muted-foreground font-medium">Date</span>
-                                <input
-                                  type="date"
+                                <DateInput
                                   value={callbackDate ? callbackDate.toISOString().split('T')[0] : ""}
-                                  onChange={(e) => setCallbackDate(e.target.value ? new Date(e.target.value) : undefined)}
-                                  className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                  onChange={(val) => setCallbackDate(val ? new Date(val + "T00:00:00") : undefined)}
                                 />
                               </div>
                               <div className="space-y-1">
@@ -2700,11 +2699,9 @@ export default function DialerPage() {
                                 </div>
                                 <div className="space-y-1">
                                   <span className="text-[9px] text-muted-foreground font-medium">Date</span>
-                                  <input
-                                    type="date"
+                                  <DateInput
                                     value={aptDate}
-                                    onChange={(e) => setAptDate(e.target.value)}
-                                    className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none"
+                                    onChange={setAptDate}
                                   />
                                 </div>
                               </div>

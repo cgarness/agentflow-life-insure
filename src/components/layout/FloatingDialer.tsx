@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { createCall, saveCall } from "@/lib/dialer-api";
 import { selectCallerID } from "@/lib/caller-id-selector";
+import { DateInput } from "@/components/shared/DateInput";
 
 interface ContactResult {
   id: string;
@@ -736,8 +737,8 @@ const FloatingDialer: React.FC = () => {
                       <div className="w-full space-y-2">
                         <label className="text-xs text-muted-foreground">Schedule Callback</label>
                         <div className="flex gap-2">
-                          <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm" />
-                          <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} className="flex-1 px-3 py-2 rounded-lg bg-accent text-sm" />
+                          <DateInput value={callbackDate} onChange={setCallbackDate} className="flex-1" />
+                          <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} className="flex-1 h-9 px-3 py-2 rounded-lg bg-accent text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none" />
                         </div>
                       </div>
                     )}

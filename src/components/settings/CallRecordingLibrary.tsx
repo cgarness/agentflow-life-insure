@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DateInput } from "@/components/shared/DateInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PlayCircle, Download, Flag, X } from "lucide-react";
 import { toast } from "sonner";
@@ -170,9 +171,9 @@ const CallRecordingLibrary: React.FC = () => {
           </SelectContent>
         </Select>
         <div className="flex items-center gap-2">
-          <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }} className="w-36" />
+          <DateInput value={dateFrom} onChange={(v) => { setDateFrom(v); setPage(0); }} className="w-40" />
           <span className="text-muted-foreground text-sm">to</span>
-          <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }} className="w-36" />
+          <DateInput value={dateTo} onChange={(v) => { setDateTo(v); setPage(0); }} className="w-40" />
         </div>
         <Select value={dispFilter} onValueChange={(v) => { setDispFilter(v); setPage(0); }}>
           <SelectTrigger className="w-44">

@@ -3,6 +3,7 @@ import { X, Loader2 } from "lucide-react";
 import { Client, PolicyType } from "@/lib/types";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/shared/PhoneInput";
+import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 
 interface AddClientModalProps {
@@ -118,7 +119,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
-            <input type="date" value={form.issueDate || ""} onChange={e => setForm((f) => ({ ...f, issueDate: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+            <DateInput value={form.issueDate || ""} onChange={val => setForm((f) => ({ ...f, issueDate: val }))} />
           </div>
 
           <div className="flex gap-3 pt-2">

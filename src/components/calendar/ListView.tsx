@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Calendar as CalIcon, User, Pencil, Trash2, ChevronDown, Plus, X } from "lucide-react";
 import { CalendarAppointment, APPOINTMENT_TYPE_COLORS, APPOINTMENT_STATUS_COLORS, CalAppointmentType, CalAppointmentStatus } from "@/contexts/CalendarContext";
 import { toast } from "sonner";
+import { DateInput } from "@/components/shared/DateInput";
 
 const ALL_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"];
 const ALL_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
@@ -72,8 +73,8 @@ const ListView: React.FC<Props> = ({ appointments, onEdit, onDelete, onStatusCha
           {ALL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          From <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className={inputCls} />
-          To <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className={inputCls} />
+          From <DateInput value={fromDate} onChange={setFromDate} className="w-32" />
+          To <DateInput value={toDate} onChange={setToDate} className="w-32" />
         </div>
         {hasFilters && (
           <button onClick={clearFilters} className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors duration-150">

@@ -21,7 +21,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
 import { PhoneInput } from "@/components/shared/PhoneInput";
+import { DateInput } from "@/components/shared/DateInput";
 import { calculateAge } from "@/utils/dateUtils";
+import { useBranding } from "@/contexts/BrandingContext";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -125,6 +127,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile } = useAuth();
+  const { formatDate } = useBranding();
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
@@ -392,6 +395,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
               </select>
             ) : fieldType === "textarea" ? (
               <textarea value={val} onChange={e => handleChange(e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
+            ) : fieldType === "date" ? (
+              <DateInput value={val} onChange={handleChange} />
             ) : key === "phone" ? (
               <PhoneInput 
                 value={val} 
@@ -404,7 +409,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : val} /> )}
+        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : fieldType === "date" ? formatDate(val) : val} /> )}
       </div>
     );
   };

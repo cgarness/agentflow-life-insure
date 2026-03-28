@@ -4,6 +4,7 @@ import { Lead, LeadStatus } from "@/lib/types";
 import { leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/shared/PhoneInput";
+import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { calculateAge } from "@/utils/dateUtils";
 
@@ -137,15 +138,12 @@ const AddLeadModal: React.FC<AddLeadModalProps> = ({ open, onClose, onSave, init
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Date of Birth</label>
-              <input 
-                type="date" 
+              <DateInput 
                 value={form.dateOfBirth || ""} 
-                onChange={e => {
-                  const dob = e.target.value;
-                  const calculatedAge = calculateAge(dob);
-                  setForm((f) => ({ ...f, dateOfBirth: dob, age: calculatedAge ?? f.age }));
+                onChange={val => {
+                  const calculatedAge = calculateAge(val);
+                  setForm((f) => ({ ...f, dateOfBirth: val, age: calculatedAge ?? f.age }));
                 }} 
-                className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" 
               />
             </div>
             <div>
