@@ -3,8 +3,8 @@ import { selectCallerID } from './caller-id-selector';
 import { createCall } from './dialer-api';
 
 interface CampaignLead {
-  id: string;
-  lead_id: string; // master lead UUID from leads table
+  id: string;       // campaign_lead junction row ID
+  lead_id: string;  // master lead UUID from leads table
   phone: string;
   first_name: string;
   last_name: string;
@@ -20,11 +20,6 @@ interface PhoneNumber {
   daily_call_count: number;
   daily_call_limit: number;
   is_default: boolean;
-}
-
-interface Disposition {
-  id: string;
-  name: string;
 }
 
 export class AutoDialer {
@@ -80,7 +75,7 @@ export class AutoDialer {
       this.localPresenceEnabled = (campaign as any)?.local_presence_enabled ?? true;
       this.maxAttempts = (campaign as any)?.max_attempts ?? 1;
       this.retryIntervalHours = (campaign as any)?.retry_interval_hours ?? 0;
-      
+
       if (!campaign) {
         console.warn(`[AutoDialer] campaigns row not found for id=${this.campaignId}, using defaults`);
       }
@@ -98,8 +93,8 @@ export class AutoDialer {
 
     this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];
 
-    // Load lead queue including Called leads that are eligible for retry
-    // Join with leads table to get full lead data (aligned with getCampaignLeads in dialer-api.ts)
+    // Load lead queue — join leads table to get master lead ID + full lead data.
+    // Filter matches getCampaignLeads in dialer-api.ts so both queues are aligned.
     const { data: rawLeads } = await supabase
       .from('campaign_leads')
       .select('*, lead:leads(*)')
@@ -128,9 +123,9 @@ export class AutoDialer {
 
     this.leadQueue = ((leads || []) as any[]).filter(lead => {
       if (dncSet.has(lead.phone)) return false;
-      
+
       if (lead.status === "Queued") return true;
-      
+
       if (lead.status === "Called") {
         const attempts = lead.call_attempts ?? 0;
         if (attempts >= this.maxAttempts) return false;
@@ -142,28 +137,28 @@ export class AutoDialer {
         }
         return true;
       }
-      
+
       return false;
     });
 
-    console.log(`Session started: ${this.leadQueue.length} leads in queue`);
+    console.log(`[AutoDialer] Session started: ${this.leadQueue.length} leads in queue, org=${this.organizationId}, phones=${this.phoneNumbers.length}`);
   }
 
   async dialNext(): Promise<void> {
     if (!this.autoDialEnabled) {
-      console.log('Auto-dial disabled, stopping');
+      console.log('[AutoDialer] Auto-dial disabled, stopping');
       return;
     }
 
     if (this.currentLeadIndex >= this.leadQueue.length) {
-      console.log('Queue empty, ending session');
+      console.log('[AutoDialer] Queue empty, ending session');
       await this.endSession();
       return;
     }
 
     const lead = this.leadQueue[this.currentLeadIndex];
 
-    // DNC check (double-check in case list changed)
+    // DNC double-check in case list changed since session start
     let dncRecord: Record<string, unknown> | null = null;
     try {
       const { data } = await supabase
@@ -177,15 +172,14 @@ export class AutoDialer {
     }
 
     if (dncRecord) {
-      console.log('Lead on DNC list, emitting warning event');
-      // Emit event for UI to show DNC warning modal
+      console.log('[AutoDialer] Lead on DNC list, emitting warning event');
       window.dispatchEvent(new CustomEvent('dnc-warning', {
         detail: { lead, reason: (dncRecord as any).reason }
       }));
       return;
     }
 
-    // Select caller ID using intelligent selection
+    // Select caller ID using intelligent local-presence selection
     const callerNumber = await selectCallerID(
       lead,
       this.agentId,
@@ -193,10 +187,9 @@ export class AutoDialer {
       this.localPresenceEnabled
     );
 
-    console.log(`Dialing lead ${lead.id} with caller ID ${callerNumber}`);
+    console.log(`[AutoDialer] Dialing lead ${lead.lead_id || lead.id} with caller ID ${callerNumber}`);
 
-    // Create call record in database
-    // Use lead.lead_id (master contact ID), not lead.id (campaign_lead junction ID)
+    // Create call record — use lead_id (master contact ID), not id (junction row ID)
     const callId = await createCall({
       contact_id: lead.lead_id || lead.id,
       agent_id: this.agentId,
@@ -208,11 +201,7 @@ export class AutoDialer {
 
     // Emit event for UI to initiate call via TelnyxRTC
     window.dispatchEvent(new CustomEvent('auto-dial-call', {
-      detail: {
-        lead,
-        callerNumber,
-        callId
-      }
+      detail: { lead, callerNumber, callId }
     }));
 
     // Increment daily call count for the used number
@@ -222,17 +211,15 @@ export class AutoDialer {
         .from('phone_numbers')
         .update({ daily_call_count: usedPhone.daily_call_count + 1 } as any)
         .eq('phone_number', callerNumber);
-
-      // Update local cache
       usedPhone.daily_call_count += 1;
     }
   }
 
   async saveDispositionAndNext(dispositionId: string, notes?: string): Promise<void> {
     const lead = this.leadQueue[this.currentLeadIndex];
-    console.log(`Saving disposition ${dispositionId} for lead ${lead?.id}`);
+    console.log(`[AutoDialer] Saving disposition ${dispositionId} for lead ${lead?.lead_id || lead?.id}`);
 
-    // Save disposition to existing call record
+    // Save disposition to existing call record (match by master lead ID)
     try {
       await supabase
         .from('calls')
@@ -240,29 +227,25 @@ export class AutoDialer {
           disposition_id: dispositionId,
           notes: notes || ''
         } as any)
-        .eq('contact_id', lead.id)
+        .eq('contact_id', lead.lead_id || lead.id)
         .order('created_at', { ascending: false })
         .limit(1);
     } catch (err) {
-      console.warn('Disposition may not have saved:', err);
+      console.warn('[AutoDialer] Disposition may not have saved:', err);
     }
 
-    // Note: status, call_attempts, and last_called_at are handled by dialer-api's updateLeadStatus 
+    // Note: status, call_attempts, and last_called_at are handled by dialer-api's updateLeadStatus
     // which is called by the DialerPage before this method.
     // Redundant update removed to prevent race conditions or stale data overwrites.
 
     if (this.autoDialEnabled) {
-      // Advance to next lead and dial immediately (no countdown)
       this.currentLeadIndex++;
       window.dispatchEvent(new CustomEvent('auto-dial-next-lead', {
-        detail: {
-          leadsRemaining: this.leadQueue.length - this.currentLeadIndex
-        }
+        detail: { leadsRemaining: this.leadQueue.length - this.currentLeadIndex }
       }));
       await this.dialNext();
     } else {
-      // Auto-dial is OFF — just close the lead card
-      console.log('Auto-dial disabled, closing lead card');
+      console.log('[AutoDialer] Auto-dial disabled, closing lead card');
       window.dispatchEvent(new CustomEvent('auto-dial-lead-closed', {
         detail: { leadId: lead.id }
       }));
@@ -270,17 +253,17 @@ export class AutoDialer {
   }
 
   pauseAutoDialer(): void {
-    console.log('Auto-dial paused');
+    console.log('[AutoDialer] Paused');
     this.autoDialEnabled = false;
   }
 
   resumeAutoDialer(): void {
-    console.log('Auto-dial resumed');
+    console.log('[AutoDialer] Resumed');
     this.autoDialEnabled = true;
     this.dialNext();
   }
 
-  /** Synchronize the internal lead index with the UI's index */
+  /** Synchronize the internal lead index with the UI's currentLeadIndex */
   setIndex(index: number): void {
     this.currentLeadIndex = index;
   }
@@ -296,9 +279,8 @@ export class AutoDialer {
   }
 
   async endSession(): Promise<void> {
-    console.log('Session ending');
+    console.log('[AutoDialer] Session ending');
 
-    // Emit event for UI to show end-of-session summary
     window.dispatchEvent(new CustomEvent('auto-dial-session-end', {
       detail: {
         sessionId: this.sessionId,
@@ -307,7 +289,6 @@ export class AutoDialer {
       }
     }));
 
-    // Update session record
     await supabase
       .from('dialer_sessions')
       .update({ ended_at: new Date().toISOString() })
