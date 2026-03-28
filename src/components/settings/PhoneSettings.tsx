@@ -119,7 +119,7 @@ const PhoneSettings: React.FC = () => {
       (supabase as any).from("telnyx_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("phone_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("phone_numbers").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false }),
-      supabase.from("profiles").select("id, first_name, last_name"),
+      supabase.from("profiles").select("id, first_name, last_name").neq("status", "Deleted"),
     ]);
 
     if (telnyxRes.data) {
