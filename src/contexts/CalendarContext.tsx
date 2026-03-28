@@ -124,9 +124,9 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!user?.id) return;
     setLoading(true);
     
-    // Fetch a broad range: 30 days ago to 90 days in future
-    const startRange = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const endRange = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    // Fetch a broad range: 180 days ago to 180 days in future
+    const startRange = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+    const endRange = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data, error } = await supabase
       .from('appointments')

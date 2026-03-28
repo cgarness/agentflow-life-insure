@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { format } from "date-fns";
+import { format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays } from "date-fns";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -335,7 +335,7 @@ const CalendarPage: React.FC = () => {
     return (
       <div className="grid grid-cols-7 gap-px bg-border/50 border border-border rounded-xl overflow-hidden shadow-sm h-full flex-1">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-          <div key={day} className="bg-muted/30 py-2 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
+          <div key={day} className="bg-muted/30 py-1 text-center text-[10px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
             {day}
           </div>
         ))}
@@ -546,15 +546,9 @@ const CalendarPage: React.FC = () => {
 
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="flex flex-col items-center pointer-events-auto">
-            <h1 className="text-lg font-extrabold tracking-tight text-foreground flex items-center gap-2">
-              <div className="p-1 rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-                <CalendarIcon className="w-4 h-4" />
-              </div>
-              Calendar
-            </h1>
-             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mt-0.5">
+            <h1 className="text-xl font-bold text-foreground uppercase tracking-tight">
               {format(currentDate, 'MMMM yyyy')}
-            </span>
+            </h1>
           </div>
         </div>
 
@@ -576,9 +570,29 @@ const CalendarPage: React.FC = () => {
             </button>
           )}
           <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg border border-border">
-            <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-1.5 rounded-md hover:bg-accent transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+            <button 
+              onClick={() => {
+                if (currentView === "Month") setCurrentDate(subMonths(currentDate, 1));
+                else if (currentView === "Week") setCurrentDate(subWeeks(currentDate, 1));
+                else if (currentView === "Day") setCurrentDate(subDays(currentDate, 1));
+                else setCurrentDate(subMonths(currentDate, 1));
+              }} 
+              className="p-1.5 rounded-md hover:bg-accent transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4"/>
+            </button>
             <button onClick={() => setCurrentDate(new Date())} className="px-2 py-0.5 text-[9px] font-bold bg-accent rounded hover:bg-accent/80 transition-colors uppercase">Today</button>
-            <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-1.5 rounded-md hover:bg-accent transition-colors"><ChevronRight className="w-4 h-4"/></button>
+            <button 
+              onClick={() => {
+                if (currentView === "Month") setCurrentDate(addMonths(currentDate, 1));
+                else if (currentView === "Week") setCurrentDate(addWeeks(currentDate, 1));
+                else if (currentView === "Day") setCurrentDate(addDays(currentDate, 1));
+                else setCurrentDate(addMonths(currentDate, 1));
+              }} 
+              className="p-1.5 rounded-md hover:bg-accent transition-colors"
+            >
+              <ChevronRight className="w-4 h-4"/>
+            </button>
           </div>
           <button onClick={() => openSchedule()} className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
             <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
