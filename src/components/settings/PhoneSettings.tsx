@@ -358,7 +358,7 @@ const PhoneSettings: React.FC = () => {
     setLocalPresenceEnabled(enabled);
     const flags = JSON.stringify({ local_presence_enabled: enabled });
     const { error } = await supabase.from("phone_settings").upsert({
-      id: phoneSettingsId || undefined,
+      id: phoneSettingsId || crypto.randomUUID(),
       organization_id: organizationId,
       api_secret: flags,
       updated_at: new Date().toISOString()
@@ -374,7 +374,7 @@ const PhoneSettings: React.FC = () => {
   const handleAmdToggle = async (enabled: boolean) => {
     setAmdEnabled(enabled);
     const { error } = await supabase.from("phone_settings").upsert({
-      id: phoneSettingsId || undefined,
+      id: phoneSettingsId || crypto.randomUUID(),
       organization_id: organizationId,
       amd_enabled: enabled,
       updated_at: new Date().toISOString()
