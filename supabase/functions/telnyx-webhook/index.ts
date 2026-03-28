@@ -170,18 +170,31 @@ async function handleCallInitiated(supabase: any, payload: any) {
     if (error) console.error('Error creating call record:', error);
   }
 
+  // Note: AMD trigger moved to handleCallAnswered to avoid analyzing ringback
+}
+
+// Handler: call.answered
+async function handleCallAnswered(supabase: any, payload: any) {
+  console.log('Call answered:', payload.call_control_id);
+
+  const { error } = await supabase
+    .from('calls')
+    .update({ status: 'connected' })
+    .eq('telnyx_call_id', payload.call_control_id);
+
+  if (error) {
+    console.error('Error updating call to connected:', error);
+  }
+
   // ── Trigger AMD if enabled ──
-  // After call is initiated, send AMD start command so detection begins
-  // when the call is answered. Agent is already connected via WebRTC
-  // so there's zero delay for human-answered calls.
+  // We trigger AMD on 'answered' rather than 'initiated' to ensure
+  // we don't analyze ringback tones or carrier announcements.
   if (payload.direction === 'outbound') {
-    const orgId = clientState
-      ? (await getCallOrgId(supabase, payload.call_control_id)) || undefined
-      : undefined;
-    const amdEnabled = await isAmdEnabled(supabase, orgId);
+    const orgId = await getCallOrgId(supabase, payload.call_control_id);
+    const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
 
     if (amdEnabled) {
-      console.log('AMD enabled — triggering AMD start for call:', payload.call_control_id);
+      console.log('AMD enabled — triggering AMD start on answer for call:', payload.call_control_id);
       try {
         // Invoke the telnyx-amd-start edge function
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -200,23 +213,9 @@ async function handleCallInitiated(supabase: any, payload: any) {
         const result = await resp.json();
         console.log('AMD start result:', result);
       } catch (err) {
-        console.error('Failed to trigger AMD start:', err);
+        console.error('Failed to trigger AMD start on answer:', err);
       }
     }
-  }
-}
-
-// Handler: call.answered
-async function handleCallAnswered(supabase: any, payload: any) {
-  console.log('Call answered:', payload.call_control_id);
-
-  const { error } = await supabase
-    .from('calls')
-    .update({ status: 'connected' })
-    .eq('telnyx_call_id', payload.call_control_id);
-
-  if (error) {
-    console.error('Error updating call to connected:', error);
   }
 }
 
