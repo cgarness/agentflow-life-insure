@@ -764,6 +764,37 @@ export default function DialerPage() {
     }
   }, [telnyxCallState, amdEnabled]);
 
+  // When call becomes active, link telnyx_call_id to the DB record and trigger AMD client-side.
+  // This bypasses the webhook chain (which requires Telnyx webhook URL config) so AMD works
+  // even if webhooks are not reaching the edge function.
+  useEffect(() => {
+    if (telnyxCallState !== 'active') return;
+    const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+    if (!callControlId || !currentCallId) return;
+
+    // 1. Link the telnyx_call_id to the call record
+    supabase
+      .from('calls')
+      .update({ telnyx_call_id: callControlId, status: 'connected' } as any)
+      .eq('id', currentCallId)
+      .then(({ error }) => {
+        if (error) console.warn('Failed to link telnyx_call_id:', error.message);
+        else console.log('Linked telnyx_call_id to call record:', callControlId);
+      });
+
+    // 2. Trigger AMD from the client if enabled
+    if (amdEnabled && organizationId) {
+      console.log('Triggering AMD from client for call:', callControlId);
+      supabase.functions.invoke('telnyx-amd-start', {
+        body: { call_control_id: callControlId, organization_id: organizationId },
+      }).then(({ data, error }) => {
+        if (error) console.error('Client-side AMD trigger failed:', error.message);
+        else console.log('Client-side AMD trigger result:', data);
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telnyxCallState, telnyxCurrentCall, currentCallId, amdEnabled, organizationId]);
+
   // Trigger wrap-up when call ends (covers remote hangup)
   // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
@@ -787,17 +818,30 @@ export default function DialerPage() {
         }
 
         try {
-          // Brief delay to let webhook update the amd_result
-          await new Promise(r => setTimeout(r, 1500));
+          // Brief delay to let AMD webhook update the amd_result
+          await new Promise(r => setTimeout(r, 2500));
 
-          const { data: callRecord, error: amdError } = await supabase
-            .from('calls')
-            .select('amd_result')
-            .eq('telnyx_call_id', callControlId)
-            .maybeSingle();
+          // Query by internal call ID first (most reliable), fallback to telnyx_call_id
+          let callRecord: { amd_result: string | null } | null = null;
+          if (currentCallId) {
+            const { data } = await supabase
+              .from('calls')
+              .select('amd_result')
+              .eq('id', currentCallId)
+              .maybeSingle();
+            callRecord = data;
+          }
+          if (!callRecord?.amd_result && callControlId) {
+            const { data } = await supabase
+              .from('calls')
+              .select('amd_result')
+              .eq('telnyx_call_id', callControlId)
+              .maybeSingle();
+            if (data?.amd_result) callRecord = data;
+          }
 
-          if (amdError) {
-            console.warn('AMD check failed, continuing with normal wrap-up:', amdError.message);
+          if (!callRecord) {
+            console.warn('AMD check: no call record found, continuing with normal wrap-up');
             setAmdStatus('idle');
             setShowWrapUp(true);
             return;

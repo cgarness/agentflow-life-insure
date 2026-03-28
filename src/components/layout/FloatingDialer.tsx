@@ -437,6 +437,20 @@ const FloatingDialer: React.FC = () => {
     }
   }, [telnyxCallState, onCall, handleHangUp]);
 
+  // Link telnyx_call_id to the DB record when call becomes active
+  useEffect(() => {
+    if (telnyxCallState !== 'active') return;
+    const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+    if (!callControlId || !currentCallId) return;
+    supabase
+      .from('calls')
+      .update({ telnyx_call_id: callControlId, status: 'connected' } as any)
+      .eq('id', currentCallId)
+      .then(({ error }) => {
+        if (error) console.warn('[FloatingDialer] Failed to link telnyx_call_id:', error.message);
+      });
+  }, [telnyxCallState, telnyxCurrentCall, currentCallId]);
+
   const resetAll = () => {
     setShowDisposition(false);
     setSelectedDispId(null);
