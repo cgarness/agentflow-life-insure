@@ -974,6 +974,15 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, user?.id, telnyxInitialize]);
 
+  // ── Sync Queue and Index ──
+  useEffect(() => {
+    if (autoDialer) {
+      // Sync the live queue from DialerPage into the auto-dialer instance
+      autoDialer.setQueue(leadQueue);
+      autoDialer.setIndex(currentLeadIndex);
+    }
+  }, [autoDialer, leadQueue, currentLeadIndex]);
+
   // ── Auto-dial next lead event (auto-dial ON) ──
   useEffect(() => {
     const handleNextLead = () => {

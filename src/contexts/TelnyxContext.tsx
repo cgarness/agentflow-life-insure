@@ -428,11 +428,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
+      // Explicitly base64 encode clientState to ensure consistent handling by Telnyx and the webhook handler
+      const encodedClientState = clientState ? btoa(clientState) : undefined;
+
       const call = clientRef.current.newCall({
         destinationNumber,
         callerNumber: callerNumber || defaultCallerNumber || "",
         audio: true,
-        clientState: clientState || undefined,
+        clientState: encodedClientState,
       });
       callRef.current = call;
       setCurrentCall(call);

@@ -144,11 +144,13 @@ async function handleCallInitiated(supabase: any, payload: any) {
   let decodedClientState: string | null = null;
   if (rawClientState) {
     try {
+      // Telnyx standardizes client_state as base64
       decodedClientState = new TextDecoder().decode(
         Uint8Array.from(atob(rawClientState), (c) => c.charCodeAt(0))
       );
-    } catch {
-      // If decoding fails, try using it raw (in case it wasn't encoded)
+      console.log('Decoded client_state:', decodedClientState);
+    } catch (err) {
+      console.warn('Failed to decode client_state as base64, using raw:', rawClientState);
       decodedClientState = rawClientState;
     }
   }
@@ -159,7 +161,6 @@ async function handleCallInitiated(supabase: any, payload: any) {
     from: payload.from,
     to: payload.to,
     direction: payload.direction,
-    rawClientState,
     decodedClientState,
   });
 
@@ -171,20 +172,39 @@ async function handleCallInitiated(supabase: any, payload: any) {
     updated_at: new Date().toISOString(),
   };
 
-  if (decodedClientState) {
-    // If clientState is provided, it's our internal call UUID (decoded from base64)
-    const { error } = await supabase
+  if (decodedClientState && decodedClientState.length === 36) {
+    // If clientState is a valid UUID, update the existing record
+    const { data: existing, error: fetchError } = await supabase
       .from('calls')
-      .update(callData)
-      .eq('id', decodedClientState);
-    if (error) console.error('Error updating call with client_state:', error, 'decoded:', decodedClientState);
+      .select('id')
+      .eq('id', decodedClientState)
+      .maybeSingle();
+
+    if (existing) {
+      console.log('Linking telnyx_call_id to existing call record:', decodedClientState);
+      const { error } = await supabase
+        .from('calls')
+        .update(callData)
+        .eq('id', decodedClientState);
+      if (error) console.error('Error updating existing call record:', error);
+    } else {
+      console.warn('client_state UUID not found in calls table:', decodedClientState);
+      // Insert new if not found (fallback)
+      const { error } = await supabase.from('calls').insert({
+        ...callData,
+        id: decodedClientState,
+        created_at: new Date().toISOString(),
+      });
+      if (error) console.error('Error inserting call record with missing UUID:', error);
+    }
   } else {
-    // Otherwise insert a new record
+    // No UUID provided — insert a new record
+    console.log('No valid client_state UUID provided, inserting new record');
     const { error } = await supabase.from('calls').insert({
       ...callData,
       created_at: new Date().toISOString(),
     });
-    if (error) console.error('Error creating call record:', error);
+    if (error) console.error('Error creating new call record:', error);
   }
 
   // Note: AMD trigger moved to handleCallAnswered to avoid analyzing ringback

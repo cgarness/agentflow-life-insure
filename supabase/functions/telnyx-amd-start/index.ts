@@ -72,7 +72,7 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({
           // "premium" uses ML-based detection for higher accuracy
           // "detect" is faster but less accurate
-          type: 'premium',
+          answering_machine_detection: 'premium',
         }),
       }
     );

@@ -93,55 +93,18 @@ export class AutoDialer {
 
     this.phoneNumbers = (phones || []) as unknown as PhoneNumber[];
 
-    // Load lead queue — join leads table to get master lead ID + full lead data.
-    // Filter matches getCampaignLeads in dialer-api.ts so both queues are aligned.
-    const { data: rawLeads } = await supabase
-      .from('campaign_leads')
-      .select('*, lead:leads(*)')
-      .eq('campaign_id', this.campaignId)
-      .not('status', 'in', '("DNC","Completed","Removed")')
-      .order('created_at', { ascending: true });
+    // We no longer load the lead queue here.
+    // The DialerPage injects its live query results via setQueue() to keep them perfectly synced.
 
-    // Flatten joined data so lead fields are accessible at top level
-    const leads = (rawLeads || []).map((row: any) => {
-      const { lead, ...campaignLead } = row;
-      return {
-        ...(lead || {}),
-        ...campaignLead,
-        id: campaignLead.id,
-        lead_id: lead?.id || campaignLead.lead_id,
-      };
-    });
+    console.log(`[AutoDialer] Session started: org=${this.organizationId}, phones=${this.phoneNumbers.length}`);
+  }
 
-    // Filter by DNC, max attempts, and retry interval in JS
-    const { data: dncNumbers } = await supabase
-      .from('dnc_list')
-      .select('phone_number');
-
-    const dncSet = new Set(dncNumbers?.map(d => d.phone_number) || []);
-    const now = new Date();
-
-    this.leadQueue = ((leads || []) as any[]).filter(lead => {
-      if (dncSet.has(lead.phone)) return false;
-
-      if (lead.status === "Queued") return true;
-
-      if (lead.status === "Called") {
-        const attempts = lead.call_attempts ?? 0;
-        if (attempts >= this.maxAttempts) return false;
-
-        if (this.retryIntervalHours > 0 && lead.last_called_at) {
-          const lastCalled = new Date(lead.last_called_at);
-          const hoursSince = (now.getTime() - lastCalled.getTime()) / (1000 * 60 * 60);
-          if (hoursSince < this.retryIntervalHours) return false;
-        }
-        return true;
-      }
-
-      return false;
-    });
-
-    console.log(`[AutoDialer] Session started: ${this.leadQueue.length} leads in queue, org=${this.organizationId}, phones=${this.phoneNumbers.length}`);
+  /** Synchronize the internal lead queue with the UI's queue */
+  async setQueue(leads: any[]): Promise<void> {
+    // We just maintain the exact queue from the UI so that currentLeadIndex matches perfectly.
+    // DNC checks happen at the time of dialing (dialNext) via the dnc-warning event.
+    this.leadQueue = leads;
+    console.log(`[AutoDialer] Queue synced from UI. ${this.leadQueue.length} leads.`);
   }
 
   async dialNext(): Promise<void> {
