@@ -48,6 +48,12 @@ Deno.serve(async (req: Request) => {
         await handlePremiumAMDResult(supabase, body.data.payload);
         break;
 
+      // Greeting detection (often indicates machine voicemail box ready)
+      case 'call.machine.greeting.ended':
+      case 'call.machine.premium.greeting.ended':
+        await handleGreetingEnded(supabase, body.data.payload);
+        break;
+
       case 'call.recording.saved':
         await handleRecordingSaved(supabase, body.data.payload);
         break;
@@ -127,11 +133,16 @@ async function isAmdEnabled(supabase: any, organizationId?: string): Promise<boo
 
 // ─── Helper: get organization_id from a call record ───
 async function getCallOrgId(supabase: any, callSessionId: string): Promise<string | null> {
+  // We search for ANY record with this session ID that has an organization_id.
+  // This ensures that even if one leg (e.g. PSTN) is missing the client_state,
+  // we can still find the org context from the other leg (e.g. WebRTC).
   const { data } = await supabase
     .from('calls')
     .select('organization_id')
     .eq('telnyx_call_id', callSessionId)
+    .not('organization_id', 'is', null)
     .maybeSingle();
+    
   return data?.organization_id || null;
 }
 
@@ -161,6 +172,7 @@ async function handleCallInitiated(supabase: any, payload: any) {
     from: payload.from,
     to: payload.to,
     direction: payload.direction,
+    hasClientState: !!rawClientState,
     decodedClientState,
   });
 
@@ -362,6 +374,18 @@ async function handlePremiumAMDResult(supabase: any, payload: any) {
   }
 
   await handleMachineDetected(supabase, callControlId, callSessionId, normalizedResult);
+}
+
+// Handler: call.machine.greeting.ended / call.machine.premium.greeting.ended
+async function handleGreetingEnded(supabase: any, payload: any) {
+  const callControlId = payload.call_control_id;
+  const callSessionId = payload.call_session_id;
+
+  console.log('AMD greeting ended (beep/machine most likely):', { callSessionId });
+
+  // If the greeting ended, we almost certainly want to treat this as a machine
+  // so we can trigger the auto-hangup if that's what's configured.
+  await handleMachineDetected(supabase, callControlId, callSessionId, 'machine');
 }
 
 // ─── Shared: handle machine detection ───

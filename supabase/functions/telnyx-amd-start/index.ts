@@ -73,6 +73,7 @@ Deno.serve(async (req: Request) => {
           // "premium" uses ML-based detection for higher accuracy
           // "detect" is faster but less accurate
           answering_machine_detection: 'premium',
+          total_analysis_time_millis: 15000, // 15s timeout for detection
         }),
       }
     );
