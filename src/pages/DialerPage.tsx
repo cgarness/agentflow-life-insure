@@ -807,7 +807,7 @@ export default function DialerPage() {
             const { data, error: amdError } = await supabase
               .from('calls')
               .select('amd_result')
-              .eq('id', currentCallId)
+              .eq('id', savedCallId)
               .maybeSingle();
 
             if (amdError) {
