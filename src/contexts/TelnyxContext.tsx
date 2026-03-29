@@ -74,6 +74,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const isAutoDialingRef = useRef(false);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -142,6 +143,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId]);
 
+  const hangUp = useCallback(() => {
+    if (callRef.current) {
+      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
+    }
+  }, []);
+
   // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | null = null;
@@ -163,12 +170,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     };
   }, [callState, ringTimeout, hangUp]);
-
-  const hangUp = useCallback(() => {
-    if (callRef.current) {
-      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
-    }
-  }, []);
 
   const toggleMute = useCallback(() => {
     if (!callRef.current) return;
@@ -354,11 +355,19 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
           callRef.current = null;
           endResetRef.current = setTimeout(() => {
+            const wasAutoDialing = isAutoDialingRef.current;
+            isAutoDialingRef.current = false;
+            
             setCallState("idle");
             setCallDuration(0);
             setCurrentCall(null);
             setIsMuted(false);
             setIsOnHold(false);
+
+            if (wasAutoDialing) {
+              console.log("[AutoDialer] Call ended, triggering next lead...");
+              window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
+            }
           }, 2000);
           return;
         }
@@ -405,12 +414,20 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             remoteAudioRef.current.srcObject = null;
           }
           endResetRef.current = setTimeout(() => {
+            const wasAutoDialing = isAutoDialingRef.current;
+            isAutoDialingRef.current = false;
+
             setCallState("idle");
             setCallDuration(0);
             setCurrentCall(null);
             setIsMuted(false);
             setIsOnHold(false);
             callRef.current = null;
+
+            if (wasAutoDialing) {
+              console.log("[AutoDialer] Call ended, triggering next lead...");
+              window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
+            }
           }, 2000);
         } else if (state === "ringing" || state === "trying") {
           setCallState("dialing");
@@ -485,6 +502,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
+      isAutoDialingRef.current = !!clientState;
+
       // Pass clientState as-is — TelnyxRTC SDK handles base64 encoding internally.
       // Previously we manually btoa()-encoded it here, causing double-encoding and
       // breaking the webhook's ability to decode and match the UUID to our call record.
