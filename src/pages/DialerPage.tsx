@@ -738,12 +738,13 @@ export default function DialerPage() {
 
   // AMD auto-dispose handler
   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
-    const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
-    if (callControlId) {
+    // Use currentCallId (internal UUID) which is more reliable than telnyxCurrentCall
+    // since telnyxHangUp() may have already cleared the telnyx call reference
+    if (currentCallId) {
       try {
         await supabase.from('calls')
           .update({ disposition_name: disposition.name })
-          .eq('telnyx_call_id', callControlId);
+          .eq('id', currentCallId);
       } catch {
         // non-blocking
       }
@@ -752,8 +753,17 @@ export default function DialerPage() {
     setSelectedDisp(null);
     setNoteText("");
     setNoteError(false);
-    setCurrentLeadIndex((i) => i + 1);
-  }, [telnyxCurrentCall]);
+    setCurrentCallId(null);
+    setCurrentLeadIndex((i) => {
+      const next = i + 1;
+      autoDialer?.setIndex(next);
+      return next;
+    });
+    // Auto-dial next lead
+    if (autoDialEnabled && autoDialer?.isEnabled()) {
+      setTimeout(() => autoDialer.dialNext(), 500);
+    }
+  }, [currentCallId, autoDialEnabled, autoDialer]);
 
   // Set AMD status to 'detecting' when a call starts and AMD is enabled
   useEffect(() => {
@@ -768,6 +778,8 @@ export default function DialerPage() {
   // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
     if (telnyxCallState === "ended") {
+      // Capture currentCallId before any state resets clear it
+      const savedCallId = currentCallId;
       telnyxHangUp();
 
       // Check for AMD machine detection
@@ -779,8 +791,7 @@ export default function DialerPage() {
           return;
         }
 
-        const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
-        if (!callControlId) {
+        if (!savedCallId) {
           setAmdStatus('idle');
           setShowWrapUp(true);
           return;
@@ -796,7 +807,7 @@ export default function DialerPage() {
             const { data, error: amdError } = await supabase
               .from('calls')
               .select('amd_result')
-              .eq('id', currentCallId)
+              .eq('id', savedCallId)
               .maybeSingle();
 
             if (amdError) {
