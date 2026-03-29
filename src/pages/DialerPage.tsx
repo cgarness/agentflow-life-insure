@@ -765,6 +765,94 @@ export default function DialerPage() {
     }
   }, [currentCallId, autoDialEnabled, autoDialer]);
 
+  const handleMachineDetectedAction = useCallback(async () => {
+    // Prevent double-processing
+    setAmdStatus(prev => {
+      if (prev === 'machine') return prev;
+      return 'machine';
+    });
+
+    toast.info('🤖 Machine detected — skipping to next lead', {
+      duration: 2000,
+    });
+
+    // Increment skip stat
+    if (user?.id) {
+      upsertDialerStats(user.id, { amd_skipped: 1 }).catch(err => {
+        console.warn('Failed to increment AMD skip stat:', err);
+      });
+    }
+
+    // Find the "No Answer" disposition
+    const noAnswerDisp = dispositions.find(d =>
+      d.name.toLowerCase() === 'no answer'
+    ) || dispositions.find(d =>
+      d.name.toLowerCase().includes('no answer')
+    );
+
+    if (noAnswerDisp) {
+      setSelectedDisp(noAnswerDisp);
+      // If autoDialer is active, use it to advance + trigger next call
+      if (autoDialer && autoDialer.isEnabled()) {
+        autoDialer.setIndex(currentLeadIndex);
+        await autoDialer.saveDispositionAndNext(noAnswerDisp.id);
+      } else {
+        handleAutoDispose(noAnswerDisp);
+      }
+    } else {
+      // No matching disposition — still advance
+      console.warn('No "No Answer" disposition found, advancing without disposition');
+      setCurrentLeadIndex((i) => {
+        const next = i + 1;
+        autoDialer?.setIndex(next);
+        return next;
+      });
+      if (autoDialer && autoDialer.isEnabled()) {
+        autoDialer.dialNext().catch(err => {
+          console.warn('[AMD] dialNext failed after no-disposition advance:', err);
+        });
+      }
+    }
+    // Reset AMD status after brief display
+    setTimeout(() => setAmdStatus('idle'), 2000);
+  }, [user?.id, dispositions, autoDialer, currentLeadIndex, handleAutoDispose]);
+
+  // ── Real-time AMD detection ──
+  useEffect(() => {
+    if (!currentCallId || !amdEnabled) return;
+
+    console.log('[Realtime] Subscribing to AMD updates for call:', currentCallId);
+    
+    const channel = supabase
+      .channel(`call-amd-${currentCallId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'calls',
+          filter: `id=eq.${currentCallId}`,
+        },
+        (payload) => {
+          const newAMD = payload.new.amd_result;
+          const oldAMD = payload.old?.amd_result;
+          
+          if (newAMD === 'machine' && oldAMD !== 'machine') {
+            console.log('[Realtime] Machine detected via DB update');
+            handleMachineDetectedAction();
+          } else if (newAMD === 'human' && oldAMD !== 'human') {
+            setAmdStatus('human');
+            setTimeout(() => setAmdStatus('idle'), 3000);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentCallId, amdEnabled, handleMachineDetectedAction]);
+
   // Set AMD status to 'detecting' when a call starts and AMD is enabled
   useEffect(() => {
     if (amdEnabled && (telnyxCallState === 'dialing' || telnyxCallState === 'active')) {
@@ -782,118 +870,66 @@ export default function DialerPage() {
       const savedCallId = currentCallId;
       telnyxHangUp();
 
-      // Check for AMD machine detection
+      // Check for AMD machine detection (Fallback if Realtime missed it)
       const checkAmd = async () => {
         if (!amdEnabled) {
-          // AMD not enabled — show normal wrap-up
           setAmdStatus('idle');
           setShowWrapUp(true);
           return;
         }
 
-        if (!savedCallId) {
+        const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
+        if (!callControlId && !savedCallId) {
           setAmdStatus('idle');
           setShowWrapUp(true);
           return;
         }
 
         try {
-          // Poll for AMD result with retries — the webhook round-trip
-          // (Telnyx → webhook → AMD start → AMD result webhook → DB update)
-          // can take several seconds.
-          let callRecord: { amd_result: string | null } | null = null;
-          for (let attempt = 0; attempt < 5; attempt++) {
-            await new Promise(r => setTimeout(r, 1500));
-            const { data, error: amdError } = await supabase
+          // Fallback poll: Shorter delay and fewer attempts than manual polling
+          // since Realtime subscription should have handled the primary detection.
+          let callRecord = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await new Promise(r => setTimeout(r, 1000));
+            const { data } = await supabase
               .from('calls')
               .select('amd_result')
-              .eq('id', savedCallId)
+              .eq('id', savedCallId || currentCallId)
               .maybeSingle();
 
-            if (amdError) {
-              console.warn('AMD poll attempt', attempt, 'failed:', amdError.message);
-              continue;
-            }
             if (data?.amd_result) {
               callRecord = data;
               break;
             }
           }
 
-          if (!callRecord?.amd_result) {
-            // AMD result never arrived — treat as human / show normal wrap-up
-            console.log('AMD result not received after polling, showing normal wrap-up');
-            setAmdStatus('idle');
-            setShowWrapUp(true);
-            return;
-          }
-
-          if (callRecord?.amd_result === 'machine') {
-            setAmdStatus('machine');
-            toast.info('🤖 Machine detected — skipping to next lead', {
-              duration: 2000,
-            });
-
-            // Increment skip stat
-            if (user?.id) {
-              upsertDialerStats(user.id, { amd_skipped: 1 }).catch(err => {
-                console.warn('Failed to increment AMD skip stat:', err);
-              });
-            }
-
-            // Find the "No Answer" disposition
-            const noAnswerDisp = dispositions.find(d =>
-              d.name.toLowerCase() === 'no answer'
-            ) || dispositions.find(d =>
-              d.name.toLowerCase().includes('no answer')
-            );
-            if (noAnswerDisp) {
-              setSelectedDisp(noAnswerDisp);
-              // If autoDialer is active, use it to advance + trigger next call
-              if (autoDialer && autoDialer.isEnabled()) {
-                autoDialer.setIndex(currentLeadIndex);
-                await autoDialer.saveDispositionAndNext(noAnswerDisp.id);
-              } else {
-                handleAutoDispose(noAnswerDisp);
-              }
-            } else {
-              // No matching disposition — still advance
-              console.warn('No "No Answer" disposition found, advancing without disposition');
-              setCurrentLeadIndex((i) => {
-                const next = i + 1;
-                autoDialer?.setIndex(next);
-                return next;
-              });
-              if (autoDialer && autoDialer.isEnabled()) {
-                autoDialer.dialNext().catch(err => {
-                  console.warn('[AMD] dialNext failed after no-disposition advance:', err);
-                });
-              }
-            }
-            // Reset AMD status after brief display
-            setTimeout(() => setAmdStatus('idle'), 2000);
+          if (callRecord?.amd_result === 'machine' && amdStatus !== 'machine') {
+            await handleMachineDetectedAction();
             return;
           }
 
           if (callRecord?.amd_result === 'human') {
             setAmdStatus('human');
-            // Human detected — show normal wrap-up
             setTimeout(() => setAmdStatus('idle'), 3000);
           } else {
             setAmdStatus('idle');
           }
         } catch (err) {
-          console.warn('AMD check threw, continuing with normal wrap-up:', err);
+          console.warn('AMD check fallback threw:', err);
           setAmdStatus('idle');
         }
 
-        setShowWrapUp(true);
+        // Only show wrap-up if not already advanced by machine detection
+        setShowWrapUp(current => {
+          if (amdStatus === 'machine') return false;
+          return true;
+        });
       };
 
       checkAmd();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentLeadIndex]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentLeadIndex, currentCallId, amdStatus, handleMachineDetectedAction]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {

@@ -379,7 +379,35 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
 
   console.log('Machine detected with AMD enabled — auto-hanging up and disposing as No Answer');
 
-  // 1. Update call record with disposition and status
+  // 1. Get call record to find campaign_lead_id
+  const { data: callRecord } = await supabase
+    .from('calls')
+    .select('id, contact_id, campaign_lead_id')
+    .eq('telnyx_call_id', callSessionId)
+    .maybeSingle();
+
+  // 2. Update campaign_leads if applicable
+  if (callRecord?.campaign_lead_id) {
+    const { data: lead } = await supabase
+      .from('campaign_leads')
+      .select('call_attempts')
+      .eq('id', callRecord.campaign_lead_id)
+      .maybeSingle();
+
+    await supabase
+      .from('campaign_leads')
+      .update({
+        status: 'Called',
+        disposition: 'No Answer',
+        call_attempts: (lead?.call_attempts || 0) + 1,
+        last_called_at: new Date().toISOString(),
+      })
+      .eq('id', callRecord.campaign_lead_id);
+    
+    console.log('Updated campaign_lead with No Answer disposition');
+  }
+
+  // 3. Update call record with disposition and status
   await supabase
     .from('calls')
     .update({
@@ -390,7 +418,7 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
     })
     .eq('telnyx_call_id', callSessionId);
 
-  // 2. Auto-hangup via Telnyx REST API (server-side hangup — agent never needs to act)
+  // 4. Auto-hangup via Telnyx REST API (server-side hangup — agent never needs to act)
   const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
   if (apiKey) {
     await telnyxHangup(apiKey, callControlId);
