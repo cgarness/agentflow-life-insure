@@ -428,14 +428,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
-      // Explicitly base64 encode clientState to ensure consistent handling by Telnyx and the webhook handler
-      const encodedClientState = clientState ? btoa(clientState) : undefined;
-
+      // Pass clientState as-is — TelnyxRTC SDK handles base64 encoding internally.
+      // Previously we manually btoa()-encoded it here, causing double-encoding and
+      // breaking the webhook's ability to decode and match the UUID to our call record.
       const call = clientRef.current.newCall({
         destinationNumber,
         callerNumber: callerNumber || defaultCallerNumber || "",
         audio: true,
-        clientState: encodedClientState,
+        clientState: clientState || undefined,
       });
       callRef.current = call;
       setCurrentCall(call);
