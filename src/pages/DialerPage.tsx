@@ -778,6 +778,8 @@ export default function DialerPage() {
   // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
     if (telnyxCallState === "ended") {
+      // Capture currentCallId before any state resets clear it
+      const savedCallId = currentCallId;
       telnyxHangUp();
 
       // Check for AMD machine detection
@@ -789,8 +791,7 @@ export default function DialerPage() {
           return;
         }
 
-        const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
-        if (!callControlId) {
+        if (!savedCallId) {
           setAmdStatus('idle');
           setShowWrapUp(true);
           return;
