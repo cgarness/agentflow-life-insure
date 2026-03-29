@@ -366,25 +366,35 @@ async function handlePremiumAMDResult(supabase: any, payload: any) {
 
 // ─── Shared: handle machine detection ───
 async function handleMachineDetected(supabase: any, callControlId: string, callSessionId: string, result: string) {
-  if (result !== 'machine') return;
+  console.log(`[AMD-Handler] Processing result: ${result} for session: ${callSessionId}`);
+  
+  if (result !== 'machine') {
+    console.log(`[AMD-Handler] Result is '${result}', no auto-action required.`);
+    return;
+  }
 
   // Check if AMD auto-action is enabled
   const orgId = await getCallOrgId(supabase, callSessionId);
   const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
 
+  console.log(`[AMD-Handler] OrgID: ${orgId}, AMD Enabled: ${amdEnabled}`);
+
   if (!amdEnabled) {
-    console.log('AMD detected machine but AMD auto-action is disabled');
+    console.log('[AMD-Handler] Machine detected but AMD auto-action is disabled in settings.');
     return;
   }
 
-  console.log('Machine detected with AMD enabled — auto-hanging up and disposing as No Answer');
+  console.log('[AMD-Handler] MACHINE DETECTED — Proceeding with auto-hangup and disposition update.');
 
   // 1. Get call record to find campaign_lead_id
-  const { data: callRecord } = await supabase
+  const { data: callRecord, error: callFetchError } = await supabase
     .from('calls')
     .select('id, contact_id, campaign_lead_id')
     .eq('telnyx_call_id', callSessionId)
     .maybeSingle();
+
+  if (callFetchError) console.error('[AMD-Handler] Error fetching call record:', callFetchError);
+  console.log('[AMD-Handler] Call record found:', callRecord ? 'YES' : 'NO', 'Campaign Lead:', callRecord?.campaign_lead_id || 'NONE');
 
   // 2. Update campaign_leads if applicable
   if (callRecord?.campaign_lead_id) {
@@ -394,7 +404,7 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
       .eq('id', callRecord.campaign_lead_id)
       .maybeSingle();
 
-    await supabase
+    const { error: leadUpdateError } = await supabase
       .from('campaign_leads')
       .update({
         status: 'Called',
@@ -404,11 +414,15 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
       })
       .eq('id', callRecord.campaign_lead_id);
     
-    console.log('Updated campaign_lead with No Answer disposition');
+    if (leadUpdateError) {
+      console.error('[AMD-Handler] Error updating campaign_lead:', leadUpdateError);
+    } else {
+      console.log('[AMD-Handler] Successfully updated campaign_lead to No Answer');
+    }
   }
 
   // 3. Update call record with disposition and status
-  await supabase
+  const { error: callUpdateError } = await supabase
     .from('calls')
     .update({
       status: 'completed',
@@ -418,12 +432,20 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
     })
     .eq('telnyx_call_id', callSessionId);
 
-  // 4. Auto-hangup via Telnyx REST API (server-side hangup — agent never needs to act)
+  if (callUpdateError) {
+    console.error('[AMD-Handler] Error updating call record:', callUpdateError);
+  } else {
+    console.log('[AMD-Handler] Successfully updated call record with No Answer disposition');
+  }
+
+  // 4. Auto-hangup via Telnyx REST API
   const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
   if (apiKey) {
+    console.log('[AMD-Handler] Initiating Telnyx REST hangup...');
     await telnyxHangup(apiKey, callControlId);
+    console.log('[AMD-Handler] Hangup command sent.');
   } else {
-    console.warn('Cannot auto-hangup: no API key found');
+    console.warn('[AMD-Handler] Cannot auto-hangup: No Telnyx API key found for this organization.');
   }
 }
 

@@ -326,6 +326,8 @@ export default function DialerPage() {
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
   const [ringTimeoutValue, setRingTimeoutValue] = useState(30);
+  const [amdEnabledValue, setAmdEnabledValue] = useState(false);
+
 
   // ── Queue sort / filter / preview ──
   type QueueSortKey = 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
@@ -996,8 +998,9 @@ export default function DialerPage() {
           setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
         }
-        if (phoneData?.ring_timeout) {
-          setRingTimeoutValue(phoneData.ring_timeout);
+        if (phoneData) {
+          if (phoneData.ring_timeout) setRingTimeoutValue(phoneData.ring_timeout);
+          setAmdEnabledValue(phoneData.amd_enabled ?? false);
         }
         setCallingSettingsLoading(false);
       })
@@ -1029,6 +1032,7 @@ export default function DialerPage() {
       .from("phone_settings")
       .update({
         ring_timeout: ringTimeoutValue,
+        amd_enabled: amdEnabledValue,
         updated_at: new Date().toISOString()
       })
       .eq("organization_id", organizationId);
@@ -3583,8 +3587,19 @@ export default function DialerPage() {
               </div>
 
               {/* Toggles */}
-              <div className="space-y-3">
-                <label className="flex items-center justify-between cursor-pointer select-none">
+              <div className="space-y-4 pt-2 border-t">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <label className="text-sm font-medium">Answering Machine Detection</label>
+                    <p className="text-[10px] text-muted-foreground leading-tight">Automatically hang up and skip to next lead if a voicemail is detected</p>
+                  </div>
+                  <Switch 
+                    checked={amdEnabledValue}
+                    onCheckedChange={setAmdEnabledValue}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Auto-Dial</span>
                   <button
                     type="button"
@@ -3601,8 +3616,9 @@ export default function DialerPage() {
                       }`}
                     />
                   </button>
-                </label>
-                <label className="flex items-center justify-between cursor-pointer select-none">
+                </div>
+
+                <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Local Presence</span>
                   <button
                     type="button"
@@ -3619,7 +3635,7 @@ export default function DialerPage() {
                       }`}
                     />
                   </button>
-                </label>
+                </div>
               </div>
             </div>
           )}
