@@ -1492,6 +1492,14 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
+    // Trigger next auto-dial after state updates
+    if (autoDialEnabled && autoDialer?.isEnabled()) {
+      setTimeout(() => {
+        autoDialer.dialNext().catch(err => {
+          console.warn('[AutoDial] dialNext failed after advance:', err);
+        });
+      }, 500);
+    }
   }
 
   function handleSkip() {
@@ -1505,6 +1513,14 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
+    // Trigger next auto-dial after state updates
+    if (autoDialEnabled && autoDialer?.isEnabled()) {
+      setTimeout(() => {
+        autoDialer.dialNext().catch(err => {
+          console.warn('[AutoDial] dialNext failed after skip:', err);
+        });
+      }, 500);
+    }
   }
 
   // ── Queue Position Persistence: save on every lead advance ──
