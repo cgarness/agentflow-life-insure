@@ -20,6 +20,7 @@ interface TelnyxContextValue {
   defaultCallerNumber: string;
   isReady: boolean;
   amdEnabled: boolean;
+  ringTimeout: number;
   makeCall: (destinationNumber: string, callerNumber?: string, clientState?: string) => void;
   hangUp: () => void;
   toggleMute: () => void;
@@ -51,6 +52,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
   const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
   const [amdEnabled, setAmdEnabled] = useState(false);
+  const [ringTimeout, setRingTimeout] = useState(30);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
     return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
   });
@@ -124,18 +126,73 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [profile, organizationId]);
 
-  // Fetch AMD enabled setting
+  // Fetch global phone settings (AMD, Ring Timeout, etc.)
   useEffect(() => {
     if (!organizationId) return;
     supabase
       .from("phone_settings")
-      .select("amd_enabled")
+      .select("amd_enabled, ring_timeout")
       .eq("organization_id", organizationId)
       .maybeSingle()
       .then(({ data }) => {
         setAmdEnabled(data?.amd_enabled === true);
+        if (data?.ring_timeout) {
+          setRingTimeout(data.ring_timeout);
+        }
       });
   }, [organizationId]);
+
+  // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    if (callState === "dialing" && ringTimeout > 0) {
+      console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
+      timeoutId = setTimeout(() => {
+        if (callRef.current && (callRef.current.state === "ringing" || callRef.current.state === "trying" || callRef.current.state === "early")) {
+          console.log(`[RingTimeout] ${ringTimeout}s reached without answer. Hanging up.`);
+          toast.info(`Call timed out after ${ringTimeout}s without answer.`);
+          hangUp();
+        }
+      }, ringTimeout * 1000);
+    }
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [callState, ringTimeout, hangUp]);
+
+  const hangUp = useCallback(() => {
+    if (callRef.current) {
+      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
+    }
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    if (!callRef.current) return;
+    try {
+      if (isMuted) {
+        callRef.current.unmuteAudio();
+      } else {
+        callRef.current.muteAudio();
+      }
+      setIsMuted(!isMuted);
+    } catch {} // eslint-disable-line no-empty
+  }, [isMuted]);
+
+  const toggleHold = useCallback(() => {
+    if (!callRef.current) return;
+    try {
+      if (isOnHold) {
+        callRef.current.unhold();
+      } else {
+        callRef.current.hold();
+      }
+      setIsOnHold(!isOnHold);
+    } catch {} // eslint-disable-line no-empty
+  }, [isOnHold]);
 
   const getSmartCallerId = useCallback(async (contactPhone: string, contactId?: string | null): Promise<string> => {
     // 1. Manual Override always wins
@@ -449,35 +506,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [status, defaultCallerNumber, attachRemoteAudio]);
 
-  const hangUp = useCallback(() => {
-    if (callRef.current) {
-      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
-    }
-  }, []);
-
-  const toggleMute = useCallback(() => {
-    if (!callRef.current) return;
-    try {
-      if (isMuted) {
-        callRef.current.unmuteAudio();
-      } else {
-        callRef.current.muteAudio();
-      }
-      setIsMuted(!isMuted);
-    } catch {} // eslint-disable-line no-empty
-  }, [isMuted]);
-
-  const toggleHold = useCallback(() => {
-    if (!callRef.current) return;
-    try {
-      if (isOnHold) {
-        callRef.current.unhold();
-      } else {
-        callRef.current.hold();
-      }
-      setIsOnHold(!isOnHold);
-    } catch {} // eslint-disable-line no-empty
-  }, [isOnHold]);
 
   const isReady = status === "ready";
 
@@ -494,6 +522,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         defaultCallerNumber,
         isReady,
         amdEnabled,
+        ringTimeout,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,

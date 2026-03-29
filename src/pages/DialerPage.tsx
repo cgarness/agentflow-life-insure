@@ -325,6 +325,7 @@ export default function DialerPage() {
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
+  const [ringTimeoutValue, setRingTimeoutValue] = useState(30);
 
   // ── Queue sort / filter / preview ──
   type QueueSortKey = 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
@@ -970,27 +971,38 @@ export default function DialerPage() {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!callingSettingsOpen || !effectiveCampaignId) return;
     setCallingSettingsLoading(true);
-    (supabase
+    // 1. Fetch Campaign Settings
+    const fetchCampaign = (supabase
       .from("campaigns")
       .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
-      .maybeSingle() as unknown as Promise<any>) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .then(({ data }: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-        if (data) {
-          setIsUnlimited(data.max_attempts === null);
-          setMaxAttemptsValue(data.max_attempts ?? 3);
-          setCallingHoursStart((data.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
-          setCallingHoursEnd((data.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
-          setRetryIntervalHours(data.retry_interval_hours ?? 24);
-          setSettingsAutoDialEnabled(data.auto_dial_enabled ?? true);
-          setLocalPresenceEnabled(data.local_presence_enabled ?? true);
-        } else {
-          console.warn(`[DialerPage] campaigns row not found for id=${effectiveCampaignId}, using defaults`);
+      .maybeSingle() as unknown as Promise<any>);
+
+    // 2. Fetch Global Phone Settings (Ring Timeout)
+    const fetchPhone = (supabase
+      .from("phone_settings")
+      .select("ring_timeout")
+      .eq("organization_id", organizationId)
+      .maybeSingle() as unknown as Promise<any>);
+
+    Promise.all([fetchCampaign, fetchPhone])
+      .then(([{ data: campaignData }, { data: phoneData }]: any) => {
+        if (campaignData) {
+          setIsUnlimited(campaignData.max_attempts === null);
+          setMaxAttemptsValue(campaignData.max_attempts ?? 3);
+          setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
+          setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
+          setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
+          setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
+          setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
+        }
+        if (phoneData?.ring_timeout) {
+          setRingTimeoutValue(phoneData.ring_timeout);
         }
         setCallingSettingsLoading(false);
       })
       .catch((err) => {
-        console.warn('[DialerPage] Failed to load campaign calling settings', err);
+        console.warn('[DialerPage] Failed to load calling settings', err);
         setCallingSettingsLoading(false);
       });
   }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId]);
@@ -999,7 +1011,8 @@ export default function DialerPage() {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!effectiveCampaignId) return;
     setCallingSettingsSaving(true);
-    const { error } = await supabase
+    // 1. Update Campaign Settings
+    const { error: campaignError } = await supabase
       .from("campaigns")
       .update({
         max_attempts: isUnlimited ? null : maxAttemptsValue,
@@ -1010,9 +1023,21 @@ export default function DialerPage() {
         local_presence_enabled: localPresenceEnabled,
       })
       .eq("id", effectiveCampaignId);
+
+    // 2. Update Global Phone Settings (Ring Timeout)
+    const { error: phoneError } = await supabase
+      .from("phone_settings")
+      .update({
+        ring_timeout: ringTimeoutValue,
+        updated_at: new Date().toISOString()
+      })
+      .eq("organization_id", organizationId);
+
     setCallingSettingsSaving(false);
-    if (error) {
+    
+    if (campaignError || phoneError) {
       toast.error("Failed to save settings — please try again");
+      console.error("Save error:", { campaignError, phoneError });
     } else {
       toast.success("Calling settings saved");
       setCallingSettingsOpen(false);
@@ -1949,6 +1974,22 @@ export default function DialerPage() {
                   onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
                   className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
                 />
+              </div>
+
+              {/* Ring Timeout */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Ring Timeout (seconds)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={ringTimeoutValue}
+                    onChange={(e) => setRingTimeoutValue(Number(e.target.value))}
+                    className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">(Hangs up if no answer)</span>
+                </div>
               </div>
 
               {/* Toggles */}
@@ -3523,6 +3564,22 @@ export default function DialerPage() {
                   onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
                   className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
                 />
+              </div>
+
+              {/* Ring Timeout */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Ring Timeout (seconds)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={ringTimeoutValue}
+                    onChange={(e) => setRingTimeoutValue(Number(e.target.value))}
+                    className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">(Hangs up if no answer)</span>
+                </div>
               </div>
 
               {/* Toggles */}
