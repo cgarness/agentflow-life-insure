@@ -787,17 +787,31 @@ export default function DialerPage() {
         }
 
         try {
-          // Brief delay to let webhook update the amd_result
-          await new Promise(r => setTimeout(r, 2500));
+          // Poll for AMD result with retries — the webhook round-trip
+          // (Telnyx → webhook → AMD start → AMD result webhook → DB update)
+          // can take several seconds.
+          let callRecord: { amd_result: string | null } | null = null;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            await new Promise(r => setTimeout(r, 1500));
+            const { data, error: amdError } = await supabase
+              .from('calls')
+              .select('amd_result')
+              .eq('id', currentCallId)
+              .maybeSingle();
 
-          const { data: callRecord, error: amdError } = await supabase
-            .from('calls')
-            .select('amd_result')
-            .eq('id', currentCallId)
-            .maybeSingle();
+            if (amdError) {
+              console.warn('AMD poll attempt', attempt, 'failed:', amdError.message);
+              continue;
+            }
+            if (data?.amd_result) {
+              callRecord = data;
+              break;
+            }
+          }
 
-          if (amdError) {
-            console.warn('AMD check failed, continuing with normal wrap-up:', amdError.message);
+          if (!callRecord?.amd_result) {
+            // AMD result never arrived — treat as human / show normal wrap-up
+            console.log('AMD result not received after polling, showing normal wrap-up');
             setAmdStatus('idle');
             setShowWrapUp(true);
             return;
@@ -1492,6 +1506,14 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
+    // Trigger next auto-dial after state updates
+    if (autoDialEnabled && autoDialer?.isEnabled()) {
+      setTimeout(() => {
+        autoDialer.dialNext().catch(err => {
+          console.warn('[AutoDial] dialNext failed after advance:', err);
+        });
+      }, 500);
+    }
   }
 
   function handleSkip() {
@@ -1505,6 +1527,14 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
+    // Trigger next auto-dial after state updates
+    if (autoDialEnabled && autoDialer?.isEnabled()) {
+      setTimeout(() => {
+        autoDialer.dialNext().catch(err => {
+          console.warn('[AutoDial] dialNext failed after skip:', err);
+        });
+      }, 500);
+    }
   }
 
   // ── Queue Position Persistence: save on every lead advance ──
