@@ -762,11 +762,8 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
-    // Auto-dial next lead
-    if (autoDialEnabled && autoDialer?.isEnabled()) {
-      setTimeout(() => autoDialer.dialNext(), 500);
-    }
-  }, [currentCallId, autoDialEnabled, autoDialer]);
+    // Auto-dial logic handled reactively by useEffect on currentLead?.id change
+  }, [currentCallId, autoDialer]);
 
   const handleMachineDetectedAction = useCallback(async () => {
     // Prevent double-processing
@@ -798,9 +795,7 @@ export default function DialerPage() {
       setSelectedDisp(noAnswerDisp);
       setShowWrapUp(false); // Force close modal if open
       
-      // If autoDialer is active, use it to advance + trigger next call
       if (autoDialer && autoDialer.isEnabled()) {
-        autoDialer.setIndex(currentLeadIndex);
         await autoDialer.saveDispositionAndNext(noAnswerDisp.id);
       } else {
         handleAutoDispose(noAnswerDisp);
@@ -808,20 +803,11 @@ export default function DialerPage() {
     } else {
       // No matching disposition — still advance
       console.warn('No "No Answer" disposition found, advancing without disposition');
-      setCurrentLeadIndex((i) => {
-        const next = i + 1;
-        autoDialer?.setIndex(next);
-        return next;
-      });
-      if (autoDialer && autoDialer.isEnabled()) {
-        autoDialer.dialNext().catch(err => {
-          console.warn('[AMD] dialNext failed after no-disposition advance:', err);
-        });
-      }
+      handleSkip(); // Reuse skip logic to advance lead
     }
     // Reset AMD status after brief display
     setTimeout(() => setAmdStatus('idle'), 2000);
-  }, [user?.id, dispositions, autoDialer, currentLeadIndex, handleAutoDispose]);
+  }, [user?.id, dispositions, autoDialer, handleAutoDispose, handleSkip]);
 
   // ── Real-time AMD detection ──
   useEffect(() => {
@@ -953,7 +939,7 @@ export default function DialerPage() {
       checkAmd();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentLeadIndex, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -1094,6 +1080,53 @@ export default function DialerPage() {
     }
   }, [autoDialer, leadQueue, currentLeadIndex]);
 
+  // ── Auto-Dial Reactive Trigger (Lead Advance) ──
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+
+    const triggerAutoCall = async () => {
+      console.log("[AutoDialer] Reactive trigger check:", {
+        autoDialEnabled,
+        dialerEnabled: autoDialer?.isEnabled(),
+        leadId: currentLead?.id,
+        callState: telnyxCallState,
+        telnyxStatus
+      });
+
+      // 1. Guard check: only trigger if auto-dial is enabled, dialer is ready, and we have a lead
+      if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || telnyxStatus !== "ready") {
+        return;
+      }
+
+      // 2. Authentication Check: Ensure user has an active Supabase session before dialing
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn("[AutoDialer] Reactive trigger blocked: No active auth session.");
+        toast.error("Standard Authentication Required. Please log in to make calls.");
+        return;
+      }
+
+      console.log(`[AutoDialer] Reactive trigger: Waiting 2000ms before dialing ${currentLead.first_name}...`);
+
+      timer = setTimeout(async () => {
+        // Double-check guards after delay to ensure user didn't pause or start a manual call
+        if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || telnyxStatus !== "ready") {
+          return;
+        }
+
+        console.log("[AutoDialer] 2000ms delay complete. Initiating call to:", currentLead.phone);
+        handleCall();
+      }, 2000);
+    };
+
+    triggerAutoCall();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState]);
+
   // ── Auto-dial next lead event (auto-dial ON) ──
   useEffect(() => {
     const handleNextLead = () => {
@@ -1137,20 +1170,7 @@ export default function DialerPage() {
     return () => window.removeEventListener("auto-dial-session-end", handleSessionEnd);
   }, []);
 
-  // ── Auto-dial call event → trigger TelnyxRTC ──
-  useEffect(() => {
-    const handleAutoDialCall = async (event: Event) => {
-      const { lead, callId } = (event as CustomEvent).detail;
-      if (lead?.phone) {
-        const contactId = lead.lead_id || lead.id || "";
-        const callerNum = await getSmartCallerId(lead.phone, contactId); // Use getSmartCallerId
-        proceedWithCall(lead.phone, callerNum, callId);
-      }
-    };
-    window.addEventListener("auto-dial-call", handleAutoDialCall);
-    return () => window.removeEventListener("auto-dial-call", handleAutoDialCall);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxMakeCall]);
+
 
   /* --- caller ID selection --- */
   // Redundant helper removed, now using getSmartCallerId from TelnyxContext
@@ -1592,7 +1612,7 @@ export default function DialerPage() {
     return "#6B7280";
   }, [leadStages, currentLead?.status]);
 
-  function handleAdvance() {
+  const handleAdvance = useCallback(() => {
     setShowWrapUp(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -1603,17 +1623,9 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
-    // Trigger next auto-dial after state updates
-    if (autoDialEnabled && autoDialer?.isEnabled()) {
-      setTimeout(() => {
-        autoDialer.dialNext().catch(err => {
-          console.warn('[AutoDial] dialNext failed after advance:', err);
-        });
-      }, 500);
-    }
-  }
+  }, [autoDialer]);
 
-  function handleSkip() {
+  const handleSkip = useCallback(() => {
     setIsEditingContact(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -1624,15 +1636,7 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
-    // Trigger next auto-dial after state updates
-    if (autoDialEnabled && autoDialer?.isEnabled()) {
-      setTimeout(() => {
-        autoDialer.dialNext().catch(err => {
-          console.warn('[AutoDial] dialNext failed after skip:', err);
-        });
-      }, 500);
-    }
-  }
+  }, [autoDialer]);
 
   // ── Queue Position Persistence: save on every lead advance ──
   useEffect(() => {

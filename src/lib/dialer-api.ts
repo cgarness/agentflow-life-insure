@@ -6,11 +6,17 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export async function getCampaigns() {
-  const { data, error } = await supabase
+export async function getCampaigns(organizationId: string | null = null) {
+  let query = supabase
     .from("campaigns")
     .select("*")
     .eq("status", "Active");
+
+  if (organizationId) {
+    query = query.eq("organization_id", organizationId);
+  }
+
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data ?? [];
 }
@@ -82,16 +88,25 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
     });
 }
 
-export async function getLeadHistory(leadId: string) {
+export async function getLeadHistory(leadId: string, organizationId: string | null = null) {
+  let callsQuery = supabase
+    .from("calls")
+    .select("*")
+    .eq("contact_id", leadId);
+  
+  let activityQuery = supabase
+    .from("contact_activities")
+    .select("*")
+    .eq("contact_id", leadId);
+
+  if (organizationId) {
+    callsQuery = callsQuery.eq("organization_id", organizationId);
+    activityQuery = activityQuery.eq("organization_id", organizationId);
+  }
+
   const [callsRes, activityRes] = await Promise.all([
-    supabase
-      .from("calls")
-      .select("*")
-      .eq("contact_id", leadId),
-    supabase
-      .from("contact_activities")
-      .select("*")
-      .eq("contact_id", leadId),
+    callsQuery,
+    activityQuery,
   ]);
 
   if (callsRes.error) throw new Error(callsRes.error.message);

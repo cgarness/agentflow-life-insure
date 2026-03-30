@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
+
 
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
 type CallState = "idle" | "dialing" | "active" | "ended";
@@ -115,7 +115,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     supabase
       .from("phone_numbers")
       .select("phone_number, is_default, spam_status, area_code, friendly_name")
-      .or(`organization_id.eq.${organizationId},organization_id.is.null`)
+      .eq("organization_id", organizationId)
       .in("status", ["active", "Active"])
       .then(({ data }) => {
         if (data) {
@@ -125,7 +125,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setDefaultCallerNumber(defaultNum);
         }
       });
-  }, [profile, organizationId]);
+  }, [organizationId, profile?.id]);
 
   // Fetch global phone settings (AMD, Ring Timeout, etc.)
   useEffect(() => {
@@ -141,7 +141,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setRingTimeout(data.ring_timeout);
         }
       });
-  }, [organizationId]);
+  }, [organizationId, profile?.id]);
 
   const hangUp = useCallback(() => {
     if (callRef.current) {
@@ -279,24 +279,21 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (settingsError) throw new Error(`DB fetch error: ${settingsError.message}`);
 
-      // Fallback to global settings if no organization-specific settings exist
-      if (!settings?.api_key) {
-        console.log("No organization settings found, falling back to global settings...");
-        const { data: globalSettings } = await (supabase as any)
-          .from("telnyx_settings")
-          .select("api_key, connection_id, sip_username, sip_password")
-          .eq("id", TELNYX_SETTINGS_ID)
-          .maybeSingle();
-        settings = globalSettings;
-      }
-
       const creds = settings as any;
       if (!creds || !creds.api_key) {
-        console.warn("No Telnyx credentials found (global or org)");
+        console.warn("No Telnyx credentials found for organization:", organizationId);
         setStatus("idle");
-        setErrorMessage("Telnyx credentials not found. Please set them in Phone Settings.");
+        setErrorMessage("No phone settings found. Please configure your Telnyx credentials in the Settings page.");
         return;
       }
+
+      // Add robust debug logging (masked password)
+      console.log("[TelnyxContext] Using credentials:", {
+        sip_username: creds.sip_username,
+        sip_password: creds.sip_password ? `${creds.sip_password.slice(0, 3)}***` : "missing",
+        connection_id: creds.connection_id,
+        api_key_present: !!creds.api_key
+      });
 
       // 2. Fetch SIP credentials via edge function
       const { data: tokenData, error: tokenError } = await supabase.functions.invoke("telnyx-token", {
@@ -440,7 +437,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setStatus("error");
       setErrorMessage(err?.message || "Could not initialize dialer");
     }
-  }, [attachRemoteAudio, profile, organizationId]);
+  }, [attachRemoteAudio, organizationId, profile?.id]);
 
   const destroyClient = useCallback(() => {
     if (clientRef.current) {

@@ -50,11 +50,16 @@ export class AutoDialer {
   async startSession(): Promise<void> {
     // Load session settings
     try {
-      const { data: session } = await supabase
+      let sessionQuery = supabase
         .from('dialer_sessions')
         .select('auto_dial_enabled')
-        .eq('id', this.sessionId)
-        .maybeSingle();
+        .eq('id', this.sessionId);
+      
+      if (this.organizationId) {
+        sessionQuery = sessionQuery.eq('organization_id', this.organizationId);
+      }
+
+      const { data: session } = await sessionQuery.maybeSingle();
 
       this.autoDialEnabled = (session as any)?.auto_dial_enabled ?? true;
       if (!session) {
@@ -66,11 +71,16 @@ export class AutoDialer {
 
     // Load campaign settings
     try {
-      const { data: campaign } = await supabase
+      let campaignQuery = supabase
         .from('campaigns')
         .select('local_presence_enabled, max_attempts, retry_interval_hours')
-        .eq('id', this.campaignId)
-        .maybeSingle();
+        .eq('id', this.campaignId);
+
+      if (this.organizationId) {
+        campaignQuery = campaignQuery.eq('organization_id', this.organizationId);
+      }
+
+      const { data: campaign } = await campaignQuery.maybeSingle();
 
       this.localPresenceEnabled = (campaign as any)?.local_presence_enabled ?? true;
       this.maxAttempts = (campaign as any)?.max_attempts ?? 1;
@@ -176,10 +186,16 @@ export class AutoDialer {
     // Increment daily call count for the used number
     const usedPhone = this.phoneNumbers.find(p => p.phone_number === callerNumber);
     if (usedPhone) {
-      await supabase
+      let phoneUpdateQuery = supabase
         .from('phone_numbers')
         .update({ daily_call_count: usedPhone.daily_call_count + 1 } as any)
         .eq('phone_number', callerNumber);
+
+      if (this.organizationId) {
+        phoneUpdateQuery = phoneUpdateQuery.eq('organization_id', this.organizationId);
+      }
+
+      await phoneUpdateQuery;
       usedPhone.daily_call_count += 1;
     }
   }
@@ -216,7 +232,6 @@ export class AutoDialer {
       window.dispatchEvent(new CustomEvent('auto-dial-next-lead', {
         detail: { leadsRemaining: this.leadQueue.length - this.currentLeadIndex }
       }));
-      await this.dialNext();
     } else {
       console.log('[AutoDialer] Auto-dial disabled, closing lead card');
       window.dispatchEvent(new CustomEvent('auto-dial-lead-closed', {
@@ -262,9 +277,15 @@ export class AutoDialer {
       }
     }));
 
-    await supabase
+    let sessionEndQuery = supabase
       .from('dialer_sessions')
       .update({ ended_at: new Date().toISOString() })
       .eq('id', this.sessionId);
+
+    if (this.organizationId) {
+      sessionEndQuery = sessionEndQuery.eq('organization_id', this.organizationId);
+    }
+
+    await sessionEndQuery;
   }
 }
