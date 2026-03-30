@@ -15,10 +15,25 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { destination_number, caller_id, agent_id, call_id, organization_id } = await req.json();
+    const body = await req.json();
+    const { destination_number, caller_id, agent_id, call_id, organization_id } = body;
 
-    if (!destination_number || !caller_id || !agent_id || !call_id || !organization_id) {
-      throw new Error('Missing required parameters: destination_number, caller_id, agent_id, call_id, organization_id');
+    console.log(`[dialer-start-call] Received outbound request for Call ID: ${call_id}`, { 
+      destination: destination_number, 
+      from: caller_id, 
+      agent: agent_id, 
+      org: organization_id 
+    });
+
+    const missingParams = [];
+    if (!destination_number) missingParams.push('destination_number');
+    if (!caller_id) missingParams.push('caller_id');
+    if (!agent_id) missingParams.push('agent_id');
+    if (!call_id) missingParams.push('call_id');
+    if (!organization_id) missingParams.push('organization_id');
+
+    if (missingParams.length > 0) {
+      throw new Error(`Missing required parameters: ${missingParams.join(', ')}`);
     }
 
     console.log(`[dialer-start-call] Initiating call from ${caller_id} to ${destination_number} for agent ${agent_id}`);

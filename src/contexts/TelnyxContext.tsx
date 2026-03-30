@@ -514,6 +514,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsMuted(false);
       setIsOnHold(false);
 
+      const callerIdUsed = callerNumber || defaultCallerNumber;
+      if (!callerIdUsed) {
+        throw new Error("No caller ID selected. Please select a phone number to dial from in the Dialer settings.");
+      }
+
       // 1. Create the Call Record first to get a UUID (call_id)
       // This ID is used as client_state to link all Telnyx events back to this record.
       const { data: callRecord, error: callError } = await (supabase as any)
@@ -524,7 +529,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           agent_id: profile.id,
           status: 'ringing',
           direction: 'outbound',
-          caller_id_used: callerNumber || defaultCallerNumber || "",
+          caller_id_used: callerIdUsed,
         })
         .select('id')
         .single();
