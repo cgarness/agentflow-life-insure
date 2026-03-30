@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
       webhook_url: `${supabaseUrl}/functions/v1/telnyx-webhook`,
     };
 
-    console.log('[dialer-start-call] Calling Telnyx API...');
+    console.log(`[dialer-start-call] Calling Telnyx API with payload (UUID: ${call_id}):`, JSON.stringify(telnyxPayload, null, 2));
     const telnyxResponse = await fetch('https://api.telnyx.com/v2/calls', {
       method: 'POST',
       headers: {
@@ -59,31 +59,28 @@ Deno.serve(async (req) => {
     });
 
     if (!telnyxResponse.ok) {
-      const errorText = await telnyxResponse.text();
-      throw new Error(`Telnyx API error: ${telnyxResponse.status} - ${errorText}`);
+      const errorData = await telnyxResponse.json().catch(() => ({}));
+      console.error(`[dialer-start-call] Telnyx API error [${telnyxResponse.status}]:`, JSON.stringify(errorData, null, 2));
+      throw new Error(errorData.errors?.[0]?.detail || `Telnyx API error: ${telnyxResponse.status}`);
     }
 
     const telnyxData = await telnyxResponse.json();
     const callControlId = telnyxData.data.call_control_id;
 
-    console.log(`[dialer-start-call] Call initiated. Call Control ID: ${callControlId}`);
+    console.log(`[dialer-start-call] Call authorized by Telnyx. Control ID: ${callControlId}`);
 
-    // 3. Update Call Record in DB
-    const { error: upsertError } = await supabase
+    // 3. Update Call Record in DB with the control ID
+    const { error: updateError } = await supabase
       .from('calls')
-      .upsert({
-        id: call_id,
-        organization_id,
-        agent_id: agent_id,
+      .update({
         telnyx_call_control_id: callControlId,
         status: 'ringing',
-        direction: 'outbound',
-        caller_id_used: caller_id,
         updated_at: new Date().toISOString(),
-      });
+      })
+      .eq('id', call_id);
 
-    if (upsertError) {
-      console.error(`[dialer-start-call] Error upserting call record ${call_id}:`, upsertError);
+    if (updateError) {
+      console.error(`[dialer-start-call] Error updating call record ${call_id}:`, updateError);
     }
 
     return new Response(JSON.stringify({ success: true, call_control_id: callControlId }), {
