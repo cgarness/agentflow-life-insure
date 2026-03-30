@@ -38,15 +38,29 @@ Deno.serve(async (req) => {
 
     console.log(`[dialer-start-call] Initiating call from ${caller_id} to ${destination_number} for agent ${agent_id}`);
 
-    // 1. Fetch Telnyx Settings for Organization
-    const { data: settings, error: settingsError } = await supabase
+    // 1. Fetch Telnyx Settings for Organization (with fallback to platform default)
+    let { data: settings, error: settingsError } = await supabase
       .from('telnyx_settings')
       .select('api_key, connection_id')
       .eq('organization_id', organization_id)
       .maybeSingle();
 
+    if (!settings && !settingsError) {
+      console.log(`[dialer-start-call] Settings NOT found for org ${organization_id}. Trying platform defaults...`);
+      const { data: defaultSettings, error: defaultError } = await supabase
+        .from('telnyx_settings')
+        .select('api_key, connection_id')
+        .eq('id', '00000000-0000-0000-0000-000000000001')
+        .maybeSingle();
+      
+      if (defaultSettings) {
+        settings = defaultSettings;
+        settingsError = defaultError;
+      }
+    }
+
     if (settingsError || !settings?.api_key || !settings?.connection_id) {
-      throw new Error(`Telnyx settings not found for organization ${organization_id}`);
+      throw new Error(`Telnyx settings not found or incomplete for organization ${organization_id} or platform defaults.`);
     }
 
     // 2. Prepare Telnyx REST API Call

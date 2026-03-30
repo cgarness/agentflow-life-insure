@@ -548,7 +548,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       if (dialError || dialData?.error) {
-        throw new Error(dialError?.message || dialData?.error || "Failed to initiate server-side call");
+        const errorMsg = dialData?.error || dialError?.message || "Failed to initiate server-side call";
+        console.error("[TelnyxContext] Dialer function error:", errorMsg);
+        throw new Error(errorMsg);
       }
 
       console.log("[TelnyxContext] Server-side call initiated successfully:", dialData.call_control_id);
