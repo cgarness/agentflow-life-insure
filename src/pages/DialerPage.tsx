@@ -739,6 +739,134 @@ export default function DialerPage() {
     }
   }, [history]);
 
+  /* --- call handlers --- */
+
+  const [showCallerIdWarning, setShowCallerIdWarning] = useState(false);
+  const [pendingCall, setPendingCall] = useState<{
+    leadPhone: string;
+    contactId: string;
+    proposedNumber: string;
+    previousNumber: string;
+  } | null>(null);
+
+  const handleAdvance = useCallback(() => {
+    setShowWrapUp(false);
+    setSelectedDisp(null);
+    setNoteText("");
+    setNoteError(false);
+    setCurrentCallId(null);
+    setCurrentLeadIndex((i) => {
+      const next = i + 1;
+      autoDialer?.setIndex(next);
+      return next;
+    });
+  }, [autoDialer]);
+
+  const handleSkip = useCallback(() => {
+    setIsEditingContact(false);
+    setSelectedDisp(null);
+    setNoteText("");
+    setNoteError(false);
+    setCurrentCallId(null);
+    setCurrentLeadIndex((i) => {
+      const next = i + 1;
+      autoDialer?.setIndex(next);
+      return next;
+    });
+  }, [autoDialer]);
+
+  const proceedWithCall = useCallback((leadPhone: string, callerNumber: string, callId?: string) => {
+    lastUsedCallerId.current = callerNumber;
+    setCurrentCallId(callId || null);
+    telnyxMakeCall(leadPhone, callerNumber || undefined, callId);
+  }, [telnyxMakeCall]);
+
+  const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
+    const smartCallerId = await getSmartCallerId(leadPhone, contactId);
+    
+    // For manual calls, we create the record first to get a callId
+    let callId;
+    try {
+      callId = await createCall({
+        contact_id: contactId,
+        agent_id: user?.id || "",
+        campaign_id: selectedCampaignId || undefined,
+        caller_id_used: smartCallerId,
+        contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
+        contact_phone: leadPhone,
+      }, organizationId);
+    } catch (err) {
+      console.error("Failed to create call record for manual call:", err);
+    }
+
+    proceedWithCall(leadPhone, smartCallerId, callId);
+  }, [getSmartCallerId, user?.id, selectedCampaignId, currentLead, organizationId, proceedWithCall]);
+
+  const handleCall = useCallback(() => {
+    if (!currentLead) {
+      toast.error("No lead selected");
+      return;
+    }
+    if (telnyxStatus === "error") {
+      toast.error(telnyxErrorMessage || "Dialer error. Please check your settings.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const isFirstCall = !dialerStats?.session_started_at;
+    // Optimistic local update
+    setDialerStats(prev => {
+      if (!prev) {
+        return {
+          id: "",
+          agent_id: user?.id || "",
+          stat_date: new Date().toISOString().split("T")[0],
+          calls_made: 1,
+          calls_connected: 0,
+          total_talk_seconds: 0,
+          policies_sold: 0,
+          session_started_at: now,
+          last_updated_at: now,
+        };
+      }
+      return {
+        ...prev,
+        calls_made: prev.calls_made + 1,
+        session_started_at: prev.session_started_at ?? now,
+        last_updated_at: now,
+      };
+    });
+    // Persist to Supabase (fire-and-forget)
+    if (user?.id) {
+      upsertDialerStats(user.id, {
+        calls_made: 1,
+        session_started_at: isFirstCall ? now : null,
+      }).catch(() => {});
+    }
+    const contactId = currentLead.lead_id || currentLead.id || "";
+    initiateCall(currentLead.phone, contactId);
+  }, [currentLead, telnyxStatus, telnyxErrorMessage, dialerStats, user?.id, initiateCall]);
+
+  const handleHangUp = useCallback(() => {
+    console.log("[Dialer] Hang up — duration:", telnyxCallDuration, "counting as connected:", telnyxCallDuration >= 7);
+    if (telnyxCallDuration >= 7) {
+      // Optimistic local update
+      setDialerStats(prev => prev ? {
+        ...prev,
+        calls_connected: prev.calls_connected + 1,
+        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
+        last_updated_at: new Date().toISOString(),
+      } : prev);
+      // Persist to Supabase
+      if (user?.id) {
+        upsertDialerStats(user.id, {
+          calls_connected: 1,
+          total_talk_seconds: telnyxCallDuration,
+        }).catch(() => {});
+      }
+    }
+    telnyxHangUp();
+  }, [telnyxCallDuration, telnyxHangUp, user?.id]);
+
   // AMD auto-dispose handler
   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
     // Use currentCallId (internal UUID) which is more reliable than telnyxCurrentCall
@@ -1177,105 +1305,7 @@ export default function DialerPage() {
 
   /* --- call handlers --- */
 
-  const [showCallerIdWarning, setShowCallerIdWarning] = useState(false);
-  const [pendingCall, setPendingCall] = useState<{
-    leadPhone: string;
-    contactId: string;
-    proposedNumber: string;
-    previousNumber: string;
-  } | null>(null);
 
-  const proceedWithCall = (leadPhone: string, callerNumber: string, callId?: string) => {
-    lastUsedCallerId.current = callerNumber;
-    setCurrentCallId(callId || null);
-    telnyxMakeCall(leadPhone, callerNumber || undefined, callId);
-  };
-
-  const initiateCall = async (leadPhone: string, contactId: string) => {
-    const smartCallerId = await getSmartCallerId(leadPhone, contactId);
-    
-    // For manual calls, we create the record first to get a callId
-    let callId;
-    try {
-      callId = await createCall({
-        contact_id: contactId,
-        agent_id: user?.id || "",
-        campaign_id: selectedCampaignId || undefined,
-        caller_id_used: smartCallerId,
-        contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
-        contact_phone: leadPhone,
-      }, organizationId);
-    } catch (err) {
-      console.error("Failed to create call record for manual call:", err);
-    }
-
-    proceedWithCall(leadPhone, smartCallerId, callId);
-  };
-
-  function handleCall() {
-    if (!currentLead) {
-      toast.error("No lead selected");
-      return;
-    }
-    if (telnyxStatus === "error") {
-      toast.error(telnyxErrorMessage || "Dialer error. Please check your settings.");
-      return;
-    }
-    const now = new Date().toISOString();
-    const isFirstCall = !dialerStats?.session_started_at;
-    // Optimistic local update
-    setDialerStats(prev => {
-      if (!prev) {
-        return {
-          id: "",
-          agent_id: user?.id || "",
-          stat_date: new Date().toISOString().split("T")[0],
-          calls_made: 1,
-          calls_connected: 0,
-          total_talk_seconds: 0,
-          policies_sold: 0,
-          session_started_at: now,
-          last_updated_at: now,
-        };
-      }
-      return {
-        ...prev,
-        calls_made: prev.calls_made + 1,
-        session_started_at: prev.session_started_at ?? now,
-        last_updated_at: now,
-      };
-    });
-    // Persist to Supabase (fire-and-forget)
-    if (user?.id) {
-      upsertDialerStats(user.id, {
-        calls_made: 1,
-        session_started_at: isFirstCall ? now : null,
-      }).catch(() => {});
-    }
-    const contactId = currentLead.lead_id || currentLead.id || "";
-    initiateCall(currentLead.phone, contactId);
-  }
-
-  function handleHangUp() {
-    console.log("[Dialer] Hang up — duration:", telnyxCallDuration, "counting as connected:", telnyxCallDuration >= 7);
-    if (telnyxCallDuration >= 7) {
-      // Optimistic local update
-      setDialerStats(prev => prev ? {
-        ...prev,
-        calls_connected: prev.calls_connected + 1,
-        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
-        last_updated_at: new Date().toISOString(),
-      } : prev);
-      // Persist to Supabase
-      if (user?.id) {
-        upsertDialerStats(user.id, {
-          calls_connected: 1,
-          total_talk_seconds: telnyxCallDuration,
-        }).catch(() => {});
-      }
-    }
-    telnyxHangUp();
-  }
 
   function handleSelectDisposition(d: Disposition) {
     if (selectedDisp?.id === d.id) {
@@ -1612,31 +1642,7 @@ export default function DialerPage() {
     return "#6B7280";
   }, [leadStages, currentLead?.status]);
 
-  const handleAdvance = useCallback(() => {
-    setShowWrapUp(false);
-    setSelectedDisp(null);
-    setNoteText("");
-    setNoteError(false);
-    setCurrentCallId(null);
-    setCurrentLeadIndex((i) => {
-      const next = i + 1;
-      autoDialer?.setIndex(next);
-      return next;
-    });
-  }, [autoDialer]);
 
-  const handleSkip = useCallback(() => {
-    setIsEditingContact(false);
-    setSelectedDisp(null);
-    setNoteText("");
-    setNoteError(false);
-    setCurrentCallId(null);
-    setCurrentLeadIndex((i) => {
-      const next = i + 1;
-      autoDialer?.setIndex(next);
-      return next;
-    });
-  }, [autoDialer]);
 
   // ── Queue Position Persistence: save on every lead advance ──
   useEffect(() => {
