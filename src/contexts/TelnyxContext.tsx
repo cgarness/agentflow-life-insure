@@ -489,6 +489,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       toast.error(msg);
       return;
     }
+
+    // 1. Authentication Check: Ensure user has an active Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      console.warn("[TelnyxContext] Call blocked: No active auth session.");
+      toast.error("Standard Authentication Required. Please log in to make calls.");
+      return;
+    }
+
     if (!clientRef.current) return;
 
     // Request microphone permission before placing the call

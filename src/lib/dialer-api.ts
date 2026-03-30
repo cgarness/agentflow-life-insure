@@ -15,28 +15,34 @@ export async function getCampaigns() {
   return data ?? [];
 }
 
-export async function getCampaignLeads(campaignId: string, limit = 100, offset = 0) {
+export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
   // 1. Fetch campaign settings for multi-attempt logic
-  const { data: campaign } = await supabase
+  let campaignQuery = supabase
     .from("campaigns")
     .select("max_attempts, retry_interval_hours")
-    .eq("id", campaignId)
-    .maybeSingle();
+    .eq("id", campaignId);
+
+  if (organizationId) {
+    campaignQuery = campaignQuery.eq("organization_id", organizationId);
+  }
+
+  const { data: campaign } = await campaignQuery.maybeSingle();
 
   const maxAttempts = campaign?.max_attempts ?? 1;
   const retryInterval = campaign?.retry_interval_hours ?? 0;
 
   // 2. Build the query
   // We want leads that are 'Queued' OR ('Called' AND attempts < max AND time passed)
-  // Since Postgrest filtering for complex OR with calculated dates is tricky,
-  // we'll fetch a slightly broader set and filter in JS, or use a more clever query.
-  // For simplicity and correctness with pagination, we'll use a filter that allows Queued and Called.
   let query = supabase
     .from("campaign_leads")
     .select("*, lead:leads(*)")
     .eq("campaign_id", campaignId)
     .not("status", "in", '("DNC","Completed","Removed")') // Exclude terminal statuses
     .order("created_at", { ascending: true });
+
+  if (organizationId) {
+    query = query.eq("organization_id", organizationId);
+  }
 
   const { data, error } = await query.range(offset, offset + limit - 1);
   if (error) throw new Error(error.message);

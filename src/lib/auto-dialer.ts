@@ -122,14 +122,19 @@ export class AutoDialer {
     const lead = this.leadQueue[this.currentLeadIndex];
 
     // DNC double-check in case list changed since session start
-    let dncRecord: Record<string, unknown> | null = null;
+    let dncRecord: any = null;
     try {
-      const { data } = await supabase
+      let dncQuery = supabase
         .from('dnc_list')
         .select('*')
-        .eq('phone_number', lead.phone)
-        .maybeSingle();
-      dncRecord = data as Record<string, unknown> | null;
+        .eq('phone_number', lead.phone);
+      
+      if (this.organizationId) {
+        dncQuery = dncQuery.eq('organization_id', this.organizationId);
+      }
+      
+      const { data } = await dncQuery.maybeSingle();
+      dncRecord = data;
     } catch (err) {
       console.warn('[AutoDialer] DNC check failed, proceeding without DNC verification', err);
     }
@@ -181,26 +186,30 @@ export class AutoDialer {
 
   async saveDispositionAndNext(dispositionId: string, notes?: string): Promise<void> {
     const lead = this.leadQueue[this.currentLeadIndex];
-    console.log(`[AutoDialer] Saving disposition ${dispositionId} for lead ${lead?.lead_id || lead?.id}`);
+    if (!lead) return;
+    
+    console.log(`[AutoDialer] Saving disposition ${dispositionId} for lead ${lead.lead_id || lead.id}`);
 
     // Save disposition to existing call record (match by master lead ID)
     try {
-      await supabase
+      let callUpdateQuery = supabase
         .from('calls')
         .update({
           disposition_id: dispositionId,
           notes: notes || ''
         } as any)
-        .eq('contact_id', lead.lead_id || lead.id)
+        .eq('contact_id', lead.lead_id || lead.id);
+
+      if (this.organizationId) {
+        callUpdateQuery = callUpdateQuery.eq('organization_id', this.organizationId);
+      }
+
+      await callUpdateQuery
         .order('created_at', { ascending: false })
         .limit(1);
     } catch (err) {
       console.warn('[AutoDialer] Disposition may not have saved:', err);
     }
-
-    // Note: status, call_attempts, and last_called_at are handled by dialer-api's updateLeadStatus
-    // which is called by the DialerPage before this method.
-    // Redundant update removed to prevent race conditions or stale data overwrites.
 
     if (this.autoDialEnabled) {
       this.currentLeadIndex++;

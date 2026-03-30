@@ -528,7 +528,7 @@ export default function DialerPage() {
   const fetchLeadsBatch = useCallback(async (campaignId: string, offset: number, clear = false) => {
     setLoadingLeads(true);
     try {
-      const leads = await getCampaignLeads(campaignId, BATCH_SIZE, offset);
+      const leads = await getCampaignLeads(campaignId, organizationId, BATCH_SIZE, offset);
       if (leads.length < BATCH_SIZE) {
         setHasMoreLeads(false);
       } else {
@@ -548,7 +548,7 @@ export default function DialerPage() {
     } finally {
       setLoadingLeads(false);
     }
-  }, []);
+  }, [organizationId]);
 
   useEffect(() => {
     if (!selectedCampaignId) {
@@ -563,7 +563,7 @@ export default function DialerPage() {
     const loadWithResume = async () => {
       setLoadingLeads(true);
       try {
-        const leads = await getCampaignLeads(selectedCampaignId, BATCH_SIZE, 0);
+        const leads = await getCampaignLeads(selectedCampaignId, organizationId, BATCH_SIZE, 0);
         if (leads.length < BATCH_SIZE) {
           setHasMoreLeads(false);
         } else {
@@ -609,7 +609,7 @@ export default function DialerPage() {
     };
 
     loadWithResume();
-  }, [selectedCampaignId, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedCampaignId, user?.id, organizationId]);
 
   // Load more leads when we get close to the end of the queue
   useEffect(() => {
@@ -869,14 +869,32 @@ export default function DialerPage() {
   // Also checks for AMD machine detection to auto-dispose
   useEffect(() => {
     if (telnyxCallState === "ended") {
-      // Capture currentCallId before any state resets clear it
+      // Capture state before resets
       const savedCallId = currentCallId;
+      const duration = telnyxCallDuration;
       telnyxHangUp();
+
+      // ── Auto-Disposition for Auto-Dialer ──
+      // If the call was not "meaningful" (e.g. < 10s talk time), auto-record No Answer
+      const isMeaningful = duration >= 10;
+      if (autoDialEnabled && autoDialer?.isEnabled() && !isMeaningful && amdStatus !== 'machine') {
+        const noAnswerDisp = dispositions.find(d => 
+          d.name.toLowerCase() === 'no answer' || d.name.toLowerCase().includes('no answer')
+        );
+        if (noAnswerDisp) {
+          console.log("[AutoDialer] Non-meaningful call (< 10s), auto-disposing as No Answer");
+          autoDialer.saveDispositionAndNext(noAnswerDisp.id).catch(err => {
+            console.error("[AutoDialer] Auto-disposition failed:", err);
+          });
+          return; // Skip wrap-up modal and manual disposition
+        }
+      }
 
       // Check for AMD machine detection (Fallback if Realtime missed it)
       const checkAmd = async () => {
         if (!amdEnabled) {
           setAmdStatus('idle');
+          if (!isMeaningful && autoDialEnabled) return; // Already handled by auto-disposition
           setShowWrapUp(true);
           return;
         }
@@ -889,8 +907,6 @@ export default function DialerPage() {
         }
 
         try {
-          // Fallback poll: Shorter delay and fewer attempts than manual polling
-          // since Realtime subscription should have handled the primary detection.
           let callRecord = null;
           for (let attempt = 0; attempt < 3; attempt++) {
             await new Promise(r => setTimeout(r, 1000));
@@ -922,7 +938,7 @@ export default function DialerPage() {
           setAmdStatus('idle');
         }
 
-        // Only show wrap-up if not already advanced by machine detection
+        // Only show wrap-up if not already advanced by machine detection or auto-disposition
         setShowWrapUp(current => {
           if (amdStatus === 'machine') return false;
           return true;
@@ -932,7 +948,7 @@ export default function DialerPage() {
       checkAmd();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentLeadIndex, currentCallId, amdStatus, handleMachineDetectedAction]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentLeadIndex, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
