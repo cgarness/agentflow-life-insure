@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
   Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, ExternalLink, Menu, X,
+  Activity,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebarContext } from "@/contexts/SidebarContext";
@@ -16,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: Phone, label: "Dialer", path: "/dialer" },
+  { icon: Activity, label: "Test Dialer", path: "/test-dialer" },
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: MessageSquare, label: "Conversations", path: "/conversations" },
   { icon: Calendar, label: "Calendar", path: "/calendar" },

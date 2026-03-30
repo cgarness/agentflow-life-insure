@@ -16,6 +16,7 @@ import { TelnyxProvider } from "@/contexts/TelnyxContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import DialerPage from "./pages/DialerPage";
+import TestDialerPage from "./pages/TestDialerPage";
 import Contacts from "./pages/Contacts";
 import Conversations from "./pages/Conversations";
 import CalendarPage from "./pages/CalendarPage";
@@ -115,6 +116,7 @@ const App = () => (
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                           <Route path="/dashboard" element={<Dashboard />} />
                           <Route path="/dialer" element={<DialerPage />} />
+                          <Route path="/test-dialer" element={<TestDialerPage />} />
                           <Route path="/contacts" element={<Contacts />} />
                           <Route path="/conversations" element={<Conversations />} />
                           <Route path="/calendar" element={<CalendarPage />} />
