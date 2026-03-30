@@ -69,21 +69,21 @@ Deno.serve(async (req) => {
     console.log(`[dialer-start-call] Call initiated. Call Control ID: ${callControlId}`);
 
     // 3. Update Call Record in DB
-    // We update the existing record (created by frontend) with the agent_id and Telnyx control ID.
-    const { error: updateError } = await supabase
+    const { error: upsertError } = await supabase
       .from('calls')
-      .update({
+      .upsert({
+        id: call_id,
+        organization_id,
         agent_id: agent_id,
         telnyx_call_control_id: callControlId,
         status: 'ringing',
         direction: 'outbound',
         caller_id_used: caller_id,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', call_id);
+      });
 
-    if (updateError) {
-      console.error(`[dialer-start-call] Error updating call record ${call_id}:`, updateError);
+    if (upsertError) {
+      console.error(`[dialer-start-call] Error upserting call record ${call_id}:`, upsertError);
     }
 
     return new Response(JSON.stringify({ success: true, call_control_id: callControlId }), {

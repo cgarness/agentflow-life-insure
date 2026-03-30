@@ -522,7 +522,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           contact_id: clientState || null, // Assuming clientState passed is the contact ID
           organization_id: organizationId,
           agent_id: profile.id,
-          status: 'dialing',
+          status: 'ringing',
           direction: 'outbound',
           caller_id_used: callerNumber || defaultCallerNumber || "",
         })
