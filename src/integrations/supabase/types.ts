@@ -2099,6 +2099,7 @@ export type Database = {
           provider: string
           recording_enabled: boolean | null
           recording_retention_days: number | null
+          ring_timeout: number | null
           transcription_enabled: boolean | null
           updated_at: string | null
         }
@@ -2115,6 +2116,7 @@ export type Database = {
           provider?: string
           recording_enabled?: boolean | null
           recording_retention_days?: number | null
+          ring_timeout?: number | null
           transcription_enabled?: boolean | null
           updated_at?: string | null
         }
@@ -2131,6 +2133,7 @@ export type Database = {
           provider?: string
           recording_enabled?: boolean | null
           recording_retention_days?: number | null
+          ring_timeout?: number | null
           transcription_enabled?: boolean | null
           updated_at?: string | null
         }

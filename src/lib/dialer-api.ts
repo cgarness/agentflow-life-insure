@@ -118,6 +118,7 @@ export async function createCall(data: {
   contact_id: string;
   agent_id: string;
   campaign_id?: string;
+  campaign_lead_id?: string;
   caller_id_used?: string;
   contact_name?: string;
   contact_phone?: string;
@@ -127,6 +128,7 @@ export async function createCall(data: {
     .from("calls")
     .insert({
       contact_id: data.contact_id,
+      campaign_lead_id: data.campaign_lead_id || null,
       agent_id: data.agent_id,
       campaign_id: data.campaign_id || null,
       caller_id_used: data.caller_id_used || null,

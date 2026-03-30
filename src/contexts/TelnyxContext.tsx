@@ -512,6 +512,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         callerNumber: callerNumber || defaultCallerNumber || "",
         audio: true,
         clientState: clientState || undefined,
+        // Optional Telnyx Call Control parameters passed through to dial command
+        answering_machine_detection: amdEnabled ? "premium" : undefined,
+        total_analysis_time_millis: amdEnabled ? 15000 : undefined,
       });
       callRef.current = call;
       setCurrentCall(call);

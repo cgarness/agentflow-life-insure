@@ -70,10 +70,10 @@ Deno.serve(async (req: Request) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // "premium" uses ML-based detection for higher accuracy
-          // "detect" is faster but less accurate
-          answering_machine_detection: 'premium',
-          total_analysis_time_millis: 15000, // 15s timeout for detection
+          total_analysis_time_millis: 15000,
+          initial_silence_millis: 3500,
+          greeting_silence_millis: 2000,
+          silence_after_greeting_millis: 1500,
         }),
       }
     );

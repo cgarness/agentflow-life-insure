@@ -155,6 +155,7 @@ export class AutoDialer {
     // Create call record — use lead_id (master contact ID), not id (junction row ID)
     const callId = await createCall({
       contact_id: lead.lead_id || lead.id,
+      campaign_lead_id: lead.id,
       agent_id: this.agentId,
       campaign_id: this.campaignId,
       caller_id_used: callerNumber,
