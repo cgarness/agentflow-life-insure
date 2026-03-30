@@ -397,6 +397,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         if (state === "active") {
           setCallState("active");
+        } else if (state === "ringing" || state === "trying") {
+          // AUTO-ANSWER SAFETY: Only auto-answer if we are expecting a call (dialing state)
+          if (callState === "dialing") {
+            console.log("[TelnyxContext] Auto-answering inbound bridge call.");
+            call.answer();
+          }
+          setCallState("dialing");
         } else if (state === "destroy" || state === "hangup") {
           setCallState("ended");
           if (timerRef.current) {
@@ -426,8 +433,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
             }
           }, 2000);
-        } else if (state === "ringing" || state === "trying") {
-          setCallState("dialing");
         }
       });
 
@@ -509,28 +514,50 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       isAutoDialingRef.current = !!clientState;
-
-      // Pass clientState as-is — TelnyxRTC SDK handles base64 encoding internally.
-      // Previously we manually btoa()-encoded it here, causing double-encoding and
-      // breaking the webhook's ability to decode and match the UUID to our call record.
-      const call = clientRef.current.newCall({
-        destinationNumber,
-        callerNumber: callerNumber || defaultCallerNumber || "",
-        audio: true,
-        clientState: clientState || undefined,
-        // Optional Telnyx Call Control parameters passed through to dial command
-        answering_machine_detection: amdEnabled ? "premium" : undefined,
-        total_analysis_time_millis: amdEnabled ? 15000 : undefined,
-      });
-      callRef.current = call;
-      setCurrentCall(call);
       setCallState("dialing");
       setIsMuted(false);
       setIsOnHold(false);
-      // Attach remote audio immediately so ringback tone is heard
-      attachRemoteAudio(call);
-    } catch (err) {
+
+      // 1. Create the Call Record first to get a UUID (call_id)
+      // This ID is used as client_state to link all Telnyx events back to this record.
+      const { data: callRecord, error: callError } = await (supabase as any)
+        .from('calls')
+        .insert({
+          contact_id: clientState || null, // Assuming clientState passed is the contact ID
+          organization_id: organizationId,
+          agent_id: profile.id,
+          status: 'dialing',
+          direction: 'outbound',
+          caller_id_used: callerNumber || defaultCallerNumber || "",
+        })
+        .select('id')
+        .single();
+
+      if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
+
+      // 2. Invoke the Edge Function to start the Two-Legged Call
+      const { data: dialData, error: dialError } = await supabase.functions.invoke("dialer-start-call", {
+        body: {
+          destination_number: destinationNumber,
+          caller_id: callerNumber || defaultCallerNumber || "",
+          agent_id: profile.id,
+          call_id: callRecord.id,
+          organization_id: organizationId
+        },
+      });
+
+      if (dialError || dialData?.error) {
+        throw new Error(dialError?.message || dialData?.error || "Failed to initiate server-side call");
+      }
+
+      console.log("[TelnyxContext] Server-side call initiated successfully:", dialData.call_control_id);
+      
+      // Note: We don't have a 'call' object yet. We will receive it via 'telnyx.notification' 
+      // when the server bridges the call back to us (the agent).
+    } catch (err: any) {
       console.error("Failed to start call:", err);
+      toast.error(err.message || "Failed to start call");
+      setCallState("idle");
     }
   }, [status, defaultCallerNumber, attachRemoteAudio]);
 
