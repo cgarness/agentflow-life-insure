@@ -794,7 +794,10 @@ export default function DialerPage() {
     );
 
     if (noAnswerDisp) {
+      console.log('[AMD] Found "No Answer" disposition, auto-advancing...');
       setSelectedDisp(noAnswerDisp);
+      setShowWrapUp(false); // Force close modal if open
+      
       // If autoDialer is active, use it to advance + trigger next call
       if (autoDialer && autoDialer.isEnabled()) {
         autoDialer.setIndex(currentLeadIndex);
@@ -839,9 +842,11 @@ export default function DialerPage() {
         (payload) => {
           const newAMD = payload.new.amd_result;
           const oldAMD = payload.old?.amd_result;
+          const newDisp = payload.new.disposition_name;
           
-          if (newAMD === 'machine' && oldAMD !== 'machine') {
-            console.log('[Realtime] Machine detected via DB update');
+          // Trigger skip if machine is detected OR if the server auto-disposed as "No Answer"
+          if ((newAMD === 'machine' && oldAMD !== 'machine') || (newDisp === 'No Answer')) {
+            console.log('[Realtime] Machine/Auto-No-Answer detected via DB update');
             handleMachineDetectedAction();
           } else if (newAMD === 'human' && oldAMD !== 'human') {
             setAmdStatus('human');

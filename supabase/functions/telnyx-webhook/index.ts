@@ -117,6 +117,36 @@ async function telnyxHangup(apiKey: string, callControlId: string): Promise<void
   }
 }
 
+// ─── Helper: start AMD via Telnyx REST API ───
+async function telnyxStartAmd(apiKey: string, callControlId: string): Promise<void> {
+  try {
+    const resp = await fetch(
+      `https://api.telnyx.com/v2/calls/${callControlId}/actions/answering_machine_detection`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          total_analysis_time_millis: 15000,
+          initial_silence_millis: 3500,
+          greeting_silence_millis: 2000,
+          silence_after_greeting_millis: 1500,
+          // Premium AMD results: 'human_residence' | 'human_business' | 'machine' | 'silence' | 'fax_detected' | 'not_sure'
+          // We stick to standard parameters to avoid false positives as requested.
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error('Telnyx AMD start failed:', resp.status, errText);
+    }
+  } catch (err) {
+    console.error('Telnyx AMD start error:', err);
+  }
+}
+
 // ─── Helper: check if AMD is enabled ───
 async function isAmdEnabled(supabase: any, organizationId?: string): Promise<boolean> {
   try {
@@ -243,26 +273,13 @@ async function handleCallAnswered(supabase: any, payload: any) {
     const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
 
     if (amdEnabled) {
-      console.log('AMD enabled — triggering AMD start on answer for call:', payload.call_session_id);
-      try {
-        // Invoke the telnyx-amd-start edge function
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        const resp = await fetch(`${supabaseUrl}/functions/v1/telnyx-amd-start`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${serviceKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            call_control_id: payload.call_control_id,
-            organization_id: orgId,
-          }),
-        });
-        const result = await resp.json();
-        console.log('AMD start result:', result);
-      } catch (err) {
-        console.error('Failed to trigger AMD start on answer:', err);
+      console.log('AMD enabled — triggering AMD start via REST for call:', payload.call_session_id);
+      const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
+      if (apiKey) {
+        // Trigger AMD directly from webhook to minimize latency
+        await telnyxStartAmd(apiKey, payload.call_control_id);
+      } else {
+        console.warn('Cannot start AMD: No Telnyx API key found for org:', orgId);
       }
     }
   }
@@ -405,11 +422,15 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
 
   if (!amdEnabled) {
     console.log('[AMD-Handler] Machine detected but AMD auto-action is disabled in settings.');
-    // We still update the call record result for the UI
-    await supabase
-      .from('calls')
-      .update({ amd_result: 'machine' })
-      .eq('telnyx_call_id', callSessionId);
+    // We still update the call record result for the UI (scoped by org if available)
+    let updateQuery = supabase.from('calls').update({ amd_result: 'machine' }).eq('telnyx_call_id', callSessionId);
+    if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+    await updateQuery;
+    return;
+  }
+
+  if (!orgId) {
+    console.warn('[AMD-Handler] Cannot execute auto-action: No organization_id found for call.');
     return;
   }
 
@@ -420,54 +441,68 @@ async function handleMachineDetected(supabase: any, callControlId: string, callS
     .from('calls')
     .select('id, contact_id, campaign_lead_id, organization_id')
     .eq('telnyx_call_id', callSessionId)
+    .eq('organization_id', orgId) // RLS Safety
     .maybeSingle();
 
   if (callFetchError) console.error('[AMD-Handler] Error fetching call record:', callFetchError);
   
-  const targetOrgId = orgId || callRecord?.organization_id;
   console.log('[AMD-Handler] Call record lookup:', { 
     found: !!callRecord, 
     campaignLeadId: callRecord?.campaign_lead_id,
-    orgId: targetOrgId 
   });
 
-  // 2. Update campaign_leads if applicable
+  // 2. Lookup "No Answer" disposition ID for this organization
+  const { data: disposition } = await supabase
+    .from('dispositions')
+    .select('id')
+    .eq('organization_id', orgId)
+    .ilike('name', 'No Answer')
+    .maybeSingle();
+
+  const dispositionId = disposition?.id || null;
+
+  // 3. Update campaign_leads if applicable
   if (callRecord?.campaign_lead_id) {
     console.log(`[AMD-Handler] Updating campaign_lead ${callRecord.campaign_lead_id} to No Answer`);
     const { data: lead } = await supabase
       .from('campaign_leads')
       .select('call_attempts')
       .eq('id', callRecord.campaign_lead_id)
+      .eq('organization_id', orgId) // RLS Safety
       .maybeSingle();
 
     const { error: leadUpdateError } = await supabase
       .from('campaign_leads')
       .update({
         status: 'Called',
-        disposition: 'No Answer',
+        disposition: 'No Answer', // Textual disposition
+        disposition_id: dispositionId, // Linked ID
         call_attempts: (lead?.call_attempts || 0) + 1,
         last_called_at: new Date().toISOString(),
       })
-      .eq('id', callRecord.campaign_lead_id);
+      .eq('id', callRecord.campaign_lead_id)
+      .eq('organization_id', orgId); // RLS Safety
     
     if (leadUpdateError) console.error('[AMD-Handler] Error updating campaign_lead:', leadUpdateError);
   }
 
-  // 3. Update call record with disposition and status
+  // 4. Update call record with disposition and status
   const { error: callUpdateError } = await supabase
     .from('calls')
     .update({
       status: 'completed',
       amd_result: 'machine',
       disposition_name: 'No Answer',
+      disposition_id: dispositionId,
       updated_at: new Date().toISOString(),
     })
-    .eq('telnyx_call_id', callSessionId);
+    .eq('telnyx_call_id', callSessionId)
+    .eq('organization_id', orgId); // RLS Safety
 
   if (callUpdateError) console.error('[AMD-Handler] Error updating call record:', callUpdateError);
 
-  // 4. Auto-hangup via Telnyx REST API
-  const apiKey = await getTelnyxApiKey(supabase, targetOrgId || undefined);
+  // 5. Auto-hangup via Telnyx REST API
+  const apiKey = await getTelnyxApiKey(supabase, orgId);
   if (apiKey) {
     console.log(`[AMD-Handler] Initiating Telnyx REST hangup for control_id: ${callControlId}`);
     await telnyxHangup(apiKey, callControlId);
