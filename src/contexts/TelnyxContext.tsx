@@ -300,15 +300,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         body: { connection_id: creds.connection_id },
       });
 
-      if (tokenError || (!tokenData?.sip_username && !tokenData?.token)) {
-        const msg = tokenData?.error || tokenError?.message || "Failed to get SIP credentials or token";
+      if (tokenError || !tokenData?.token) {
+        const msg = tokenData?.error || tokenError?.message || "Failed to provision secure WebRTC token";
         console.error("telnyx-token error:", msg);
         setStatus("error");
         setErrorMessage(msg);
+        toast.error(msg);
         return;
       }
 
-      console.log("Telnyx auth method:", tokenData.auth_method || (tokenData.token ? "token" : "sip_credentials"));
+      console.log(`[TelnyxContext] Authenticated as Agent: ${tokenData.sip_username}`);
 
       // 3. Pre-acquire microphone so permission is already granted at call time
       try {
@@ -317,15 +318,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // Mic denied — still register; makeCall will handle the prompt
       }
 
-      // 4. Initialize TelnyxRTC with either SIP credentials or token
-      const clientOptions: any = tokenData.token 
-        ? { login_token: tokenData.token }
-        : {
-            login: tokenData.sip_username,
-            password: tokenData.sip_password,
-          };
-
-      const client = new TelnyxRTC(clientOptions);
+      // 4. Initialize TelnyxRTC with the secure login token
+      const client = new TelnyxRTC({
+        login_token: tokenData.token,
+      });
 
       client.on("telnyx.ready", () => {
         setStatus("ready");

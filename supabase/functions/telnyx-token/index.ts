@@ -73,92 +73,105 @@ Deno.serve(async (req) => {
     if (!apiKey) throw new Error("No API key configured.");
     if (!connectionId) throw new Error("No Connection ID configured.");
 
-    // 1. If we have connection_id, prioritize generating a fresh token
-    if (connectionId) {
-      try {
-        console.log("Generating on-demand Telnyx token for connection:", connectionId);
+    // 3. Auto-Provision SIP Username if missing
+    let sipUsername = profile.sip_username;
+    if (!sipUsername) {
+      sipUsername = `agent_${user.id.substring(0, 8)}`;
+      console.log(`[telnyx-token] Auto-generating sip_username for user ${user.id}: ${sipUsername}`);
+      
+      const { error: updateError } = await supabaseClient
+        .from("profiles")
+        .update({ sip_username: sipUsername })
+        .eq("id", user.id);
         
-        // Create Telephony Credential
-        const credRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
+      if (updateError) {
+        console.error("[telnyx-token] Failed to save auto-generated sip_username:", updateError);
+        throw new Error("Failed to provision agent identity. Check database permissions.");
+      }
+    }
+
+    // 4. Resolve/Provision Telnyx Telephony Credential
+    let credId: string | null = null;
+    try {
+      console.log(`[telnyx-token] Resolving Telephony Credential for: ${sipUsername}`);
+      
+      // A. Search for existing credential by name within this connection
+      const listRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials?filter[connection_id]=${connectionId}`, {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${apiKey}` },
+      });
+      
+      if (!listRes.ok) throw new Error("Failed to list Telnyx credentials");
+      
+      const listData = await listRes.json();
+      const existing = listData.data.find((c: any) => c.name === sipUsername);
+      
+      if (existing) {
+        credId = existing.id;
+        console.log(`[telnyx-token] Found existing credential: ${credId}`);
+      } else {
+        // B. Create new credential if not found
+        console.log(`[telnyx-token] No existing credential found. Creating new one for: ${sipUsername}`);
+        const createRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ 
-        connection_id: connectionId,
-        expires_at: new Date(Date.now() + 86400000).toISOString(), // 24 hours
-        name: `AgentFlow-${user.id.substring(0, 8)}`,
-      }),
+            connection_id: connectionId,
+            name: sipUsername,
+            expires_at: new Date(Date.now() + 86400000).toISOString(), // 24 hours
+          }),
         });
-
-        if (!credRes.ok) {
-          const errorText = await credRes.text();
-          console.error("Failed to create telephony credential:", errorText);
+        
+        if (!createRes.ok) {
+          const errorText = await createRes.text();
           throw new Error(`Failed to create telephony credential: ${errorText}`);
         }
-
-        const credData = await credRes.json();
-        const credId = credData.data.id;
-
-        // Generate Token
-        const tokenRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credId}/token`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!tokenRes.ok) {
-          const errorText = await tokenRes.text();
-          console.error("Failed to generate Telnyx token:", errorText);
-          throw new Error(`Failed to generate Telnyx token: ${errorText}`);
-        }
-
-        const rawToken = await tokenRes.text();
-        let token = rawToken;
         
-        // Telnyx sometimes returns {"data": "token"} even if docs say raw string
-        try {
-          const json = JSON.parse(rawToken);
-          if (json.data) token = json.data;
-          else if (typeof json === 'string') token = json;
-        } catch (e) {
-          // It's a raw string, use as is
-        }
-
-        console.log("Successfully retrieved token (length:", token.length, ")");
-
-        return new Response(
-          JSON.stringify({
-            token: token.trim(),
-            connection_id: connectionId,
-            auth_method: "token",
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      } catch (tokenError: any) {
-        console.warn("Token generation failed, checking for SIP credentials fallback:", tokenError.message);
-        // Fall through to try SIP credentials if token fails
+        const createData = await createRes.json();
+        credId = createData.data.id;
+        console.log(`[telnyx-token] Created new credential: ${credId}`);
       }
+    } catch (err: any) {
+      console.error("[telnyx-token] Credential resolution failed:", err.message);
+      throw err;
     }
 
-    // 2. Fallback: If we have explicit SIP credentials, use them
-    if (finalSettings.sip_username && finalSettings.sip_password) {
-      console.log("Using SIP credential fallback for user:", user.id);
-      return new Response(
-        JSON.stringify({
-          sip_username: finalSettings.sip_username,
-          sip_password: finalSettings.sip_password,
-          connection_id: connectionId,
-          auth_method: "sip_credentials",
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (!credId) throw new Error("Failed to resolve or create telephony credential ID.");
+
+    // 5. Generate WebRTC Token bound to this specific Credential ID
+    console.log(`[telnyx-token] Generating WebRTC token for Credential ID: ${credId}`);
+    const tokenRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credId}/token`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!tokenRes.ok) {
+      const errorText = await tokenRes.text();
+      console.error("[telnyx-token] Token generation failed:", errorText);
+      throw new Error("Failed to generate secure WebRTC token.");
     }
 
-    throw new Error("Could not generate a login token and no SIP credentials are configured. Please verify your API Key and Connection ID in Phone Settings, or add SIP credentials as a fallback.");
+    let token = await tokenRes.text();
+    try {
+      const json = JSON.parse(token);
+      if (json.data) token = json.data;
+    } catch (e) { /* use raw string */ }
+
+    return new Response(
+      JSON.stringify({
+        token: token.trim(),
+        sip_username: sipUsername,
+        connection_id: connectionId,
+        auth_method: "token",
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
 
   } catch (error) {
     return new Response(
