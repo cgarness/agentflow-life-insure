@@ -1064,7 +1064,7 @@ export default function DialerPage() {
         });
       };
 
-      checkAmd();
+      setTimeout(checkAmd, 3000);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
