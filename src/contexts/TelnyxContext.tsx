@@ -89,6 +89,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const isAutoDialingRef = useRef(false);
   const activeCallIdRef = useRef<string | null>(null);
+  const activeCallControlIdRef = useRef<string | null>(null);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -185,10 +186,80 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [organizationId]);
 
-  const hangUp = useCallback(() => {
-    if (callRef.current) {
-      try { callRef.current.hangup(); } catch {} // eslint-disable-line no-empty
+  const hangUp = useCallback(async () => {
+    const callId = activeCallIdRef.current;
+    const controlId = activeCallControlIdRef.current;
+    const wasAutoDialing = isAutoDialingRef.current;
+
+    console.log("[TelnyxContext] Initiating dual-layer hangup.", { callId, controlId });
+
+    // 1. Optimistic UI Reset (Instant)
+    // We set callState to "ended" first to trigger wrap-up UI in DialerPage
+    setCallState("ended");
+    
+    // Clear audio immediately
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
     }
+
+    // Layer 1: Local WebRTC Hangup leg
+    if (callRef.current) {
+      try { 
+        callRef.current.hangup(); 
+      } catch (err) {
+        console.warn("[TelnyxContext] Local hangup error:", err);
+      }
+      callRef.current = null;
+    }
+
+    // Layer 2: Secure Server-Side Hangup via Edge Function
+    if (callId) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+          const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+          // Fire and forget — the Edge function will handle DB finalization and Telnyx hangup
+          fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${session.access_token}`,
+              "apikey": SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ 
+              call_id: callId,
+              call_control_id: controlId 
+            }),
+          }).catch(err => console.warn("[TelnyxContext] Edge hangup fetch error:", err));
+        }
+      } catch (err) {
+        console.warn("[TelnyxContext] Error prepping Edge hangup:", err);
+      }
+    }
+
+    // Snappy cleanup of local states
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    endResetRef.current = setTimeout(() => {
+      setCallState("idle");
+      setCallDuration(0);
+      setCurrentCall(null);
+      setIsMuted(false);
+      setIsOnHold(false);
+      isAutoDialingRef.current = false;
+      activeCallIdRef.current = null;
+      activeCallControlIdRef.current = null;
+
+      if (wasAutoDialing) {
+        console.log("[AutoDialer] Call ended manually, triggering next lead...");
+        window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
+      }
+    }, 200); // UI feel is snappy but allows "ended" effects to fire
   }, []);
 
   // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
@@ -640,7 +711,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       } else {
         const dialData = await dialResponse.json().catch(() => ({}));
-        console.log("[TelnyxContext] Server-side call initiated successfully:", dialData?.call_control_id);
+        const controlId = dialData?.call_control_id;
+        console.log("[TelnyxContext] Server-side call initiated successfully:", controlId);
+        activeCallControlIdRef.current = controlId;
       }
 
       // Note: We don't have a 'call' object yet at this point. We will receive it via
