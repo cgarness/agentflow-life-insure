@@ -498,6 +498,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [callState]);
 
+  // UUID v4 guard — prevents non-UUID strings (e.g. "autodialer") from being
+  // passed as contact_id FK on the calls table, which causes a PG type violation.
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
+
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, clientState?: string) => {
     if (status !== "ready") {
       const msg = status === "connecting" ? "Dialer is still connecting, please wait." : "Dialer is not connected. Check your credentials in Settings.";
@@ -542,7 +547,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const { data: callRecord, error: callError } = await (supabase as any)
         .from('calls')
         .insert({
-          contact_id: clientState || null, // Assuming clientState passed is the contact ID
+          // Only set contact_id when clientState is a real UUID referencing a lead/contact.
+          // If it's a generic flag string (e.g. "autodialer") or undefined, leave it null
+          // to avoid a PostgreSQL FK / type violation on the calls table.
+          contact_id: isValidUUID(clientState) ? clientState : null,
           organization_id: organizationId,
           agent_id: profile.id,
           status: 'ringing',
@@ -556,8 +564,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // 2. Invoke the Edge Function to start the Two-Legged Call.
       // Using direct fetch() — supabase.functions.invoke() fails silently in this project.
-      const SUPABASE_URL = "https://jncvvsvckxhqgqvkppmj.supabase.co";
-      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuY3Z2c3Zja3hocWdxdmtwcG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njc4ODYsImV4cCI6MjA4ODE0Mzg4Nn0.wlLRugR92OUUpV7_vl8T8EnfPqrAosJ-CfNpKmw0IPE";
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
       const dialResponse = await fetch(`${SUPABASE_URL}/functions/v1/dialer-start-call`, {
         method: "POST",
