@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     // 1. Fetch Telnyx Settings for Organization (with fallback to platform default)
     let { data: settings, error: settingsError } = await supabase
       .from('telnyx_settings')
-      .select('api_key, connection_id')
+      .select('api_key, connection_id, call_control_app_id')
       .eq('organization_id', organization_id)
       .maybeSingle();
 
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
       console.log(`[dialer-start-call] Settings NOT found for org ${organization_id}. Trying platform defaults...`);
       const { data: defaultSettings, error: defaultError } = await supabase
         .from('telnyx_settings')
-        .select('api_key, connection_id')
+        .select('api_key, connection_id, call_control_app_id')
         .eq('id', '00000000-0000-0000-0000-000000000001')
         .maybeSingle();
       
@@ -59,8 +59,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (settingsError || !settings?.api_key || !settings?.connection_id) {
-      throw new Error(`Telnyx settings not found or incomplete for organization ${organization_id} or platform defaults.`);
+    if (settingsError || !settings?.api_key || !settings?.call_control_app_id) {
+      throw new Error(`Telnyx settings not found or incomplete (missing API Key or Call Control App ID) for organization ${organization_id} or platform defaults.`);
     }
 
     // 2. Prepare Telnyx REST API Call
@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
     const telnyxPayload = {
       to: destination_number,
       from: caller_id,
-      connection_id: settings.connection_id,
+      connection_id: settings.call_control_app_id,
       answering_machine_detection: 'premium',
       // client_state is typically used for tracking. We'll store the call_id here.
       // Telnyx expects a string; we'll base64 encode the UUID to be safe and standard.

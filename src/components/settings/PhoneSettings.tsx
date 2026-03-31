@@ -58,9 +58,10 @@ const PhoneSettings: React.FC = () => {
   // Credentials
   const [apiKey, setApiKey] = useState("");
   const [connectionId, setConnectionId] = useState("");
+  const [callControlAppId, setCallControlAppId] = useState("");
   const [sipUsername, setSipUsername] = useState("");
   const [sipPassword, setSipPassword] = useState("");
-  const [originals, setOriginals] = useState({ apiKey: "", connectionId: "", sipUsername: "", sipPassword: "" });
+  const [originals, setOriginals] = useState({ apiKey: "", connectionId: "", callControlAppId: "", sipUsername: "", sipPassword: "" });
   const [showApiKey, setShowApiKey] = useState(false);
   const [showSipPass, setShowSipPass] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -105,7 +106,11 @@ const PhoneSettings: React.FC = () => {
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
 
-  const hasChanges = apiKey !== originals.apiKey || connectionId !== originals.connectionId || sipUsername !== originals.sipUsername || sipPassword !== originals.sipPassword;
+  const hasChanges = apiKey !== originals.apiKey || 
+    connectionId !== originals.connectionId || 
+    callControlAppId !== originals.callControlAppId || 
+    sipUsername !== originals.sipUsername || 
+    sipPassword !== originals.sipPassword;
 
   const [telnyxSettingsId, setTelnyxSettingsId] = useState<string | null>(null);
   const [phoneSettingsId, setPhoneSettingsId] = useState<string | null>(null);
@@ -125,17 +130,25 @@ const PhoneSettings: React.FC = () => {
       setTelnyxSettingsId(d.id);
       setApiKey(d.api_key || "");
       setConnectionId(d.connection_id || "");
+      setCallControlAppId(d.call_control_app_id || "");
       setSipUsername(d.sip_username || "");
       setSipPassword(d.sip_password || "");
-      setOriginals({ apiKey: d.api_key || "", connectionId: d.connection_id || "", sipUsername: d.sip_username || "", sipPassword: d.sip_password || "" });
+      setOriginals({ 
+        apiKey: d.api_key || "", 
+        connectionId: d.connection_id || "", 
+        callControlAppId: d.call_control_app_id || "", 
+        sipUsername: d.sip_username || "", 
+        sipPassword: d.sip_password || "" 
+      });
     } else {
       setTelnyxSettingsId(null);
       // If no settings found for this organization, reset to empty
       setApiKey("");
       setConnectionId("");
+      setCallControlAppId("");
       setSipUsername("");
       setSipPassword("");
-      setOriginals({ apiKey: "", connectionId: "", sipUsername: "", sipPassword: "" });
+      setOriginals({ apiKey: "", connectionId: "", callControlAppId: "", sipUsername: "", sipPassword: "" });
     }
 
     if (settingsRes.data) {
@@ -167,6 +180,7 @@ const PhoneSettings: React.FC = () => {
       organization_id: organizationId,
       api_key: apiKey,
       connection_id: connectionId,
+      call_control_app_id: callControlAppId,
       sip_username: sipUsername,
       sip_password: sipPassword,
       updated_at: new Date().toISOString(),
@@ -179,7 +193,7 @@ const PhoneSettings: React.FC = () => {
       return;
     }
     
-    setOriginals({ apiKey, connectionId, sipUsername, sipPassword });
+    setOriginals({ apiKey, connectionId, callControlAppId, sipUsername, sipPassword });
     toast.success("Credentials saved");
     await fetchData(); // Refresh to get the new ID if it was an insert
   };
@@ -465,8 +479,12 @@ const PhoneSettings: React.FC = () => {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground">Connection ID / Application ID</label>
+              <label className="text-sm font-medium text-foreground">SIP Connection ID (for WebRTC)</label>
               <Input value={connectionId} onChange={e => setConnectionId(e.target.value)} placeholder="Connection ID" className="font-mono text-sm" autoComplete="off" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Call Control App ID (for Outbound)</label>
+              <Input value={callControlAppId} onChange={e => setCallControlAppId(e.target.value)} placeholder="App ID" className="font-mono text-sm" autoComplete="off" />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">SIP Username</label>
