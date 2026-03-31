@@ -50,3 +50,5 @@ verify_jwt = false
 
 [functions.telnyx-amd-start]
 verify_jwt = false
+[functions.dialer-hangup]
+verify_jwt = true

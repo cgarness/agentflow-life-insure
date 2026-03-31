@@ -90,6 +90,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isAutoDialingRef = useRef(false);
   const activeCallIdRef = useRef<string | null>(null);
   const activeCallControlIdRef = useRef<string | null>(null);
+  const pendingAbortCallIdRef = useRef<string | null>(null);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -197,6 +198,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // We set callState to "ended" first to trigger wrap-up UI in DialerPage
     setCallState("ended");
     
+    // Check if we are in the middle of a dial initiation (Race Condition handling)
+    if (callState === "dialing" && !controlId && callId) {
+      console.log("[TelnyxContext] Hangup requested during dialing; latching pending abort for:", callId);
+      pendingAbortCallIdRef.current = callId;
+    }
+
     // Clear audio immediately
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
@@ -714,6 +721,31 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const controlId = dialData?.call_control_id;
         console.log("[TelnyxContext] Server-side call initiated successfully:", controlId);
         activeCallControlIdRef.current = controlId;
+
+        // RACE CONDITION CHECK: If the user hung up while we were waiting for the ID, kill it now.
+        if (pendingAbortCallIdRef.current === callRecord.id) {
+          console.warn("[TelnyxContext] Pending abort detected for this call. Terminating immediately.");
+          pendingAbortCallIdRef.current = null;
+          
+          if (controlId) {
+            // Trigger the Edge hangup logic
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+            if (currentSession) {
+              fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${currentSession.access_token}`,
+                  "apikey": SUPABASE_ANON_KEY,
+                },
+                body: JSON.stringify({ 
+                  call_id: callRecord.id,
+                  call_control_id: controlId 
+                }),
+              }).catch(err => console.warn("[TelnyxContext] Pending abort hangup failed:", err));
+            }
+          }
+        }
       }
 
       // Note: We don't have a 'call' object yet at this point. We will receive it via
