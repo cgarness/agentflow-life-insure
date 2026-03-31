@@ -335,7 +335,7 @@ async function handleCallAnswered(supabase: any, payload: any) {
     console.error(`Error updating call ${payload.call_control_id} to connected:`, error);
   }
 
-  // ── Trigger AMD if enabled ──
+  // ── Trigger AMD if enabled, otherwise bridge agent immediately ──
   if (payload.direction === 'outbound') {
     const orgId = await getCallOrgId(supabase, payload);
     const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
@@ -347,6 +347,9 @@ async function handleCallAnswered(supabase: any, payload: any) {
       } else {
         console.warn('Cannot start AMD: No Telnyx API key found for org:', orgId);
       }
+    } else {
+      console.log('[handleCallAnswered] AMD disabled — bridging agent immediately.');
+      await handleHumanDetected(supabase, payload);
     }
   }
 }
