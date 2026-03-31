@@ -17,7 +17,6 @@ import { supabase } from "@/integrations/supabase/client";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: Phone, label: "Dialer", path: "/dialer" },
-  { icon: Activity, label: "Test Dialer", path: "/test-dialer" },
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: MessageSquare, label: "Conversations", path: "/conversations" },
   { icon: Calendar, label: "Calendar", path: "/calendar" },
