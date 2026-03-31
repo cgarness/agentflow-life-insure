@@ -14,6 +14,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
     status: row.status as UserStatus,
     availabilityStatus: row.availability_status || "Offline",
     themePreference: row.theme_preference || "light",
+    isSuperAdmin: row.is_super_admin === true,
     lastLoginAt: row.last_login_at || null,
     createdAt: row.created_at,
     profile: {
@@ -37,6 +38,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       onboardingItems: row.onboarding_items || [],
       organizationId: row.organization_id,
       teamId: row.team_id,
+      isSuperAdmin: row.is_super_admin === true,
     }
   };
 }
@@ -50,12 +52,12 @@ export const usersSupabaseApi = {
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", 
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
-      "push_notifications_enabled", "carriers", "organization_id", "team_id"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
     ];
 
     const safeColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
-      "availability_status", "theme_preference", "created_at"
+      "availability_status", "theme_preference", "created_at", "is_super_admin"
     ];
 
     let q = supabase.from("profiles").select(allExpectedColumns.join(","));
@@ -162,6 +164,7 @@ export const usersSupabaseApi = {
     if (updates.role !== undefined) payload.role = updates.role;
     if (updates.status !== undefined) payload.status = updates.status;
     if (updates.avatar !== undefined) payload.avatar_url = updates.avatar;
+    if (updates.isSuperAdmin !== undefined) payload.is_super_admin = updates.isSuperAdmin;
     payload.updated_at = new Date().toISOString();
 
     const { error } = await supabase
@@ -197,12 +200,12 @@ export const usersSupabaseApi = {
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_talk_time_goal_hours", "npn", "timezone", 
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
-      "push_notifications_enabled", "carriers", "organization_id", "team_id"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
     ];
 
     const safeColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
-      "availability_status", "theme_preference", "created_at"
+      "availability_status", "theme_preference", "created_at", "is_super_admin"
     ];
 
     const { data: result, error } = await supabase

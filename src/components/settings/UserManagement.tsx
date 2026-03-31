@@ -505,8 +505,9 @@ const UserProfileModal: React.FC<{
   onDeleted: (id: string) => void;
   currentUserId: string;
   currentUserRole: string;
+  isCurrentUserSuperAdmin: boolean;
   allUsers: UserWithProfile[];
-}> = ({ user, open, onClose, onSaved, onDeleted, currentUserId, currentUserRole, allUsers }) => {
+}> = ({ user, open, onClose, onSaved, onDeleted, currentUserId, currentUserRole, isCurrentUserSuperAdmin, allUsers }) => {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -515,6 +516,7 @@ const UserProfileModal: React.FC<{
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
 
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
   const [performance, setPerformance] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -553,6 +555,7 @@ const UserProfileModal: React.FC<{
         npn: user.profile.npn || "",
         timezone: user.profile.timezone || "",
       });
+      setIsSuperAdmin(user.isSuperAdmin);
       setOnboardingItems([...user.profile.onboardingItems]);
       setAvatarUrl(user.avatar);
       setEditMode(true);
@@ -600,6 +603,7 @@ const UserProfileModal: React.FC<{
         role: form.role as UserRole,
         status: form.status as any, // eslint-disable-line @typescript-eslint/no-explicit-any
         avatar: avatarUrl,
+        isSuperAdmin: isSuperAdmin,
       });
       await usersApi.updateProfile(user.id, {
         licensedStates: (form.licensedStates as any[]) || [],
@@ -611,7 +615,7 @@ const UserProfileModal: React.FC<{
       });
       toast({ title: "Changes saved successfully" });
       setEditMode(false);
-      onSaved({ id: user.id, role: form.role as UserRole, status: form.status as any, firstName: form.firstName as string, lastName: form.lastName as string });
+      onSaved({ id: user.id, role: form.role as UserRole, status: form.status as any, firstName: form.firstName as string, lastName: form.lastName as string, isSuperAdmin: isSuperAdmin });
     } catch (e: any) {
       toast({ title: "Failed to save changes", description: e.message || "An unknown error occurred", variant: "destructive" });
     } finally {
@@ -809,6 +813,22 @@ const UserProfileModal: React.FC<{
                     </div>
                   </div>
                 </div>
+                {isCurrentUserSuperAdmin && (
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-amber-500" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Super Admin Access</p>
+                        <p className="text-xs text-muted-foreground">Grants full system access across all organizations.</p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={isSuperAdmin}
+                      disabled={!editMode || (isSelf && isSuperAdmin)}
+                      onCheckedChange={setIsSuperAdmin}
+                    />
+                  </div>
+                )}
                 <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as any[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
                 <div><Label>Resident State</Label><SingleStateSelect value={form.residentState as string} onChange={v => setForm(p => ({ ...p, residentState: v }))} disabled={!editMode} /></div>
                 <div className="grid grid-cols-2 gap-4">
@@ -1234,7 +1254,7 @@ const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
   const { profile: currentProfile } = useAuth();
-  const { organizationId } = useOrganization();
+  const { organizationId, isSuperAdmin: isCurrentUserSuperAdmin } = useOrganization();
   const [allUsers, setAllUsers] = useState<UserWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1397,6 +1417,16 @@ const UserManagement: React.FC = () => {
                         )}
                       </div>
                       <span className="font-medium text-foreground">{u.firstName} {u.lastName}</span>
+                      {u.isSuperAdmin && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                            </TooltipTrigger>
+                            <TooltipContent><p>Super Admin</p></TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
                     </div>
                   </td>
                   <td className="py-3 text-muted-foreground">{u.email}</td>
@@ -1465,6 +1495,7 @@ const UserManagement: React.FC = () => {
         }}
         currentUserId={currentUser?.id || ""}
         currentUserRole={currentProfile?.role || ""}
+        isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
         allUsers={users}
       />
 

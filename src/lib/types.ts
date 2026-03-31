@@ -19,6 +19,7 @@ export interface User {
   status: UserStatus;
   availabilityStatus: AvailabilityStatus;
   themePreference: "light" | "dark";
+  isSuperAdmin: boolean;
   lastLoginAt: string | null;
   createdAt: string;
 }
@@ -51,6 +52,7 @@ export interface UserProfile {
   pushNotificationsEnabled: boolean;
   organizationId: string | null;
   teamId: string | null;
+  isSuperAdmin: boolean;
 }
 
 export interface ContactManagementSettings {

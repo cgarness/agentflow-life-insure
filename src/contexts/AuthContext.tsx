@@ -73,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fallback to minimal core columns that are guaranteed to exist
       const { data: safeData, error: safeError } = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, email, role, status, availability_status, avatar_url, theme_preference")
+        .select("id, first_name, last_name, email, role, status, availability_status, avatar_url, theme_preference, is_super_admin")
         .eq("id", userId)
         .single();
       
