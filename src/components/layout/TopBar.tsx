@@ -13,6 +13,7 @@ import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { useNotifications } from "@/contexts/NotificationContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { supabase } from "@/integrations/supabase/client";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -80,8 +81,8 @@ const TopBar: React.FC = () => {
   const { isViewingAs, viewingAs } = useViewAs();
   const [viewAsOpen, setViewAsOpen] = useState(false);
 
-  // Detect if current user is super admin
-  const isSuperAdmin = (user as any)?.is_super_admin === true || user?.email === "cgarness.ffl@gmail.com";
+  // Detect if current user is super admin using the hook
+  const { isSuperAdmin } = useOrganization();
   const { dialerOverride } = useAgentStatus();
   const { markRead, markAllRead, deleteNotification } = useNotifications();
   const [notifications, setNotifications] = useState<any[]>([]);

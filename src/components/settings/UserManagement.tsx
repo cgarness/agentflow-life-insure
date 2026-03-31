@@ -1417,7 +1417,7 @@ const UserManagement: React.FC = () => {
                         )}
                       </div>
                       <span className="font-medium text-foreground">{u.firstName} {u.lastName}</span>
-                      {u.isSuperAdmin && (
+                      {u.isSuperAdmin && isCurrentUserSuperAdmin && (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
