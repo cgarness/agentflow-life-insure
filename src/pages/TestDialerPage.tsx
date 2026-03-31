@@ -237,15 +237,15 @@ export default function TestDialerPage() {
     amdEnabled,
   } = useTelnyx();
 
-  const telnyxStatus = "ready";
-  const telnyxErrorMessage = null;
-  const telnyxCallState = "idle";
-  const telnyxCallDuration = 0;
-  const telnyxCurrentCall = null;
-  const telnyxMakeCall = (num: string) => console.log(`[Test Dialer] Simulated call to ${num}`);
-  const telnyxHangUp = () => console.log("[Test Dialer] Simulated hang up");
-  const telnyxInitialize = () => Promise.resolve();
-  const telnyxDestroy = () => {};
+  const telnyxStatus = _telnyxStatus;
+  const telnyxErrorMessage = _telnyxErrorMessage;
+  const telnyxCallState = _telnyxCallState;
+  const telnyxCallDuration = _telnyxCallDuration;
+  const telnyxCurrentCall = _telnyxCurrentCall;
+  const telnyxMakeCall = _telnyxMakeCall;
+  const telnyxHangUp = _telnyxHangUp;
+  const telnyxInitialize = _telnyxInitialize;
+  const telnyxDestroy = _telnyxDestroy;
 
 
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
