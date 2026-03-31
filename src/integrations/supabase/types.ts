@@ -386,6 +386,7 @@ export type Database = {
           sip_response_code: number | null
           started_at: string | null
           status: string | null
+          telnyx_call_control_id: string | null
           telnyx_call_id: string | null
           telnyx_error_code: string | null
           transcript: Json | null
@@ -422,6 +423,7 @@ export type Database = {
           sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
+          telnyx_call_control_id?: string | null
           telnyx_call_id?: string | null
           telnyx_error_code?: string | null
           transcript?: Json | null
@@ -458,6 +460,7 @@ export type Database = {
           sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
+          telnyx_call_control_id?: string | null
           telnyx_call_id?: string | null
           telnyx_error_code?: string | null
           transcript?: Json | null
@@ -2224,6 +2227,7 @@ export type Database = {
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
+          sip_username: string | null
           sms_notifications_enabled: boolean | null
           status: string
           team_id: string | null
@@ -2261,6 +2265,7 @@ export type Database = {
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
+          sip_username?: string | null
           sms_notifications_enabled?: boolean | null
           status?: string
           team_id?: string | null
@@ -2298,6 +2303,7 @@ export type Database = {
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
+          sip_username?: string | null
           sms_notifications_enabled?: boolean | null
           status?: string
           team_id?: string | null
@@ -2708,6 +2714,7 @@ export type Database = {
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
+          sip_username: string | null
           sms_notifications_enabled: boolean | null
           status: string
           team_id: string | null
