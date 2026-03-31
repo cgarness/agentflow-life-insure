@@ -4,6 +4,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+const toE164 = (phone: string): string => {
+  if (!phone) return phone;
+  // Already E.164
+  if (phone.startsWith('+')) return phone.replace(/[^\d+]/g, '');
+  // Strip all non-digits
+  const digits = phone.replace(/\D/g, '');
+  // 11 digits starting with 1 — US number with country code
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  // 10 digits — assume US
+  if (digits.length === 10) return `+1${digits}`;
+  // Anything else — prepend + and hope for the best
+  return `+${digits}`;
+};
 
 
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
@@ -558,8 +571,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           "apikey": SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
-          destination_number: destinationNumber,
-          caller_id: callerNumber || defaultCallerNumber || "",
+          destination_number: toE164(destinationNumber),
+          caller_id: toE164(callerNumber || defaultCallerNumber || ""),
           agent_id: profile.id,
           call_id: callRecord.id,
           organization_id: organizationId,
