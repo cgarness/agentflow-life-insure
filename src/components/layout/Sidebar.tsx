@@ -6,12 +6,13 @@ import {
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
   Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, ExternalLink, Menu, X,
-  Activity,
+  Activity, ShieldAlert,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBranding } from "@/contexts/BrandingContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { supabase } from "@/integrations/supabase/client";
 
 const menuItems = [
@@ -40,6 +41,7 @@ const Sidebar: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { user, profile } = useAuth();
   const { branding } = useBranding();
+  const { isSuperAdmin } = useOrganization();
   const location = useLocation();
   const [todayCount, setTodayCount] = useState(0);
 
@@ -138,6 +140,37 @@ const Sidebar: React.FC = () => {
           }
           return <React.Fragment key={item.path}>{linkContent}</React.Fragment>;
         })}
+
+        {/* Super Admin Link (conditional) */}
+        {isSuperAdmin && (() => {
+          const saItem = { icon: ShieldAlert, label: "Super Admin", path: "/super-admin" };
+          const isActive = location.pathname === saItem.path;
+          const saLink = (
+            <NavLink
+              to={saItem.path}
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium sidebar-transition group relative
+                ${isActive
+                  ? "bg-amber-600 text-white shadow-md"
+                  : "text-amber-500 hover:bg-amber-600/10 hover:text-amber-400"
+                }
+                ${collapsed ? "justify-center" : ""}
+              `}
+            >
+              <saItem.icon className="w-5 h-5 shrink-0" />
+              {!collapsed && <span className="whitespace-nowrap">{saItem.label}</span>}
+            </NavLink>
+          );
+          if (collapsed) {
+            return (
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>{saLink}</TooltipTrigger>
+                <TooltipContent side="right" className="font-medium">Super Admin</TooltipContent>
+              </Tooltip>
+            );
+          }
+          return saLink;
+        })()}
 
         {/* Custom Links Divider */}
         {!collapsed && (

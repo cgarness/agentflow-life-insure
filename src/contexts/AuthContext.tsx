@@ -135,6 +135,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => {
+    let resolvedOrgId = orgId;
+    let resolvedRole = role || "Agent";
+
+    // If no orgId provided (uninvited signup), create a new organization
+    // and make this user the founding Admin
+    if (!resolvedOrgId) {
+      const orgName = `${firstName}'s Agency`;
+      const orgSlug = `${firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`;
+      const { data: newOrg, error: orgError } = await supabase
+        .from("organizations")
+        .insert({ name: orgName, slug: orgSlug })
+        .select("id")
+        .single();
+      if (orgError || !newOrg) throw new Error("Failed to create organization: " + (orgError?.message || "Unknown error"));
+      resolvedOrgId = newOrg.id;
+      resolvedRole = "Admin"; // Founders are always Admins of their own org
+    }
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -143,9 +161,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         data: { 
           first_name: firstName, 
           last_name: lastName,
-          organization_id: orgId || "a0600000-0000-0000-0000-000000000001",
+          organization_id: resolvedOrgId,
           upline_id: uplineId || null,
-          role: role || "Agent",
+          role: resolvedRole,
           licensed_states: licensedStates || [],
           commission_level: commissionLevel || "0%"
         },

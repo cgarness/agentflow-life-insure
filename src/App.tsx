@@ -38,6 +38,8 @@ import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AuthCallback from "@/pages/AuthCallback";
+import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
+import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -128,6 +130,7 @@ const App = () => (
                           <Route path="/training" element={<Training />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
+                          <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />
                         </Route>
                         <Route path="*" element={<NotFound />} />
                       </Routes>
