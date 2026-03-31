@@ -1,61 +1,58 @@
 
 
-## Fix AMD Auto-Skip and Auto-Dial Next on Machine Detection
+## Wire Up Real Dialing + AMD on TestDialerPage
 
-### Problem
-When AMD detects a voicemail/machine, the flow breaks at two points:
-1. **`handleAutoDispose` doesn't trigger the next call** — it advances the index but never calls `autoDialer.dialNext()`, so the dialer stops after the first machine detection.
-2. **The call may not be properly hung up on the frontend** — the webhook hangs up server-side via Telnyx REST API, but by the time the frontend's `"ended"` state fires and polls for `amd_result`, the `telnyxCurrentCall` reference used in `handleAutoDispose` may already be null (since `telnyxHangUp()` is called first at line 771), causing the disposition update to silently fail.
-3. **Redundant disposition write** — the webhook already writes `disposition_name: 'No Answer'` server-side, so the frontend re-write via `handleAutoDispose` using `telnyx_call_id` is redundant but harmless if it works. However, it queries by `telnyxCurrentCall` which is likely cleared by then.
+The TestDialerPage currently mocks all Telnyx values (lines 240-248), replacing context values with hardcoded stubs. This causes TypeScript errors because `const telnyxCallState = "idle"` is inferred as the literal type `"idle"`, making comparisons to `"dialing"`, `"active"`, `"ended"` invalid.
 
-### Changes
+### The Fix
 
-#### File: `src/pages/DialerPage.tsx`
+**File: `src/pages/TestDialerPage.tsx`**
 
-**Fix 1: `handleAutoDispose` — add auto-dial trigger**
-After advancing the index, if auto-dial is enabled, call `autoDialer.dialNext()`:
+**Replace the mocked Telnyx variables (lines 240-248) with the real context values:**
 
+Remove:
 ```typescript
-const handleAutoDispose = useCallback(async (disposition: Disposition) => {
-  // Update disposition in DB (use currentCallId which is more reliable than telnyxCurrentCall)
-  if (currentCallId) {
-    try {
-      await supabase.from('calls')
-        .update({ disposition_name: disposition.name })
-        .eq('id', currentCallId);
-    } catch {
-      // non-blocking
-    }
-  }
-  setShowWrapUp(false);
-  setSelectedDisp(null);
-  setNoteText("");
-  setNoteError(false);
-  setCurrentCallId(null);
-  setCurrentLeadIndex((i) => {
-    const next = i + 1;
-    autoDialer?.setIndex(next);
-    return next;
-  });
-  // Auto-dial next lead
-  if (autoDialEnabled && autoDialer?.isEnabled()) {
-    setTimeout(() => autoDialer.dialNext(), 500);
-  }
-}, [currentCallId, autoDialEnabled, autoDialer]);
+const telnyxStatus = "ready";
+const telnyxErrorMessage = null;
+const telnyxCallState = "idle";
+const telnyxCallDuration = 0;
+const telnyxCurrentCall = null;
+const telnyxMakeCall = (num: string) => console.log(`[Test Dialer] Simulated call to ${num}`);
+const telnyxHangUp = () => console.log("[Test Dialer] Simulated hang up");
+const telnyxInitialize = () => Promise.resolve();
+const telnyxDestroy = () => {};
 ```
 
-**Fix 2: Save `currentCallId` before it's cleared**
-In the AMD check effect (line 770), capture `currentCallId` at the top of the `checkAmd` closure before `telnyxHangUp()` clears state, so the polling query has the correct ID.
+Replace with aliases that use the real context values (already destructured on lines 223-238 as `_telnyx*`):
+```typescript
+const telnyxStatus = _telnyxStatus;
+const telnyxErrorMessage = _telnyxErrorMessage;
+const telnyxCallState = _telnyxCallState;
+const telnyxCallDuration = _telnyxCallDuration;
+const telnyxCurrentCall = _telnyxCurrentCall;
+const telnyxMakeCall = _telnyxMakeCall;
+const telnyxHangUp = _telnyxHangUp;
+const telnyxInitialize = _telnyxInitialize;
+const telnyxDestroy = _telnyxDestroy;
+```
 
-**Fix 3: Ensure `currentCallId` isn't cleared prematurely**
-Move the `setCurrentCallId(null)` call to after AMD processing completes (inside the machine-detected branch and the human/wrap-up branch), not at the beginning of the effect.
+This single change:
+1. Fixes all 6 TypeScript build errors (type comparisons now valid since `CallState` is `"idle" | "dialing" | "active" | "ended"`)
+2. Enables real calling via TelnyxRTC WebRTC
+3. Enables AMD detection (the AMD check effects and Realtime subscription are already wired up in the page)
+4. Enables auto-hang-up on machine detection (the `handleMachineDetectedAction` callback and Realtime listener are already in place)
 
-### Summary
-| What | Where |
-|------|-------|
-| Add `dialNext()` call to `handleAutoDispose` | `DialerPage.tsx` ~line 755 |
-| Use `currentCallId` instead of `telnyxCurrentCall` for disposition update in `handleAutoDispose` | `DialerPage.tsx` ~line 742 |
-| Capture `currentCallId` before state reset in AMD effect | `DialerPage.tsx` ~line 774 |
+### Telnyx Setup Requirements
 
-No new files. No database changes. No edge function changes needed — the webhook already handles server-side hangup and disposition correctly.
+For full functionality, ensure the following in your Telnyx portal:
+
+1. **SIP Connection** — Create a Credential-based SIP connection at portal.telnyx.com → Voice → SIP Connections. Note the SIP username and password — these should already be stored as `TELNYX_SIP_USERNAME` and `TELNYX_SIP_PASSWORD` secrets.
+
+2. **Webhook URL** — On your SIP Connection, set the webhook URL to: `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-webhook`. This receives call events (answered, ended, AMD results).
+
+3. **AMD (Answering Machine Detection)** — AMD is triggered server-side by the `telnyx-amd-start` edge function when a call is answered. No additional Telnyx portal config is needed — the API call uses your `TELNYX_API_KEY` secret.
+
+4. **Phone Numbers** — At least one phone number must be assigned to your SIP Connection for outbound caller ID.
+
+No other files need changes — the AMD flow, auto-disposition, and auto-dial-next logic are already implemented in the page code.
 
