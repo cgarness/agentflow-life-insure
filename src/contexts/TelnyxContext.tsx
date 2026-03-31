@@ -313,12 +313,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         body: { connection_id: creds.connection_id },
       });
 
-      // Token is required — credential-based auth produces no audio and is not a valid fallback.
-      if (tokenError || !tokenData?.token) {
-        const msg =
-          tokenData?.auth_method === "credentials"
-            ? "WebRTC token unavailable — please check your Telnyx configuration (API key / Connection ID). Credential-based auth does not support audio."
-            : tokenData?.error || tokenError?.message || "Failed to provision secure WebRTC token";
+      // Both token and credential auth are valid for WebRTC audio calls.
+      if (tokenError || (!tokenData?.token && !tokenData?.sip_username)) {
+        const msg = tokenData?.error || tokenError?.message || "Failed to provision WebRTC credentials";
         console.error("[TelnyxContext] telnyx-token error:", msg, { tokenData, tokenError });
         setStatus("error");
         setErrorMessage(msg);
@@ -335,11 +332,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // Mic denied — still register; makeCall will handle the prompt
       }
 
-      // 4. Initialize TelnyxRTC with login_token ONLY — credential auth (login/password) does
-      // not properly negotiate WebRTC media and will result in a silent call with no audio.
-      const client = new TelnyxRTC({
-        login_token: tokenData.token,
-      });
+      // 4. Initialize TelnyxRTC — both token and credential auth support WebRTC audio.
+      let client: TelnyxRTC;
+      if (tokenData.auth_method === "token" && tokenData.token) {
+        client = new TelnyxRTC({ login_token: tokenData.token });
+      } else {
+        console.log("[TelnyxContext] Using SIP credential auth.");
+        client = new TelnyxRTC({ login: tokenData.sip_username, password: tokenData.sip_password });
+      }
 
       client.on("telnyx.ready", () => {
         setStatus("ready");
