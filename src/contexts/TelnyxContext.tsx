@@ -545,27 +545,49 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
 
-      // 2. Invoke the Edge Function to start the Two-Legged Call
-      const { data: dialData, error: dialError } = await supabase.functions.invoke("dialer-start-call", {
-        body: {
+      // 2. Invoke the Edge Function to start the Two-Legged Call.
+      // Using direct fetch() — supabase.functions.invoke() fails silently in this project.
+      const SUPABASE_URL = "https://jncvvsvckxhqgqvkppmj.supabase.co";
+      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuY3Z2c3Zja3hocWdxdmtwcG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njc4ODYsImV4cCI6MjA4ODE0Mzg4Nn0.wlLRugR92OUUpV7_vl8T8EnfPqrAosJ-CfNpKmw0IPE";
+
+      const dialResponse = await fetch(`${SUPABASE_URL}/functions/v1/dialer-start-call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+          "apikey": SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
           destination_number: destinationNumber,
           caller_id: callerNumber || defaultCallerNumber || "",
           agent_id: profile.id,
           call_id: callRecord.id,
-          organization_id: organizationId
-        },
+          organization_id: organizationId,
+        }),
       });
 
-      if (dialError || dialData?.error) {
-        const errorMsg = dialData?.error || dialError?.message || "Failed to initiate server-side call";
-        console.error("[TelnyxContext] Dialer function error:", errorMsg);
-        throw new Error(errorMsg);
+      if (!dialResponse.ok) {
+        const errorBody = await dialResponse.text().catch(() => "(no body)");
+        console.warn(
+          `[TelnyxContext] dialer-start-call returned HTTP ${dialResponse.status} — treating as WARNING. Body: ${errorBody}`
+        );
+
+        // The WebRTC audio session is the source of truth for whether a call is active.
+        // If telnyx.notification has already fired and set callRef.current, the call is live
+        // on Telnyx's side — do NOT abort, do NOT show an error toast, do NOT hang up.
+        if (callRef.current) {
+          console.warn("[TelnyxContext] WebRTC session is already active; ignoring dialer-start-call error and continuing call flow.");
+        } else {
+          // No WebRTC session established — the call genuinely did not start. Fatal.
+          throw new Error(`Call initiation failed (HTTP ${dialResponse.status}): ${errorBody}`);
+        }
+      } else {
+        const dialData = await dialResponse.json().catch(() => ({}));
+        console.log("[TelnyxContext] Server-side call initiated successfully:", dialData?.call_control_id);
       }
 
-      console.log("[TelnyxContext] Server-side call initiated successfully:", dialData.call_control_id);
-      
-      // Note: We don't have a 'call' object yet. We will receive it via 'telnyx.notification' 
-      // when the server bridges the call back to us (the agent).
+      // Note: We don't have a 'call' object yet at this point. We will receive it via
+      // 'telnyx.notification' when the server bridges the call back to the agent.
     } catch (err: any) {
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
