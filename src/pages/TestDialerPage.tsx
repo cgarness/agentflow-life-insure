@@ -787,35 +787,50 @@ export default function TestDialerPage() {
   }, [autoDialer]);
 
   const proceedWithCall = useCallback((leadPhone: string, callerNumber: string, callId?: string) => {
-    console.log(`[Test Dialer] Simulated proceedWithCall to ${leadPhone} from ${callerNumber} (Call ID: ${callId})`);
     lastUsedCallerId.current = callerNumber;
-    setCurrentCallId(callId || "mock-call-id");
-    // No real call made
-  }, []);
-
+    setCurrentCallId(callId || null);
+    telnyxMakeCall(leadPhone, callerNumber || undefined, callId);
+  }, [telnyxMakeCall]);
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
-    console.log(`[Test Dialer] Simulated initiateCall: ${leadPhone} (Contact ID: ${contactId})`);
-    const smartCallerId = "TestNumber";
-    proceedWithCall(leadPhone, smartCallerId, "mock-call-id");
-  }, [proceedWithCall]);
+    const smartCallerId = await getSmartCallerId(leadPhone, contactId);
 
+    // Create the call record first to get a callId
+    let callId;
+    try {
+      callId = await createCall({
+        contact_id: contactId,
+        agent_id: user?.id || "",
+        campaign_id: selectedCampaignId || undefined,
+        caller_id_used: smartCallerId,
+        contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
+        contact_phone: leadPhone,
+      }, organizationId);
+    } catch (err) {
+      console.error("Failed to create call record:", err);
+    }
+
+    proceedWithCall(leadPhone, smartCallerId, callId);
+  }, [getSmartCallerId, user?.id, selectedCampaignId, currentLead, organizationId, proceedWithCall]);
 
   const handleCall = useCallback(() => {
     if (!currentLead) {
       toast.error("No lead selected");
       return;
     }
-    
+    if (telnyxStatus === "error") {
+      toast.error(telnyxErrorMessage || "Dialer error. Please check your settings.");
+      return;
+    }
     const now = new Date().toISOString();
     const isFirstCall = !dialerStats?.session_started_at;
-    
-    // Optimistic local update (Keep stats working visually in the session)
+
+    // Optimistic local update
     setDialerStats(prev => {
       if (!prev) {
         return {
-          id: "mock-id",
-          agent_id: user?.id || "mock-agent",
+          id: "",
+          agent_id: user?.id || "",
           stat_date: new Date().toISOString().split("T")[0],
           calls_made: 1,
           calls_connected: 0,
@@ -833,21 +848,36 @@ export default function TestDialerPage() {
       };
     });
 
-    console.log(`[Test Dialer] Simulated call start to ${currentLead.phone}`);
-    toast.info(`Simulated Call: Dialing ${currentLead.first_name}...`);
-    
-    // Just fake the initiate call to trigger calling UI
-    // We'll manually set a callId to a dummy value
-    setCurrentCallId("mock-call-id-" + Date.now());
-  }, [currentLead, dialerStats, user?.id]);
+    // Persist to Supabase (fire-and-forget)
+    if (user?.id) {
+      upsertDialerStats(user.id, {
+        calls_made: 1,
+        session_started_at: isFirstCall ? now : null,
+      }).catch(() => {});
+    }
 
+    const contactId = currentLead.lead_id || currentLead.id || "";
+    initiateCall(currentLead.phone, contactId);
+  }, [currentLead, telnyxStatus, telnyxErrorMessage, dialerStats, user?.id, initiateCall]);
 
   const handleHangUp = useCallback(() => {
-    console.log("[Test Dialer] Simulated Hang up");
-    // Just reset everything locally
-    setCurrentCallId(null);
-    setShowWrapUp(true);
-  }, []);
+    console.log("[TestDialer] Hang up — duration:", telnyxCallDuration, "counting as connected:", telnyxCallDuration >= 7);
+    if (telnyxCallDuration >= 7) {
+      setDialerStats(prev => prev ? {
+        ...prev,
+        calls_connected: prev.calls_connected + 1,
+        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
+        last_updated_at: new Date().toISOString(),
+      } : prev);
+      if (user?.id) {
+        upsertDialerStats(user.id, {
+          calls_connected: 1,
+          total_talk_seconds: telnyxCallDuration,
+        }).catch(() => {});
+      }
+    }
+    telnyxHangUp();
+  }, [telnyxCallDuration, telnyxHangUp, user?.id]);
 
 
   // AMD auto-dispose handler
