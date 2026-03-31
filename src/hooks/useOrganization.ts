@@ -13,27 +13,25 @@ export const useOrganization = () => {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   useEffect(() => {
+    let jwtOrgId = null;
+    let jwtRole = "Agent";
+    let jwtIsSuperAdmin = false;
+
     if (session?.access_token) {
       try {
-        // Decode the JWT payload (the middle segment)
         const payload = JSON.parse(atob(session.access_token.split('.')[1]));
-        if (payload.org_id) {
-          setOrgId(payload.org_id);
-          setRole(payload.user_role || "Agent");
-          setIsSuperAdmin(payload.is_super_admin === true);
-          return;
-        }
+        jwtOrgId = payload.org_id;
+        jwtRole = payload.user_role || "Agent";
+        jwtIsSuperAdmin = payload.is_super_admin === true;
       } catch {
-        // JWT decode failed — fall through to profile-based lookup
+        // JWT decode failed
       }
     }
 
-    // Fallback: read from profile (pre-migration compatibility)
-    if (profile) {
-      setOrgId((profile as any)?.organization_id ?? null);
-      setRole((profile as any)?.role ?? "Agent");
-      setIsSuperAdmin((profile as any)?.is_super_admin === true);
-    }
+    // Combine JWT with Profile fallback for immediate reflection of DB changes
+    setOrgId(jwtOrgId || (profile as any)?.organization_id || null);
+    setRole(jwtRole !== "Agent" ? jwtRole : ((profile as any)?.role || "Agent"));
+    setIsSuperAdmin(jwtIsSuperAdmin || (profile as any)?.is_super_admin === true);
   }, [session, profile]);
 
   return {
