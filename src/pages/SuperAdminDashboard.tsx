@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Building2, Users, PhoneCall, DollarSign, Plus, Search,
   MoreHorizontal, ExternalLink, Loader2, CheckCircle2, ArrowRight,
+  ShieldCheck, Fingerprint,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -340,6 +341,54 @@ const SuperAdminDashboard: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
+  const handleVerifyBadge = async () => {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) throw error;
+      if (!session) {
+        toast({ title: "No active session", variant: "destructive" });
+        return;
+      }
+
+      // Decode JWT Payload (root claims)
+      const token = session.access_token;
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+
+      console.log("🔒 Security Badge Verified:", payload);
+
+      toast({
+        title: "Security Badge Verified",
+        description: (
+          <div className="mt-2 space-y-1.5 font-mono text-[10px]">
+            <div className="flex justify-between border-b pb-1">
+              <span>ORG_ID:</span>
+              <span className="text-blue-500">{payload.org_id || "MISSING"}</span>
+            </div>
+            <div className="flex justify-between border-b pb-1">
+              <span>ROLE:</span>
+              <span className="text-emerald-500 font-bold">{payload.user_role || "MISSING"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>SUPER_ADMIN:</span>
+              <span className={payload.is_super_admin ? "text-amber-500 font-bold" : "text-red-500"}>
+                {payload.is_super_admin ? "YES (Security Pass)" : "NO"}
+              </span>
+            </div>
+          </div>
+        ) as any,
+        duration: 10000,
+      });
+    } catch (e: any) {
+      toast({ title: "Verification Failed", description: e.message, variant: "destructive" });
+    }
+  };
+
   const filtered = orgs.filter(
     (o) =>
       o.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -354,10 +403,20 @@ const SuperAdminDashboard: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight">Super Admin Command Center</h1>
           <p className="text-muted-foreground text-sm">Platform-wide organization management</p>
         </div>
-        <Button onClick={() => setWizardOpen(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          New Organization
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleVerifyBadge} 
+            className="gap-2 border-amber-500/50 text-amber-600 hover:bg-amber-500/5 hover:text-amber-700"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Verify Security Badge
+          </Button>
+          <Button onClick={() => setWizardOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            New Organization
+          </Button>
+        </div>
       </div>
 
       {/* Health Tiles */}

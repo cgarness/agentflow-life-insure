@@ -18,11 +18,23 @@ UPDATE public.clients
 SET assigned_agent_id = NULL
 WHERE assigned_agent_id = '' OR assigned_agent_id IS NULL;
 
--- Change column type from TEXT to UUID
+-- Drop any RLS policies that reference this column before altering type
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.clients;
+DROP POLICY IF EXISTS "Enable ALL for authenticated users on clients" ON public.clients;
+DROP POLICY IF EXISTS "Users can insert clients in their organization" ON public.clients;
+DROP POLICY IF EXISTS "Users can view clients in their organization" ON public.clients;
+DROP POLICY IF EXISTS "Users can update clients in their organization" ON public.clients;
+DROP POLICY IF EXISTS "Users can delete clients in their organization" ON public.clients;
+DROP POLICY IF EXISTS "clients_select" ON public.clients;
+DROP POLICY IF EXISTS "clients_insert" ON public.clients;
+DROP POLICY IF EXISTS "clients_update" ON public.clients;
+DROP POLICY IF EXISTS "clients_delete" ON public.clients;
+
+-- Change column type from TEXT to UUID safely
 ALTER TABLE public.clients
   ALTER COLUMN assigned_agent_id TYPE UUID USING (
     CASE
-      WHEN assigned_agent_id IS NOT NULL AND assigned_agent_id != ''
+      WHEN assigned_agent_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
       THEN assigned_agent_id::UUID
       ELSE NULL
     END
@@ -53,10 +65,19 @@ UPDATE public.recruits
 SET assigned_agent_id = NULL
 WHERE assigned_agent_id = '' OR assigned_agent_id IS NULL;
 
+-- Drop any RLS policies that reference this column before altering type
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.recruits;
+DROP POLICY IF EXISTS "Enable ALL for authenticated users on recruits" ON public.recruits;
+DROP POLICY IF EXISTS "recruits_select" ON public.recruits;
+DROP POLICY IF EXISTS "recruits_insert" ON public.recruits;
+DROP POLICY IF EXISTS "recruits_update" ON public.recruits;
+DROP POLICY IF EXISTS "recruits_delete" ON public.recruits;
+
+-- Change column type from TEXT to UUID safely
 ALTER TABLE public.recruits
   ALTER COLUMN assigned_agent_id TYPE UUID USING (
     CASE
-      WHEN assigned_agent_id IS NOT NULL AND assigned_agent_id != ''
+      WHEN assigned_agent_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
       THEN assigned_agent_id::UUID
       ELSE NULL
     END
@@ -76,6 +97,14 @@ BEGIN
 END $$;
 
 -- ===================== LEADS =====================
+-- Drop any RLS policies that reference assigned_agent_id before altering type
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.leads;
+DROP POLICY IF EXISTS "Enable ALL for authenticated users on leads" ON public.leads;
+DROP POLICY IF EXISTS "leads_select" ON public.leads;
+DROP POLICY IF EXISTS "leads_insert" ON public.leads;
+DROP POLICY IF EXISTS "leads_update" ON public.leads;
+DROP POLICY IF EXISTS "leads_delete" ON public.leads;
+
 -- Leads may already be UUID from 20260307101000, but ensure consistency
 DO $$
 DECLARE
@@ -96,10 +125,11 @@ BEGIN
     SET assigned_agent_id = NULL
     WHERE assigned_agent_id = '' OR assigned_agent_id IS NULL;
 
+-- Change column type from TEXT to UUID safely
     ALTER TABLE public.leads
       ALTER COLUMN assigned_agent_id TYPE UUID USING (
         CASE
-          WHEN assigned_agent_id IS NOT NULL AND assigned_agent_id != ''
+          WHEN assigned_agent_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
           THEN assigned_agent_id::UUID
           ELSE NULL
         END
@@ -108,6 +138,9 @@ BEGIN
 END $$;
 
 -- ===================== CONTACT_NOTES =====================
+-- Drop policies before altering columns
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.contact_notes;
+DROP POLICY IF EXISTS "Enable ALL for authenticated users on contact_notes" ON public.contact_notes;
 -- author_id is currently TEXT, standardize to UUID
 DO $$
 DECLARE
@@ -125,9 +158,13 @@ BEGIN
     WHERE author_id = '' OR author_id IS NULL;
 
     ALTER TABLE public.contact_notes
+      ALTER COLUMN author_id DROP DEFAULT;
+
+-- Change column type from TEXT to UUID safely
+    ALTER TABLE public.contact_notes
       ALTER COLUMN author_id TYPE UUID USING (
         CASE
-          WHEN author_id IS NOT NULL AND author_id != ''
+          WHEN author_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
           THEN author_id::UUID
           ELSE NULL
         END
@@ -136,6 +173,9 @@ BEGIN
 END $$;
 
 -- ===================== CONTACT_ACTIVITIES =====================
+-- Drop policies before altering columns
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.contact_activities;
+DROP POLICY IF EXISTS "Enable ALL for authenticated users on contact_activities" ON public.contact_activities;
 -- agent_id is currently TEXT in some definitions, standardize to UUID
 DO $$
 DECLARE
@@ -153,9 +193,13 @@ BEGIN
     WHERE agent_id = '' OR agent_id IS NULL;
 
     ALTER TABLE public.contact_activities
+      ALTER COLUMN agent_id DROP DEFAULT;
+
+-- Change column type from TEXT to UUID safely
+    ALTER TABLE public.contact_activities
       ALTER COLUMN agent_id TYPE UUID USING (
         CASE
-          WHEN agent_id IS NOT NULL AND agent_id != ''
+          WHEN agent_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
           THEN agent_id::UUID
           ELSE NULL
         END
@@ -176,7 +220,15 @@ BEGIN
 
   IF col_type = 'text' OR col_type = 'character varying' THEN
     ALTER TABLE public.contact_notes
-      ALTER COLUMN contact_id TYPE UUID USING contact_id::UUID;
+      ALTER COLUMN contact_id DROP DEFAULT;
+    ALTER TABLE public.contact_notes
+      ALTER COLUMN contact_id TYPE UUID USING (
+        CASE
+          WHEN contact_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          THEN contact_id::UUID
+          ELSE NULL
+        END
+      );
   END IF;
 
   SELECT data_type INTO col_type
@@ -187,7 +239,15 @@ BEGIN
 
   IF col_type = 'text' OR col_type = 'character varying' THEN
     ALTER TABLE public.contact_activities
-      ALTER COLUMN contact_id TYPE UUID USING contact_id::UUID;
+      ALTER COLUMN contact_id DROP DEFAULT;
+    ALTER TABLE public.contact_activities
+      ALTER COLUMN contact_id TYPE UUID USING (
+        CASE
+          WHEN contact_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          THEN contact_id::UUID
+          ELSE NULL
+        END
+      );
   END IF;
 END $$;
 
