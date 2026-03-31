@@ -31,6 +31,7 @@ interface Profile {
   push_notifications_enabled: boolean;
   organization_id: string | null;
   team_id: string | null;
+  is_super_admin: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -117,11 +118,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
       if (currentSession?.user) {
-        fetchProfile(currentSession.user.id);
+        await fetchProfile(currentSession.user.id);
       }
       setIsLoading(false);
     });
