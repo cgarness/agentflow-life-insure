@@ -88,6 +88,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const isAutoDialingRef = useRef(false);
+  const activeCallIdRef = useRef<string | null>(null);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -155,6 +156,34 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       });
   }, [organizationId, profile?.id]);
+
+  const finalizeCallRecord = useCallback(async (duration: number) => {
+    if (!activeCallIdRef.current || !organizationId) return;
+
+    const callId = activeCallIdRef.current;
+    // Clear ref immediately so we don't double-finalize
+    activeCallIdRef.current = null;
+
+    console.log(`[TelnyxContext] Finalizing call record ${callId} with duration ${duration}s`);
+
+    try {
+      const { error } = await supabase
+        .from('calls')
+        .update({
+          status: 'completed',
+          end_at: new Date().toISOString(),
+          duration: duration
+        })
+        .eq('id', callId)
+        .eq('organization_id', organizationId); // Strict RLS scoping
+
+      if (error) {
+        console.error("[TelnyxContext] Error finalizing call record:", error);
+      }
+    } catch (err) {
+      console.error("[TelnyxContext] Exception during call finalization:", err);
+    }
+  }, [organizationId]);
 
   const hangUp = useCallback(() => {
     if (callRef.current) {
@@ -365,6 +394,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             remoteAudioRef.current.srcObject = null;
           }
           callRef.current = null;
+          
+          // Immediately finalize database record
+          finalizeCallRecord(callDuration);
+
           endResetRef.current = setTimeout(() => {
             const wasAutoDialing = isAutoDialingRef.current;
             isAutoDialingRef.current = false;
@@ -379,7 +412,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               console.log("[AutoDialer] Call ended, triggering next lead...");
               window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
             }
-          }, 2000);
+          }, 200); // Reduced from 2000ms for snappier UI
           return;
         }
 
@@ -431,6 +464,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = null;
           }
+
+          // Immediately finalize database record
+          finalizeCallRecord(callDuration);
+
           endResetRef.current = setTimeout(() => {
             const wasAutoDialing = isAutoDialingRef.current;
             isAutoDialingRef.current = false;
@@ -446,7 +483,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               console.log("[AutoDialer] Call ended, triggering next lead...");
               window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
             }
-          }, 2000);
+          }, 200); // Reduced from 2000ms for snappier UI
         }
       });
 
@@ -561,6 +598,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .single();
 
       if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
+
+      // Track this call record ID so we can finalize it on hangup
+      activeCallIdRef.current = callRecord.id;
 
       // 2. Invoke the Edge Function to start the Two-Legged Call.
       // Using direct fetch() — supabase.functions.invoke() fails silently in this project.
