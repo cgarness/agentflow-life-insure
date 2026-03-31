@@ -1279,6 +1279,7 @@ const UserManagement: React.FC = () => {
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
+    if (isCurrentUserSuperAdmin) return allUsers;
     
     return allUsers.filter(u => {
       const role = currentProfile.role?.toLowerCase();
