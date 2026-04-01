@@ -348,36 +348,21 @@ const InviteModal: React.FC<{
     uplineId: null as string | null
   });
 
-  const { organizationId } = useOrganization();
-
   const handleSubmit = async () => {
     if (!form.firstName || !form.lastName || !form.email) {
       toast({ title: "Missing fields", description: "Please fill in all required fields.", variant: "destructive" });
       return;
     }
-    if (!organizationId) {
-      toast({ title: "Error", description: "Organization ID not found.", variant: "destructive" });
-      return;
-    }
     try {
       setSaving(true);
-      const token = await usersApi.createInvitation({ 
-        firstName: form.firstName, 
-        lastName: form.lastName, 
-        email: form.email, 
-        role: form.role, 
-        uplineId: form.uplineId,
-        licensedStates: form.licensedStates,
-        commissionLevel: form.commissionLevel
-      }, organizationId);
-      
-      const link = await usersApi.generateInviteLink(token);
-      
-      await usersApi.sendInviteEmail({
-        email: form.email,
+      await usersApi.invite({
         firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
         role: form.role,
-        inviteURL: link
+        uplineId: form.uplineId || undefined,
+        licensedStates: form.licensedStates,
+        commissionLevel: form.commissionLevel,
       });
 
       toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
@@ -396,23 +381,19 @@ const InviteModal: React.FC<{
       toast({ title: "Missing fields", description: "Please fill in name and email first.", variant: "destructive" });
       return;
     }
-    if (!organizationId) {
-      toast({ title: "Error", description: "Organization ID not found.", variant: "destructive" });
-      return;
-    }
     setCopying(true);
     try {
-      const token = await usersApi.createInvitation({ 
-        firstName: form.firstName, 
-        lastName: form.lastName, 
-        email: form.email, 
-        role: form.role, 
-        uplineId: form.uplineId,
+      const result = await usersApi.invite({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        role: form.role,
+        uplineId: form.uplineId || undefined,
         licensedStates: form.licensedStates,
-        commissionLevel: form.commissionLevel
-      }, organizationId);
+        commissionLevel: form.commissionLevel,
+      });
 
-      const link = await usersApi.generateInviteLink(token);
+      const link = await usersApi.generateInviteLink(result.token);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
       onSuccess();
