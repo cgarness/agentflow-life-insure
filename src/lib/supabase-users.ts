@@ -326,7 +326,6 @@ export const usersSupabaseApi = {
 
 
   async createInvitation(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string | null }, organizationId: string): Promise<string> {
-    const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     const { data: inv, error } = await supabase
       .from("invitations")
       .insert({
@@ -338,7 +337,6 @@ export const usersSupabaseApi = {
         upline_id: data.uplineId,
         licensed_states: data.licensedStates,
         commission_level: data.commissionLevel,
-        token: token
       })
       .select("token")
       .single();
