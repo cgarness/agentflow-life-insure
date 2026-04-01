@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Building2, Users, PhoneCall, DollarSign, Plus, Search,
   MoreHorizontal, ExternalLink, Loader2, CheckCircle2, ArrowRight,
@@ -116,15 +117,18 @@ const ProvisioningWizard: React.FC<{
     }
     setSaving(true);
     try {
-      const link = await usersSupabaseApi.generateInviteLink(
+      const token = await usersSupabaseApi.createInvitation(
         {
           firstName: form.adminFirstName,
           lastName: form.adminLastName,
           email: form.adminEmail,
           role: "Admin" as any,
+          licensedStates: [],
+          commissionLevel: "0%",
         },
-        createdOrgId
+        createdOrgId!
       );
+      const link = await usersSupabaseApi.generateInviteLink(token);
 
       await usersSupabaseApi.sendInviteEmail({
         email: form.adminEmail,
@@ -270,6 +274,7 @@ const ProvisioningWizard: React.FC<{
 
 // ---- Main Dashboard ----
 const SuperAdminDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -394,6 +399,10 @@ const SuperAdminDashboard: React.FC = () => {
       o.name.toLowerCase().includes(search.toLowerCase()) ||
       (o.slug || "").toLowerCase().includes(search.toLowerCase())
   );
+  
+  const handleViewDetail = (id: string) => {
+    navigate(`/super-admin/organizations/${id}`);
+  };
 
   return (
     <div className="space-y-6 p-1">
@@ -484,8 +493,12 @@ const SuperAdminDashboard: React.FC = () => {
                 </thead>
                 <tbody>
                   {filtered.map((org) => (
-                    <tr key={org.id} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors">
-                      <td className="px-6 py-4 font-medium">{org.name}</td>
+                    <tr 
+                      key={org.id} 
+                      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer group"
+                      onClick={() => handleViewDetail(org.id)}
+                    >
+                      <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors">{org.name}</td>
                       <td className="px-4 py-4">
                         <Badge variant="secondary" className="font-mono text-xs">
                           {org.slug || "—"}
@@ -504,11 +517,17 @@ const SuperAdminDashboard: React.FC = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem className="gap-2">
+                            <DropdownMenuItem 
+                              className="gap-2 cursor-pointer"
+                              onClick={() => handleViewDetail(org.id)}
+                            >
                               <ExternalLink className="w-4 h-4" />
                               View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2">
+                            <DropdownMenuItem 
+                              className="gap-2 cursor-pointer"
+                              onClick={() => handleViewDetail(org.id)}
+                            >
                               <Users className="w-4 h-4" />
                               Manage Users
                             </DropdownMenuItem>

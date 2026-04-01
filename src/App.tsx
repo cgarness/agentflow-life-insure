@@ -39,6 +39,7 @@ import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
 import AuthCallback from "@/pages/AuthCallback";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
+import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -131,6 +132,7 @@ const App = () => (
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />
+                          <Route path="/super-admin/organizations/:id" element={<SuperAdminRoute><SuperAdminOrgDetail /></SuperAdminRoute>} />
                         </Route>
                         <Route path="*" element={<NotFound />} />
                       </Routes>
