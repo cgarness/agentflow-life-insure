@@ -251,7 +251,7 @@ export const usersSupabaseApi = {
     return u.profile;
   },
 
-  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string }): Promise<void> {
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string }): Promise<{ invitation_id: string; token: string }> {
     const { data: { session } } = await supabase.auth.getSession();
     const response = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,
@@ -273,9 +273,10 @@ export const usersSupabaseApi = {
       }
     );
     const result = await response.json();
-    if (!response.ok) {
+    if (!response.ok || !result.success) {
       throw new Error(result.error || "Failed to invite user");
     }
+    return { invitation_id: result.invitation_id, token: result.token };
   },
 
   async deactivate(id: string): Promise<void> {
@@ -299,36 +300,21 @@ export const usersSupabaseApi = {
   },
 
   async resendInvite(id: string): Promise<void> {
-    // Get the user's email from profiles first
-    const { data: profile, error } = await supabase
-      .from("profiles")
-      .select("email, first_name, last_name, role, licensed_states, commission_level")
+    // Look up the existing invitation to get its token and details
+    const { data: invitation, error } = await supabase
+      .from("invitations")
+      .select("token, email, first_name, role")
       .eq("id", id)
       .single();
-    if (error || !profile) throw new Error("User not found");
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({
-          email: profile.email,
-          firstName: profile.first_name,
-          lastName: profile.last_name,
-          role: profile.role,
-          licensedStates: profile.licensed_states || [],
-          commissionLevel: profile.commission_level || "0%",
-        }),
-      }
-    );
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || "Failed to resend invite");
-    }
+    if (error || !invitation) throw new Error("Invitation not found");
+
+    const inviteURL = `${window.location.origin}/accept-invite?token=${invitation.token}`;
+    await this.sendInviteEmail({
+      email: invitation.email,
+      firstName: invitation.first_name || "",
+      role: invitation.role,
+      inviteURL,
+    });
   },
 
   async resetPassword(email: string): Promise<void> {
