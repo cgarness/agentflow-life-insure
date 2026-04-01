@@ -1284,21 +1284,18 @@ const UserManagement: React.FC = () => {
     return allUsers.filter(u => {
       const role = currentProfile.role?.toLowerCase();
       
-      // Admin sees everyone (case-insensitive check already handled by .toLowerCase())
+      // Admin sees everyone in organization (already RLS-filtered)
       if (role === "admin") return true;
       
-      // Team Leader sees themselves and their team
-      if (role === "team leader") {
-        return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
-      }
+      // Manager sees self + downline (already RLS-filtered)
+      if (role === "team leader") return true;
       
-      // Agent sees only themselves
+      // Agent sees ONLY themselves
       if (role === "agent") {
         return u.id === currentProfile.id;
       }
       
-      // Default to showing only themselves if role is unrecognized but they are logged in
-      return u.id === currentProfile.id;
+      return false;
     });
   }, [allUsers, currentProfile]);
 
