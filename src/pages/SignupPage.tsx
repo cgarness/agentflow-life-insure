@@ -172,10 +172,9 @@ const SignupPage: React.FC = () => {
             }}>
               <CheckCircle2 size={40} color="#22C55E" />
             </div>
-            <h2 style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 800, marginBottom: 12, letterSpacing: '-0.02em' }}>Check Your Email</h2>
+            <h2 style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 800, marginBottom: 12, letterSpacing: '-0.02em' }}>Account Created!</h2>
             <p style={{ color: '#94A3B8', fontSize: 16, lineHeight: 1.6, marginBottom: 32 }}>
-              We've sent a verification link to <br/>
-              <span style={{ color: '#F8FAFC', fontWeight: 600 }}>{email}</span>. Click it to activate your account.
+              Your account for <span style={{ color: '#F8FAFC', fontWeight: 600 }}>{email}</span> is ready. You can now log in.
             </p>
             <Link to="/login" style={{ 
               display: 'inline-flex', alignItems: 'center', gap: 8, color: '#3B82F6', 
