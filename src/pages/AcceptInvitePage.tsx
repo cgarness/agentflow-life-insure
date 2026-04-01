@@ -71,30 +71,20 @@ const AcceptInvitePage: React.FC = () => {
     const token = params.get("token");
 
     try {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: invite.email,
-        password,
-        options: {
-          data: {
-            first_name: invite.first_name,
-            last_name: invite.last_name,
-            organization_id: invite.organization_id,
-            role: invite.role,
-          },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
+      const { data, error: fnError } = await supabase.functions.invoke("accept-invite", {
+        body: { token, action: "accept", password },
       });
 
-      if (signUpError) throw signUpError;
-
-      // Mark invitation as accepted using service role via edge function
-      if (token) {
-        await supabase.functions.invoke("accept-invite", {
-          body: { token, action: "accept" },
-        });
+      if (fnError) throw fnError;
+      if (!data?.success) {
+        setError(data?.error || "Failed to create account.");
+        return;
       }
 
       setSuccess(true);
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 2000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Signup failed";
       setError(message);
@@ -172,13 +162,11 @@ const AcceptInvitePage: React.FC = () => {
             <div style={{ width: 80, height: 80, background: "rgba(34, 197, 94, 0.1)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", border: "1px solid rgba(34, 197, 94, 0.2)" }}>
               <CheckCircle2 size={40} color="#22C55E" />
             </div>
-            <h1 style={{ color: "#F8FAFC", fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Check Your Email</h1>
+            <h1 style={{ color: "#F8FAFC", fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Account Created!</h1>
             <p style={{ color: "#94A3B8", fontSize: 16, lineHeight: 1.6, marginBottom: 24 }}>
-              We sent a verification link to{" "}
-              <span style={{ color: "#F8FAFC", fontWeight: 600 }}>{invite?.email}</span>.
-              Click it to activate your account.
+              Account created! You can now log in. Redirecting…
             </p>
-            <Link to="/login" style={{ color: "#3B82F6", fontWeight: 600 }}>Back to Login</Link>
+            <Link to="/login" style={{ color: "#3B82F6", fontWeight: 600 }}>Go to Login</Link>
           </>
         ) : invite ? (
           <>

@@ -176,23 +176,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resolvedRole = "Admin"; // Founders are always Admins of their own org
     }
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/login`,
-        data: { 
-          first_name: firstName, 
-          last_name: lastName,
-          organization_id: resolvedOrgId,
-          upline_id: uplineId || null,
-          role: resolvedRole,
-          licensed_states: licensedStates || [],
-          commission_level: commissionLevel || "0%"
-        },
+    const { data: createData, error: createError } = await supabase.functions.invoke("create-user", {
+      body: {
+        email,
+        password,
+        first_name: firstName,
+        last_name: lastName,
+        organization_id: resolvedOrgId,
+        upline_id: uplineId || null,
+        role: resolvedRole,
+        licensed_states: licensedStates || [],
+        commission_level: commissionLevel || "0%",
       },
     });
-    if (error) throw error;
+    if (createError) throw createError;
+    if (!createData?.success) throw new Error(createData?.error || "Signup failed");
   }, []);
 
   const logout = useCallback(async () => {

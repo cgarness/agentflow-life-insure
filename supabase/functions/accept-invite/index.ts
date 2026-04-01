@@ -27,11 +27,14 @@ serve(async (req: Request) => {
     const url = new URL(req.url);
     token = url.searchParams.get("token");
 
+    let password: string | null = null;
+
     if (req.method === "POST") {
       try {
         const body = await req.json();
         if (!token && body.token) token = body.token;
         if (body.action) action = body.action;
+        if (body.password) password = body.password;
       } catch {
         // body may be empty for GET-style POST calls
       }
@@ -60,8 +63,34 @@ serve(async (req: Request) => {
       );
     }
 
-    // If action=accept, mark the invitation as Accepted
+    // If action=accept, create user via admin API (skips confirmation email) then mark invitation Accepted
     if (action === "accept") {
+      if (!password) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Password is required" }),
+          { status: 400, headers }
+        );
+      }
+
+      const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: invitation.email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          first_name: invitation.first_name,
+          last_name: invitation.last_name,
+          organization_id: invitation.organization_id,
+          role: invitation.role,
+        },
+      });
+
+      if (createError) {
+        return new Response(
+          JSON.stringify({ success: false, error: createError.message }),
+          { status: 400, headers }
+        );
+      }
+
       const { error: updateError } = await supabaseAdmin
         .from("invitations")
         .update({ status: "Accepted" })
@@ -75,7 +104,7 @@ serve(async (req: Request) => {
       }
 
       return new Response(
-        JSON.stringify({ success: true }),
+        JSON.stringify({ success: true, user_id: userData.user.id }),
         { status: 200, headers }
       );
     }
