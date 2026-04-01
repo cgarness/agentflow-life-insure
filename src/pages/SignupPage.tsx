@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2, Mail, Lock, User, ArrowRight, ShieldCheck, Zap, Globe, Sparkles } from "lucide-react";
 import AnimatedBackground from "@/components/AnimatedBackground";
-import { Mail, Lock, User, ArrowRight } from "lucide-react";
+import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 
 const SignupPage: React.FC = () => {
   const { signup } = useAuth();
@@ -16,6 +16,7 @@ const SignupPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [uplineId, setUplineId] = useState<string | null>(null);
   const [role, setRole] = useState<string>("Agent");
   const [licensedStates, setLicensedStates] = useState<any[]>([]);
@@ -24,10 +25,30 @@ const SignupPage: React.FC = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const inviteData = params.get("invite");
-    if (inviteData) {
+    const token = params.get("token");
+    const inviteData = params.get("invite"); // Legacy support
+    
+    if (token) {
+      // New Stateful Invitation System
+      usersApi.getInvitationByToken(token).then(inv => {
+        if (inv) {
+          if (inv.first_name) setFirstName(inv.first_name);
+          if (inv.last_name) setLastName(inv.last_name);
+          if (inv.email) setEmail(inv.email);
+          if (inv.organization_id) setOrganizationId(inv.organization_id);
+          if (inv.organizations?.name) setOrganizationName(inv.organizations.name);
+          if (inv.upline_id) setUplineId(inv.upline_id);
+          if (inv.role) setRole(inv.role);
+          if (inv.licensed_states) setLicensedStates(inv.licensed_states);
+          if (inv.commission_level) setCommissionLevel(inv.commission_level);
+        }
+      }).catch(e => {
+        console.error("Failed to fetch invitation:", e);
+        setError("This invitation link may be invalid or expired.");
+      });
+    } else if (inviteData) {
+      // Legacy Base64 System
       try {
-        // Try to decode as base64 JSON
         const decoded = JSON.parse(atob(inviteData));
         if (decoded.firstName) setFirstName(decoded.firstName);
         if (decoded.lastName) setLastName(decoded.lastName);
@@ -38,9 +59,7 @@ const SignupPage: React.FC = () => {
         if (decoded.licensedStates) setLicensedStates(decoded.licensedStates);
         if (decoded.commissionLevel) setCommissionLevel(decoded.commissionLevel);
       } catch (e) {
-        // If it's just a string ID, we can't do much without fetching, 
-        // but the new system passes encoded objects.
-        console.error("Failed to decode invite data:", e);
+        console.error("Failed to decode legacy invite data:", e);
       }
     }
   }, [location.search]);
@@ -52,243 +71,279 @@ const SignupPage: React.FC = () => {
     try {
       await signup(email, password, firstName, lastName, organizationId, uplineId, role, licensedStates, commissionLevel);
       setSuccess(true);
-    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
+    } catch (err: any) {
       setError(err.message || "Signup failed");
     } finally {
       setLoading(false);
     }
   };
 
+  const inputContainerStyle: React.CSSProperties = {
+    position: 'relative',
+    marginBottom: 20,
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  };
+
   const inputStyle: React.CSSProperties = {
     width: '100%',
-    height: 44,
-    background: 'rgba(8,18,36,0.65)',
-    border: '1px solid rgba(40,70,120,0.7)',
-    borderRadius: 10,
-    padding: '0 14px 0 42px',
-    color: '#F1F5F9',
-    fontSize: 14,
+    height: 52,
+    background: 'rgba(15, 23, 42, 0.4)',
+    border: '1px solid rgba(148, 163, 184, 0.1)',
+    borderRadius: 16,
+    padding: '0 16px 0 48px',
+    color: '#F8FAFC',
+    fontSize: 15,
     outline: 'none',
     boxSizing: 'border-box',
+    transition: 'all 0.3s ease',
+    backdropFilter: 'blur(8px)',
   };
 
   const labelStyle: React.CSSProperties = {
-    fontSize: 11,
+    fontSize: 12,
     color: '#94A3B8',
-    fontWeight: 500,
-    marginBottom: 6,
+    fontWeight: 600,
+    marginBottom: 8,
     display: 'block',
-  };
-
-  const iconLeftStyle: React.CSSProperties = {
-    position: 'absolute',
-    left: 14,
-    top: '50%',
-    transform: 'translateY(-50%)',
-    pointerEvents: 'none',
+    marginLeft: 4,
+    letterSpacing: '0.025em',
   };
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', background: '#020408', overflow: 'hidden', fontFamily: '-apple-system, sans-serif' }}>
+    <div style={{ position: 'relative', minHeight: '100vh', background: '#020617', overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <style>{`
-        @keyframes cardEntrance { from { opacity:0; transform:translate(-50%,calc(-50% + 24px)) scale(0.96); } to { opacity:1; transform:translate(-50%,-50%) scale(1); } }
-        @keyframes glowPulse { 0%,100% { border-color:rgba(59,130,246,0.3); box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 35px rgba(59,130,246,0.18),0 0 80px rgba(59,130,246,0.07); } 50% { border-color:rgba(168,85,247,0.3); box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 35px rgba(168,85,247,0.18),0 0 80px rgba(168,85,247,0.07); } }
-        @keyframes shimmer { from { background-position:0% 50%; } to { background-position:100% 50%; } }
-        @keyframes underlineGrow { from { width:0; } to { width:72%; } }
-        @keyframes badgePulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.45; transform:scale(0.75); } }
-        @keyframes accessGrantedFade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
-        .signup-input:focus { border-color: #3B82F6 !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important; }
+        @keyframes fadeInOut { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.2); } 50% { box-shadow: 0 0 40px rgba(59, 130, 246, 0.4); } }
+        @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        .signup-card {
+          animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .signup-input:focus {
+          border-color: #3B82F6 !important;
+          background: rgba(15, 23, 42, 0.6) !important;
+          box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1) !important;
+        }
+        .signup-input:focus + .input-icon {
+          color: #3B82F6 !important;
+          transform: translateY(-50%) scale(1.1);
+        }
+        .premium-btn {
+          background: linear-gradient(135deg, #2563EB, #7C3AED);
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          background-size: 200% auto;
+        }
+        .premium-btn:hover {
+          background-position: right center;
+          transform: translateY(-2px);
+          box-shadow: 0 12px 24px -6px rgba(59, 130, 246, 0.5);
+        }
+        .premium-btn:active {
+          transform: translateY(0);
+        }
       `}</style>
+      
       <AnimatedBackground />
-      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 10, width: 460, animation: 'cardEntrance 0.7s ease-out forwards', opacity: 0 }}>
-        <div style={{
-          background: 'rgba(13,25,48,0.38)',
-          backdropFilter: 'blur(36px) saturate(200%) brightness(1.15)',
-          WebkitBackdropFilter: 'blur(36px) saturate(200%) brightness(1.15)',
-          border: '1px solid rgba(99,155,255,0.3)',
-          borderRadius: 20,
-          padding: 44,
-          position: 'relative',
-          overflow: 'hidden',
-          animation: 'glowPulse 5s ease-in-out infinite',
-        }}>
-          {/* Glass top highlight */}
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 5%, rgba(255,255,255,0.3) 30%, rgba(120,180,255,0.5) 50%, rgba(255,255,255,0.3) 70%, transparent 95%)' }} />
 
-          {success ? (
-            <div style={{ textAlign: 'center' }}>
-              <div style={{
-                marginBottom: '20px', padding: '14px 18px', borderRadius: '10px',
-                border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)',
-                color: '#22C55E', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em',
-                boxShadow: '0 0 20px rgba(34,197,94,0.2)',
-                animation: 'accessGrantedFade 0.4s ease-out forwards',
-              }}>
-                ✓ ACCOUNT CREATED
-              </div>
-              <CheckCircle2 size={48} color="#22C55E" style={{ margin: '0 auto 16px' }} />
-              <h2 style={{ color: '#F1F5F9', fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Check Your Email</h2>
-              <p style={{ color: '#94A3B8', fontSize: 13, marginBottom: 16 }}>
-                We've sent a confirmation link to <span style={{ color: '#F1F5F9', fontWeight: 500 }}>{email}</span>. Click the link to activate your account.
-              </p>
-              <Link to="/login" style={{ color: '#3B82F6', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}>Back to Login</Link>
+      {/* Decorative Orbs */}
+      <div style={{ position: 'absolute', top: '10%', left: '15%', width: 300, height: 300, background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)', filter: 'blur(60px)', animation: 'fadeInOut 8s infinite' }} />
+      <div style={{ position: 'absolute', bottom: '10%', right: '15%', width: 400, height: 400, background: 'radial-gradient(circle, rgba(124,58,237,0.1) 0%, transparent 70%)', filter: 'blur(80px)', animation: 'fadeInOut 10s infinite delay-2s' }} />
+
+      <div className="signup-card" style={{
+        width: '100%',
+        maxWidth: 480,
+        background: 'rgba(15, 23, 42, 0.3)',
+        backdropFilter: 'blur(24px) saturate(180%)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: 32,
+        padding: '48px 40px',
+        position: 'relative',
+        zIndex: 10,
+      }}>
+        {success ? (
+          <div style={{ textAlign: 'center', animation: 'slideUp 0.6s ease-out' }}>
+            <div style={{ 
+              width: 80, height: 80, background: 'rgba(34, 197, 94, 0.1)', 
+              borderRadius: '50%', display: 'flex', alignItems: 'center', 
+              justifyContent: 'center', margin: '0 auto 24px', border: '1px solid rgba(34, 197, 94, 0.2)' 
+            }}>
+              <CheckCircle2 size={40} color="#22C55E" />
             </div>
-          ) : (
-            <>
-              {/* Wordmark */}
-              <div style={{ textAlign: 'center', marginBottom: 6 }}>
-                <span style={{ color: '#F1F5F9', fontWeight: 800, fontSize: 30 }}>Agent</span>
-                <span style={{ color: '#3B82F6', fontWeight: 800, fontSize: 30, textShadow: '0 0 20px rgba(59,130,246,0.7)' }}>Flow</span>
+            <h2 style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 800, marginBottom: 12, letterSpacing: '-0.02em' }}>Check Your Email</h2>
+            <p style={{ color: '#94A3B8', fontSize: 16, lineHeight: 1.6, marginBottom: 32 }}>
+              We've sent a verification link to <br/>
+              <span style={{ color: '#F8FAFC', fontWeight: 600 }}>{email}</span>. Click it to activate your account.
+            </p>
+            <Link to="/login" style={{ 
+              display: 'inline-flex', alignItems: 'center', gap: 8, color: '#3B82F6', 
+              fontSize: 15, textDecoration: 'none', fontWeight: 600, padding: '12px 24px',
+              background: 'rgba(59, 130, 246, 0.05)', borderRadius: 12, border: '1px solid rgba(59, 130, 246, 0.1)'
+            }}>
+              Back to Login <ArrowRight size={16} />
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, marginBottom: 16 }}>
+                <div style={{ width: 40, height: 40, background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 16px rgba(59, 130, 246, 0.3)' }}>
+                  <Sparkles size={20} color="white" />
+                </div>
+                <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.05em' }}>
+                  <span style={{ color: '#F8FAFC' }}>Agent</span>
+                  <span style={{ color: '#3B82F6' }}>Flow</span>
+                </div>
               </div>
+              <h1 style={{ color: '#F8FAFC', fontSize: 24, fontWeight: 800, marginBottom: 8, letterSpacing: '-0.02em' }}>
+                {organizationName ? `Join ${organizationName}` : "Create Your Account"}
+              </h1>
+              <p style={{ color: '#64748B', fontSize: 14, fontWeight: 500 }}>
+                {organizationName ? `You've been invited as a ${role}` : "Start your journey as an independent agent."}
+              </p>
+            </div>
 
-              {/* Underline bar */}
-              <div style={{ height: 2, background: 'linear-gradient(90deg,transparent,#3B82F6,#A855F7,transparent)', borderRadius: 2, margin: '0 auto 18px', width: 0, animation: 'underlineGrow 0.9s 0.35s ease-out forwards', boxShadow: '0 0 12px rgba(59,130,246,0.5)' }} />
+            {error && (
+              <div style={{ 
+                background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', 
+                borderRadius: 14, padding: '12px 16px', color: '#EF4444', 
+                fontSize: 13, marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10,
+                animation: 'slideUp 0.3s ease-out'
+              }}>
+                <div style={{ width: 6, height: 6, background: '#EF4444', borderRadius: '50%' }} />
+                {error}
+              </div>
+            )}
 
-              {/* Heading */}
-              <div style={{ color: '#F1F5F9', fontSize: 22, fontWeight: 700, textAlign: 'center' }}>Create Your Account</div>
-              <div style={{ color: '#64748B', fontSize: 13, textAlign: 'center', marginTop: 4, marginBottom: 28 }}>Get started with AgentFlow</div>
-
-              {/* Error banner */}
-              {error && (
-                <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 6, padding: '10px 14px', color: '#EF4444', fontSize: 13, marginBottom: 16 }}>
-                  {error}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit}>
-                {/* First Name + Last Name */}
-                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                  <div style={{ width: '50%' }}>
-                    <label style={labelStyle}>First Name</label>
-                    <div style={{ position: 'relative' }}>
-                      <span style={iconLeftStyle}><User size={16} color="#3B82F6" /></span>
-                      <input
-                        className="signup-input"
-                        type="text"
-                        value={firstName}
-                        onChange={e => setFirstName(e.target.value)}
-                        required
-                        placeholder="John"
-                        style={inputStyle}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ width: '50%' }}>
-                    <label style={labelStyle}>Last Name</label>
-                    <div style={{ position: 'relative' }}>
-                      <span style={iconLeftStyle}><User size={16} color="#3B82F6" /></span>
-                      <input
-                        className="signup-input"
-                        type="text"
-                        value={lastName}
-                        onChange={e => setLastName(e.target.value)}
-                        required
-                        placeholder="Doe"
-                        style={inputStyle}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Email */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>Email</label>
+            <form onSubmit={handleSubmit}>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div style={inputContainerStyle}>
+                  <label style={labelStyle}>First Name</label>
                   <div style={{ position: 'relative' }}>
-                    <span style={iconLeftStyle}><Mail size={16} color="#3B82F6" /></span>
+                    <User className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
                     <input
                       className="signup-input"
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      required
-                      placeholder="you@company.com"
                       style={inputStyle}
+                      value={firstName}
+                      onChange={e => setFirstName(e.target.value)}
+                      required
+                      placeholder="First name"
                     />
                   </div>
                 </div>
-
-                {/* Password */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>Password</label>
+                <div style={inputContainerStyle}>
+                  <label style={labelStyle}>Last Name</label>
                   <div style={{ position: 'relative' }}>
-                    <span style={iconLeftStyle}><Lock size={16} color="#3B82F6" /></span>
+                    <User className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
                     <input
                       className="signup-input"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
+                      style={inputStyle}
+                      value={lastName}
+                      onChange={e => setLastName(e.target.value)}
                       required
-                      minLength={6}
-                      placeholder="Min 6 characters"
-                      style={{ ...inputStyle, paddingRight: 42 }}
+                      placeholder="Last name"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                    >
-                      {showPassword ? <EyeOff size={16} color="#64748B" /> : <Eye size={16} color="#64748B" />}
-                    </button>
                   </div>
                 </div>
-
-                {/* Submit button */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  style={{
-                    marginTop: 24,
-                    width: '100%',
-                    height: 48,
-                    borderRadius: 10,
-                    border: 'none',
-                    background: 'linear-gradient(135deg,#1D4ED8,#3B82F6,#6D28D9)',
-                    backgroundSize: '200%',
-                    animation: 'shimmer 3s ease-in-out infinite alternate',
-                    color: 'white',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    letterSpacing: '0.06em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    boxShadow: '0 0 22px rgba(59,130,246,0.35)',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    cursor: loading ? 'default' : 'pointer',
-                    opacity: loading ? 0.75 : 1,
-                  }}
-                >
-                  {loading ? (
-                    <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> CREATING ACCOUNT...</>
-                  ) : (
-                    <>CREATE ACCOUNT <ArrowRight size={16} /></>
-                  )}
-                </button>
-              </form>
-
-              {/* Badges */}
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 20 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', border: '1px solid rgba(59,130,246,0.45)', color: '#93C5FD', background: 'rgba(59,130,246,0.1)' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#3B82F6', animation: 'badgePulse 2s ease-in-out infinite' }} />SECURE
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', border: '1px solid rgba(20,184,166,0.45)', color: '#5EEAD4', background: 'rgba(20,184,166,0.1)' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#14B8A6', animation: 'badgePulse 2s ease-in-out infinite', animationDelay: '0.7s' }} />ENCRYPTED
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', border: '1px solid rgba(168,85,247,0.45)', color: '#D8B4FE', background: 'rgba(168,85,247,0.1)' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#A855F7', animation: 'badgePulse 2s ease-in-out infinite', animationDelay: '1.4s' }} />AI POWERED
-                </span>
               </div>
 
-              {/* Sign in link */}
-              <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: '#64748B' }}>
+              <div style={inputContainerStyle}>
+                <label style={labelStyle}>Email Address</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
+                  <input
+                    className="signup-input"
+                    type="email"
+                    style={inputStyle}
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    required
+                    placeholder="name@company.com"
+                  />
+                </div>
+              </div>
+
+              <div style={inputContainerStyle}>
+                <label style={labelStyle}>Password</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
+                  <input
+                    className="signup-input"
+                    type={showPassword ? 'text' : 'password'}
+                    style={{ ...inputStyle, paddingRight: 52 }}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    placeholder="Create a strong password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="premium-btn"
+                style={{
+                  width: '100%',
+                  height: 56,
+                  borderRadius: 16,
+                  border: 'none',
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: 16,
+                  letterSpacing: '0.01em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  marginTop: 12,
+                  cursor: loading ? 'default' : 'pointer',
+                  opacity: loading ? 0.7 : 1,
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                {loading ? (
+                  <Loader2 size={24} style={{ animation: 'spin-slow 2s linear infinite' }} />
+                ) : (
+                  <>Get Started <ArrowRight size={20} /></>
+                )}
+              </button>
+            </form>
+
+            <div style={{ marginTop: 32, textAlign: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ShieldCheck size={14} color="#3B82F6" />
+                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, letterSpacing: '0.05em' }}>SECURE</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Globe size={14} color="#3B82F6" />
+                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, letterSpacing: '0.05em' }}>GLOBAL</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Zap size={14} color="#3B82F6" />
+                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, letterSpacing: '0.05em' }}>FAST</span>
+                </div>
+              </div>
+              
+              <div style={{ fontSize: 14, color: '#64748B', fontWeight: 500 }}>
                 Already have an account?{' '}
-                <Link to="/login" style={{ color: '#3B82F6', textDecoration: 'none' }}>Sign In</Link>
+                <Link to="/login" style={{ color: '#3B82F6', textDecoration: 'none', fontWeight: 700 }}>Sign In</Link>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

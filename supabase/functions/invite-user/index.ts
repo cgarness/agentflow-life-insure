@@ -55,7 +55,7 @@ serve(async (req: Request) => {
         licensed_states: licensedStates || [],
         commission_level: commissionLevel || "0%",
         upline_id: uplineId || null,
-        organization_id: "a0000000-0000-0000-0000-000000000001",
+        organization_id: organizationId,
       }, { onConflict: "id" });
     if (profileError) {
       return new Response(

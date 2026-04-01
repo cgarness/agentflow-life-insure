@@ -355,9 +355,13 @@ const InviteModal: React.FC<{
       toast({ title: "Missing fields", description: "Please fill in all required fields.", variant: "destructive" });
       return;
     }
+    if (!organizationId) {
+      toast({ title: "Error", description: "Organization ID not found.", variant: "destructive" });
+      return;
+    }
     try {
       setSaving(true);
-      const link = await usersApi.generateInviteLink({ 
+      const token = await usersApi.createInvitation({ 
         firstName: form.firstName, 
         lastName: form.lastName, 
         email: form.email, 
@@ -366,6 +370,8 @@ const InviteModal: React.FC<{
         licensedStates: form.licensedStates,
         commissionLevel: form.commissionLevel
       }, organizationId);
+      
+      const link = await usersApi.generateInviteLink(token);
       
       await usersApi.sendInviteEmail({
         email: form.email,
@@ -390,9 +396,13 @@ const InviteModal: React.FC<{
       toast({ title: "Missing fields", description: "Please fill in name and email first.", variant: "destructive" });
       return;
     }
+    if (!organizationId) {
+      toast({ title: "Error", description: "Organization ID not found.", variant: "destructive" });
+      return;
+    }
     setCopying(true);
     try {
-      const link = await usersApi.generateInviteLink({ 
+      const token = await usersApi.createInvitation({ 
         firstName: form.firstName, 
         lastName: form.lastName, 
         email: form.email, 
@@ -401,9 +411,10 @@ const InviteModal: React.FC<{
         licensedStates: form.licensedStates,
         commissionLevel: form.commissionLevel
       }, organizationId);
+
+      const link = await usersApi.generateInviteLink(token);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
-      // Removed broken pending user creation
       onSuccess();
       onClose();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1305,6 +1316,38 @@ const UserManagement: React.FC = () => {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+  const [invitations, setInvitations] = useState<any[]>([]);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("users");
+
+  const fetchInvitations = useCallback(async () => {
+    if (!organizationId) return;
+    setInvitesLoading(true);
+    try {
+      const data = await usersApi.getInvitations(organizationId);
+      setInvitations(data);
+    } catch (e: any) {
+      toast({ title: "Error fetching invitations", description: e.message, variant: "destructive" });
+    } finally {
+      setInvitesLoading(false);
+    }
+  }, [organizationId]);
+
+  useEffect(() => { 
+    fetchUsers(); 
+    if (activeTab === "invites") fetchInvitations();
+  }, [fetchUsers, fetchInvitations, activeTab]);
+
+  const handleRevokeInvite = async (id: string) => {
+    try {
+      await usersApi.revokeInvitation(id);
+      toast({ title: "Invitation revoked" });
+      fetchInvitations();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const handleDeactivateReactivate = async () => {
     const u = confirmDialog.user;
     if (!u) return;
@@ -1325,18 +1368,24 @@ const UserManagement: React.FC = () => {
     }
   };
 
-  const handleResendInvite = async (u: UserWithProfile) => {
+  const handleResendInvite = async (u: any) => {
     try {
-      await usersApi.resendInvite(u.email);
+      const link = await usersApi.generateInviteLink(u.token);
+      await usersApi.sendInviteEmail({
+        email: u.email,
+        firstName: u.first_name,
+        role: u.role,
+        inviteURL: link
+      });
       toast({ title: "Invite resent", description: `Invitation resent to ${u.email}` });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
 
-  const handleCopyInviteLink = async (u: UserWithProfile) => {
+  const handleCopyInviteLink = async (u: any) => {
     try {
-      const link = await usersApi.generateInviteLink({ firstName: u.firstName, lastName: u.lastName, email: u.email, role: u.role }, organizationId);
+      const link = await usersApi.generateInviteLink(u.token);
       await navigator.clipboard.writeText(link);
       toast({ title: "Invite link copied", description: "Invite link copied to clipboard." });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1347,151 +1396,267 @@ const UserManagement: React.FC = () => {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-foreground">User Management</h3>
-        <Button onClick={() => setInviteOpen(true)} size="sm">
-          <Plus className="w-4 h-4 mr-1" /> Invite User
+        <div>
+          <h3 className="text-xl font-bold text-foreground tracking-tight">Team Management</h3>
+          <p className="text-sm text-muted-foreground mt-1">Manage your team members and pending invitations.</p>
+        </div>
+        <Button onClick={() => setInviteOpen(true)} className="bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all duration-300">
+          <Plus className="w-4 h-4 mr-2" /> Invite New Agent
         </Button>
       </div>
 
-      {/* Search & Filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by name or email..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-40"><SelectValue placeholder="Role" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All Roles</SelectItem>
-            <SelectItem value="Admin">Admin</SelectItem>
-            <SelectItem value="Team Leader">Team Leader</SelectItem>
-            <SelectItem value="Agent">Agent</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All Statuses</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Inactive">Inactive</SelectItem>
-            <SelectItem value="Pending">Pending</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-[400px] grid-cols-2 bg-muted/50 p-1 rounded-xl">
+          <TabsTrigger value="users" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <Users className="w-4 h-4 mr-2" /> Team Members
+          </TabsTrigger>
+          <TabsTrigger value="invites" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <Mail className="w-4 h-4 mr-2" /> Pending Invites
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Users Table */}
-      <div className="bg-card rounded-xl border overflow-hidden">
-        {loading ? (
-          <div className="p-6 space-y-3">
-            {[1,2,3,4].map(i => <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />)}
+        <TabsContent value="users" className="space-y-4 mt-6 animate-in fade-in-50 duration-500">
+          {/* Search & Filters */}
+          <div className="flex flex-wrap gap-3 p-4 bg-accent/20 rounded-xl border border-border/50">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search team by name, email, or role..." className="pl-9 bg-background/50 border-border/50 focus:border-primary/50 transition-all" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-44 bg-background/50 border-border/50"><SelectValue placeholder="Filter by Role" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Roles</SelectItem>
+                <SelectItem value="Admin">Admin</SelectItem>
+                <SelectItem value="Team Leader">Team Leader</SelectItem>
+                <SelectItem value="Agent">Agent</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44 bg-background/50 border-border/50"><SelectValue placeholder="Filter by Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Statuses</SelectItem>
+                <SelectItem value="Active">Active</SelectItem>
+                <SelectItem value="Inactive">Inactive</SelectItem>
+                <SelectItem value="Pending">Pending</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        ) : users.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">No users found.</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-muted-foreground border-b bg-accent/50">
-                <th className="text-left py-3 px-4 font-medium">User</th>
-                <th className="text-left py-3 font-medium">Email</th>
-                <th className="text-left py-3 font-medium">Role</th>
-                <th className="text-left py-3 font-medium">Manager</th>
-                <th className="text-left py-3 font-medium">Status</th>
-                <th className="text-left py-3 font-medium">Availability</th>
-                <th className="text-right py-3 pr-4 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr
-                  key={u.id}
-                  className="border-b last:border-0 hover:bg-accent/30 transition-colors cursor-pointer"
-                  onClick={() => { setSelectedUser(u); setProfileOpen(true); }}
-                >
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center overflow-hidden">
-                        {u.avatar ? (
-                          <img src={u.avatar} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          `${u.firstName[0]}${u.lastName[0]}`
-                        )}
-                      </div>
-                      <span className="font-medium text-foreground">{u.firstName} {u.lastName}</span>
-                      {u.isSuperAdmin && isCurrentUserSuperAdmin && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
-                            </TooltipTrigger>
-                            <TooltipContent><p>Super Admin</p></TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-3 text-muted-foreground">{u.email}</td>
-                  <td className="py-3"><Badge className={ROLE_BADGE[u.role]}>{u.role}</Badge></td>
-                  <td className="py-3 text-muted-foreground text-xs">
-                    {u.profile.uplineId ? (
-                      allUsers.find(manager => manager.id === u.profile.uplineId) 
-                        ? `${allUsers.find(manager => manager.id === u.profile.uplineId)?.firstName} ${allUsers.find(manager => manager.id === u.profile.uplineId)?.lastName}`
-                        : "Unknown"
-                    ) : "-"}
-                  </td>
-                  <td className="py-3"><Badge className={STATUS_BADGE[u.status]}>{u.status}</Badge></td>
-                  <td className="py-3"><span className={`w-2.5 h-2.5 rounded-full inline-block ${AVAIL_COLORS[u.availabilityStatus]}`} title={u.availabilityStatus} /></td>
-                  <td className="py-3 pr-4 text-right" onClick={e => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreHorizontal className="w-4 h-4" /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setSelectedUser(u); setProfileOpen(true); }}>
-                          <Pencil className="w-4 h-4 mr-2" /> Edit User
-                        </DropdownMenuItem>
-                        {u.status === "Active" && u.id !== currentUser?.id && (
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => setConfirmDialog({ open: true, user: u, action: "deactivate" })}
-                          >
-                            <Ban className="w-4 h-4 mr-2" /> Deactivate
-                          </DropdownMenuItem>
-                        )}
-                        {u.status === "Inactive" && (
-                          <DropdownMenuItem onClick={() => setConfirmDialog({ open: true, user: u, action: "reactivate" })}>
-                            <RefreshCw className="w-4 h-4 mr-2" /> Reactivate
-                          </DropdownMenuItem>
-                        )}
-                        {u.status === "Pending" && (
-                          <>
-                            <DropdownMenuItem onClick={() => handleResendInvite(u)}>
-                              <Mail className="w-4 h-4 mr-2" /> Resend Invite
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleCopyInviteLink(u)}>
-                              <Copy className="w-4 h-4 mr-2" /> Copy Link
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {isCurrentUserSuperAdmin && u.status === "Active" && u.id !== currentUser?.id && (
-                          <DropdownMenuItem 
-                            onClick={() => {
-                              startImpersonation(u.profile as unknown as Profile);
-                              navigate("/dashboard");
-                            }}
-                            className="text-amber-600 focus:text-amber-600 font-medium"
-                          >
-                            <Eye className="w-4 h-4 mr-2" /> View As
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+
+          <div className="bg-card rounded-2xl border border-border/50 shadow-xl shadow-black/5 overflow-hidden">
+            {loading ? (
+              <div className="p-8 space-y-4">
+                {[1,2,3,4,5].map(i => <div key={i} className="h-16 rounded-xl bg-muted/30 animate-pulse" />)}
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-16 h-16 bg-muted/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Users className="w-8 h-8 text-muted-foreground/50" />
+                </div>
+                <h4 className="text-lg font-medium text-foreground">No team members found</h4>
+                <p className="text-muted-foreground text-sm mt-1">Try adjusting your filters or search terms.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="text-muted-foreground/70 uppercase text-[10px] font-bold tracking-wider border-b border-border/50 bg-muted/20">
+                      <th className="text-left py-4 px-6">Member</th>
+                      <th className="text-left py-4 px-2">Role</th>
+                      <th className="text-left py-4 px-2">Manager</th>
+                      <th className="text-left py-4 px-2">Status</th>
+                      <th className="text-left py-4 px-2">Availability</th>
+                      <th className="text-right py-4 px-6">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {users.map(u => (
+                      <tr
+                        key={u.id}
+                        className="group hover:bg-accent/40 transition-all duration-200 cursor-pointer"
+                        onClick={() => { setSelectedUser(u); setProfileOpen(true); }}
+                      >
+                        <td className="py-4 px-6">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary text-sm font-bold flex items-center justify-center overflow-hidden border border-primary/20 shadow-inner">
+                                {u.avatar ? (
+                                  <img src={u.avatar} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  `${u.firstName[0]}${u.lastName[0]}`
+                                )}
+                              </div>
+                              <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${AVAIL_COLORS[u.availabilityStatus]}`} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-foreground">{u.firstName} {u.lastName}</span>
+                                {u.isSuperAdmin && isCurrentUserSuperAdmin && (
+                                  <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[9px] h-4">SUPER ADMIN</Badge>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground/70 flex items-center gap-1.5 mt-0.5">
+                                <Mail className="w-3 h-3" /> {u.email}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-2"><Badge className={`${ROLE_BADGE[u.role]} border-none rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight`}>{u.role}</Badge></td>
+                        <td className="py-4 px-2">
+                          {u.profile.uplineId ? (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <div className="w-5 h-5 rounded bg-muted flex items-center justify-center text-[8px] font-bold">
+                                {allUsers.find(m => m.id === u.profile.uplineId)?.firstName[0]}
+                              </div>
+                              {allUsers.find(m => m.id === u.profile.uplineId)?.firstName} {allUsers.find(m => m.id === u.profile.uplineId)?.lastName}
+                            </div>
+                          ) : <span className="text-muted-foreground/30 text-xs">-</span>}
+                        </td>
+                        <td className="py-4 px-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className={`w-1.5 h-1.5 rounded-full ${u.status === "Active" ? "bg-success" : "bg-muted-foreground"}`} />
+                            <span className={`text-xs font-medium ${u.status === "Active" ? "text-success" : "text-muted-foreground"}`}>{u.status}</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-2">
+                          <span className="text-xs text-muted-foreground">{u.availabilityStatus}</span>
+                        </td>
+                        <td className="py-4 px-6 text-right" onClick={e => e.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg hover:bg-accent"><MoreHorizontal className="w-4 h-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48 p-1 rounded-xl shadow-2xl border-border/50">
+                              <DropdownMenuItem className="rounded-lg py-2" onClick={() => { setSelectedUser(u); setProfileOpen(true); }}>
+                                <Pencil className="w-4 h-4 mr-2" /> Edit Member
+                              </DropdownMenuItem>
+                              {u.status === "Active" && u.id !== currentUser?.id && (
+                                <DropdownMenuItem
+                                  className="text-destructive rounded-lg py-2 focus:text-destructive"
+                                  onClick={() => setConfirmDialog({ open: true, user: u, action: "deactivate" })}
+                                >
+                                  <Ban className="w-4 h-4 mr-2" /> Deactivate
+                                </DropdownMenuItem>
+                              )}
+                              {u.status === "Inactive" && (
+                                <DropdownMenuItem className="rounded-lg py-2" onClick={() => setConfirmDialog({ open: true, user: u, action: "reactivate" })}>
+                                  <RefreshCw className="w-4 h-4 mr-2" /> Reactivate
+                                </DropdownMenuItem>
+                              )}
+                              {isCurrentUserSuperAdmin && u.status === "Active" && u.id !== currentUser?.id && (
+                                <>
+                                  <DropdownMenuSeparator className="bg-border/50" />
+                                  <DropdownMenuItem 
+                                    onClick={() => {
+                                      startImpersonation(u.profile as unknown as Profile);
+                                      navigate("/dashboard");
+                                    }}
+                                    className="text-primary rounded-lg py-2 font-medium"
+                                  >
+                                    <Eye className="w-4 h-4 mr-2" /> Impersonate
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="invites" className="space-y-4 mt-6 animate-in slide-in-from-right-4 duration-300">
+          <div className="bg-card rounded-2xl border border-border/50 shadow-xl shadow-black/5 overflow-hidden">
+            {invitesLoading ? (
+              <div className="p-8 space-y-4">
+                {[1,2,3].map(i => <div key={i} className="h-16 rounded-xl bg-muted/30 animate-pulse" />)}
+              </div>
+            ) : invitations.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-16 h-16 bg-muted/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="w-8 h-8 text-muted-foreground/50" />
+                </div>
+                <h4 className="text-lg font-medium text-foreground">No pending invitations</h4>
+                <p className="text-muted-foreground text-sm mt-1">Invite new users to join your organization.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="text-muted-foreground/70 uppercase text-[10px] font-bold tracking-wider border-b border-border/50 bg-muted/20">
+                      <th className="text-left py-4 px-6">Invitee</th>
+                      <th className="text-left py-4 px-2">Role</th>
+                      <th className="text-left py-4 px-2">Sent At</th>
+                      <th className="text-left py-4 px-2">Expires</th>
+                      <th className="text-left py-4 px-2">Status</th>
+                      <th className="text-right py-4 px-6">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {invitations.map(inv => (
+                      <tr key={inv.id} className="hover:bg-accent/40 transition-all duration-200">
+                        <td className="py-4 px-6">
+                          <div>
+                            <div className="font-semibold text-foreground">{inv.first_name} {inv.last_name}</div>
+                            <div className="text-xs text-muted-foreground/70">{inv.email}</div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-2"><Badge variant="outline" className="text-[10px] font-bold uppercase">{inv.role}</Badge></td>
+                        <td className="py-4 px-2 text-xs text-muted-foreground">{formatDate(inv.created_at)}</td>
+                        <td className="py-4 px-2 text-xs text-muted-foreground">{formatDate(inv.expires_at)}</td>
+                        <td className="py-4 px-2">
+                          <Badge className={inv.status === "Pending" ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"}>
+                            {inv.status}
+                          </Badge>
+                        </td>
+                        <td className="py-4 px-6 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg" onClick={() => handleResendInvite(inv)}>
+                                    <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Resend Invite</p></TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg" onClick={() => handleCopyInviteLink(inv)}>
+                                    <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Copy Link</p></TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg hover:text-destructive" onClick={() => handleRevokeInvite(inv.id)}>
+                                    <Ban className="w-3.5 h-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Revoke Invite</p></TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Profile Modal */}
       <UserProfileModal
@@ -1514,7 +1679,7 @@ const UserManagement: React.FC = () => {
       <InviteModal 
         open={inviteOpen} 
         onClose={() => setInviteOpen(false)} 
-        onSuccess={fetchUsers} 
+        onSuccess={() => { fetchUsers(); if (activeTab === "invites") fetchInvitations(); }} 
         managers={allUsers.filter(u => u.role === "Admin" || u.role === "Team Leader")}
       />
 

@@ -339,10 +339,61 @@ export const usersSupabaseApi = {
   },
 
 
-  async generateInviteLink(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates?: { state: string; licenseNumber: string }[]; commissionLevel?: string; uplineId?: string | null }, organizationId: string | null): Promise<string> {
-    const invitePayload = { ...data, organizationId };
-    const encoded = btoa(JSON.stringify(invitePayload));
-    return `${window.location.origin}/signup?invite=${encoded}`;
+  async createInvitation(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string | null }, organizationId: string): Promise<string> {
+    const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const { data: inv, error } = await supabase
+      .from("invitations")
+      .insert({
+        email: data.email,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        role: data.role,
+        organization_id: organizationId,
+        upline_id: data.uplineId,
+        licensed_states: data.licensedStates,
+        commission_level: data.commissionLevel,
+        token: token
+      })
+      .select("token")
+      .single();
+
+    if (error) throw error;
+    return inv.token;
+  },
+
+  async getInvitations(organizationId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from("invitations")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order("created_at", { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+  },
+
+  async revokeInvitation(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("invitations")
+      .update({ status: "Revoked" })
+      .eq("id", id);
+    
+    if (error) throw error;
+  },
+
+  async getInvitationByToken(token: string): Promise<any> {
+    const { data, error } = await supabase
+      .from("invitations")
+      .select("*, organizations(name)")
+      .eq("token", token)
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  async generateInviteLink(token: string): Promise<string> {
+    return `${window.location.origin}/accept-invite?token=${token}`;
   },
 
   async sendInviteEmail(data: { email: string; firstName: string; role: string; inviteURL: string }): Promise<void> {

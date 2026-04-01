@@ -36,6 +36,7 @@ import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
+import AcceptInvitePage from "@/pages/AcceptInvitePage";
 import AuthCallback from "@/pages/AuthCallback";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
@@ -106,6 +107,7 @@ const App = () => (
                         
                         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
                         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
+                        <Route path="/accept-invite" element={<PublicRoute><AcceptInvitePage /></PublicRoute>} />
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/auth/callback" element={<AuthCallback />} />

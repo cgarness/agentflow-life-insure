@@ -163,13 +163,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!resolvedOrgId) {
       const orgName = `${firstName}'s Agency`;
       const orgSlug = `${firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`;
-      const { data: newOrg, error: orgError } = await supabase
-        .from("organizations")
-        .insert({ name: orgName, slug: orgSlug })
-        .select("id")
-        .single();
-      if (orgError || !newOrg) throw new Error("Failed to create organization: " + (orgError?.message || "Unknown error"));
-      resolvedOrgId = newOrg.id;
+      
+      const { data: orgData, error: orgInvokeError } = await supabase.functions.invoke("create-organization", {
+        body: { name: orgName, slug: orgSlug }
+      });
+
+      if (orgInvokeError || !orgData?.success) {
+        throw new Error("Failed to create organization: " + (orgInvokeError?.message || "Unknown error"));
+      }
+
+      resolvedOrgId = orgData.organization_id;
       resolvedRole = "Admin"; // Founders are always Admins of their own org
     }
 
