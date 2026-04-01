@@ -8,7 +8,6 @@ import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import ProfileSetupModal from "@/components/onboarding/ProfileSetupModal";
-import { ViewAsProvider } from "@/contexts/ViewAsContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
@@ -94,7 +93,6 @@ const App = () => (
     <ThemeProvider attribute="class" defaultTheme="light" storageKey="agentflow-theme">
       <TooltipProvider>
         <AuthProvider>
-          <ViewAsProvider>
           <BrandingProvider>
             <NotificationProvider>
               <CalendarProvider>
@@ -141,7 +139,6 @@ const App = () => (
               </CalendarProvider>
             </NotificationProvider>
           </BrandingProvider>
-          </ViewAsProvider>
         </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-interface Profile {
+export interface Profile {
   id: string;
   first_name: string;
   last_name: string;
@@ -38,10 +38,13 @@ interface Profile {
 
 interface AuthContextType {
   user: SupabaseUser | null;
-  profile: Profile | null;
+  profile: Profile | null; // This will return impersonated profile if active
+  realProfile: Profile | null; // This always returns the actual authenticated profile
   session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  impersonatedUser: Profile | null;
+  isImpersonating: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -49,6 +52,8 @@ interface AuthContextType {
   updateProfile: (data: Partial<Profile>) => Promise<void>;
   checkProfileSetupNeeded: () => boolean;
   markProfileSetupSeen: (skipped: boolean) => void;
+  startImpersonation: (profile: Profile) => void;
+  stopImpersonation: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -57,6 +62,7 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [impersonatedUser, setImpersonatedUser] = useState<Profile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -98,6 +104,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    // Load impersonation state from localStorage on mount
+    const savedImpersonation = localStorage.getItem("agentflow_impersonation");
+    if (savedImpersonation) {
+      try {
+        setImpersonatedUser(JSON.parse(savedImpersonation));
+      } catch (e) {
+        console.error("Failed to parse impersonation state", e);
+        localStorage.removeItem("agentflow_impersonation");
+      }
+    }
+
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
@@ -109,6 +126,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setTimeout(() => fetchProfile(currentSession.user.id), 0);
         } else {
           setProfile(null);
+          setImpersonatedUser(null);
+          localStorage.removeItem("agentflow_impersonation");
         }
 
         if (event === "INITIAL_SESSION") {
@@ -179,6 +198,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setProfile(null);
     setSession(null);
+    setImpersonatedUser(null);
+    localStorage.removeItem("agentflow_impersonation");
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
@@ -238,11 +259,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem(storageKey, JSON.stringify(entry));
   }, [user]);
 
+  const startImpersonation = useCallback((targetProfile: Profile) => {
+    setImpersonatedUser(targetProfile);
+    localStorage.setItem("agentflow_impersonation", JSON.stringify(targetProfile));
+  }, []);
+
+  const stopImpersonation = useCallback(() => {
+    setImpersonatedUser(null);
+    localStorage.removeItem("agentflow_impersonation");
+    // Return to Super Admin dashboard
+    window.location.href = "/super-admin";
+  }, []);
+
   return (
     <AuthContext.Provider value={{
-      user, profile, session, isAuthenticated: !!session, isLoading,
+      user, 
+      profile: impersonatedUser || profile, 
+      realProfile: profile,
+      impersonatedUser,
+      isImpersonating: !!impersonatedUser,
+      session, isAuthenticated: !!session, isLoading,
       login, signup, logout, resetPassword, updateProfile,
       checkProfileSetupNeeded, markProfileSetupSeen,
+      startImpersonation, stopImpersonation
     }}>
       {children}
     </AuthContext.Provider>

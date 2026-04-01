@@ -7,9 +7,8 @@ import {
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
   Sparkles, Eye,
 } from "lucide-react";
-import { useViewAs } from "@/contexts/ViewAsContext";
-import ViewAsModal from "@/components/layout/ViewAsModal";
 import { useSidebarContext } from "@/contexts/SidebarContext";
+import ViewAsModal from "@/components/layout/ViewAsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -77,8 +76,7 @@ function timeAgo(dateStr: string): string {
 
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
-  const { user, profile, logout } = useAuth();
-  const { isViewingAs, viewingAs } = useViewAs();
+  const { user, profile, logout, isImpersonating, impersonatedUser } = useAuth();
   const [viewAsOpen, setViewAsOpen] = useState(false);
 
   // Detect if current user is super admin using the hook
@@ -300,7 +298,7 @@ const TopBar: React.FC = () => {
                       onClick={() => { setUserDropdown(false); setViewAsOpen(true); }}
                     >
                       <Eye className="w-4 h-4" />
-                      {isViewingAs ? `Viewing as ${viewingAs?.firstName}…` : "View As"}
+                      {isImpersonating ? `Viewing as ${impersonatedUser?.first_name}…` : "View As"}
                     </button>
                   </>
                 )}

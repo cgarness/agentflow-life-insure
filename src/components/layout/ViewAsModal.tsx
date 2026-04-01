@@ -2,9 +2,10 @@ import React, { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2 } from "lucide-react";
-import { useViewAs } from "@/contexts/ViewAsContext";
+import { useAuth, Profile } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { User, UserProfile } from "@/lib/types";
+import { useNavigate } from "react-router-dom";
 
 interface ViewAsModalProps {
   open: boolean;
@@ -19,7 +20,8 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId }) => {
-  const { activateViewAs } = useViewAs();
+  const { startImpersonation } = useAuth();
+  const navigate = useNavigate();
   const [users, setUsers] = useState<(User & { profile: UserProfile })[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -44,7 +46,8 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
   });
 
   const handleSelect = (user: User & { profile: UserProfile }) => {
-    activateViewAs(user);
+    startImpersonation(user.profile as unknown as Profile);
+    navigate("/dashboard");
     onClose();
   };
 

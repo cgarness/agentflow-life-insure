@@ -6,20 +6,20 @@ import FloatingDialer from "./FloatingDialer";
 import FloatingChat from "@/components/chat/FloatingChat";
 import WinCelebration from "@/components/WinCelebration";
 import ReminderPopup from "./ReminderPopup";
-import ViewAsBanner from "./ViewAsBanner";
+import ImpersonationBanner from "./ImpersonationBanner";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { AgentStatusProvider } from "@/contexts/AgentStatusContext";
-import { useViewAs } from "@/contexts/ViewAsContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const AppLayout: React.FC = () => {
   const { collapsed } = useSidebarContext();
-  const { isViewingAs } = useViewAs();
+  const { isImpersonating } = useAuth();
 
   return (
     <AgentStatusProvider>
       <>
-        <ViewAsBanner />
-        <div className={`min-h-screen bg-background ${isViewingAs ? "pt-10" : ""}`}>
+        <ImpersonationBanner />
+        <div className={`min-h-screen bg-background ${isImpersonating ? "pt-12" : ""}`}>
           <Sidebar />
           <TopBar />
           <main className={`pt-16 sidebar-transition ${collapsed ? "md:ml-16" : "md:ml-60"}`}>

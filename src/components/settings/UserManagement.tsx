@@ -3,7 +3,7 @@ import {
   Plus, Search, MoreHorizontal, X, ChevronDown,
   Shield, User as UserIcon, Users, Pencil, Ban, RefreshCw, Mail,
   Lock, Copy, Camera, ZoomIn, PhoneCall, ShieldCheck, TrendingUp,
-  Clock, Percent, Target,
+  Clock, Percent, Target, Eye
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,11 +22,12 @@ import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, Profile } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
+import { useNavigate } from "react-router-dom";
 import TransferLeadsModal from "./TransferLeadsModal";
 
 const US_STATES = [
@@ -1252,7 +1253,8 @@ const UserProfileModal: React.FC<{
 // ---- MAIN COMPONENT ----
 const UserManagement: React.FC = () => {
   const { toast } = useToast();
-  const { user: currentUser } = useAuth();
+  const navigate = useNavigate();
+  const { user: currentUser, startImpersonation } = useAuth();
   const { profile: currentProfile } = useAuth();
   const { organizationId, isSuperAdmin: isCurrentUserSuperAdmin } = useOrganization();
   const [allUsers, setAllUsers] = useState<UserWithProfile[]>([]);
@@ -1469,6 +1471,17 @@ const UserManagement: React.FC = () => {
                               <Copy className="w-4 h-4 mr-2" /> Copy Link
                             </DropdownMenuItem>
                           </>
+                        )}
+                        {isCurrentUserSuperAdmin && u.status === "Active" && u.id !== currentUser?.id && (
+                          <DropdownMenuItem 
+                            onClick={() => {
+                              startImpersonation(u.profile as unknown as Profile);
+                              navigate("/dashboard");
+                            }}
+                            className="text-amber-600 focus:text-amber-600 font-medium"
+                          >
+                            <Eye className="w-4 h-4 mr-2" /> View As
+                          </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>

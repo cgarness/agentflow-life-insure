@@ -6,7 +6,7 @@ import { useMemo } from "react";
  * Falls back to profile data if JWT claims are not yet available.
  */
 export const useOrganization = () => {
-  const { profile, session } = useAuth();
+  const { profile, session, isImpersonating } = useAuth();
 
   const { orgId, role, isSuperAdmin } = useMemo(() => {
     let jwtOrgId = null;
@@ -25,18 +25,27 @@ export const useOrganization = () => {
       }
     }
 
-    // Combine JWT with Profile fallback for immediate reflection of DB changes
+    // If impersonating, prioritize profile data (which contains the impersonated user's data)
+    // Otherwise combine JWT with Profile fallback
+    if (isImpersonating && profile) {
+      return {
+        orgId: profile.organization_id,
+        role: profile.role,
+        isSuperAdmin: profile.is_super_admin === true
+      };
+    }
+
     return {
       orgId: jwtOrgId || (profile as any)?.organization_id || null,
       role: jwtRole !== "Agent" ? jwtRole : ((profile as any)?.role || "Agent"),
       isSuperAdmin: jwtIsSuperAdmin || (profile as any)?.is_super_admin === true
     };
-  }, [session, profile]);
+  }, [session, profile, isImpersonating]);
 
   return {
     organizationId: orgId,
     teamId: (profile as any)?.team_id as string | null ?? null,
     role,
-    isSuperAdmin,
+    isSuperAdmin: isSuperAdmin || isImpersonating, // Always treat as super admin if they are (to see everything), but role is swapped
   };
 };
