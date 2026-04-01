@@ -12,15 +12,15 @@ export const STATE_ABBR_TO_NAME: Record<string, string> = {
   DC: "District of Columbia",
 };
 
-const STATE_NAME_TO_ABBR: Record<string, string> = {};
+export const STATE_NAME_TO_ABBR: Record<string, string> = {};
 Object.entries(STATE_ABBR_TO_NAME).forEach(([abbr, name]) => {
   STATE_NAME_TO_ABBR[name.toLowerCase()] = abbr;
 });
 
-export function normalizeState(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
+export function formatStateToAbbreviation(state: string | null | undefined): string {
+  if (!state) return "";
+  const trimmed = state.trim();
+  if (!trimmed) return "";
   
   // If it's already a 2-letter uppercase abbreviation, return it
   if (trimmed.length === 2 && STATE_ABBR_TO_NAME[trimmed.toUpperCase()]) {
@@ -35,9 +35,15 @@ export function normalizeState(raw: string | null | undefined): string | null {
   const fromAbbr = STATE_ABBR_TO_NAME[trimmed.toUpperCase()];
   if (fromAbbr) return trimmed.toUpperCase();
   
-  return null;
+  return trimmed; // Return original if no match found
+}
+
+export function normalizeState(raw: string | null | undefined): string | null {
+  const formatted = formatStateToAbbreviation(raw);
+  return formatted || null;
 }
 
 export function getStateName(abbr: string): string {
+  if (!abbr) return "";
   return STATE_ABBR_TO_NAME[abbr.toUpperCase()] || abbr;
 }

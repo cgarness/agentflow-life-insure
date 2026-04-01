@@ -6,6 +6,7 @@ import {
 import { Lead, LeadStatus, CustomField, PipelineStage, LeadSource } from "@/lib/types";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { 
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -521,7 +522,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               lastName,
               phone: getVal(r.row, "Phone"),
               email: getVal(r.row, "Email"),
-              state: getVal(r.row, "State"),
+              state: formatStateToAbbreviation(getVal(r.row, "State")),
               status: importStatus as LeadStatus,
               leadSource: selectedSource || getVal(r.row, "Lead Source") || "CSV Import",
               leadScore: 5,

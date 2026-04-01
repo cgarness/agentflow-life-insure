@@ -26,6 +26,7 @@ export const recruitsSupabaseApi = {
                 last_name: data.lastName,
                 phone: data.phone,
                 email: data.email,
+                state: data.state,
                 status: data.status,
                 notes: data.notes,
                 assigned_agent_id: data.assignedAgentId,
@@ -43,6 +44,7 @@ export const recruitsSupabaseApi = {
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
         if (data.phone !== undefined) updateData.phone = data.phone;
         if (data.email !== undefined) updateData.email = data.email;
+        if (data.state !== undefined) updateData.state = data.state;
         if (data.status !== undefined) updateData.status = data.status;
         if (data.notes !== undefined) updateData.notes = data.notes;
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
@@ -72,6 +74,7 @@ function rowToRecruit(row: any): Recruit { // eslint-disable-line @typescript-es
         lastName: row.last_name,
         phone: row.phone || "",
         email: row.email,
+        state: row.state || "",
         status: row.status || "New",
         notes: row.notes || "",
         assignedAgentId: row.assigned_agent_id || "",

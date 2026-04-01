@@ -106,6 +106,7 @@ export interface Client {
   lastName: string;
   phone: string;
   email: string;
+  state: string;
   policyType: PolicyType;
   carrier: string;
   policyNumber?: string;
@@ -129,6 +130,7 @@ export interface Recruit {
   lastName: string;
   phone: string;
   email: string;
+  state: string;
   status: string;
   notes?: string;
   assignedAgentId: string;

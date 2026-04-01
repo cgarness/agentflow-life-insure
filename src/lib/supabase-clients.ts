@@ -34,6 +34,7 @@ export const clientsSupabaseApi = {
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
         if (data.phone !== undefined) updateData.phone = data.phone;
         if (data.email !== undefined) updateData.email = data.email;
+        if (data.state !== undefined) updateData.state = data.state;
         if (data.policyType !== undefined) updateData.policy_type = data.policyType;
         if (data.carrier !== undefined) updateData.carrier = data.carrier;
         if (data.policyNumber !== undefined) updateData.policy_number = data.policyNumber;
@@ -74,6 +75,7 @@ function rowToClient(row: any): Client { // eslint-disable-line @typescript-esli
         lastName: row.last_name,
         phone: row.phone || "",
         email: row.email,
+        state: row.state || "",
         policyType: (row.policy_type as PolicyType) || "Term",
         carrier: row.carrier || "Unknown",
         policyNumber: row.policy_number || "",
@@ -97,6 +99,7 @@ function clientToRow(data: Omit<Client, "id" | "createdAt" | "updatedAt">): any 
         last_name: data.lastName,
         phone: data.phone,
         email: data.email,
+        state: data.state,
         policy_type: data.policyType,
         carrier: data.carrier,
         policy_number: data.policyNumber,

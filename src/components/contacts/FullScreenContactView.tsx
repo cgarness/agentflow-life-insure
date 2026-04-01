@@ -24,6 +24,7 @@ import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { calculateAge } from "@/utils/dateUtils";
 import { useBranding } from "@/contexts/BrandingContext";
+import { formatStateToAbbreviation } from "@/utils/stateUtils";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -409,7 +410,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
             {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : fieldType === "date" ? formatDate(val) : val} /> )}
+        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : fieldType === "date" ? formatDate(val) : val} /> )}
       </div>
     );
   };
@@ -613,7 +614,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         case 'lastName': return renderField("Last Name", "lastName");
                         case 'phone': return renderField("Phone", "phone");
                         case 'email': return renderField("Email", "email", "email");
-                        case 'state': return type === "lead" ? renderField("State", "state", "select", US_STATES) : null;
+                        case 'state': return renderField("State", "state", "select", US_STATES);
                         case 'leadSource': return type === "lead" ? renderField("Source", "leadSource", "select", leadSources) : null;
                         case 'leadScore': return type === "lead" ? renderField("Score", "leadScore", "number") : null;
                         case 'age': return type === "lead" ? renderField("Age", "age", "number") : null;
@@ -685,19 +686,24 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                           {renderField("Carrier", "carrier")}
                         </div>
                         <div className="grid grid-cols-2 gap-4">
+                          {renderField("State", "state", "select", US_STATES)}
                           {renderField("Policy #", "policyNumber")}
-                          {renderField("Premium", "premiumAmount")}
                         </div>
                         <div className="grid grid-cols-2 gap-4">
+                          {renderField("Premium", "premiumAmount")}
                           {renderField("Face Amount", "faceAmount")}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
                           {renderField("Issue Date", "issueDate", "date")}
+                          <div />
                         </div>
                       </>
                     )}
                     
                     {type === "recruit" && (
-                      <div className="flex flex-col gap-2">
+                      <div className="grid grid-cols-2 gap-4">
                          {renderField("Status", "status", "select", recruitStatuses)}
+                         {renderField("State", "state", "select", US_STATES)}
                       </div>
                     )}
 

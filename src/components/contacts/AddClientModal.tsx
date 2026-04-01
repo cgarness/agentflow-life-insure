@@ -24,6 +24,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
         lastName: initial.lastName || "",
         phone: initial.phone || "",
         email: initial.email || "",
+        state: initial.state || "",
         policyType: initial.policyType || "Term",
         carrier: initial.carrier || "",
         premiumAmount: initial.premiumAmount || "",
@@ -36,6 +37,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
         lastName: "",
         phone: "",
         email: "",
+        state: "",
         policyType: "Term",
         carrier: "",
         premiumAmount: "",
@@ -90,9 +92,15 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
               placeholder="(555)123-4567" 
             />
           </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Email</label>
-            <input type="email" value={form.email || ""} onChange={e => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Email</label>
+              <input type="email" value={form.email || ""} onChange={e => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
+              <input value={form.state || ""} onChange={e => setForm((f) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="TX" />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
