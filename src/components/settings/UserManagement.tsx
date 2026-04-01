@@ -1319,6 +1319,32 @@ const UserManagement: React.FC = () => {
     if (activeTab === "invites") fetchInvitations();
   }, [fetchUsers, fetchInvitations, activeTab]);
 
+  useEffect(() => {
+    if (!organizationId) return;
+
+    // Real-time listener for invitation changes
+    // This ensures all admins see new/updated/revoked invites instantly
+    const channel = supabase
+      .channel("invitations-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "invitations",
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        () => {
+          fetchInvitations();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organizationId, fetchInvitations]);
+
   const handleRevokeInvite = async (id: string) => {
     try {
       await usersApi.revokeInvitation(id);

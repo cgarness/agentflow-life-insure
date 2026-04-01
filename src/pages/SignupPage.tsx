@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Eye, EyeOff, Loader2, CheckCircle2, Mail, Lock, User, ArrowRight, ShieldCheck, Zap, Globe, Sparkles } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2, Mail, Lock, User, ArrowRight, ShieldCheck, Zap, Globe, Sparkles, Check, X } from "lucide-react";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { mapAuthError } from "@/utils/auth-errors";
 
 const SignupPage: React.FC = () => {
   const { signup } = useAuth();
@@ -22,6 +23,17 @@ const SignupPage: React.FC = () => {
   const [licensedStates, setLicensedStates] = useState<any[]>([]);
   const [commissionLevel, setCommissionLevel] = useState<string>("0%");
   const location = useLocation();
+
+  const passwordRequirements = useMemo(() => [
+    { label: "At least 8 characters", test: (p: string) => p.length >= 8 },
+    { label: "At least one uppercase letter", test: (p: string) => /[A-Z]/.test(p) },
+    { label: "At least one number", test: (p: string) => /[0-9]/.test(p) },
+    { label: "At least one special character", test: (p: string) => /[^A-Za-z0-9]/.test(p) },
+  ], []);
+
+  const isPasswordStrong = useMemo(() => 
+    passwordRequirements.every(req => req.test(password)),
+  [password, passwordRequirements]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -66,13 +78,17 @@ const SignupPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPasswordStrong) {
+      setError("Please ensure your password meets all requirements before continuing.");
+      return;
+    }
     setError("");
     setLoading(true);
     try {
       await signup(email, password, firstName, lastName, organizationId, uplineId, role, licensedStates, commissionLevel);
       setSuccess(true);
     } catch (err: any) {
-      setError(err.message || "Signup failed");
+      setError(mapAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -154,7 +170,7 @@ const SignupPage: React.FC = () => {
 
       <div className="signup-card" style={{
         width: '100%',
-        maxWidth: 480,
+        maxWidth: 520,
         background: 'rgba(15, 23, 42, 0.3)',
         backdropFilter: 'blur(24px) saturate(180%)',
         border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -218,7 +234,7 @@ const SignupPage: React.FC = () => {
 
             <form onSubmit={handleSubmit}>
               <div style={{ display: 'flex', gap: 16 }}>
-                <div style={inputContainerStyle}>
+                <div style={{ ...inputContainerStyle, flex: 1 }}>
                   <label style={labelStyle}>First Name</label>
                   <div style={{ position: 'relative' }}>
                     <User className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
@@ -232,7 +248,7 @@ const SignupPage: React.FC = () => {
                     />
                   </div>
                 </div>
-                <div style={inputContainerStyle}>
+                <div style={{ ...inputContainerStyle, flex: 1 }}>
                   <label style={labelStyle}>Last Name</label>
                   <div style={{ position: 'relative' }}>
                     <User className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
@@ -264,7 +280,7 @@ const SignupPage: React.FC = () => {
                 </div>
               </div>
 
-              <div style={inputContainerStyle}>
+              <div style={{ ...inputContainerStyle, marginBottom: password.length > 0 ? 12 : 32 }}>
                 <label style={labelStyle}>Password</label>
                 <div style={{ position: 'relative' }}>
                   <Lock className="input-icon" size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#64748B', pointerEvents: 'none', transition: 'all 0.3s ease' }} />
@@ -275,7 +291,6 @@ const SignupPage: React.FC = () => {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     required
-                    minLength={6}
                     placeholder="Create a strong password"
                   />
                   <button
@@ -288,9 +303,31 @@ const SignupPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Password Strength Requirements */}
+              {password.length > 0 && (
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px 20px', borderRadius: 16, border: '1px solid rgba(255,255,255,0.05)', marginBottom: 32, animation: 'slideUp 0.4s ease' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.05em', marginBottom: 12 }}>SECURITY PROTOCOLS</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+                    {passwordRequirements.map((req, i) => {
+                      const met = req.test(password);
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 14, height: 14, borderRadius: '50%', background: met ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${met ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.1)'}`, transition: 'all 0.3s ease' }}>
+                            {met ? <Check size={8} color="#22C55E" /> : <X size={8} color="#EF4444" />}
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: met ? '#22C55E' : '#64748B', transition: 'all 0.3s ease' }}>
+                            {req.label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (password.length > 0 && !isPasswordStrong)}
                 className="premium-btn"
                 style={{
                   width: '100%',
@@ -306,8 +343,8 @@ const SignupPage: React.FC = () => {
                   justifyContent: 'center',
                   gap: 12,
                   marginTop: 12,
-                  cursor: loading ? 'default' : 'pointer',
-                  opacity: loading ? 0.7 : 1,
+                  cursor: (loading || (password.length > 0 && !isPasswordStrong)) ? 'not-allowed' : 'pointer',
+                  opacity: (loading || (password.length > 0 && !isPasswordStrong)) ? 0.6 : 1,
                   position: 'relative',
                   overflow: 'hidden',
                 }}

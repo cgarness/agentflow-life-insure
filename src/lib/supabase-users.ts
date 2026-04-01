@@ -370,9 +370,12 @@ export const usersSupabaseApi = {
       .from("invitations")
       .select("*, organizations(name)")
       .eq("token", token)
-      .single();
+      .maybeSingle(); // Use maybeSingle to avoid 406 errors on missing tokens
     
-    if (error) throw error;
+    if (error) {
+      console.error("Error fetching invitation:", error);
+      throw new Error("Could not verify invitation. Please check your link or try again later.");
+    }
     return data;
   },
 
