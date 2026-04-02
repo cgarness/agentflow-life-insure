@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
-import { motion, animate, AnimatePresence } from "framer-motion";
 import { StatData } from "@/hooks/useDashboardStats";
 
 interface StatCardsProps {
@@ -13,35 +11,6 @@ interface StatCardsProps {
   loading?: boolean;
 }
 
-const Counter = ({ value, duration = 1.5 }: { value: number | string; duration?: number }) => {
-  const [displayValue, setDisplayValue] = useState<string | number>(value);
-  const [prevValue, setPrevValue] = useState<number>(0);
-  
-  const numericValue = typeof value === "string" 
-    ? parseFloat(value.replace(/[^0-9.]/g, "")) 
-    : value;
-  const isCurrency = typeof value === "string" && value.startsWith("$");
-
-  useEffect(() => {
-    let lastValue = prevValue;
-    const controls = animate(prevValue, numericValue, {
-      duration,
-      ease: "easeOut",
-      onUpdate: (latest) => {
-        lastValue = latest;
-        const rounded = Math.floor(latest);
-        setDisplayValue(isCurrency ? `$${rounded.toLocaleString()}` : rounded.toLocaleString());
-      },
-    });
-    return () => {
-      controls.stop();
-      setPrevValue(lastValue);
-    };
-  }, [numericValue, isCurrency, duration, prevValue]);
-
-  return <>{displayValue}</>;
-};
-
 const StatCards: React.FC<StatCardsProps> = ({ 
   role, 
   userId, 
@@ -52,6 +21,11 @@ const StatCards: React.FC<StatCardsProps> = ({
   loading = false
 }) => {
   const data = stats;
+
+  const formatValue = (val: number | string) => {
+    if (typeof val === "string") return val;
+    return val.toLocaleString();
+  };
 
   const cards = [
     {
@@ -121,11 +95,8 @@ const StatCards: React.FC<StatCardsProps> = ({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card, index) => (
-        <motion.div
+        <div
           key={card.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: index * 0.08 }}
           onClick={() => onCardClick?.(card.id)}
           className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-200 cursor-pointer hover:-translate-y-1 h-[140px]`}
         >
@@ -133,67 +104,52 @@ const StatCards: React.FC<StatCardsProps> = ({
           <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl ${card.gradient}`} />
           
           <div className="flex items-start justify-between relative z-10 h-full">
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full w-full">
               <p className="text-sm font-medium text-muted-foreground mb-1">
                 {card.label}
               </p>
               
-              <div className="flex-1 flex flex-col justify-center">
-                <AnimatePresence mode="wait">
-                  {loading ? (
-                    <motion.div
-                      key="loading"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="space-y-3"
-                    >
-                      <div className="h-8 w-24 bg-muted/50 rounded-lg animate-pulse" />
-                      <div className="h-4 w-32 bg-muted/30 rounded-md animate-pulse" />
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="content"
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -5 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <p className="text-3xl font-bold tracking-tight text-foreground">
-                        <Counter value={card.value} />
-                      </p>
-                      
-                      <div className="flex items-center gap-1.5 mt-2">
-                        <span
-                          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            card.trend === "up"
-                              ? "bg-emerald-500/10 text-emerald-500"
-                              : card.trend === "down"
-                                ? "bg-red-500/10 text-red-500"
-                                : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium whitespace-nowrap">
-                          vs {data?.prevLabel || "yesterday"}
-                        </span>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+              <div className="flex-1 flex flex-col justify-center min-h-[60px]">
+                {loading ? (
+                  <div className="space-y-3">
+                    <div className="h-8 w-24 bg-muted/50 rounded-lg animate-pulse" />
+                    <div className="h-4 w-32 bg-muted/30 rounded-md animate-pulse" />
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-3xl font-bold tracking-tight text-foreground">
+                      {formatValue(card.value)}
+                    </p>
+                    
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          card.trend === "up"
+                            ? "bg-emerald-500/10 text-emerald-500"
+                            : card.trend === "down"
+                              ? "bg-red-500/10 text-red-500"
+                              : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium whitespace-nowrap">
+                        vs {data?.prevLabel || "yesterday"}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             
-            <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${card.gradient} shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 shrink-0`}>
+            <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${card.gradient} shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 shrink-0 ml-2`}>
               <card.icon className="h-6 w-6 text-white" />
             </div>
           </div>
           
           {/* Subtle bottom line */}
           <div className={`absolute bottom-0 left-0 h-1 w-full opacity-30 ${card.gradient}`} />
-        </motion.div>
+        </div>
       ))}
     </div>
   );
