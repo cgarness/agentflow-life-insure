@@ -1,12 +1,13 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   X, Upload, CloudUpload, ArrowLeft, ArrowRight, Check, AlertTriangle,
-  FileText, Loader2, CheckCircle2, Download, RefreshCw, Plus, Megaphone, Settings,
+  FileText, Loader2, CheckCircle2, Download, RefreshCw, Plus, Megaphone, Settings, Users,
 } from "lucide-react";
 import { Lead, LeadStatus, CustomField, PipelineStage, LeadSource } from "@/lib/types";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
+import { supabase } from "@/lib/supabaseClient";
 import { 
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/supabase-settings";
 
 // ---- Types ----
+type DuplicateHandling = "skip" | "update" | "import_new";
 interface ImportHistoryEntry {
   id: string;
   fileName: string;
@@ -25,7 +27,10 @@ interface ImportHistoryEntry {
   importedLeadIds: string[];
 }
 
-type DuplicateHandling = "skip" | "update" | "import_new";
+interface Conflict {
+  imported_row: any;
+  existing_db_row: any;
+}
 
 const AGENTFLOW_FIELDS = [
   "First Name", "Last Name", "Full Name", "Phone", "Email", "State", "Lead Source",
@@ -177,7 +182,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [newFieldError, setNewFieldError] = useState("");
 
   // Step 3
-  const [duplicateHandling, setDuplicateHandling] = useState<DuplicateHandling>("skip");
+  const [assignmentStrategy, setAssignmentStrategy] = useState<"self" | "specific_agent" | "round_robin">("self");
+  const [targetAgentId, setTargetAgentId] = useState<string>("");
+  const [targetAgentIds, setTargetAgentIds] = useState<string[]>([]);
   const [campaignMode, setCampaignMode] = useState<"existing" | "new" | "none">("none");
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [campaignSearch, setCampaignSearch] = useState("");
@@ -193,12 +200,14 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   // Step 4-5
   const [importProgress, setImportProgress] = useState(0);
-  const [importResult, setImportResult] = useState<{ imported: number; duplicates: number; errors: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ imported: number; duplicates: number; errors: number; conflicts?: Conflict[] } | null>(null);
+  const [resolvingIndex, setResolvingIndex] = useState(0);
 
   const reset = () => {
     setStep(1); setFile(null); setParsing(false); setCsvHeaders([]); setCsvRows([]);
     setMappings({}); setCustomFieldNames([]); setCreatingFieldForCol(null);
-    setDuplicateHandling("skip"); setImportProgress(0); setImportResult(null);
+    setImportProgress(0); setImportResult(null); setResolvingIndex(0);
+    setAssignmentStrategy("self"); setTargetAgentId(""); setTargetAgentIds([]);
     setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
     setNewCampaignType("Personal"); setNewCampaignDesc(""); 
     setImportStatus(pipelineStages.find(s => s.isDefault)?.name || "New");
@@ -406,7 +415,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const readyCount = analysisResult.filter(r => r.status === "ready").length;
   const dupCount = analysisResult.filter(r => r.status === "duplicate").length;
   const errorCount = analysisResult.filter(r => r.status === "error").length;
-  const importableCount = readyCount + (duplicateHandling === "skip" ? 0 : dupCount);
+  const importableCount = readyCount + dupCount; // Duplicates evaluated by Edge logic!
 
   // ---- Tags ----
   const addTag = (tag: string) => {
@@ -432,9 +441,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   }, [campaigns, campaignSearch]);
 
   // ---- Step 4-5: Import ----
-  const doImport = () => {
+  const doImport = async () => {
     setStep(4);
-    setImportProgress(0);
+    setImportProgress(20);
 
     const fieldToColIdx: Partial<Record<string, number>> = {};
     Object.entries(mappings).forEach(([idx, field]) => {
@@ -446,118 +455,102 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       return idx !== undefined ? row[idx]?.trim() || "" : "";
     };
 
-    const resolveAgentId = (val: string) => {
-      if (!val) return currentUserId;
-      const lowerVal = val.toLowerCase();
-      const match = agentProfiles.find(p => 
-        lowerVal === p.id.toLowerCase() || 
-        lowerVal === `${p.firstName} ${p.lastName}`.toLowerCase() ||
-        lowerVal === p.lastName.toLowerCase()
-      );
-      return match ? match.id : currentUserId;
-    };
+    let campaignId: string | undefined;
+    if (campaignMode === "existing" && selectedCampaignId) {
+      campaignId = selectedCampaignId;
+    } else if (campaignMode === "new" && newCampaignName.trim()) {
+      const newId = "cmp" + Math.random().toString(36).slice(2, 8);
+      campaignId = newId;
+      onCampaignCreated?.({ id: newId, name: newCampaignName.trim(), type: newCampaignType, description: newCampaignDesc });
+    }
 
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 2;
-      setImportProgress(Math.min(progress, 100));
-      if (progress >= 100) {
-        clearInterval(interval);
+    const contactData = analysisResult
+      .filter(r => r.status === "ready" || r.status === "duplicate")
+      .map(r => {
+        const rawFullName = getVal(r.row, "Full Name");
+        let firstName = getVal(r.row, "First Name");
+        let lastName = getVal(r.row, "Last Name");
 
-        // Create campaign if needed
-        let campaignId: string | undefined;
-        if (campaignMode === "existing" && selectedCampaignId) {
-          campaignId = selectedCampaignId;
-        } else if (campaignMode === "new" && newCampaignName.trim()) {
-          const newId = "cmp" + Math.random().toString(36).slice(2, 8);
-          campaignId = newId;
-          onCampaignCreated?.({
-            id: newId,
-            name: newCampaignName.trim(),
-            type: newCampaignType,
-            description: newCampaignDesc,
-          });
+        if (!firstName && !lastName && rawFullName) {
+          const split = splitFullName(rawFullName);
+          firstName = split.firstName;
+          lastName = split.lastName;
         }
 
-        const newLeads: Lead[] = [];
-        let imported = 0, duplicates = 0, errors = 0;
+        const customFieldsData: Record<string, any> = {
+          ...(campaignId ? { campaignId } : {}),
+          ...(tags.length > 0 ? { tags } : {}),
+          ...(rawFullName ? { "Full Name": rawFullName } : {}),
+        };
 
-        analysisResult.forEach(r => {
-          if (r.status === "error") { errors++; return; }
-          if (r.status === "duplicate" && duplicateHandling === "skip") { duplicates++; return; }
-          if (r.status === "duplicate") { duplicates++; }
-
-          if (r.status === "ready" || (r.status === "duplicate" && duplicateHandling !== "skip")) {
-            const rawFullName = getVal(r.row, "Full Name");
-            let firstName = getVal(r.row, "First Name");
-            let lastName = getVal(r.row, "Last Name");
-
-            if (!firstName && !lastName && rawFullName) {
-              const split = splitFullName(rawFullName);
-              firstName = split.firstName;
-              lastName = split.lastName;
-            }
-
-            const customFieldsData: Record<string, any> = {
-              ...(campaignId ? { campaignId } : {}),
-              ...(tags.length > 0 ? { tags } : {}),
-              ...(rawFullName ? { "Full Name": rawFullName } : {}),
-            };
-
-            // Add all other mapped custom fields
-            Object.entries(mappings).forEach(([idx, field]) => {
-              if (
-                field !== "Do Not Import" && 
-                !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && 
-                field !== "Full Name"
-              ) {
-                const val = r.row[Number(idx)]?.trim();
-                if (val) customFieldsData[field] = val;
-              }
-            });
-
-            const lead: Lead = {
-              id: uid(),
-              firstName,
-              lastName,
-              phone: getVal(r.row, "Phone"),
-              email: getVal(r.row, "Email"),
-              state: formatStateToAbbreviation(getVal(r.row, "State")),
-              status: importStatus as LeadStatus,
-              leadSource: selectedSource || getVal(r.row, "Lead Source") || "CSV Import",
-              leadScore: 5,
-              age: parseInt(getVal(r.row, "Age")) || undefined,
-              dateOfBirth: getVal(r.row, "Date of Birth") || undefined,
-              healthStatus: getVal(r.row, "Health Status") || undefined,
-              bestTimeToCall: getVal(r.row, "Best Time to Call") || undefined,
-              notes: getVal(r.row, "Notes") || undefined,
-              assignedAgentId: resolveAgentId(getVal(r.row, "Assigned Agent")),
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              customFields: customFieldsData,
-            };
-            newLeads.push(lead);
-            imported++;
+        Object.entries(mappings).forEach(([idx, field]) => {
+          if (field !== "Do Not Import" && !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && field !== "Full Name") {
+            const val = r.row[Number(idx)]?.trim();
+            if (val) customFieldsData[field] = val;
           }
         });
 
-        const historyEntry: ImportHistoryEntry = {
-          id: Math.random().toString(36).slice(2, 10),
-          fileName: file?.name || "unknown.csv",
-          date: new Date().toISOString(),
-          totalRecords: csvRows.length,
-          imported,
-          duplicates,
-          errors,
-          importedLeadIds: newLeads.map(l => l.id),
+        return {
+          firstName, lastName, 
+          phone: getVal(r.row, "Phone"), 
+          email: getVal(r.row, "Email"),
+          state: formatStateToAbbreviation(getVal(r.row, "State")), 
+          status: importStatus,
+          leadSource: selectedSource || getVal(r.row, "Lead Source"), 
+          leadScore: 5,
+          age: parseInt(getVal(r.row, "Age")) || undefined,
+          dateOfBirth: getVal(r.row, "Date of Birth") || undefined,
+          healthStatus: getVal(r.row, "Health Status") || undefined,
+          bestTimeToCall: getVal(r.row, "Best Time to Call") || undefined,
+          notes: getVal(r.row, "Notes") || undefined,
+          customFields: customFieldsData
         };
+      });
 
-        setImportResult({ imported, duplicates, errors });
-        onImportComplete(newLeads, historyEntry, duplicateHandling);
-        toast.success(`${imported} leads imported successfully`);
-        setStep(5);
+    setImportProgress(60);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("import-contacts", {
+        body: {
+          type: "leads",
+          contactData,
+          assignment: { strategy: assignmentStrategy, targetAgentId, targetAgentIds },
+          duplicateDetectionRule: "phone_or_email"
+        }
+      });
+      
+      setImportProgress(100);
+
+      if (error || !data.success) {
+        throw new Error(error?.message || data?.error || "Unknown Edge Function Error");
       }
-    }, 30);
+
+      setImportResult({ 
+        imported: data.imported, 
+        duplicates: data.conflicts_count, 
+        errors: errorCount, 
+        conflicts: data.conflicts 
+      });
+      
+      const historyEntry: ImportHistoryEntry = {
+        id: Math.random().toString(36).slice(2, 10),
+        fileName: file?.name || "unknown.csv",
+        date: new Date().toISOString(),
+        totalRecords: csvRows.length,
+        imported: data.imported,
+        duplicates: data.conflicts_count,
+        errors: errorCount,
+        importedLeadIds: [],
+      };
+      
+      // Pass empty array for strategy for now
+      onImportComplete([], historyEntry, "skip" as DuplicateHandling); 
+      setStep(5);
+
+    } catch (err: any) {
+      toast.error(`Import failed: ${err.message}`);
+      setStep(3); // Go back on error
+    }
   };
 
   if (!open) return null;
@@ -959,31 +952,66 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           </div>
         </div>
 
-        {/* Duplicate Handling */}
-        {dupCount > 0 && (
-          <div className="p-3 bg-muted/30 border rounded-lg space-y-2">
-            <p className="text-sm font-medium text-foreground">What should we do with duplicates?</p>
-            <div className="flex gap-2 flex-wrap">
-              {([
-                { value: "skip", label: "Skip duplicates" },
-                { value: "update", label: "Update existing records" },
-                { value: "import_new", label: "Import as new records" },
-              ] as const).map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => setDuplicateHandling(opt.value)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors duration-150 ${
-                    duplicateHandling === opt.value
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-accent"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+        {/* Agent Assignment */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Agent Assignment</span>
+          </div>
+          <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
+            <p className="text-sm text-foreground">How should these contacts be assigned?</p>
+            <div className="flex flex-col gap-3">
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
+                <input type="radio" checked={assignmentStrategy === "self"} onChange={() => setAssignmentStrategy("self")} className="accent-primary" />
+                Assign to me ({currentUserId})
+              </label>
+              
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
+                <input type="radio" checked={assignmentStrategy === "specific_agent"} onChange={() => setAssignmentStrategy("specific_agent")} className="accent-primary" />
+                Select specific agent
+              </label>
+              {assignmentStrategy === "specific_agent" && (
+                <div className="ml-6">
+                  <select 
+                    value={targetAgentId} 
+                    onChange={e => setTargetAgentId(e.target.value)}
+                    className="w-full max-w-sm h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                  >
+                    <option value="">-- Choose an agent --</option>
+                    {agentProfiles.map(p => (
+                      <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
+                <input type="radio" checked={assignmentStrategy === "round_robin"} onChange={() => setAssignmentStrategy("round_robin")} className="accent-primary" />
+                Round-robin across team
+              </label>
+              {assignmentStrategy === "round_robin" && (
+                <div className="ml-6 space-y-2">
+                  <p className="text-xs text-muted-foreground">Select agents to include in distribution:</p>
+                  <div className="max-h-32 overflow-y-auto border border-border rounded-md bg-background p-2 grid gap-1">
+                    {agentProfiles.map(p => (
+                      <label key={p.id} className="flex items-center gap-2 text-sm">
+                        <input 
+                          type="checkbox" 
+                          checked={targetAgentIds.includes(p.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setTargetAgentIds(prev => [...prev, p.id]);
+                            else setTargetAgentIds(prev => prev.filter(id => id !== p.id));
+                          }}
+                        />
+                        {p.firstName} {p.lastName}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Preview Table */}
         <div className="overflow-auto max-h-[180px] border rounded-lg">
@@ -1047,32 +1075,109 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     </div>
   );
 
-  // ---- Step 5 UI: Success ----
-  const renderStep5 = () => (
-    <div className="flex flex-col items-center justify-center h-full space-y-4">
-      <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-        <CheckCircle2 className="w-8 h-8 text-green-500" />
+  // ---- Step 5 UI: Result (or Duplicate Resolution) ----
+  const renderStep5 = () => {
+    if (!importResult) return <div />;
+
+    const hasConflicts = (importResult.conflicts?.length || 0) > 0;
+    const isResolving = hasConflicts && resolvingIndex < importResult.conflicts!.length;
+
+    if (isResolving) {
+      const conflict = importResult.conflicts![resolvingIndex];
+      const existing = conflict.existing_db_row;
+      const imported = conflict.imported_row;
+
+      const handleResolve = async (action: "update" | "keep" | "skip") => {
+        try {
+          if (action === "update") {
+            // Secure update merging new data into old lead
+            await supabase.from("leads").update(imported).eq("id", existing.id);
+          } else if (action === "keep") {
+            // Force insert 
+            await supabase.from("leads").insert([imported]);
+          }
+          // if skip, do nothing
+          
+          setResolvingIndex(prev => prev + 1);
+        } catch (e: any) {
+          toast.error("Resolution failed: " + e.message);
+        }
+      };
+
+      return (
+        <div className="space-y-6 pt-4">
+          <div className="text-center">
+            <AlertTriangle className="w-10 h-10 text-yellow-500 mx-auto mb-3" />
+            <h3 className="text-xl font-bold text-foreground">Duplicate Detected</h3>
+            <p className="text-sm text-muted-foreground">Conflict {resolvingIndex + 1} of {importResult.conflicts!.length}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="border rounded-lg bg-card overflow-hidden">
+              <div className="bg-muted p-2 font-semibold text-center text-sm border-b">Existing Record</div>
+              <div className="p-4 space-y-2 text-sm text-foreground">
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Name:</span> {existing.first_name} {existing.last_name}</p>
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Phone:</span> {existing.phone}</p>
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Email:</span> {existing.email}</p>
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Agent:</span> {existing.assigned_agent_id?.slice(0, 8) || "Unassigned"}</p>
+              </div>
+            </div>
+            <div className="border rounded-lg overflow-hidden shadow-[0_0_15px_rgba(59,130,246,0.1)] border-primary/30 relative">
+              <div className="absolute top-2 right-2 flex gap-1">
+                 <span className="flex w-2 h-2 bg-primary rounded-full animate-pulse"></span>
+              </div>
+              <div className="bg-primary/10 text-primary p-2 font-semibold text-center text-sm border-b border-primary/20">Imported Row</div>
+              <div className="p-4 space-y-2 text-sm text-foreground">
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Name:</span> {imported.first_name} {imported.last_name}</p>
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Phone:</span> {imported.phone}</p>
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Email:</span> {imported.email}</p>
+                <p><span className="text-muted-foreground w-20 inline-block font-medium">Agent:</span> {imported.assigned_agent_id?.slice(0, 8) || "Unassigned"}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-6 justify-center">
+             <button onClick={() => handleResolve("update")} className="px-4 py-2 border border-primary bg-primary/10 text-primary rounded-lg hover:bg-primary hover:text-white text-sm font-semibold sidebar-transition">
+               Update Existing
+             </button>
+             <button onClick={() => handleResolve("keep")} className="px-4 py-2 border rounded-lg hover:bg-accent text-sm font-medium sidebar-transition text-foreground">
+               Keep Both
+             </button>
+             <button onClick={() => handleResolve("skip")} className="px-4 py-2 border border-destructive/50 bg-destructive/5 text-destructive rounded-lg hover:bg-destructive hover:text-destructive-foreground text-sm font-medium sidebar-transition">
+               Skip / Discard
+             </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Success Screen when conflicts are fully resolved!
+    return (
+      <div className="flex flex-col items-center justify-center h-full space-y-4">
+        <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
+          <CheckCircle2 className="w-8 h-8 text-green-500" />
+        </div>
+        <h3 className="text-foreground text-xl font-semibold">Import Complete!</h3>
+        <div className="space-y-1 text-center">
+          <p className="text-sm text-green-500">{importResult?.imported} leads imported successfully</p>
+          {(importResult?.duplicates || 0) > 0 && (
+            <p className="text-sm text-yellow-500">{importResult?.duplicates} conflicts resolved</p>
+          )}
+          {(importResult?.errors || 0) > 0 && (
+            <p className="text-sm text-destructive">{importResult?.errors} rows had errors and were skipped</p>
+          )}
+        </div>
+        <div className="w-full max-w-xs space-y-2 pt-4">
+          <button onClick={() => { reset(); onClose(); }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150">
+            View Leads
+          </button>
+          <button onClick={reset} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150">
+            Import Another File
+          </button>
+        </div>
       </div>
-      <h3 className="text-foreground text-xl font-semibold">Import Complete!</h3>
-      <div className="space-y-1 text-center">
-        <p className="text-sm text-green-500">{importResult?.imported} leads imported successfully</p>
-        {(importResult?.duplicates || 0) > 0 && (
-          <p className="text-sm text-yellow-500">{importResult?.duplicates} duplicates skipped</p>
-        )}
-        {(importResult?.errors || 0) > 0 && (
-          <p className="text-sm text-destructive">{importResult?.errors} rows had errors and were skipped</p>
-        )}
-      </div>
-      <div className="w-full max-w-xs space-y-2 pt-4">
-        <button onClick={() => { reset(); onClose(); }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150">
-          View Leads
-        </button>
-        <button onClick={reset} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150">
-          Import Another File
-        </button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   // ---- Progress Bar ----
   const renderProgressBar = () => {

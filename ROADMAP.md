@@ -73,3 +73,6 @@ All Edge logic, WebRTC code, Database Policies, and App States must be validated
 
 - **2026-04-01 | 7:37 PM PST | [DONE] Authentication & Onboarding QA Audit**  
   *Developer Note:* Surgically addressed 5 critical bugs. Fixed UI/UX parity for Signup and AcceptInvite pages. Implemented a dedicated Confirmation page and forced email verification by disabling automatic confirmation in the `create-user` Edge Function. Hardened invitation management with a "Revoke -> Delete" flow and secure RLS isolation. (Migration `20260402000004_fix_invitations_leak.sql`).
+
+- **2026-04-02 | 8:41 AM PST | [DONE] Contacts QA Audit & Edge Routing**  
+  *Developer Note:* Removed generic UI click-to-dials enforcing Telephony to single views. Engineered `import-contacts` Edge Function with Bouncer RLS queries ensuring `user_id` downline security. Constructed advanced UI states for Round-Robin/Specific deployments. Centralized the 'Holding Pen' Resolution Queue trapping imports side-by-side for manual Manager review if duplicates trigger.
