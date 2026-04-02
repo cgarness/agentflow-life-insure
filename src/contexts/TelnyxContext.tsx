@@ -662,6 +662,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
+    const orgIdClaim = session.user.app_metadata?.organization_id;
+    if (!orgIdClaim) {
+       toast.error("Security Block: No Valid Organization Token.");
+       return;
+    }
+
     if (!clientRef.current) return;
 
     // Request microphone permission before placing the call

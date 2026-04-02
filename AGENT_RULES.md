@@ -79,6 +79,15 @@ After completing a feature and confirming it is ready for merge, you must update
 **16. Living Roadmap - Persistence**
 This roadmap is the source of truth. Never skip the update step.
 
+**17. Auto-Push & Commit Protocol**
+- **Verification Trigger**: Once a task is completed, RLS compliance is verified, and the `ROADMAP.md` has been updated, you are authorized to automatically commit and push the changes to GitHub without further confirmation from the user.
+- **Commit Standards**: Every automatic commit message must follow a clean format: `[Feature/Fix]: [Brief description] | Ref: [Roadmap Entry Date]`.
+- **Safety Halt**: If the build fails, or if a critical error is detected during the task, do NOT push. You must halt, report the error, and wait for manual intervention or a fix.
+- **Repository Access**: Use the existing environment-configured Git credentials to push to the active branch (or `main`) of the repository.
+
+**18. Non-Technical Walkthroughs**
+The user is non-technical. Do not simply state "run the migration" or use abstract developer jargon when asking the user to perform an action. You must provide a highly specific, step-by-step tutorial (click-by-click where possible) to safely guide them through manual tasks involving Supabase, GitHub, or server configurations.
+
 ---
 
 ## STEP ONE — IDENTIFY THE SESSION TYPE BEFORE DOING ANYTHING
