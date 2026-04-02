@@ -655,10 +655,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     // 1. Authentication Check: Ensure user has an active Supabase session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      console.warn("[TelnyxContext] Call blocked: No active auth session.");
-      toast.error("Standard Authentication Required. Please log in to make calls.");
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (!session || sessionError) {
+      console.warn("[TelnyxContext] Call blocked: No active auth session.", sessionError);
+      toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
       return;
     }
 

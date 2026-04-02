@@ -42,6 +42,8 @@ All Edge logic, WebRTC code, Database Policies, and App States must be validated
 | `SUPABASE_ANON_KEY` | React Root | Frontend Reads |
 | `SUPABASE_SERVICE_ROLE_KEY` | Edge Secrets | Webhook writes & RLS Bypasses |
 | `RESEND_API_KEY` | Edge Secrets | Transactional emails |
+| `OPENAI_API_KEY` | Edge Secrets | AI Analysis & Features |
+| `PUBLIC_SITE_URL` | Edge Secrets | Auth Redirection (Production) |
 
 ---
 
@@ -76,3 +78,5 @@ All Edge logic, WebRTC code, Database Policies, and App States must be validated
 
 - **2026-04-02 | 8:41 AM PST | [DONE] Contacts QA Audit & Edge Routing**  
   *Developer Note:* Removed generic UI click-to-dials enforcing Telephony to single views. Engineered `import-contacts` Edge Function with Bouncer RLS queries ensuring `user_id` downline security. Constructed advanced UI states for Round-Robin/Specific deployments. Centralized the 'Holding Pen' Resolution Queue trapping imports side-by-side for manual Manager review if duplicates trigger.
+- **2026-04-02 | 10:50 AM PST | [DONE] Production Go-Live Audit**  
+  *Developer Note:* Executed full codebase sweep. Confirmed zero `service_role` leaks and purged legacy `bun.lock` files. Audited RLS policies for `leads`, `calls`, and `appointments` confirming strict `auth.uid()` isolation. Verified `makeCall` telephony guard. System is 100% ready for production.
