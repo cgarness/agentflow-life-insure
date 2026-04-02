@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         // Normalize phone number to E.164 (strip dashes, spaces)
         const normalizedNumber = phone_number.replace(/[\s\-\(\)\.]/g, "");
 
-        const webhookUrl = "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-webhook";
+        const webhookUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/telnyx-webhook`;
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const appName = `AgentFlow CRM ${timestamp}`;
 
