@@ -18,12 +18,12 @@ CREATE POLICY "Leads JWT Isolation" ON public.leads
 FOR ALL 
 TO authenticated 
 USING (
-  user_id = auth.uid() 
+  assigned_agent_id = auth.uid() 
   OR 
   (public.get_user_role() IN ('Admin', 'Team Leader', 'Super Admin') AND organization_id = public.get_org_id())
 )
 WITH CHECK (
-  user_id = auth.uid() 
+  assigned_agent_id = auth.uid() 
   OR 
   (public.get_user_role() IN ('Admin', 'Team Leader', 'Super Admin') AND organization_id = public.get_org_id())
 );
@@ -40,12 +40,12 @@ CREATE POLICY "Clients JWT Isolation" ON public.clients
 FOR ALL 
 TO authenticated 
 USING (
-  user_id = auth.uid() 
+  assigned_agent_id = auth.uid() 
   OR 
   (public.get_user_role() IN ('Admin', 'Team Leader', 'Super Admin') AND organization_id = public.get_org_id())
 )
 WITH CHECK (
-  user_id = auth.uid() 
+  assigned_agent_id = auth.uid() 
   OR 
   (public.get_user_role() IN ('Admin', 'Team Leader', 'Super Admin') AND organization_id = public.get_org_id())
 );
