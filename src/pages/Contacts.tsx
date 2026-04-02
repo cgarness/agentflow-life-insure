@@ -146,6 +146,14 @@ const AGENT_COLUMNS: AgentColDef[] = [
 ];
 const DEFAULT_AGENT_VISIBLE = new Set(AGENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
 
+// Starter layout for new users (Rank 4 QA Requirement)
+const STARTER_LAYOUT: Record<string, Record<string, number>> = {
+  Leads: { name: 200, phone: 150, email: 200, status: 120, state: 80, source: 150, score: 80, aging: 80, agent: 150 },
+  Clients: { name: 200, phone: 150, email: 200, state: 80, policyType: 120, carrier: 150, premium: 100, faceAmount: 120, issueDate: 120, agent: 150 },
+  Recruits: { name: 200, phone: 150, email: 200, state: 80, status: 120, agent: 150 },
+  Agents: { name: 200, email: 220, licensedStates: 180, commission: 120, role: 120, status: 100 },
+};
+
 
 
 // ---- CopyField ----
@@ -303,121 +311,111 @@ const Contacts: React.FC = () => {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
 
-  // Column Resizing State — persisted to Supabase user_preferences
-  const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>({});
+  // Unified Preference Persistence (Rank 4 QA - Persisted Layout)
+  const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>(STARTER_LAYOUT);
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const sortPrefsLoaded = useRef(false);
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizingColRef = useRef<string | null>(null);
   const startXRef = useRef<number>(0);
   const startWidthRef = useRef<number>(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load column widths from Supabase
+  // Load ALL user settings from the new hardened table
   useEffect(() => {
     if (!user?.id) return;
-    supabase
-      .from("user_preferences")
-      .select("preference_value")
-      .eq("user_id", user.id)
-      .eq("preference_key", "contactColumnWidths")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.preference_value && typeof data.preference_value === "object") {
-          setColumnWidths(data.preference_value as Record<string, Record<string, number>>);
+    
+    const loadSettings = async () => {
+      const { data, error } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Failed to load user preferences:", error);
+        return;
+      }
+
+      if ((data as any)?.settings) {
+        const s = (data as any).settings as any;
+        if (s.columnWidths) setColumnWidths(s.columnWidths);
+        if (s.visibleCols) {
+          if (s.visibleCols.leads) setVisibleCols(new Set(s.visibleCols.leads));
+          if (s.visibleCols.clients) setVisibleClientCols(new Set(s.visibleCols.clients));
+          if (s.visibleCols.recruits) setVisibleRecruitCols(new Set(s.visibleCols.recruits));
+          if (s.visibleCols.agents) setVisibleAgentCols(new Set(s.visibleCols.agents));
         }
-      });
-  }, [user?.id]);
-
-  // Save column widths to Supabase (debounced)
-  const saveColumnWidths = useCallback((w: Record<string, Record<string, number>>) => {
-    if (!user?.id) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      supabase.from("user_preferences").upsert({
-        user_id: user.id,
-        preference_key: "contactColumnWidths",
-        preference_value: w as unknown as Json,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,preference_key" });
-    }, 500);
-  }, [user?.id]);
-
-  // Load visible columns from Supabase
-  useEffect(() => {
-    if (!user?.id) return;
-    supabase
-      .from("user_preferences")
-      .select("preference_value")
-      .eq("user_id", user.id)
-      .eq("preference_key", "contactVisibleCols")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.preference_value && typeof data.preference_value === "object") {
-          const v = data.preference_value as Record<string, string[]>;
-          if (v.leads) setVisibleCols(new Set(v.leads as ColumnKey[]));
-          if (v.clients) setVisibleClientCols(new Set(v.clients as ClientColumnKey[]));
-          if (v.recruits) setVisibleRecruitCols(new Set(v.recruits as RecruitColumnKey[]));
-          if (v.agents) setVisibleAgentCols(new Set(v.agents as AgentColumnKey[]));
-        }
-      });
-  }, [user?.id]);
-
-  // Save visible columns to Supabase
-  const saveVisibleCols = useCallback(async (leadsCols: Set<ColumnKey>, clientsCols: Set<ClientColumnKey>, recruitsCols: Set<RecruitColumnKey>, agentsCols: Set<AgentColumnKey>) => {
-    if (!user?.id) return;
-    const payload = {
-      user_id: user.id,
-      preference_key: "contactVisibleCols",
-      preference_value: {
-        leads: Array.from(leadsCols),
-        clients: Array.from(clientsCols),
-        recruits: Array.from(recruitsCols),
-        agents: Array.from(agentsCols),
-      } as unknown as Json,
-      updated_at: new Date().toISOString(),
-    };
-    const { error } = await supabase.from("user_preferences").upsert(payload, { onConflict: "user_id,preference_key" });
-    if (error) {
-      console.error("Failed to save column preferences:", error);
-    } else {
-      console.log("Column preferences saved successfully");
-    }
-  }, [user?.id]);
-
-  // Sorting — shared across tabs, reset on tab change
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const sortPrefsLoaded = useRef(false);
-
-  // Load sort preferences from Supabase on mount
-  useEffect(() => {
-    if (!user?.id) return;
-    supabase
-      .from("user_preferences")
-      .select("preference_value")
-      .eq("user_id", user.id)
-      .eq("preference_key", "contactSortPrefs")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.preference_value && typeof data.preference_value === "object") {
-          const v = data.preference_value as { sortCol?: string | null; sortDir?: "asc" | "desc" };
-          if (v.sortCol !== undefined) setSortCol(v.sortCol);
-          if (v.sortDir !== undefined) setSortDir(v.sortDir);
+        if (s.sortPrefs) {
+          if (s.sortPrefs.sortCol) setSortCol(s.sortPrefs.sortCol);
+          if (s.sortPrefs.sortDir) setSortDir(s.sortPrefs.sortDir);
         }
         sortPrefsLoaded.current = true;
-      });
+      }
+    };
+
+    loadSettings();
   }, [user?.id]);
 
-  // Save sort preferences to Supabase whenever they change (skip initial render)
+  // Unified Save Mechanism with 2-second Debounce
+  const persistSettings = useCallback((updates: Partial<{
+    columnWidths: Record<string, Record<string, number>>;
+    visibleCols: any;
+    sortPrefs: { sortCol: string | null; sortDir: "asc" | "desc" };
+  }>) => {
+    if (!user?.id) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    
+    saveTimerRef.current = setTimeout(async () => {
+      // Fetch current to merge
+      const { data } = await supabase
+        .from("user_preferences")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const currentSettings = (data as any)?.settings || {};
+      const newSettings = {
+        ...currentSettings,
+        ...updates
+      };
+
+      await supabase.from("user_preferences").upsert({
+        user_id: user.id,
+        settings: newSettings as any,
+      } as any, { onConflict: "user_id" });
+      
+      console.log("Settings persisted successfully.");
+    }, 2000); // 2000ms as requested
+  }, [user?.id]);
+
+  // Wrappers for state updates that trigger persistence
+  const updateColumnWidths = (widths: Record<string, Record<string, number>>) => {
+    setColumnWidths(widths);
+    persistSettings({ columnWidths: widths });
+  };
+
+  const updateVisibleCols = (leads: Set<ColumnKey>, clients: Set<ClientColumnKey>, recruits: Set<RecruitColumnKey>, agents: Set<AgentColumnKey>) => {
+    const visible = {
+      leads: Array.from(leads),
+      clients: Array.from(clients),
+      recruits: Array.from(recruits),
+      agents: Array.from(agents)
+    };
+    persistSettings({ visibleCols: visible });
+  };
+
+  const updateSortPrefs = (col: string | null, dir: "asc" | "desc") => {
+    persistSettings({ sortPrefs: { sortCol: col, sortDir: dir } });
+  };
+
+  // Sync sort changes
   useEffect(() => {
     if (!sortPrefsLoaded.current) return;
-    if (!user?.id) return;
-    supabase.from("user_preferences").upsert({
-      user_id: user.id,
-      preference_key: "contactSortPrefs",
-      preference_value: { sortCol, sortDir } as unknown as Json,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id,preference_key" });
-  }, [sortCol, sortDir, user?.id]);
+    updateSortPrefs(sortCol, sortDir);
+  }, [sortCol, sortDir]);
 
   // Handle global mouse events for resizing
   useEffect(() => {
@@ -441,7 +439,8 @@ const Contacts: React.FC = () => {
         setResizingCol(null);
         document.body.style.cursor = 'default';
         // Persist to Supabase
-        setColumnWidths(prev => { saveColumnWidths(prev); return prev; });
+        // Persist to Supabase
+        setColumnWidths(prev => { persistSettings({ columnWidths: prev }); return prev; });
       }
     };
 
@@ -1000,7 +999,7 @@ const Contacts: React.FC = () => {
           )}
         </span>
         <div
-          className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/50 ${isResizing ? "bg-primary" : "bg-transparent"} transition-colors`}
+          className={`absolute right-[-5px] top-0 bottom-0 w-[10px] cursor-col-resize hover:bg-primary/30 z-[10] ${isResizing ? "bg-primary w-[2px] right-0" : "bg-transparent"} transition-all`}
           onMouseDown={(e) => handleResizeStart(e, key)}
           onClick={(e) => e.stopPropagation()}
         />
@@ -1046,25 +1045,24 @@ const Contacts: React.FC = () => {
           </div>
           <div className="flex items-center justify-between mt-3">
             <button onClick={() => {
-              setVisible(new Set(defaults));
+              const resetSet = new Set(defaults);
+              setVisible(resetSet);
               setPendingVisible(null);
               setColumnsOpen(false);
-              saveVisibleCols(
-                tab === "Leads" ? defaults as unknown as Set<ColumnKey> : visibleCols,
-                tab === "Clients" ? defaults as unknown as Set<ClientColumnKey> : visibleClientCols,
-                tab === "Recruits" ? defaults as unknown as Set<RecruitColumnKey> : visibleRecruitCols,
-                tab === "Agents" ? defaults as unknown as Set<AgentColumnKey> : visibleAgentCols,
-              );
+              const newLeads = tab === "Leads" ? resetSet as unknown as Set<ColumnKey> : visibleCols;
+              const newClients = tab === "Clients" ? resetSet as unknown as Set<ClientColumnKey> : visibleClientCols;
+              const newRecruits = tab === "Recruits" ? resetSet as unknown as Set<RecruitColumnKey> : visibleRecruitCols;
+              const newAgents = tab === "Agents" ? resetSet as unknown as Set<AgentColumnKey> : visibleAgentCols;
+              updateVisibleCols(newLeads, newClients, newRecruits, newAgents);
             }} className="text-xs text-primary hover:underline">Reset to default</button>
             <button onClick={() => {
               if (pendingVisible) {
                 setVisible(pendingVisible);
-                // Build the save payload using the pending value for the current tab
-                const newLeads = tab === "Leads" ? pendingVisible as unknown as Set<ColumnKey> : visibleCols;
-                const newClients = tab === "Clients" ? pendingVisible as unknown as Set<ClientColumnKey> : visibleClientCols;
-                const newRecruits = tab === "Recruits" ? pendingVisible as unknown as Set<RecruitColumnKey> : visibleRecruitCols;
-                const newAgents = tab === "Agents" ? pendingVisible as unknown as Set<AgentColumnKey> : visibleAgentCols;
-                saveVisibleCols(newLeads, newClients, newRecruits, newAgents);
+                const newLeads = tab === "Leads" ? pendingVisible as Set<ColumnKey> : visibleCols;
+                const newClients = tab === "Clients" ? pendingVisible as Set<ClientColumnKey> : visibleClientCols;
+                const newRecruits = tab === "Recruits" ? pendingVisible as Set<RecruitColumnKey> : visibleRecruitCols;
+                const newAgents = tab === "Agents" ? pendingVisible as Set<AgentColumnKey> : visibleAgentCols;
+                updateVisibleCols(newLeads, newClients, newRecruits, newAgents);
               }
               setPendingVisible(null);
               setColumnsOpen(false);
