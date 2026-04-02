@@ -71,5 +71,5 @@ All Edge logic, WebRTC code, Database Policies, and App States must be validated
 - **2026-04-02 | [DONE] JWT Auth Claims & RLS Optimization**  
   *Developer Note:* Eradicated slow RLS subqueries. Pushed `organization_id` natively into `auth.users.raw_app_meta_data` via SQL trigger (`20260402000001_jwt_auth_claims.sql`). Re-wrote `leads`, `clients`, and `call_logs` policies relying strictly on `public.get_org_id()` (`20260402000002_lockdown_rls.sql`). Handled token issuance latency by blocking new agent dashboards with a polling loading spinner in `AuthContext.tsx`.
 
-- **2026-04-02 | [DONE] Authentication & Onboarding QA Audit**  
+- **2026-04-01 | 7:37 PM PST | [DONE] Authentication & Onboarding QA Audit**  
   *Developer Note:* Surgically addressed 5 critical bugs. Fixed UI/UX parity for Signup and AcceptInvite pages. Implemented a dedicated Confirmation page and forced email verification by disabling automatic confirmation in the `create-user` Edge Function. Hardened invitation management with a "Revoke -> Delete" flow and secure RLS isolation. (Migration `20260402000004_fix_invitations_leak.sql`).
