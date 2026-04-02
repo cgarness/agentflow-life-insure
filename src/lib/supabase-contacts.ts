@@ -1,16 +1,38 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Lead, LeadStatus } from "@/lib/types";
+import { isCallableNow, getPrimaryTimezoneGroup } from "@/utils/timezoneUtils";
 
 // ---- LEADS ----
 export const leadsSupabaseApi = {
-  async getAll(filters?: { status?: string; source?: string; search?: string }): Promise<Lead[]> {
+  async getAll(filters?: { 
+    status?: string; 
+    source?: string; 
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    state?: string;
+    timezones?: string[];
+    attemptCounts?: string[];
+    lastDisposition?: string;
+    callableNow?: boolean;
+    assignedAgentId?: string;
+  }): Promise<Lead[]> {
     let query = supabase
       .from("leads")
-      .select("*")
+      .select(`
+        *,
+        calls(status, created_at)
+      `)
       .order("created_at", { ascending: false });
 
     if (filters?.status) query = query.eq("status", filters.status);
     if (filters?.source) query = query.eq("lead_source", filters.source);
+    if (filters?.state) query = query.eq("state", filters.state);
+    if (filters?.assignedAgentId) query = query.eq("assigned_agent_id", filters.assignedAgentId);
+    
+    if (filters?.startDate) query = query.gte("created_at", filters.startDate);
+    if (filters?.endDate) query = query.lte("created_at", filters.endDate);
+
     if (filters?.search) {
       const q = filters.search;
       query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`);
@@ -18,7 +40,37 @@ export const leadsSupabaseApi = {
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    return (data ?? []).map(rowToLead);
+
+    let processedLeads = (data ?? []).map(rowToLead);
+
+    // Apply client-side filters for complex logic (timezones, attempt count, disposition)
+    if (filters?.timezones && filters.timezones.length > 0) {
+      processedLeads = processedLeads.filter(l => {
+        const group = getPrimaryTimezoneGroup(l.state);
+        return group && filters.timezones?.includes(group);
+      });
+    }
+
+    if (filters?.attemptCounts && filters.attemptCounts.length > 0) {
+      processedLeads = processedLeads.filter(l => {
+        const count = l.attemptCount || 0;
+        if (filters.attemptCounts?.includes("0") && count === 0) return true;
+        if (filters.attemptCounts?.includes("1-3") && count >= 1 && count <= 3) return true;
+        if (filters.attemptCounts?.includes("5+") && count >= 5) return true;
+        // Handle other possible ranges from UI if needed
+        return false;
+      });
+    }
+
+    if (filters?.lastDisposition) {
+      processedLeads = processedLeads.filter(l => l.lastDisposition === filters.lastDisposition);
+    }
+
+    if (filters?.callableNow) {
+      processedLeads = processedLeads.filter(l => isCallableNow(l.state));
+    }
+
+    return processedLeads;
   },
 
   async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -235,6 +287,8 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
     notes: row.notes ?? undefined,
     assignedAgentId: row.assigned_agent_id,
     lastContactedAt: row.last_contacted_at ?? undefined,
+    attemptCount: (row.calls || []).length,
+    lastDisposition: [...(row.calls || [])].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.status,
     customFields: row.custom_fields ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
-  Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar, Mail, Users,
+  Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar as CalendarIcon, Mail, Users,
   Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2, Megaphone, Download, UserPlus,
   GraduationCap, CheckCircle2, ArrowRight, Clipboard
@@ -36,6 +36,16 @@ import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
+import { isCallableNow, TIMEZONE_GROUPS, STATE_TIMEZONES } from "@/utils/timezoneUtils";
+import { StateSelector } from "@/components/shared/StateSelector";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Calendar } from "@/components/ui/calendar"; 
+import { format as formatBtnDate } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -211,6 +221,13 @@ const Contacts: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
+  const [stateFilter, setStateFilter] = useState<string>("");
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+  const [timezoneFilters, setTimezoneFilters] = useState<string[]>([]);
+  const [callableNowFilter, setCallableNowFilter] = useState(false);
+  const [attemptCountFilters, setAttemptCountFilters] = useState<string[]>([]);
+  const [lastDispositionFilter, setLastDispositionFilter] = useState<string>("");
 
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -224,8 +241,22 @@ const Contacts: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const leadFilters = {
+        search: searchQuery,
+        status: statusFilter,
+        source: sourceFilter,
+        state: stateFilter,
+        startDate: startDate?.toISOString(),
+        endDate: endDate?.toISOString(),
+        timezones: timezoneFilters,
+        callableNow: callableNowFilter,
+        attemptCounts: attemptCountFilters,
+        lastDisposition: lastDispositionFilter,
+        assignedAgentId: user?.id,
+      };
+
       const [leadData, clientData, recruitData, agentData, stats] = await Promise.all([
-        leadsSupabaseApi.getAll({ search: searchQuery, status: statusFilter, source: sourceFilter }).catch(e => { console.error("Error fetching leads:", e); return []; }),
+        leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); return []; }),
         clientsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching clients:", e); return []; }),
         recruitsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching recruits:", e); return []; }),
         usersApi.getAll({ search: searchQuery }).catch(e => { console.error("Error fetching agents:", e); return []; }),
@@ -239,7 +270,7 @@ const Contacts: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, statusFilter, sourceFilter, user?.id]);
+  }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, user?.id]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -303,11 +334,23 @@ const Contacts: React.FC = () => {
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
   const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
 
-  // Column visibility per tab
-  const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(new Set(DEFAULT_VISIBLE));
-  const [visibleClientCols, setVisibleClientCols] = useState<Set<ClientColumnKey>>(new Set(DEFAULT_CLIENT_VISIBLE));
-  const [visibleRecruitCols, setVisibleRecruitCols] = useState<Set<RecruitColumnKey>>(new Set(DEFAULT_RECRUIT_VISIBLE));
-  const [visibleAgentCols, setVisibleAgentCols] = useState<Set<AgentColumnKey>>(new Set(DEFAULT_AGENT_VISIBLE));
+  // Column visibility per tab with localStorage persistence (Power Dialer Requirement)
+  const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(() => {
+    const saved = localStorage.getItem("contacts_visible_cols_leads");
+    return saved ? new Set(JSON.parse(saved)) : new Set(DEFAULT_VISIBLE);
+  });
+  const [visibleClientCols, setVisibleClientCols] = useState<Set<ClientColumnKey>>(() => {
+    const saved = localStorage.getItem("contacts_visible_cols_clients");
+    return saved ? new Set(JSON.parse(saved)) : new Set(DEFAULT_CLIENT_VISIBLE);
+  });
+  const [visibleRecruitCols, setVisibleRecruitCols] = useState<Set<RecruitColumnKey>>(() => {
+    const saved = localStorage.getItem("contacts_visible_cols_recruits");
+    return saved ? new Set(JSON.parse(saved)) : new Set(DEFAULT_RECRUIT_VISIBLE);
+  });
+  const [visibleAgentCols, setVisibleAgentCols] = useState<Set<AgentColumnKey>>(() => {
+    const saved = localStorage.getItem("contacts_visible_cols_agents");
+    return saved ? new Set(JSON.parse(saved)) : new Set(DEFAULT_AGENT_VISIBLE);
+  });
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
 
@@ -1008,7 +1051,36 @@ const Contacts: React.FC = () => {
   };
 
   // Pending column visibility state for the dropdown (so changes only apply on Save)
-  const [pendingVisible, setPendingVisible] = useState<Set<string> | null>(null);
+  const [pendingVisible, setPendingVisible] = useState<Set<string> | null>(null);  const renderActiveFilters = () => {
+    const active: { label: string; onClear: () => void }[] = [];
+    if (statusFilter) active.push({ label: `Status: ${statusFilter}`, onClear: () => setStatusFilter("") });
+    if (sourceFilter) active.push({ label: `Source: ${sourceFilter}`, onClear: () => setSourceFilter("") });
+    if (stateFilter) active.push({ label: `State: ${stateFilter}`, onClear: () => setStateFilter("") });
+    if (startDate) active.push({ label: `From: ${formatBtnDate(startDate, "MM/dd/yy")}`, onClear: () => setStartDate(undefined) });
+    if (endDate) active.push({ label: `To: ${formatBtnDate(endDate, "MM/dd/yy")}`, onClear: () => setEndDate(undefined) });
+    if (timezoneFilters.length > 0) active.push({ label: `Timezones: ${timezoneFilters.join(", ")}`, onClear: () => setTimezoneFilters([]) });
+    if (callableNowFilter) active.push({ label: `Callable Now`, onClear: () => setCallableNowFilter(false) });
+    if (attemptCountFilters.length > 0) active.push({ label: `Attempts: ${attemptCountFilters.join(", ")}`, onClear: () => setAttemptCountFilters([]) });
+    if (lastDispositionFilter) active.push({ label: `Disposition: ${lastDispositionFilter}`, onClear: () => setLastDispositionFilter("") });
+
+    if (active.length === 0) return null;
+
+    return (
+      <div className="flex flex-wrap gap-2 mb-4">
+        {active.map((filter, i) => (
+          <Badge key={i} variant="secondary" className="flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary border-primary/20">
+            {filter.label}
+            <X className="w-3 h-3 cursor-pointer hover:text-destructive" onClick={(e) => { e.stopPropagation(); filter.onClear(); }} />
+          </Badge>
+        ))}
+        <button onClick={() => {
+          setStatusFilter(""); setSourceFilter(""); setStateFilter("");
+          setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]);
+          setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter("");
+        }} className="text-xs text-muted-foreground hover:text-primary underline">Clear All</button>
+      </div>
+    );
+  };
 
   // Generic columns toggle dropdown
   const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<string>) => void, defaults: Set<string>) => {
@@ -1024,49 +1096,35 @@ const Contacts: React.FC = () => {
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {columns.map(col => (
               <label key={col.key} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={displaySet.has(col.key)}
+                <Checkbox
+                  checked={visible.has(col.key)}
                   disabled={col.locked}
-                  onChange={() => {
+                  onCheckedChange={() => {
                     if (col.locked) return;
-                    const next = new Set(displaySet);
-                    if (next.has(col.key)) next.delete(col.key); else next.add(col.key);
-                    setPendingVisible(next);
+                    const next = new Set(visible);
+                    if (next.has(col.key)) next.delete(col.key); else next.add(col.key as any);
+                    setVisible(next);
+                    // Persist immediately (Power Dialer Requirement)
+                    const tabKey = tab === "Leads" ? "leads" : tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "agents";
+                    localStorage.setItem(`contacts_visible_cols_${tabKey}`, JSON.stringify(Array.from(next)));
                   }}
-                  className="rounded"
                 />
-                {col.label}
+                <span className="text-sm font-medium">{col.label}</span>
                 {col.locked && (
                   <TooltipProvider><Tooltip><TooltipTrigger asChild><Lock className="w-3 h-3 text-muted-foreground" /></TooltipTrigger><TooltipContent>Cannot be hidden</TooltipContent></Tooltip></TooltipProvider>
                 )}
               </label>
             ))}
           </div>
-          <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center justify-between mt-3 pt-2 border-t">
             <button onClick={() => {
               const resetSet = new Set(defaults);
               setVisible(resetSet);
-              setPendingVisible(null);
               setColumnsOpen(false);
-              const newLeads = tab === "Leads" ? resetSet as unknown as Set<ColumnKey> : visibleCols;
-              const newClients = tab === "Clients" ? resetSet as unknown as Set<ClientColumnKey> : visibleClientCols;
-              const newRecruits = tab === "Recruits" ? resetSet as unknown as Set<RecruitColumnKey> : visibleRecruitCols;
-              const newAgents = tab === "Agents" ? resetSet as unknown as Set<AgentColumnKey> : visibleAgentCols;
-              updateVisibleCols(newLeads, newClients, newRecruits, newAgents);
-            }} className="text-xs text-primary hover:underline">Reset to default</button>
-            <button onClick={() => {
-              if (pendingVisible) {
-                setVisible(pendingVisible);
-                const newLeads = tab === "Leads" ? pendingVisible as Set<ColumnKey> : visibleCols;
-                const newClients = tab === "Clients" ? pendingVisible as Set<ClientColumnKey> : visibleClientCols;
-                const newRecruits = tab === "Recruits" ? pendingVisible as Set<RecruitColumnKey> : visibleRecruitCols;
-                const newAgents = tab === "Agents" ? pendingVisible as Set<AgentColumnKey> : visibleAgentCols;
-                updateVisibleCols(newLeads, newClients, newRecruits, newAgents);
-              }
-              setPendingVisible(null);
-              setColumnsOpen(false);
-            }} className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">Save</button>
+              const tabKey = tab === "Leads" ? "leads" : tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "agents";
+              localStorage.setItem(`contacts_visible_cols_${tabKey}`, JSON.stringify(Array.from(resetSet)));
+            }} className="text-[10px] text-primary hover:underline">Reset to default</button>
+            <button onClick={() => setColumnsOpen(false)} className="px-3 py-1 bg-primary text-primary-foreground rounded-lg text-[10px] font-medium hover:bg-primary/90 sidebar-transition">Close</button>
           </div>
         </div>
       )}
@@ -1200,24 +1258,115 @@ const Contacts: React.FC = () => {
           <div className="relative">
             <button onClick={() => setFilterOpen(!filterOpen)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Filter className="w-4 h-4" />Filter</button>
             {filterOpen && (
-              <div className="absolute top-full mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-3 z-[120] space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
-                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
-                    <option value="">All</option>
-                    {filterStatuses.map(s => <option key={s}>{s}</option>)}
-                  </select>
+              <div className="absolute top-full mt-1 left-0 w-72 bg-card border border-border rounded-lg shadow-lg p-4 z-[120] space-y-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-foreground">Advanced Filters</h3>
+                  <button onClick={() => { 
+                    setStatusFilter(""); setSourceFilter(""); setStateFilter("");
+                    setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]);
+                    setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter("");
+                  }} className="text-xs text-primary hover:underline">Clear All</button>
                 </div>
-                {tab === "Leads" && (
+                
+                <div className="space-y-3">
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Source</label>
-                    <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
-                      <option value="">All</option>
-                      {allLeadSources.map(s => <option key={s}>{s}</option>)}
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
+                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
+                      <option value="">All Statuses</option>
+                      {filterStatuses.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
-                )}
-                <button onClick={() => { setStatusFilter(""); setSourceFilter(""); setFilterOpen(false); }} className="text-xs text-primary hover:underline">Clear Filters</button>
+
+                  {tab === "Leads" && (
+                    <>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
+                        <StateSelector value={stateFilter} onChange={setStateFilter} className="bg-muted border-border" />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">Date Created</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" className="h-8 px-2 text-[10px] w-full justify-start bg-muted border-border font-normal">
+                                {startDate ? formatBtnDate(startDate, "MM/dd/yy") : "Start Date"}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
+                            </PopoverContent>
+                          </Popover>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" className="h-8 px-2 text-[10px] w-full justify-start bg-muted border-border font-normal">
+                                {endDate ? formatBtnDate(endDate, "MM/dd/yy") : "End Date"}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">Timezones</label>
+                        <div className="grid grid-cols-2 gap-y-1">
+                          {TIMEZONE_GROUPS.map(tz => (
+                            <div key={tz} className="flex items-center gap-2">
+                              <Checkbox 
+                                id={`tz-${tz}`} 
+                                checked={timezoneFilters.includes(tz)} 
+                                onCheckedChange={(checked) => {
+                                  setTimezoneFilters(prev => checked ? [...prev, tz] : prev.filter(t => t !== tz));
+                                }}
+                              />
+                              <label htmlFor={`tz-${tz}`} className="text-[11px] text-foreground cursor-pointer">{tz}</label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <label className="text-xs font-medium text-muted-foreground">Callable Now (TCPA)</label>
+                        <Switch checked={callableNowFilter} onCheckedChange={setCallableNowFilter} />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">Attempts</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {["0", "1-3", "5+"].map(range => (
+                            <div key={range} className="flex items-center gap-1.5">
+                              <Checkbox 
+                                id={`att-${range}`} 
+                                checked={attemptCountFilters.includes(range)} 
+                                onCheckedChange={(checked) => {
+                                  setAttemptCountFilters(prev => checked ? [...prev, range] : prev.filter(r => r !== range));
+                                }}
+                              />
+                              <label htmlFor={`att-${range}`} className="text-[11px] text-foreground cursor-pointer">{range}</label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1">Last Disposition</label>
+                        <select value={lastDispositionFilter} onChange={e => setLastDispositionFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground text-[11px]">
+                          <option value="">All Dispositions</option>
+                          <option value="No Answer">No Answer</option>
+                          <option value="Busy">Busy</option>
+                          <option value="Voicemail">Voicemail</option>
+                          <option value="Interested">Interested</option>
+                          <option value="Not Interested">Not Interested</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                <button onClick={() => setFilterOpen(false)} className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 sidebar-transition">Apply Filters</button>
               </div>
             )}
           </div>
@@ -1226,6 +1375,9 @@ const Contacts: React.FC = () => {
         {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
         {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
+
+      {/* Active Filters (Power Dialer Feature) */}
+      {(tab === "Leads" || tab === "Recruits") && renderActiveFilters()}
 
       {/* Loading */}
       {loading && (

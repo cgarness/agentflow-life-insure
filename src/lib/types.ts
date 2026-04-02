@@ -95,6 +95,8 @@ export interface Lead {
   notes?: string;
   assignedAgentId: string;
   lastContactedAt?: string;
+  attemptCount?: number;
+  lastDisposition?: string;
   customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
