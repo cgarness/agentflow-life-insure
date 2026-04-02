@@ -5,6 +5,7 @@ import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
+import { StateSelector } from "@/components/shared/StateSelector";
 
 interface AddRecruitModalProps {
   open: boolean;
@@ -106,7 +107,10 @@ const AddRecruitModal: React.FC<AddRecruitModalProps> = ({ open, onClose, onSave
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-              <input value={form.state || ""} onChange={e => setForm((f) => ({ ...f, state: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="CA" />
+              <StateSelector 
+                value={form.state || ""} 
+                onChange={val => setForm((f) => ({ ...f, state: val }))} 
+              />
             </div>
           </div>
           <div>

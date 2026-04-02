@@ -32,9 +32,9 @@ export const PhoneInput: React.FC<PhoneInputProps> = ({ value, onChange, classNa
       if (limitedDigits.length <= 3) {
         formatted = `(${limitedDigits}`;
       } else if (limitedDigits.length <= 6) {
-        formatted = `(${limitedDigits.slice(0, 3)})${limitedDigits.slice(3)}`;
+        formatted = `(${limitedDigits.slice(0, 3)}) ${limitedDigits.slice(3)}`;
       } else {
-        formatted = `(${limitedDigits.slice(0, 3)})${limitedDigits.slice(3, 6)}-${limitedDigits.slice(6)}`;
+        formatted = `(${limitedDigits.slice(0, 3)}) ${limitedDigits.slice(3, 6)}-${limitedDigits.slice(6)}`;
       }
     }
     
