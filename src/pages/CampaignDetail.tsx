@@ -675,7 +675,7 @@ const CampaignDetail: React.FC = () => {
 
   const fetchCampaign = useCallback(async () => {
     if (!id) return;
-    const { data } = await supabase.from("campaigns").select("*").eq("id", id).single();
+    const { data } = await supabase.from("campaigns").select("*").eq("id", id).maybeSingle();
     if (data) {
       const c = { ...data, assigned_agent_ids: data.assigned_agent_ids || [], tags: data.tags || [] } as Campaign;
       setCampaign(c);

@@ -91,6 +91,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const activeCallIdRef = useRef<string | null>(null);
   const activeCallControlIdRef = useRef<string | null>(null);
   const pendingAbortCallIdRef = useRef<string | null>(null);
+  const activeLeadIdRef = useRef<string | null>(null);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -159,12 +160,39 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
+  const insertCallLog = useCallback(async (duration: number, leadId: string | null) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+
+      const { error } = await (supabase as any).from('call_logs').insert({
+        user_id: session.user.id,
+        lead_id: leadId,
+        duration: duration,
+        status: duration > 0 ? 'completed' : 'no-answer',
+        direction: 'outbound'
+      });
+      
+      if (error) {
+        console.warn("[Automated Log] Failed to save call log:", error.message);
+      }
+    } catch (err) {
+      console.warn("[Automated Log] Exception saving call log:", err);
+    }
+  }, []);
+
   const finalizeCallRecord = useCallback(async (duration: number) => {
     if (!activeCallIdRef.current || !organizationId) return;
 
     const callId = activeCallIdRef.current;
-    // Clear ref immediately so we don't double-finalize
+    const leadId = activeLeadIdRef.current;
+    
+    // Clear refs immediately so we don't double-finalize
     activeCallIdRef.current = null;
+    activeLeadIdRef.current = null;
+
+    // Background log to the analytical table, non-blocking
+    insertCallLog(duration, leadId).catch(console.warn);
 
     console.log(`[TelnyxContext] Finalizing call record ${callId} with duration ${duration}s`);
 
@@ -648,6 +676,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       isAutoDialingRef.current = !!clientState;
+      activeLeadIdRef.current = isValidUUID(clientState) ? clientState : null;
       setCallState("dialing");
       setIsMuted(false);
       setIsOnHold(false);
@@ -757,6 +786,36 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [status, defaultCallerNumber, attachRemoteAudio]);
 
+
+  // Network resilience: Auto-reconnect if internet blips
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("[TelnyxContext] Network restored. Re-initializing client...");
+      if (status === "error" || !clientRef.current) {
+         // Add a tiny delay to ensure socket is actually ready
+         setTimeout(() => initializeClient(), 1000);
+      }
+    };
+    
+    const handleOffline = () => {
+       console.warn("[TelnyxContext] Network connectivity lost.");
+       setStatus("error");
+       setErrorMessage("Internet connection lost. Call may have dropped. Waiting to reconnect...");
+       // If active call, trigger hangup ui so agent isn't frozen
+       if (callState === "active" || callState === "dialing") {
+         hangUp();
+       }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+      return () => {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
+    }
+  }, [status, callState, initializeClient, hangUp]);
 
   const isReady = status === "ready";
 

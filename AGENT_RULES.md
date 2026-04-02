@@ -21,6 +21,66 @@ When Chris engages me, I must adhere to these specific rules:
 
 ---
 
+## 🏗️ CORE ARCHITECTURE DIRECTIVES (March 2026 Update)
+
+**1. Multi-Tenant Database Security (RLS)**
+RLS policies cannot be dropped or bypassed without the `#APPROVE_RLS_CHANGE` override code. RLS policies MUST be designed to support AgentFlow's hierarchical Org Chart using role-based access:
+- **Admins**: Have access to all records tied to their organization (`organization_id`).
+- **Managers**: Have access to their own personal records (`user_id`) AND the records of their downline agents (`ltree` upline tracking).
+- **Agents**: Have access ONLY to their own records (`user_id = auth.uid()`).
+
+**2. Database Null-Safety**
+When fetching data from Supabase, you **must use `.maybeSingle()` instead of `.single()`** for any data that might not exist yet (like new user settings or profiles). You must always implement null-checks on the returned data and write a graceful fallback UI (an 'empty state' or a 'setup prompt') so the frontend never crashes.
+
+**3. Edge Functions & 3rd Party APIs**
+All heavy logic, webhooks, and 3rd-party API integrations (e.g., Telnyx, billing, AI bots) **MUST be built as Supabase Edge Functions**. The React frontend is strictly a UI layer that only sends lightweight triggers to these functions. Under no circumstances should 3rd-party API keys be hard-coded or exposed in the frontend; they must always be stored securely in the Supabase Vault or as Edge Function environment variables.
+
+**4. UI Consistency & Styling**
+You are strictly forbidden from writing custom CSS, inline styles, or inventing new UI components. Your default behavior must be to **exclusively use Tailwind CSS and the pre-built components in `src/components/ui/`**.
+*EXCEPTION: If the user explicitly includes the override code `#ALLOW_CUSTOM_UI` in their prompt, you are temporarily permitted to experiment with new layouts, create custom Tailwind classes, or build new UI components for that specific request only.*
+
+**5. Form Validation**
+You must strictly use **Zod** for all form validation, modals, and API entry points. No data is allowed to be submitted to the Supabase database or sent to the Telnyx API without first passing through a Zod schema validation to ensure proper formatting (especially for phone numbers and email addresses). Any invalid data must be instantly rejected at the frontend layer with clear, user-friendly error messages.
+
+**6. The "North Star" Niche Focus**
+AgentFlow's absolute primary demographic is strictly Life Insurance Agencies. AgentFlow is a niche CRM and Power Dialer built **specifically for the Life Insurance industry**, competing against platforms like HighLevel and Ringy. You must abandon all general-purpose CRM assumptions. All default schemas, placeholder data, UI copy, and automated workflows **must use life insurance context** (e.g., Policy Types, Term Lengths, Carriers, Premiums, Beneficiaries, Lead Dispositions, and Underwriting Statuses). Do not generate generic sales data.
+
+**7. Targeted Testing (Vitest)**
+Pure MVP velocity is important, but critical business logic must be protected from regression bugs. You must automatically write Vitest tests for any new logic related to the Telnyx dialer state (e.g., preventing phantom ringing), database security/RLS, or financial/billing functions. For standard UI components and basic CRUD frontend views, prioritize feature velocity and skip automated tests unless specifically requested.
+
+**8. Webhook-First Marketing Automations**
+Do not build a complex, native multi-step marketing sequence builder. Instruct users to input external webhook URLs (for Zapier, Make.com, etc.) and emit standard JSON event payloads for lifecycle events (e.g., 'Lead Created', 'Appointment Set').
+
+**9. Transactional Emails (Resend SDK)**
+For all internal system emails (password resets, welcome emails), strictly use the Resend SDK within Supabase Edge Functions. Do not rely on the default Supabase SMTP server. Ensure the Resend API key is never hard-coded; it must be securely accessed via Edge Function environment variables.
+
+**10. No Ghost Deletions (Code Protection)**
+You are strictly forbidden from deleting, replacing, or aggressively refactoring existing, functioning code unless it is directly required for the current task. If a task requires removing significant logic or deleting a file, you must halt and request the explicit override code `#ALLOW_DELETION` from the user before proceeding. Prioritize extending existing logic safely.
+
+**11. Strict Migrations (Database Paper Trail)**
+Whenever you need to alter the Supabase database schema (create tables, add columns, update RLS), you must NEVER execute the SQL directly or assume manual execution. You must always generate a properly formatted Supabase migration file (e.g., in `supabase/migrations/`) containing the exact SQL commands to ensure a strict version history.
+
+**12. Bite-Sized Code (Component Size Limit)**
+You must strictly adhere to modular, single-responsibility architecture. Do not generate massive, monolithic React files. If a component exceeds roughly 150-200 lines of code, you must proactively break it down into smaller, reusable sub-components in the `src/components/ui/` folder or relevant domain folder. Keep files clean and focused.
+
+**13. Living Roadmap - Initialization**
+We maintain a `ROADMAP.md` file in the project root. This documents the current state of AgentFlow (Database, Telnyx Dialer, Kanban, and Auth) based on the existing codebase.
+
+**14. Living Roadmap - Pre-Task Check**
+Before starting any new task, you must read the last entry in `ROADMAP.md` and the most recent git commit logs. You must explicitly confirm to the user: "I have reviewed the roadmap and recent logs; I am on track to [Current Task]."
+
+**15. Living Roadmap - Post-Task Update**
+After completing a feature and confirming it is ready for merge, you must update `ROADMAP.md`. This update must include:
+- Feature name and status (e.g., [DONE] or [IN PROGRESS])
+- Any new Environment Variables added
+- Any new Database Migrations created
+- Date and a brief "Developer Note" on what was changed.
+
+**16. Living Roadmap - Persistence**
+This roadmap is the source of truth. Never skip the update step.
+
+---
+
 ## STEP ONE — IDENTIFY THE SESSION TYPE BEFORE DOING ANYTHING
 
 Not every conversation requires a full Notion read. Identify which type of session this is first, then act accordingly.

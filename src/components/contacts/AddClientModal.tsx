@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { z } from "zod";
 import { X, Loader2 } from "lucide-react";
 import { Client, PolicyType } from "@/lib/types";
 import { toast } from "sonner";
@@ -47,10 +48,34 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
     }
   }, [initial, open]);
 
+const clientSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  phone: z.string().min(10, "Valid phone number is required"),
+  email: z.string().email("Invalid email address").optional().or(z.literal("")),
+  state: z.string().length(2, "State must be exactly 2 letters").optional().or(z.literal("")),
+});
+
   if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    try {
+      clientSchema.parse({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        phone: form.phone,
+        email: form.email,
+        state: form.state,
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        toast.error(err.errors[0].message);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await onSave(form);

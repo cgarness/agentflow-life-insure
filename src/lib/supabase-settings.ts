@@ -327,8 +327,8 @@ export const contactManagementSettingsSupabaseApi = {
     const { data, error } = await (supabase as any)
       .from("contact_management_settings")
       .select("*")
-      .single();
-    if (error && error.code !== "PGRST116") throw error; // PGRST116 is "no rows returned"
+      .maybeSingle();
+    if (error) throw error;
     
     if (!data) return null;
 

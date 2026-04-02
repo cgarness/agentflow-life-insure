@@ -222,14 +222,14 @@ const Dashboard: React.FC = () => {
           .select("preference_value")
           .eq("user_id", userId)
           .eq("preference_key", "dashboard_widget_order")
-          .single();
+          .maybeSingle();
 
         const { data: hiddenPref } = await supabase
           .from("user_preferences")
           .select("preference_value")
           .eq("user_id", userId)
           .eq("preference_key", "dashboard_hidden_widgets")
-          .single();
+          .maybeSingle();
 
         if (orderPref?.preference_value) {
           const val = orderPref.preference_value;
