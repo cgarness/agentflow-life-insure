@@ -152,11 +152,12 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           case "calls_today":
             query = supabase
               .from("calls")
-              .select("id, contact_name, contact_id, created_at, disposition_name, duration, status")
+              .select("id, contact_name, contact_id, created_at, disposition_name, duration, status, direction")
               .gte("created_at", startStr)
               .lte("created_at", endStr)
               .order("created_at", { ascending: false });
-            if (isFiltered) query = query.eq("agent_id", userId);
+            // Digital Privacy Partition: Strictly filter by authenticated agent's ID
+            query = query.eq("agent_id", userId);
             break;
 
           case "policies_sold":
@@ -311,12 +312,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         );
       case "calls_today":
       case "missed_calls":
+        const direction = item.direction === 'inbound' ? 'Inbound' : 'Outbound';
         return (
           <div className="flex flex-col">
             <span className="text-sm font-bold text-foreground">{item.contact_name || item.contact_phone || "Unknown Caller"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Phone className="w-3 h-3" />
-              {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              <span className={`font-bold ${item.direction === 'inbound' ? 'text-blue-500' : 'text-indigo-500'}`}>{direction}</span>
+              {` • `}{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {item.duration ? ` • ${Math.floor(item.duration / 60)}m ${item.duration % 60}s` : ""}
               {item.disposition_name && ` • ${item.disposition_name}`}
             </span>
@@ -423,7 +426,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-4">
-              {item.status && (
+              {item.status && type !== "calls_today" && type !== "missed_calls" && (
                 <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
                   item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
                   item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
