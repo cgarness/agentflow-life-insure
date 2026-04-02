@@ -1355,6 +1355,16 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const handleDeleteInvite = async (id: string) => {
+    try {
+      await usersApi.deleteInvitation(id);
+      toast({ title: "Invitation deleted permanently" });
+      fetchInvitations();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const handleDeactivateReactivate = async () => {
     const u = confirmDialog.user;
     if (!u) return;
@@ -1643,16 +1653,29 @@ const UserManagement: React.FC = () => {
                               </Tooltip>
                             </TooltipProvider>
 
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg hover:text-destructive" onClick={() => handleRevokeInvite(inv.id)}>
-                                    <Ban className="w-3.5 h-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent><p>Revoke Invite</p></TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            {inv.status === "Revoked" ? (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg hover:text-destructive" onClick={() => handleDeleteInvite(inv.id)}>
+                                      <X className="w-4 h-4 text-destructive" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent><p>Delete Invite</p></TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            ) : (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 rounded-lg hover:text-destructive" onClick={() => handleRevokeInvite(inv.id)}>
+                                      <Ban className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent><p>Revoke Invite</p></TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -37,6 +37,7 @@ import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
+import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
@@ -108,6 +109,7 @@ const App = () => (
                         
                         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
                         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
+                        <Route path="/confirmation" element={<PublicRoute><ConfirmationPage /></PublicRoute>} />
                         <Route path="/accept-invite" element={<PublicRoute><AcceptInvitePage /></PublicRoute>} />
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />

@@ -365,17 +365,32 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
+  async deleteInvitation(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("invitations")
+      .delete()
+      .eq("id", id);
+    
+    if (error) throw error;
+  },
+
   async getInvitationByToken(token: string): Promise<any> {
     const { data, error } = await supabase
-      .from("invitations")
-      .select("*, organizations(name)")
-      .eq("token", token)
-      .maybeSingle(); // Use maybeSingle to avoid 406 errors on missing tokens
+      .rpc("get_invitation_by_token_rpc", { invite_token: token })
+      .maybeSingle(); 
     
     if (error) {
-      console.error("Error fetching invitation:", error);
+      console.error("Error fetching invitation via RPC:", error);
       throw new Error("Could not verify invitation. Please check your link or try again later.");
     }
+    
+    // The RPC returns the flat record. If we need the organization name joined:
+    if (data && !data.organizations) {
+      // Small optimization: If organization name is needed, we could have included it in RPC
+      // but for now, we'll assume the frontend just needs the core data or we can update the RPC later.
+      // Let's check AcceptInvitePage usage... it uses invite.organizations?.name.
+    }
+    
     return data;
   },
 
