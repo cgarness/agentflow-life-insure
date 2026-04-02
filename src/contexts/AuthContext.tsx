@@ -156,13 +156,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const orgIdClaim = session.user.app_metadata?.organization_id;
       if (!orgIdClaim || orgIdClaim !== profile.organization_id) {
         setIsBuildingOrganization(true);
-        // Poll refresh every 1 second until the token drops
+        let attempts = 0;
         const interval = setInterval(async () => {
+          attempts++;
           const { data } = await supabase.auth.refreshSession();
-          if (data.session?.user?.app_metadata?.organization_id === profile.organization_id) {
+          if (data.session?.user?.app_metadata?.organization_id === profile.organization_id || attempts > 10) {
             clearInterval(interval);
-            setSession(data.session);
+            if (data.session) setSession(data.session);
             setIsBuildingOrganization(false);
+            if (attempts > 10) console.warn("[Auth] Token refresh timed out. Local RLS evaluation may fail.");
           }
         }, 1000);
         return () => clearInterval(interval);
@@ -299,8 +301,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return (
       <div className="fixed inset-0 z-50 flex h-screen w-screen items-center justify-center flex-col bg-background">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-lg font-medium text-foreground">Building your Agency...</p>
-        <p className="text-sm text-muted-foreground mt-2">Provisioning security tokens</p>
+        <p className="text-lg font-medium text-foreground">Loading your agency</p>
       </div>
     );
   }
