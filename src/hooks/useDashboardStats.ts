@@ -29,17 +29,8 @@ export const useDashboardStats = (
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
-  // Reset data and show loading state when key parameters change to avoid "glitching" with old data
-  useEffect(() => {
-    setLoading(true);
-    // Note: We don't null data here to allow for smoother transitions if the component handles it,
-    // but the StatCard component checks 'loading' to show the skeleton.
-  }, [timeRange, adminToggle]);
-
   const fetchStats = useCallback(async () => {
     if (!userId) return;
-    
-    setLoading(true);
     
     try {
       const now = new Date();
@@ -172,9 +163,10 @@ export const useDashboardStats = (
     } finally {
       setLoading(false);
     }
-  }, [userId, isFiltered, timeRange, data]);
+  }, [userId, isFiltered, timeRange]);
 
   useEffect(() => {
+    setLoading(true);
     fetchStats();
     // Auto-refresh every 2 minutes for a balance of freshness vs network load
     const interval = setInterval(fetchStats, 120000);
