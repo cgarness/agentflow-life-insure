@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 export interface StatData {
   callsToday: number;
   callsYesterday: number;
+  leadsToday: number;
+  leadsYesterday: number;
   policiesThisMonth: number;
   policiesLastMonth: number;
   appointmentsToday: number;
@@ -105,6 +107,16 @@ export const useDashboardStats = (
         return q as any;
       };
 
+      const buildLeadsQuery = (start: string, end?: string) => {
+        let q = supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", start);
+        if (end) q = q.lte("created_at", end);
+        if (isFiltered) q = q.eq("assigned_agent_id", userId);
+        return q;
+      };
+
       const buildTalkTimeQuery = (start: string) => {
         let q = supabase
           .from("calls")
@@ -114,13 +126,15 @@ export const useDashboardStats = (
         return q as any;
       };
 
-      const [callsNow, callsPrev, salesNow, salesPrev, apptsNow, apptsPrev, talkTimeRes] = await Promise.all([
+      const [callsNow, callsPrev, salesNow, salesPrev, apptsNow, apptsPrev, leadsNow, leadsPrev, talkTimeRes] = await Promise.all([
         buildCallQuery(startStr),
         buildCallQuery(startPrevStr, endPrevStr),
         buildSalesQuery(startStr),
         buildSalesQuery(startPrevStr, endPrevStr),
         buildApptQuery(startStr),
         buildApptQuery(startPrevStr, endPrevStr),
+        buildLeadsQuery(startStr),
+        buildLeadsQuery(startPrevStr, endPrevStr),
         buildTalkTimeQuery(startStr),
       ]);
 
@@ -134,6 +148,8 @@ export const useDashboardStats = (
       setData({
         callsToday: callsNow.count ?? 0,
         callsYesterday: callsPrev.count ?? 0,
+        leadsToday: leadsNow.count ?? 0,
+        leadsYesterday: leadsPrev.count ?? 0,
         policiesThisMonth: salesNow.count ?? 0,
         policiesLastMonth: salesPrev.count ?? 0,
         appointmentsToday: apptsNow.count ?? 0,

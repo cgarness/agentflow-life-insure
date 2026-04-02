@@ -1,6 +1,6 @@
+import { useEffect, useState } from "react";
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { motion } from "framer-motion";
+import { motion, animate } from "framer-motion";
 import { StatData } from "@/hooks/useDashboardStats";
 
 interface StatCardsProps {
@@ -13,6 +13,36 @@ interface StatCardsProps {
   loading?: boolean;
 }
 
+const Counter = ({ value, duration = 1.5 }: { value: number | string; duration?: number }) => {
+  const [displayValue, setDisplayValue] = useState<string | number>(
+    typeof value === "string" ? (value.startsWith("$") ? "$0" : "0") : 0
+  );
+  
+  const numericValue = typeof value === "string" 
+    ? parseFloat(value.replace(/[^0-9.]/g, "")) 
+    : value;
+  const isCurrency = typeof value === "string" && value.startsWith("$");
+
+  useEffect(() => {
+    if (numericValue === 0) {
+      setDisplayValue(isCurrency ? "$0" : "0");
+      return;
+    }
+
+    const controls = animate(0, numericValue, {
+      duration,
+      ease: "easeOut",
+      onUpdate: (latest) => {
+        const rounded = Math.floor(latest);
+        setDisplayValue(isCurrency ? `$${rounded.toLocaleString()}` : rounded.toLocaleString());
+      },
+    });
+    return () => controls.stop();
+  }, [numericValue, isCurrency, duration]);
+
+  return <>{displayValue}</>;
+};
+
 const StatCards: React.FC<StatCardsProps> = ({ 
   role, 
   userId, 
@@ -24,16 +54,11 @@ const StatCards: React.FC<StatCardsProps> = ({
 }) => {
   const data = stats;
 
-  const conversionRate =
-    data && data.callsThisMonth > 0
-      ? ((data.winsThisMonth / data.callsThisMonth) * 100).toFixed(1)
-      : "0.0";
-
   const cards = [
     {
       id: "calls_today",
       label: timeRange === "day" ? "Calls Made Today" : `Calls Made (${timeRange})`,
-      value: data?.callsToday ?? null,
+      value: data?.callsToday ?? 0,
       trend:
         data != null
           ? data.callsToday > data.callsYesterday
@@ -49,7 +74,7 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "policies_sold",
       label: timeRange === "day" ? "Policies Sold Today" : `Policies Sold (${timeRange})`,
-      value: data?.policiesThisMonth ?? null,
+      value: data?.policiesThisMonth ?? 0,
       trend:
         data != null
           ? data.policiesThisMonth > data.policiesLastMonth
@@ -65,7 +90,7 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "appointments",
       label: timeRange === "day" ? "Appointments Today" : `Appointments (${timeRange})`,
-      value: data?.appointmentsToday ?? null,
+      value: data?.appointmentsToday ?? 0,
       trend:
         data != null
           ? data.appointmentsToday >= data.appointmentsYesterday
@@ -79,7 +104,7 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "premium_sold",
       label: "Annual Premium Sold",
-      value: data ? `$${data.premiumThisMonth.toLocaleString()}` : null,
+      value: data ? `$${data.premiumThisMonth.toLocaleString()}` : "$0",
       trend:
         data != null
           ? data.premiumThisMonth > data.premiumLastMonth
@@ -114,10 +139,10 @@ const StatCards: React.FC<StatCardsProps> = ({
                 {card.label}
               </p>
               {loading ? (
-                <div className="h-9 w-20 bg-muted rounded-lg animate-pulse" />
+                <div className="h-9 w-24 bg-muted/50 rounded-lg animate-pulse" />
               ) : (
                 <p className="text-3xl font-bold tracking-tight text-foreground">
-                  {card.value ?? "—"}
+                  <Counter value={card.value} />
                 </p>
               )}
               
