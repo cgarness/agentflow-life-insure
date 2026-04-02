@@ -7,7 +7,7 @@ import { Lead, LeadStatus, CustomField, PipelineStage, LeadSource } from "@/lib/
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
