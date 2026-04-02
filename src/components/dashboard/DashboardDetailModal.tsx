@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   X,
   Phone,
@@ -34,6 +34,8 @@ interface DashboardDetailModalProps {
   timeRange?: "day" | "week" | "month" | "year";
 }
 
+const BATCH_SIZE = 20;
+
 const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   isOpen,
   onClose,
@@ -46,6 +48,11 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any[]>([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
   const getTitle = () => {
@@ -91,192 +98,166 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (!isOpen || !type || !userId) return;
-
-    const fetchData = async () => {
+  const fetchData = useCallback(async (pageNum: number, isInitial: boolean = false) => {
+    if (!type || !userId) return;
+    
+    if (isInitial) {
       setLoading(true);
-      try {
-        const now = new Date();
-        const range = timeRange || "month";
-        
-        let startOfPeriod = new Date();
-        let endOfPeriod = new Date();
+      setData([]);
+    } else {
+      setIsFetchingNextPage(true);
+    }
 
-        if (range === "day") {
-          startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          endOfPeriod = new Date(startOfPeriod);
-          endOfPeriod.setHours(23, 59, 59, 999);
-        } else if (range === "week") {
-          const day = now.getDay();
-          const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-          startOfPeriod = new Date(now.setDate(diff));
-          startOfPeriod.setHours(0, 0, 0, 0);
-          endOfPeriod = new Date(startOfPeriod);
-          endOfPeriod.setDate(endOfPeriod.getDate() + 7);
-          endOfPeriod.setMilliseconds(-1);
-        } else if (range === "month") {
-          startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
-          endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-        } else if (range === "year") {
-          startOfPeriod = new Date(now.getFullYear(), 0, 1);
-          endOfPeriod = new Date(now.getFullYear(), 12, 0, 23, 59, 59);
+    try {
+      const now = new Date();
+      const range = timeRange || "month";
+      let startOfPeriod = new Date();
+      let endOfPeriod = new Date();
+
+      if (range === "day") {
+        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        endOfPeriod = new Date(startOfPeriod);
+        endOfPeriod.setHours(23, 59, 59, 999);
+      } else if (range === "week") {
+        const day = now.getDay();
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+        startOfPeriod = new Date(now.setDate(diff));
+        startOfPeriod.setHours(0, 0, 0, 0);
+        endOfPeriod = new Date(startOfPeriod);
+        endOfPeriod.setDate(endOfPeriod.getDate() + 7);
+        endOfPeriod.setMilliseconds(-1);
+      } else if (range === "month") {
+        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
+        endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      } else if (range === "year") {
+        startOfPeriod = new Date(now.getFullYear(), 0, 1);
+        endOfPeriod = new Date(now.getFullYear(), 12, 0, 23, 59, 59);
+      }
+
+      const startStr = startOfPeriod.toISOString();
+      const endStr = endOfPeriod.toISOString();
+      const from = pageNum * BATCH_SIZE;
+      const to = (pageNum + 1) * BATCH_SIZE - 1;
+
+      let resultData: any[] = [];
+
+      // Special handling for legacy combined views that don't support range easily
+      if (type === "anniversaries") {
+        if (pageNum > 0) {
+          setHasMore(false);
+          setIsFetchingNextPage(false);
+          return;
         }
 
-        const startStr = startOfPeriod.toISOString();
-        const endStr = endOfPeriod.toISOString();
+        const [birthdaysRes, policiesRes] = await Promise.all([
+          supabase
+            .from("leads")
+            .select("id, first_name, last_name, date_of_birth, email")
+            .not("date_of_birth", "is", null)
+            .limit(50),
+          supabase
+            .from("clients")
+            .select("id, first_name, last_name, effective_date, policy_type, assigned_agent_id")
+            .not("effective_date", "is", null)
+            .eq(isFiltered ? "assigned_agent_id" : "", isFiltered ? userId : "")
+            .limit(50)
+        ]);
 
+        const combined: any[] = [];
+        const todayNow = new Date();
+        
+        (birthdaysRes.data || []).forEach(l => {
+          const dob = new Date(l.date_of_birth);
+          let nextBday = new Date(todayNow.getFullYear(), dob.getMonth(), dob.getDate());
+          if (nextBday < todayNow) nextBday.setFullYear(todayNow.getFullYear() + 1);
+          const days = Math.ceil((nextBday.getTime() - todayNow.getTime()) / (1000 * 60 * 60 * 24));
+          if (days <= 30) combined.push({ id: l.id, contact_name: `${l.first_name} ${l.last_name}`, type: 'Birthday', date: l.date_of_birth, daysUntil: days });
+        });
+
+        (policiesRes.data || []).forEach(c => {
+          const eff = new Date(c.effective_date);
+          let nextAnniv = new Date(todayNow.getFullYear(), eff.getMonth(), eff.getDate());
+          if (nextAnniv < todayNow) nextAnniv.setFullYear(todayNow.getFullYear() + 1);
+          const days = Math.ceil((nextAnniv.getTime() - todayNow.getTime()) / (1000 * 60 * 60 * 24));
+          if (days <= 30) combined.push({ id: c.id, contact_name: `${c.first_name} ${c.last_name}`, type: 'Policy Anniversary', date: c.effective_date, policy_type: c.policy_type, daysUntil: days });
+        });
+
+        resultData = combined.sort((a, b) => a.daysUntil - b.daysUntil);
+        setHasMore(false);
+      } else {
         let query: any;
-
         switch (type) {
           case "callbacks":
-            query = supabase
-              .from("appointments")
-              .select("id, contact_name, contact_id, start_time, status, type, title")
-              .in("type", ["Follow Up", "Call Back"])
-              .eq("status", "Scheduled")
-              .order("start_time", { ascending: true });
+            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").in("type", ["Follow Up", "Call Back"]).eq("status", "Scheduled").order("start_time", { ascending: true });
             if (isFiltered) query = query.eq("user_id", userId);
             break;
-
           case "appointments":
-            query = supabase
-              .from("appointments")
-              .select("id, contact_name, contact_id, start_time, status, type, title")
-              .gte("start_time", startStr)
-              .lte("start_time", endStr)
-              .order("start_time", { ascending: true });
+            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lte("start_time", endStr).order("start_time", { ascending: true });
             if (isFiltered) query = query.eq("user_id", userId);
             break;
-
           case "calls_today":
-            query = supabase
-              .from("calls")
-              .select("id, contact_name, contact_id, created_at, disposition_name, duration, status, direction")
-              .gte("created_at", startStr)
-              .lte("created_at", endStr)
-              .order("created_at", { ascending: false });
-            // Digital Privacy Partition: Strictly filter by authenticated agent's ID
-            query = query.eq("agent_id", userId);
-            break;
-
-          case "policies_sold":
-            // Use clients table instead of wins
-            query = supabase
-              .from("clients")
-              .select("id, first_name, last_name, created_at, policy_type, premium")
-              .gte("created_at", startStr)
-              .lte("created_at", endStr)
-              .order("created_at", { ascending: false });
-            if (isFiltered) query = query.eq("assigned_agent_id", userId);
-            break;
-
-          case "missed_calls":
-            const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            query = supabase
-              .from("calls")
-              .select("id, contact_name, contact_id, created_at, disposition_name, contact_phone")
-              .eq("direction", "inbound")
-              .eq("is_missed", true)
-              .gte("created_at", since24h)
-              .order("created_at", { ascending: false });
+            query = supabase.from("calls").select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, duration, status, direction").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            // Workspace Privacy: Respect dashboard toggle
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
-
-          case "anniversaries":
-            // Fetch both birthdays (from leads) and policy anniversaries (from clients)
-            const [birthdaysRes, policiesRes] = await Promise.all([
-              supabase
-                .from("leads")
-                .select("id, first_name, last_name, date_of_birth, email")
-                .not("date_of_birth", "is", null)
-                .limit(50),
-              supabase
-                .from("clients")
-                .select("id, first_name, last_name, effective_date, policy_type, assigned_agent_id")
-                .not("effective_date", "is", null)
-                .eq(isFiltered ? "assigned_agent_id" : "", isFiltered ? userId : "")
-                .limit(50)
-            ]);
-
-            const now = new Date();
-            const combined: any[] = [];
-
-            // Process Birthdays
-            (birthdaysRes.data || []).forEach(l => {
-              const dob = new Date(l.date_of_birth);
-              let nextBday = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
-              if (nextBday < now) nextBday.setFullYear(now.getFullYear() + 1);
-              const days = Math.ceil((nextBday.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-              if (days <= 30) {
-                combined.push({
-                  id: l.id,
-                  contact_name: `${l.first_name} ${l.last_name}`,
-                  type: 'Birthday',
-                  date: l.date_of_birth,
-                  daysUntil: days
-                });
-              }
-            });
-
-            // Process Policy Anniversaries
-            (policiesRes.data || []).forEach(c => {
-              const eff = new Date(c.effective_date);
-              let nextAnniv = new Date(now.getFullYear(), eff.getMonth(), eff.getDate());
-              if (nextAnniv < now) nextAnniv.setFullYear(now.getFullYear() + 1);
-              const days = Math.ceil((nextAnniv.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-              if (days <= 30) {
-                combined.push({
-                  id: c.id,
-                  contact_name: `${c.first_name} ${c.last_name}`,
-                  type: 'Policy Anniversary',
-                  date: c.effective_date,
-                  policy_type: c.policy_type,
-                  daysUntil: days
-                });
-              }
-            });
-
-            setData(combined.sort((a, b) => a.daysUntil - b.daysUntil));
-            setLoading(false);
-            return;
-
+          case "policies_sold":
+            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            if (isFiltered) query = query.eq("assigned_agent_id", userId);
+            break;
+          case "missed_calls":
+            const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            query = supabase.from("calls").select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, contact_phone").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false });
+            if (isFiltered) query = query.eq("agent_id", userId);
+            break;
           case "premium_sold":
-            const { data: salesResult, error: salesError } = await supabase
-              .from("clients")
-              .select("id, first_name, last_name, created_at, policy_type, premium")
-              .gte("created_at", startStr)
-              .lte("created_at", endStr)
-              .order("created_at", { ascending: false });
-            
-            if (salesError) throw salesError;
-
-            // Format data for combined view
-            const formatted = (salesResult || []).map(s => ({
-              ...s,
-              contact_name: `${s.first_name} ${s.last_name}`,
-              premium_amount: s.premium
-            }));
-            
-            setData(formatted);
-            setLoading(false);
-            return;
+            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            if (isFiltered) query = query.eq("assigned_agent_id", userId);
+            break;
         }
 
         if (query) {
-          const { data: result, error } = await query;
+          const { data: result, error } = await query.range(from, to);
           if (error) throw error;
-          setData(result || []);
+          
+          if (type === "premium_sold") {
+            resultData = (result || []).map(s => ({ ...s, contact_name: `${s.first_name} ${s.last_name}`, premium_amount: s.premium }));
+          } else {
+            resultData = result || [];
+          }
+          
+          if (resultData.length < BATCH_SIZE) setHasMore(false);
         }
-      } catch (error) {
-        console.error("Error fetching modal data:", error);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    fetchData();
-  }, [isOpen, type, userId, isFiltered, timeRange]);
+      if (isInitial) {
+        setData(resultData);
+      } else {
+        setData(prev => [...prev, ...resultData]);
+      }
+    } catch (err) {
+      console.error("Error upgrading detail modal feed:", err);
+    } finally {
+      if (isInitial) setLoading(false);
+      setIsFetchingNextPage(false);
+    }
+  }, [type, userId, isFiltered, timeRange]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setPage(0);
+      setHasMore(true);
+      fetchData(0, true);
+    }
+  }, [isOpen, type, timeRange, adminToggle, fetchData]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isFetchingNextPage && !loading) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchData(nextPage);
+    }
+  };
 
   const handleRowClick = (item: any) => {
     onClose();
@@ -313,9 +294,10 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "calls_today":
       case "missed_calls":
         const direction = item.direction === 'inbound' ? 'Inbound' : 'Outbound';
+        const phoneLabel = item.contact_name || item.contact_phone || "Caller";
         return (
           <div className="flex flex-col">
-            <span className="text-sm font-bold text-foreground">{item.contact_name || item.contact_phone || "Unknown Caller"}</span>
+            <span className="text-sm font-bold text-foreground">{phoneLabel}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Phone className="w-3 h-3" />
               <span className={`font-bold ${item.direction === 'inbound' ? 'text-blue-500' : 'text-indigo-500'}`}>{direction}</span>
@@ -371,80 +353,6 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
   };
 
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="relative">
-            <div className="w-12 h-12 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Loader2 className="w-5 h-5 text-primary animate-pulse" />
-            </div>
-          </div>
-          <p className="text-sm font-medium text-muted-foreground mt-4 animate-pulse uppercase tracking-widest">Analyzing Data...</p>
-        </div>
-      );
-    }
-
-    if (data.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20 text-center px-10">
-          <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 opacity-50">
-            {getIcon()}
-          </div>
-          <p className="text-lg font-bold text-muted-foreground/80">Nothing to show right now</p>
-          <p className="text-sm text-muted-foreground mt-2">Come back later once more activity is recorded on your dashboard.</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="grid grid-cols-1 gap-3 py-2">
-        {data.map((item, idx) => (
-          <motion.div
-            key={item.id || idx}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, delay: Math.min(idx, 8) * 0.03 }}
-            whileHover={{ x: 3 }}
-            onClick={() => handleRowClick(item)}
-            className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 transition-colors hover:bg-accent cursor-pointer overflow-hidden"
-          >
-            {/* Left Accent Bar */}
-            <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
-              type === 'calls_today' || type === 'callbacks' ? 'from-blue-400 to-indigo-500' :
-              type === 'policies_sold' ? 'from-emerald-400 to-teal-500' :
-              type === 'appointments' ? 'from-violet-400 to-purple-500' :
-              'from-primary to-primary/50'
-            }`} />
-
-            <div className="flex items-center gap-4 flex-1">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center bg-muted border border-border group-hover:scale-110 transition-all duration-300`}>
-                {getIcon()}
-              </div>
-              {renderItemDetails(item)}
-            </div>
-
-            <div className="flex items-center gap-4">
-              {item.status && type !== "calls_today" && type !== "missed_calls" && (
-                <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
-                  item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
-                  item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                  'bg-muted text-muted-foreground border border-border'
-                }`}>
-                  {item.status}
-                </span>
-              )}
-              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-transparent group-hover:bg-muted transition-all duration-300">
-                <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    );
-  };
-
   return (
     <AnimatePresence>
       {isOpen && (
@@ -463,15 +371,10 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             transition={{ type: "tween", duration: 0.18, ease: "easeOut" }}
             className="relative w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-card border border-border rounded-[2rem] shadow-[0_0_60px_-15px_rgba(0,0,0,0.4)] dark:shadow-[0_0_60px_-15px_rgba(0,0,0,0.7)]"
           >
-            {/* Header with Visual Polish */}
+            {/* Header */}
             <div className="relative p-8 border-b border-border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
               <div className="absolute top-6 right-6">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onClose}
-                  className="rounded-full hover:bg-muted text-muted-foreground hover:text-foreground h-10 w-10 transition-all"
-                >
+                <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-muted text-muted-foreground hover:text-foreground h-10 w-10 transition-all">
                   <X className="w-5 h-5" />
                 </Button>
               </div>
@@ -497,17 +400,88 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               </div>
             </div>
 
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-muted/20">
+            {/* Content Area with Scroll Handler */}
+            <div 
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-muted/20"
+            >
               <div className="mb-6 flex items-center justify-between">
                 <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Activity Feed</span>
                 {data.length > 0 && (
                   <span className="text-[9px] font-black text-primary px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 tracking-wider">
-                    {data.length} RECORDS DETECTED
+                    {data.length} RECORDS LOADED {hasMore && "• SCROLL FOR MORE"}
                   </span>
                 )}
               </div>
-              {renderContent()}
+              
+              {loading && page === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                  <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Synchronizing Intelligence...</p>
+                </div>
+              ) : data.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center px-10 text-muted-foreground">
+                  <Loader2 className="w-10 h-10 mb-4 opacity-20" />
+                  <p className="text-lg font-bold opacity-80">No intelligence found in this range</p>
+                  <p className="text-sm mt-2">Activity will appear here as records are processed.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 py-2">
+                  {data.map((item, idx) => (
+                    <motion.div
+                      key={item.id || idx}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2, delay: Math.min(idx, 8) * 0.03 }}
+                      whileHover={{ x: 3 }}
+                      onClick={() => handleRowClick(item)}
+                      className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 transition-colors hover:bg-accent cursor-pointer overflow-hidden"
+                    >
+                      <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
+                        type === 'calls_today' || type === 'callbacks' ? 'from-blue-400 to-indigo-500' :
+                        type === 'policies_sold' ? 'from-emerald-400 to-teal-500' :
+                        type === 'appointments' ? 'from-violet-400 to-purple-500' :
+                        'from-primary to-primary/50'
+                      }`} />
+
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-muted border border-border group-hover:scale-110 transition-all duration-300">
+                          {getIcon()}
+                        </div>
+                        {renderItemDetails(item)}
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        {item.status && type !== "calls_today" && type !== "missed_calls" && (
+                          <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
+                            item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
+                            item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                            'bg-muted text-muted-foreground border border-border'
+                          }`}>
+                            {item.status}
+                          </span>
+                        )}
+                        <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                      </div>
+                    </motion.div>
+                  ))}
+                  
+                  {isFetchingNextPage && (
+                    <div className="flex items-center justify-center py-6 gap-3">
+                      <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading next batch...</span>
+                    </div>
+                  )}
+                  
+                  {!hasMore && data.length > BATCH_SIZE && (
+                    <div className="text-center py-8 opacity-40">
+                      <div className="w-8 h-1 bg-border mx-auto mb-3 rounded-full" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">End of intelligence feed</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Footer */}
@@ -515,13 +489,10 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               <div className="flex items-center gap-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                 <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
-                  AgentFlow Analytics Engine
+                  AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}
                 </span>
               </div>
-              <button 
-                onClick={onClose}
-                className="text-[10px] font-black text-foreground/50 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50"
-              >
+              <button onClick={onClose} className="text-[10px] font-black text-foreground/50 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50">
                 Dismiss View
               </button>
             </div>
