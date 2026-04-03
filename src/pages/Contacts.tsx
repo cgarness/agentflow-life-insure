@@ -42,10 +42,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Calendar } from "@/components/ui/calendar"; 
+import { Calendar } from "@/components/ui/calendar";
 import { format as formatBtnDate } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import ContactsFilterModal, { type ContactsFilterValues, type ContactsTab, type DownlineAgent } from "@/components/contacts/ContactsFilterModal";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -228,6 +229,9 @@ const Contacts: React.FC = () => {
   const [callableNowFilter, setCallableNowFilter] = useState(false);
   const [attemptCountFilters, setAttemptCountFilters] = useState<string[]>([]);
   const [lastDispositionFilter, setLastDispositionFilter] = useState<string>("");
+  const [policyTypeFilter, setPolicyTypeFilter] = useState<string>("");
+  const [downlineAgentId, setDownlineAgentId] = useState<string>("");
+  const [downlineAgents, setDownlineAgents] = useState<DownlineAgent[]>([]);
 
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -241,6 +245,11 @@ const Contacts: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      // Determine the effective agent ID for filtering:
+      // If a downline agent is selected, filter to that agent's records;
+      // otherwise use the current user's ID (own records).
+      const effectiveAgentId = downlineAgentId || user?.id;
+
       const leadFilters = {
         search: searchQuery,
         status: statusFilter,
@@ -252,13 +261,26 @@ const Contacts: React.FC = () => {
         callableNow: callableNowFilter,
         attemptCounts: attemptCountFilters,
         lastDisposition: lastDispositionFilter,
-        assignedAgentId: user?.id,
+        assignedAgentId: effectiveAgentId,
+      };
+
+      const clientFilters = {
+        search: searchQuery,
+        state: stateFilter,
+        policyType: policyTypeFilter,
+        assignedAgentId: effectiveAgentId,
+      };
+
+      const recruitFilters = {
+        search: searchQuery,
+        state: stateFilter,
+        assignedAgentId: effectiveAgentId,
       };
 
       const [leadData, clientData, recruitData, agentData, stats] = await Promise.all([
         leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); return []; }),
-        clientsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching clients:", e); return []; }),
-        recruitsSupabaseApi.getAll(searchQuery).catch(e => { console.error("Error fetching recruits:", e); return []; }),
+        clientsSupabaseApi.getAll(clientFilters).catch(e => { console.error("Error fetching clients:", e); return []; }),
+        recruitsSupabaseApi.getAll(recruitFilters).catch(e => { console.error("Error fetching recruits:", e); return []; }),
         usersApi.getAll({ search: searchQuery }).catch(e => { console.error("Error fetching agents:", e); return []; }),
         leadsSupabaseApi.getSourceStats().catch(e => { console.error("Error fetching lead stats:", e); return []; }),
       ]);
@@ -270,10 +292,16 @@ const Contacts: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, user?.id]);
+  }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentId, user?.id]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
+
+  // Fetch downline agents for the current user
+  useEffect(() => {
+    if (!user?.id) return;
+    usersApi.getDownlineAgents(user.id).then(setDownlineAgents).catch(console.error);
+  }, [user?.id]);
 
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -626,15 +654,26 @@ const Contacts: React.FC = () => {
   };
 
   const sortedAgents = React.useMemo(() => {
-    if (!sortCol) return agents;
-    return [...agents].sort((a, b) => {
+    let filtered = agents;
+    // Apply state filter for Agents tab (filters on licensed_states or resident_state)
+    if (stateFilter) {
+      filtered = filtered.filter(a => {
+        const licensed = a.profile?.licensedStates;
+        const resident = a.profile?.residentState;
+        if (Array.isArray(licensed) && licensed.some((ls: any) => (typeof ls === "string" ? ls : ls?.state) === stateFilter)) return true;
+        if (resident === stateFilter) return true;
+        return false;
+      });
+    }
+    if (!sortCol) return filtered;
+    return [...filtered].sort((a, b) => {
       const va = getAgentSortValue(a, sortCol as AgentColumnKey);
       const vb = getAgentSortValue(b, sortCol as AgentColumnKey);
       if (va < vb) return sortDir === "asc" ? -1 : 1;
       if (va > vb) return sortDir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [agents, sortCol, sortDir]);
+  }, [agents, sortCol, sortDir, stateFilter]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1062,6 +1101,11 @@ const Contacts: React.FC = () => {
     if (callableNowFilter) active.push({ label: `Callable Now`, onClear: () => setCallableNowFilter(false) });
     if (attemptCountFilters.length > 0) active.push({ label: `Attempts: ${attemptCountFilters.join(", ")}`, onClear: () => setAttemptCountFilters([]) });
     if (lastDispositionFilter) active.push({ label: `Disposition: ${lastDispositionFilter}`, onClear: () => setLastDispositionFilter("") });
+    if (policyTypeFilter) active.push({ label: `Policy: ${policyTypeFilter}`, onClear: () => setPolicyTypeFilter("") });
+    if (downlineAgentId) {
+      const agent = downlineAgents.find(a => a.id === downlineAgentId);
+      active.push({ label: `Agent: ${agent ? `${agent.firstName} ${agent.lastName}` : "Downline"}`, onClear: () => setDownlineAgentId("") });
+    }
 
     if (active.length === 0) return null;
 
@@ -1077,6 +1121,7 @@ const Contacts: React.FC = () => {
           setStatusFilter(""); setSourceFilter(""); setStateFilter("");
           setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]);
           setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter("");
+          setPolicyTypeFilter(""); setDownlineAgentId("");
         }} className="text-xs text-muted-foreground hover:text-primary underline">Clear All</button>
       </div>
     );
@@ -1222,7 +1267,7 @@ const Contacts: React.FC = () => {
       {/* Tabs */}
       <div className="flex items-center border-b">
         {tabs.map(t => (
-          <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
+          <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setStateFilter(""); setPolicyTypeFilter(""); setDownlineAgentId(""); setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]); setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
             className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}>{t}</button>
         ))}
         <div className="w-px h-5 bg-border mx-2 self-center" />
@@ -1254,130 +1299,49 @@ const Contacts: React.FC = () => {
                 renderColumnsDropdown(AGENT_COLUMNS, visibleAgentCols as Set<string>, (s) => setVisibleAgentCols(s as Set<AgentColumnKey>), DEFAULT_AGENT_VISIBLE as Set<string>)
         )}
         {/* Filter */}
-        {(tab === "Leads" || tab === "Recruits") && (
-          <div className="relative">
-            <button onClick={() => setFilterOpen(!filterOpen)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Filter className="w-4 h-4" />Filter</button>
-            {filterOpen && (
-              <div className="absolute top-full mt-1 left-0 w-72 bg-card border border-border rounded-lg shadow-lg p-4 z-[120] space-y-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-foreground">Advanced Filters</h3>
-                  <button onClick={() => { 
-                    setStatusFilter(""); setSourceFilter(""); setStateFilter("");
-                    setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]);
-                    setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter("");
-                  }} className="text-xs text-primary hover:underline">Clear All</button>
-                </div>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
-                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground">
-                      <option value="">All Statuses</option>
-                      {filterStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-
-                  {tab === "Leads" && (
-                    <>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-                        <StateSelector value={stateFilter} onChange={setStateFilter} className="bg-muted border-border" />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">Date Created</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" className="h-8 px-2 text-[10px] w-full justify-start bg-muted border-border font-normal">
-                                {startDate ? formatBtnDate(startDate, "MM/dd/yy") : "Start Date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
-                            </PopoverContent>
-                          </Popover>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" className="h-8 px-2 text-[10px] w-full justify-start bg-muted border-border font-normal">
-                                {endDate ? formatBtnDate(endDate, "MM/dd/yy") : "End Date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">Timezones</label>
-                        <div className="grid grid-cols-2 gap-y-1">
-                          {TIMEZONE_GROUPS.map(tz => (
-                            <div key={tz} className="flex items-center gap-2">
-                              <Checkbox 
-                                id={`tz-${tz}`} 
-                                checked={timezoneFilters.includes(tz)} 
-                                onCheckedChange={(checked) => {
-                                  setTimezoneFilters(prev => checked ? [...prev, tz] : prev.filter(t => t !== tz));
-                                }}
-                              />
-                              <label htmlFor={`tz-${tz}`} className="text-[11px] text-foreground cursor-pointer">{tz}</label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-1">
-                        <label className="text-xs font-medium text-muted-foreground">Callable Now (TCPA)</label>
-                        <Switch checked={callableNowFilter} onCheckedChange={setCallableNowFilter} />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">Attempts</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {["0", "1-3", "5+"].map(range => (
-                            <div key={range} className="flex items-center gap-1.5">
-                              <Checkbox 
-                                id={`att-${range}`} 
-                                checked={attemptCountFilters.includes(range)} 
-                                onCheckedChange={(checked) => {
-                                  setAttemptCountFilters(prev => checked ? [...prev, range] : prev.filter(r => r !== range));
-                                }}
-                              />
-                              <label htmlFor={`att-${range}`} className="text-[11px] text-foreground cursor-pointer">{range}</label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground block mb-1">Last Disposition</label>
-                        <select value={lastDispositionFilter} onChange={e => setLastDispositionFilter(e.target.value)} className="w-full h-8 px-2 rounded-lg bg-muted text-sm border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none text-foreground text-[11px]">
-                          <option value="">All Dispositions</option>
-                          <option value="No Answer">No Answer</option>
-                          <option value="Busy">Busy</option>
-                          <option value="Voicemail">Voicemail</option>
-                          <option value="Interested">Interested</option>
-                          <option value="Not Interested">Not Interested</option>
-                        </select>
-                      </div>
-                    </>
-                  )}
-                </div>
-                
-                <button onClick={() => setFilterOpen(false)} className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 sidebar-transition">Apply Filters</button>
-              </div>
-            )}
-          </div>
+        {tab !== "Import History" && (
+          <button onClick={() => setFilterOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Filter className="w-4 h-4" />Filter</button>
         )}
+        <ContactsFilterModal
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          activeTab={tab as ContactsTab}
+          filters={{
+            stateFilter,
+            downlineAgentId,
+            statusFilter,
+            sourceFilter,
+            startDate,
+            endDate,
+            timezoneFilters,
+            callableNowFilter,
+            attemptCountFilters,
+            lastDispositionFilter,
+            policyTypeFilter,
+          }}
+          onFiltersChange={(f: ContactsFilterValues) => {
+            setStateFilter(f.stateFilter);
+            setDownlineAgentId(f.downlineAgentId);
+            setStatusFilter(f.statusFilter);
+            setSourceFilter(f.sourceFilter);
+            setStartDate(f.startDate);
+            setEndDate(f.endDate);
+            setTimezoneFilters(f.timezoneFilters);
+            setCallableNowFilter(f.callableNowFilter);
+            setAttemptCountFilters(f.attemptCountFilters);
+            setLastDispositionFilter(f.lastDispositionFilter);
+            setPolicyTypeFilter(f.policyTypeFilter);
+          }}
+          downlineAgents={downlineAgents}
+          filterStatuses={filterStatuses}
+        />
         <div className="flex-1" />
         {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
         {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
       {/* Active Filters (Power Dialer Feature) */}
-      {(tab === "Leads" || tab === "Recruits") && renderActiveFilters()}
+      {tab !== "Import History" && renderActiveFilters()}
 
       {/* Loading */}
       {loading && (

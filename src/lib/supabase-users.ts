@@ -418,6 +418,26 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
+  async getDownlineAgents(uplineId: string): Promise<{ id: string; firstName: string; lastName: string }[]> {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name")
+      .eq("upline_id", uplineId)
+      .neq("status", "Deleted")
+      .order("first_name", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching downline agents:", error);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+    }));
+  },
+
   async getPerformance(userId: string) {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
