@@ -104,7 +104,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   };
 
   const fetchData = useCallback(async (pageNum: number, isInitial: boolean = false) => {
-    if (!type || !userId) return;
+    if (!type || !userId || userId === "") return;
     
     if (isInitial) {
       setLoading(true);
@@ -155,19 +155,23 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         }
 
         // Fetch Both Birthdays and Renewals independently of dashboard perspective
-        // Strict RLS: Always filter by the provided userId (the logged-in agent)
-        const [birthdaysRes, policiesRes] = await Promise.all([
-          supabase
-            .from("leads")
-            .select("id, first_name, last_name, date_of_birth, phone")
-            .eq("assigned_agent_id", userId)
-            .not("date_of_birth", "is", null),
-          supabase
-            .from("clients")
-            .select("id, first_name, last_name, effective_date, policy_type, phone, assigned_agent_id")
-            .eq("assigned_agent_id", userId)
-            .not("effective_date", "is", null)
-        ]);
+        // Respect adminToggle for team viewing, while RLS remains the primary security layer
+        let leadsQ = supabase
+          .from("leads")
+          .select("id, first_name, last_name, date_of_birth, phone")
+          .not("date_of_birth", "is", null);
+        
+        let clientsQ = supabase
+          .from("clients")
+          .select("id, first_name, last_name, effective_date, policy_type, phone, assigned_agent_id")
+          .not("effective_date", "is", null);
+
+        if (isFiltered) {
+          leadsQ = leadsQ.eq("assigned_agent_id", userId);
+          clientsQ = clientsQ.eq("assigned_agent_id", userId);
+        }
+
+        const [birthdaysRes, policiesRes] = await Promise.all([leadsQ, clientsQ]);
 
         const birthdays: any[] = [];
         const renewals: any[] = [];
@@ -340,8 +344,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       return;
     }
 
-    if (!item.phone) {
-      toast.error("No phone number available for this contact.");
+    if (!item.phone || item.phone.trim() === "") {
+      toast.error("No valid phone number available for this contact.");
       return;
     }
 
