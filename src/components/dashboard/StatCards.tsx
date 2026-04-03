@@ -98,42 +98,42 @@ const StatCards: React.FC<StatCardsProps> = ({
         <div
           key={card.id}
           onClick={() => onCardClick?.(card.id)}
-          className={`relative overflow-hidden bg-card rounded-2xl border border-white/10 shadow-lg ${card.shadow} p-5 group transition-all duration-200 cursor-pointer hover:-translate-y-1 h-[140px]`}
+          className={`relative overflow-hidden bg-card/60 backdrop-blur-sm rounded-2xl border border-slate-200 transition-all duration-300 cursor-pointer hover:border-primary/30 hover:bg-card h-[140px] group`}
         >
-          {/* Background Glow */}
-          <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl ${card.gradient}`} />
+          {/* Subtle Accent Glow */}
+          <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-[0.03] blur-2xl group-hover:opacity-[0.08] transition-opacity duration-500 ${card.gradient}`} />
           
-          <div className="flex items-start justify-between relative z-10 h-full">
+          <div className="flex items-start justify-between relative z-10 h-full p-5">
             <div className="flex flex-col h-full w-full">
-              <p className="text-sm font-medium text-muted-foreground mb-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 mb-2">
                 {card.label}
               </p>
               
               <div className="flex-1 flex flex-col justify-center min-h-[60px]">
                 {loading ? (
                   <div className="space-y-3">
-                    <div className="h-8 w-24 bg-muted/50 rounded-lg animate-pulse" />
-                    <div className="h-4 w-32 bg-muted/30 rounded-md animate-pulse" />
+                    <div className="h-8 w-24 bg-muted/20 rounded-lg animate-pulse" />
+                    <div className="h-4 w-32 bg-muted/10 rounded-md animate-pulse" />
                   </div>
                 ) : (
                   <div>
-                    <p className="text-3xl font-bold tracking-tight text-foreground">
+                    <p className="text-3xl font-extrabold tracking-tight text-foreground transition-all duration-300 group-hover:text-primary">
                       {formatValue(card.value)}
                     </p>
                     
                     <div className="flex items-center gap-1.5 mt-2">
                       <span
-                        className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg whitespace-nowrap ${
                           card.trend === "up"
-                            ? "bg-emerald-500/10 text-emerald-500"
+                            ? "bg-emerald-500/10 text-emerald-600"
                             : card.trend === "down"
-                              ? "bg-red-500/10 text-red-500"
+                              ? "bg-red-500/10 text-red-600"
                               : "bg-muted text-muted-foreground"
                         }`}
                       >
                         {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
                       </span>
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium whitespace-nowrap">
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold whitespace-nowrap">
                         vs {data?.prevLabel || "yesterday"}
                       </span>
                     </div>
@@ -142,13 +142,10 @@ const StatCards: React.FC<StatCardsProps> = ({
               </div>
             </div>
             
-            <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${card.gradient} shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 shrink-0 ml-2`}>
-              <card.icon className="h-6 w-6 text-white" />
+            <div className={`flex items-center justify-center w-12 h-12 rounded-2xl bg-muted/30 border border-border/20 shadow-sm transition-all duration-500 group-hover:scale-110 group-hover:bg-primary group-hover:border-primary group-hover:shadow-lg group-hover:shadow-primary/20 shrink-0 ml-2`}>
+              <card.icon className="h-5 w-5 text-muted-foreground transition-colors duration-500 group-hover:text-white" />
             </div>
           </div>
-          
-          {/* Subtle bottom line */}
-          <div className={`absolute bottom-0 left-0 h-1 w-full opacity-30 ${card.gradient}`} />
         </div>
       ))}
     </div>

@@ -424,64 +424,81 @@ const Dashboard: React.FC = () => {
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-60 h-60 bg-violet-500/5 rounded-full blur-3xl" />
 
-        {/* Action buttons — top right corner */}
-        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setEditMode(!editMode)}
-            className="bg-background/50 backdrop-blur-sm border-white/10 hover:bg-background/80 transition-all rounded-xl"
-          >
-            <Pencil className="h-3.5 w-3.5 mr-1.5 text-primary" />
-            {editMode ? "Cancel Editing" : "Customize"}
-          </Button>
-          {!editMode && (
-            <Button
-              size="sm"
-              onClick={() => setShowBriefing(true)}
-              className="rounded-xl shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30"
-            >
-              Today's Briefing
-            </Button>
-          )}
-        </div>
-        
+        {/* Hero Row: Greeting & Briefing */}
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
-              Good Morning, {firstName} 👋
+          <div className="space-y-1">
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground flex items-center gap-3">
+              Good Morning, {firstName} <span className="animate-bounce-slow">👋</span>
             </h1>
-              <p className="text-muted-foreground mt-2 text-lg">
-                Welcome back to AgentFlow. Here's what's happening.
-              </p>
-              
-              <div className="mt-6 inline-flex p-1 bg-muted/40 rounded-2xl border border-white/5">
-                <Tabs value={timeRange} onValueChange={(v: any) => setTimeRange(v)} className="w-auto">
-                  <TabsList className="bg-transparent h-9 p-0 gap-1">
-                    <TabsTrigger value="day" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Day</TabsTrigger>
-                    <TabsTrigger value="week" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Week</TabsTrigger>
-                    <TabsTrigger value="month" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Month</TabsTrigger>
-                    <TabsTrigger value="year" className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Year</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
-            </div>
-          
-          {role === "Admin" && (
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-muted-foreground font-medium">Viewing Perspective:</span>
+            <p className="text-muted-foreground text-lg max-w-2xl">
+              Welcome back to AgentFlow. Here's what's happening today.
+            </p>
+          </div>
+
+          <div className="flex shrink-0">
+            {!editMode && (
+              <Button
+                size="lg"
+                onClick={() => setShowBriefing(true)}
+                className="rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95 bg-primary hover:bg-primary/90 text-white font-semibold px-6 h-12"
+              >
+                Today's Briefing
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Controls Row: Filters, Perspective & Edit Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-4 px-2">
+        <div className="flex items-center gap-4">
+          <div className="inline-flex p-1 bg-muted/30 backdrop-blur-sm rounded-2xl border border-border/40">
+            <Tabs value={timeRange} onValueChange={(v: any) => setTimeRange(v)} className="w-auto">
+              <TabsList className="bg-transparent h-9 p-0 gap-1">
+                {["day", "week", "month", "year"].map((t) => (
+                  <TabsTrigger 
+                    key={t}
+                    value={t} 
+                    className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider transition-all data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
+                  >
+                    {t}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {(role === "Admin" || role === "Team Leader") && (
+            <div className="flex items-center gap-2 bg-muted/20 backdrop-blur-sm px-3 py-1.5 rounded-2xl border border-border/40">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">Perspective</span>
               <button
                 onClick={() =>
                   setAdminViewMode(adminViewMode === "team" ? "my" : "team")
                 }
-                className="px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-all border border-primary/20 shadow-sm"
+                className={`px-3 py-1 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                  adminViewMode === "team" 
+                    ? "bg-primary/10 text-primary border-primary/20" 
+                    : "bg-background/50 text-muted-foreground border-border/50"
+                }`}
               >
-                {adminViewMode === "team"
-                  ? "Team Overview → Switch to Personal"
-                  : "Personal Stats → Switch to Team"}
+                {adminViewMode === "team" ? "Team" : "Personal"}
               </button>
             </div>
           )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditMode(!editMode)}
+            className={`transition-all rounded-xl h-9 px-4 ${
+              editMode ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-muted/50 text-muted-foreground"
+            }`}
+          >
+            <Pencil className="h-3.5 w-3.5 mr-2" />
+            <span className="text-xs font-semibold">{editMode ? "Done Editing" : "Customize"}</span>
+          </Button>
         </div>
       </div>
 

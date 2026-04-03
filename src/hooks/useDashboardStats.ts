@@ -27,7 +27,7 @@ export const useDashboardStats = (
   const [data, setData] = useState<StatData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isFiltered = role !== "Admin" || adminToggle === "my";
+  const isFiltered = (role !== "Admin" && role !== "Team Leader") || adminToggle === "my";
 
   const fetchStats = useCallback(async () => {
     if (!userId) return;

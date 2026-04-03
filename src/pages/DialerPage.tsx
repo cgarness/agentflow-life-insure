@@ -782,6 +782,10 @@ export default function DialerPage() {
   }, [telnyxMakeCall]);
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
+    if (!user) {
+      toast.error("Authentication required to make calls. Please log in again.");
+      return;
+    }
     const smartCallerId = await getSmartCallerId(leadPhone, contactId);
     
     // For manual calls, we create the record first to get a callId
