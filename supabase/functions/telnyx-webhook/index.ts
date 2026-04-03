@@ -1,4 +1,4 @@
-// verify_jwt: false — Telnyx sends unsigned webhooks
+// verify_jwt: false — Telnyx sends webhooks with Ed25519 signatures, not JWTs
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ─── Helper: Decode Telnyx client_state (Base64) ───
@@ -15,6 +15,66 @@ function decodeClientState(rawClientState: string | null): string | null {
   }
 }
 
+// ─── Helper: Verify Telnyx Ed25519 webhook signature ───
+async function verifyTelnyxSignature(req: Request, rawBody: string): Promise<boolean> {
+  const telnyxPublicKey = Deno.env.get('TELNYX_PUBLIC_KEY');
+  if (!telnyxPublicKey) {
+    console.warn('[SECURITY] TELNYX_PUBLIC_KEY not configured — skipping signature verification. Set this secret ASAP.');
+    return true; // Fail-open during initial deployment; close once key is set
+  }
+
+  const signature = req.headers.get('telnyx-signature-ed25519');
+  const timestamp = req.headers.get('telnyx-timestamp');
+
+  if (!signature || !timestamp) {
+    console.error('[SECURITY] Missing telnyx-signature-ed25519 or telnyx-timestamp headers. Rejecting.');
+    return false;
+  }
+
+  // Replay protection: reject if timestamp is more than 5 minutes old
+  const timestampAge = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (timestampAge > 300) {
+    console.error(`[SECURITY] Webhook timestamp too old (${timestampAge}s). Possible replay attack. Rejecting.`);
+    return false;
+  }
+
+  try {
+    // Telnyx signs: timestamp + '|' + rawBody
+    const signedPayload = `${timestamp}|${rawBody}`;
+    const encoder = new TextEncoder();
+    const messageBytes = encoder.encode(signedPayload);
+
+    // Decode the hex-encoded public key into raw bytes
+    const publicKeyBytes = new Uint8Array(
+      telnyxPublicKey.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16))
+    );
+
+    // Import the Ed25519 public key
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      publicKeyBytes,
+      { name: 'Ed25519' },
+      false,
+      ['verify']
+    );
+
+    // Decode the base64-encoded signature
+    const signatureBytes = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
+
+    // Verify the signature
+    const isValid = await crypto.subtle.verify('Ed25519', cryptoKey, signatureBytes, messageBytes);
+
+    if (!isValid) {
+      console.error('[SECURITY] Ed25519 signature verification FAILED. Forged webhook rejected.');
+    }
+
+    return isValid;
+  } catch (err) {
+    console.error('[SECURITY] Signature verification threw an error:', err);
+    return false;
+  }
+}
+
 // @ts-ignore
 Deno.serve(async (req: Request) => {
   // CORS headers for preflight
@@ -28,13 +88,27 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ─── Read raw body FIRST (needed for signature verification before JSON parsing) ───
+  const rawBody = await req.text();
+
+  // ─── Verify Telnyx webhook signature ───
+  const signatureValid = await verifyTelnyxSignature(req, rawBody);
+  if (!signatureValid) {
+    // Return 200 to prevent Telnyx from retrying, but process nothing
+    console.error('[SECURITY] Webhook rejected — invalid signature. No events processed.');
+    return new Response(JSON.stringify({ received: true }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const body = await req.json();
+    const body = JSON.parse(rawBody);
     const eventType = body?.data?.event_type;
     const payload = body?.data?.payload;
 

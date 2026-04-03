@@ -224,6 +224,9 @@ export default function DialerPage() {
     setSelectedCallerNumber,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
+    hangUpOrphan,
+    dismissOrphanCall,
+    orphanCall,
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
     getSmartCallerId,
@@ -1896,6 +1899,35 @@ export default function DialerPage() {
 
   return (
     <>
+      {/* ─── Mid-Call Refresh Recovery Banner ─── */}
+      {orphanCall && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-600 text-white px-4 py-3 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">&#9888;</span>
+            <div>
+              <p className="font-semibold text-sm">Active call detected after page reload</p>
+              <p className="text-xs opacity-90">
+                Call {orphanCall.id.slice(0, 8)}... is still {orphanCall.status} on the network.
+                Audio cannot be restored — use Hang Up to terminate cleanly.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={hangUpOrphan}
+              className="bg-red-700 hover:bg-red-800 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors"
+            >
+              Hang Up
+            </button>
+            <button
+              onClick={dismissOrphanCall}
+              className="text-white/70 hover:text-white text-sm px-2 py-1.5 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {showTemplatesModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
           <div className="bg-card border border-border rounded-xl p-5 w-full max-w-md mx-4 space-y-4">

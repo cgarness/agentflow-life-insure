@@ -22,6 +22,15 @@ const toE164 = (phone: string): string => {
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
 type CallState = "idle" | "dialing" | "active" | "ended";
 
+interface OrphanCall {
+  id: string;
+  telnyx_call_control_id: string | null;
+  contact_id: string | null;
+  caller_id_used: string | null;
+  started_at: string | null;
+  status: string;
+}
+
 interface TelnyxContextValue {
   status: TelnyxStatus;
   errorMessage: string | null;
@@ -34,8 +43,11 @@ interface TelnyxContextValue {
   isReady: boolean;
   amdEnabled: boolean;
   ringTimeout: number;
+  orphanCall: OrphanCall | null;
   makeCall: (destinationNumber: string, callerNumber?: string, clientState?: string) => void;
   hangUp: () => void;
+  hangUpOrphan: () => Promise<void>;
+  dismissOrphanCall: () => void;
   toggleMute: () => void;
   toggleHold: () => void;
   availableNumbers: any[];
@@ -69,6 +81,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
     return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
   });
+
+  const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
 
   // Persist manual override to localStorage
   useEffect(() => {
@@ -159,6 +173,98 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       });
   }, [organizationId, profile?.id]);
+
+  // ─── Mid-Call Refresh Recovery ───
+  // If the agent reloads mid-call, check for orphaned active calls and surface a hang-up UI
+  useEffect(() => {
+    if (!profile?.id || !organizationId) return;
+
+    const checkOrphanedCalls = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('calls')
+          .select('id, telnyx_call_control_id, contact_id, caller_id_used, started_at, status')
+          .eq('agent_id', profile.id)
+          .in('status', ['ringing', 'connected'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.warn('[TelnyxContext] Orphan call check failed:', error.message);
+          return;
+        }
+
+        if (!data) return;
+
+        // Stale call guard: if a call has been "ringing" for >5 minutes, auto-mark as failed
+        const STALE_RINGING_THRESHOLD_MS = 5 * 60 * 1000;
+        if (data.status === 'ringing' && data.started_at) {
+          const age = Date.now() - new Date(data.started_at).getTime();
+          if (age > STALE_RINGING_THRESHOLD_MS) {
+            console.warn(`[TelnyxContext] Stale ringing call ${data.id} (${Math.round(age / 1000)}s old). Auto-cleaning to failed.`);
+            await supabase
+              .from('calls')
+              .update({ status: 'failed', updated_at: new Date().toISOString() })
+              .eq('id', data.id);
+            return;
+          }
+        }
+
+        console.warn(`[TelnyxContext] Orphaned active call detected: ${data.id} (status=${data.status}). Surfacing recovery UI.`);
+        setOrphanCall(data as OrphanCall);
+      } catch (err) {
+        console.warn('[TelnyxContext] Exception in orphan call check:', err);
+      }
+    };
+
+    checkOrphanedCalls();
+  }, [profile?.id, organizationId]);
+
+  const hangUpOrphan = useCallback(async () => {
+    if (!orphanCall) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Session expired. Please log in again.');
+        return;
+      }
+
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          call_id: orphanCall.id,
+          call_control_id: orphanCall.telnyx_call_control_id,
+        }),
+      });
+
+      if (resp.ok) {
+        console.log(`[TelnyxContext] Orphaned call ${orphanCall.id} terminated successfully.`);
+        toast.success('Orphaned call terminated.');
+      } else {
+        console.warn(`[TelnyxContext] Orphan hangup returned HTTP ${resp.status}`);
+        toast.warning('Call may have already ended.');
+      }
+    } catch (err) {
+      console.error('[TelnyxContext] Error hanging up orphan call:', err);
+      toast.error('Failed to terminate orphaned call.');
+    } finally {
+      setOrphanCall(null);
+    }
+  }, [orphanCall]);
+
+  const dismissOrphanCall = useCallback(() => {
+    setOrphanCall(null);
+  }, []);
 
   const insertCallLog = useCallback(async (duration: number, leadId: string | null) => {
     try {
@@ -839,12 +945,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isReady,
         amdEnabled,
         ringTimeout,
+        orphanCall,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,
         getSmartCallerId,
         makeCall,
         hangUp,
+        hangUpOrphan,
+        dismissOrphanCall,
         toggleMute,
         toggleHold,
         initializeClient,
