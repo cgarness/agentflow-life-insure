@@ -38,6 +38,8 @@ const AGENTFLOW_FIELDS = [
 ] as const;
 
 type AgentFlowField = typeof AGENTFLOW_FIELDS[number];
+const AUTO_COLLECT = "Auto-collect as Custom Field";
+
 
 const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
   "First Name": ["first name", "firstname", "first", "fname", "given name", "customer first name", "lead first name"],
@@ -252,7 +254,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         const autoMap: Record<number, string> = {};
         headers.forEach((h, i) => {
           const match = fuzzyMatch(h);
-          autoMap[i] = match || "Do Not Import";
+          autoMap[i] = match || AUTO_COLLECT;
         });
         setMappings(autoMap);
         setParsing(false);
@@ -484,7 +486,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         };
 
         Object.entries(mappings).forEach(([idx, field]) => {
-          if (field !== "Do Not Import" && !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && field !== "Full Name") {
+          if (field === AUTO_COLLECT) {
+            const header = csvHeaders[Number(idx)];
+            const val = r.row[Number(idx)]?.trim();
+            if (val) customFieldsData[header] = val;
+          } else if (field !== "Do Not Import" && !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && field !== "Full Name") {
             const val = r.row[Number(idx)]?.trim();
             if (val) customFieldsData[field] = val;
           }
@@ -740,6 +746,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                         }`}
                       >
                         <option value="Do Not Import">Do Not Import</option>
+                        <option value={AUTO_COLLECT}>{AUTO_COLLECT}</option>
                         {AGENTFLOW_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
                         {customFieldNames.map(f => <option key={f} value={f}>{f} (Custom)</option>)}
                         <option disabled>──────────</option>
@@ -747,6 +754,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                       </select>
                       {isAutoMatched && (
                         <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Auto-matched</span>
+                      )}
+                      {mapped === AUTO_COLLECT && (
+                        <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded-full whitespace-nowrap">Auto-collecting</span>
                       )}
                       {isCustomField && (
                         <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Custom field created</span>

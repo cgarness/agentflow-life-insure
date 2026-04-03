@@ -66,6 +66,7 @@ export const clientsSupabaseApi = {
         if (data.beneficiaryPhone !== undefined) updateData.beneficiary_phone = data.beneficiaryPhone;
         if (data.notes !== undefined) updateData.notes = data.notes;
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+        if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
         updateData.updated_at = new Date().toISOString();
 
         const { data: row, error } = await (supabase as any)
@@ -105,6 +106,7 @@ function rowToClient(row: any): Client { // eslint-disable-line @typescript-esli
         beneficiaryPhone: row.beneficiary_phone || "",
         notes: row.notes || "",
         assignedAgentId: row.assigned_agent_id || "",
+        customFields: row.custom_fields ?? undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -126,5 +128,6 @@ function clientToRow(data: Omit<Client, "id" | "createdAt" | "updatedAt">): any 
         beneficiary_phone: data.beneficiaryPhone,
         notes: data.notes,
         assigned_agent_id: data.assignedAgentId,
+        custom_fields: data.customFields ?? null,
     };
 }

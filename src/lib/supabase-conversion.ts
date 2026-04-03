@@ -29,6 +29,7 @@ export const conversionSupabaseApi = {
       notes: policyInfo.notes || lead.notes || null,
       assigned_agent_id: lead.assignedAgentId,
       organization_id: organizationId,
+      custom_fields: lead.customFields || null,
     };
 
     const { data: client, error: clientError } = await (supabase as any)

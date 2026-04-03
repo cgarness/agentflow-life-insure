@@ -648,6 +648,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         default: return null;
                       }
                     })}
+
+                    {/* JSONB Custom Fields - Only show if not already in fieldOrder */}
+                    {Object.keys(editForm?.customFields || {}).map(key => {
+                      if (fieldOrder.some(f => f === `custom:${key}`)) return null;
+                      return (
+                        <div key={`jsonb-${key}`}>
+                          {renderField(key, `customFields.${key}`)}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   // Fallback to legacy hardcoded layout if no order is found
@@ -704,6 +714,22 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                       <div className="grid grid-cols-2 gap-4">
                          {renderField("Status", "status", "select", recruitStatuses)}
                          {renderField("State", "state", "select", US_STATES)}
+                      </div>
+                    )}
+
+                    {/* JSONB Custom Fields fallback */}
+                    {Object.keys(editForm?.customFields || {}).length > 0 && (
+                      <div className="pt-4 border-t border-border/30 mt-4 px-1">
+                        <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                           <div className="w-1 h-3 bg-primary rounded-full" /> Additional Data
+                        </h4>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                          {Object.keys(editForm.customFields).map(key => (
+                            <div key={`jsonb-fallback-${key}`}>
+                              {renderField(key, `customFields.${key}`)}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
