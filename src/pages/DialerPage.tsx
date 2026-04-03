@@ -489,17 +489,30 @@ export default function DialerPage() {
   // handlers might expect these states. We'll update them via useEffect for compatibility.
   useEffect(() => {
     const fetchCampaigns = async () => {
+      if (!organizationId) return;
       setCampaignsLoading(true);
       const { data, error } = await supabase
         .from('campaigns')
-        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled')
+        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, created_by')
+        .eq('organization_id', organizationId)
         .in('status', ['Active', 'Paused', 'Draft'])
         .order('name', { ascending: true });
-      if (!error && data) setCampaigns(data);
+      if (!error && data) {
+        // Enforce persona/hierarchy: POOL campaigns are open to all; PERSONAL and TEAM
+        // campaigns are only visible to the agent who created them or who is in assigned_agent_ids.
+        const userId = user?.id;
+        const visible = data.filter((c: any) => {
+          const t = (c.type || '').toUpperCase();
+          if (t.includes('POOL')) return true;
+          const ids: string[] = Array.isArray(c.assigned_agent_ids) ? c.assigned_agent_ids : [];
+          return c.created_by === userId || ids.includes(userId ?? '');
+        });
+        setCampaigns(visible);
+      }
       setCampaignsLoading(false);
     };
     fetchCampaigns();
-  }, []);
+  }, [organizationId, user?.id]);
 
   useEffect(() => {
     setDispositions(dispositionsData);
@@ -1112,10 +1125,10 @@ export default function DialerPage() {
       .eq("id", effectiveCampaignId)
       .maybeSingle() as unknown as Promise<any>);
 
-    // 2. Fetch Global Phone Settings (Ring Timeout)
+    // 2. Fetch Global Phone Settings (Ring Timeout + AMD)
     const fetchPhone = (supabase
       .from("phone_settings")
-      .select("ring_timeout")
+      .select("ring_timeout, amd_enabled")
       .eq("organization_id", organizationId)
       .maybeSingle() as unknown as Promise<any>);
 
@@ -1182,8 +1195,14 @@ export default function DialerPage() {
   };
 
   const handleToggleLocalPresence = async (campaignId: string, newValue: boolean) => {
-    await supabase.from('campaigns').update({ local_presence_enabled: newValue }).eq('id', campaignId);
+    // Optimistic update
     setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, local_presence_enabled: newValue } : c));
+    const { error } = await supabase.from('campaigns').update({ local_presence_enabled: newValue }).eq('id', campaignId);
+    if (error) {
+      // Roll back optimistic update on failure
+      setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, local_presence_enabled: !newValue } : c));
+      toast.error("Failed to update Local Presence — please try again");
+    }
   };
 
   // ── AutoDialer initialization ──
