@@ -40,7 +40,7 @@ export interface DownlineAgent {
 export interface ContactsFilterValues {
   // Shared
   stateFilter: string;
-  downlineAgentId: string;
+  downlineAgentIds: string[];
   // Leads-specific
   statusFilter: string;
   sourceFilter: string;
@@ -95,7 +95,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
   const handleClearAll = () => {
     const cleared: ContactsFilterValues = {
       stateFilter: "",
-      downlineAgentId: "",
+      downlineAgentIds: [],
       statusFilter: "",
       sourceFilter: "",
       startDate: undefined,
@@ -358,32 +358,35 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
             </div>
           )}
 
-          {/* ===== Downline Agent (Leads, Clients, Recruits) ===== */}
+          {/* ===== Downline Agents (Leads, Clients, Recruits) — multi-select ===== */}
           {showDownline && downlineAgents.length > 0 && (
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">
-                Downline Agent
+                Downline Agents
               </label>
-              <Select
-                value={local.downlineAgentId || "_all"}
-                onValueChange={(v) =>
-                  update({ downlineAgentId: v === "_all" ? "" : v })
-                }
-              >
-                <SelectTrigger className="w-full bg-muted border-border">
-                  <SelectValue placeholder="All Agents (Mine + Downline)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_all">
-                    All Agents (Mine + Downline)
-                  </SelectItem>
-                  {downlineAgents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                {downlineAgents.map((agent) => (
+                  <div key={agent.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`modal-agent-${agent.id}`}
+                      checked={local.downlineAgentIds.includes(agent.id)}
+                      onCheckedChange={(checked) =>
+                        update({
+                          downlineAgentIds: checked
+                            ? [...local.downlineAgentIds, agent.id]
+                            : local.downlineAgentIds.filter((id) => id !== agent.id),
+                        })
+                      }
+                    />
+                    <label
+                      htmlFor={`modal-agent-${agent.id}`}
+                      className="text-xs text-foreground cursor-pointer"
+                    >
                       {agent.firstName} {agent.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </label>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
