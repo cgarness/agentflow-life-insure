@@ -162,15 +162,9 @@ const Dashboard: React.FC = () => {
   const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("my"); // Default to personal
   const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
 
-  // Dynamic Theme Config
-  const perspectiveTheme = {
-    primary: adminViewMode === "team" ? "emerald-600" : "blue-600",
-    bg: adminViewMode === "team" ? "bg-emerald-600" : "bg-blue-600",
-    text: adminViewMode === "team" ? "text-emerald-600" : "text-blue-600",
-    border: adminViewMode === "team" ? "border-emerald-600/20" : "border-blue-600/20",
-    lightBg: adminViewMode === "team" ? "bg-emerald-50" : "bg-blue-50",
-    shadow: adminViewMode === "team" ? "shadow-emerald-600/10" : "shadow-blue-600/10",
-  };
+  // Dynamic Theme Config (Local to Toggle)
+  const perspectiveColor = adminViewMode === "team" ? "emerald-600" : "blue-600";
+  const perspectiveShadow = adminViewMode === "team" ? "shadow-emerald-600/20" : "shadow-blue-600/20";
 
   const { data: stats, loading: statsLoading } = useDashboardStats(
     userId,
@@ -439,11 +433,7 @@ const Dashboard: React.FC = () => {
                   <TabsTrigger 
                     key={t}
                     value={t} 
-                    className={`rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider transition-all data-[state=active]:shadow-md data-[state=active]:text-white ${
-                      adminViewMode === "team" 
-                        ? "data-[state=active]:bg-emerald-600" 
-                        : "data-[state=active]:bg-blue-600"
-                    }`}
+                    className={`rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm`}
                   >
                     {t}
                   </TabsTrigger>
@@ -459,10 +449,10 @@ const Dashboard: React.FC = () => {
                 onClick={() =>
                   setAdminViewMode(adminViewMode === "team" ? "my" : "team")
                 }
-                className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all text-white border-2 shadow-lg ${perspectiveShadow} ${
                   adminViewMode === "team" 
-                    ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-600/20" 
-                    : "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20"
+                    ? "bg-emerald-600 border-emerald-500" 
+                    : "bg-blue-600 border-blue-500"
                 }`}
               >
                 {adminViewMode === "team" ? "Team Overview" : "Personal Stats"}
@@ -477,12 +467,10 @@ const Dashboard: React.FC = () => {
             size="sm"
             onClick={() => setEditMode(!editMode)}
             className={`transition-all rounded-xl h-10 px-4 bg-white shadow-sm border-slate-200 ${
-              editMode 
-                ? `${perspectiveTheme.text} ${perspectiveTheme.border} ${perspectiveTheme.lightBg}` 
-                : "text-muted-foreground hover:bg-slate-50"
+              editMode ? "text-primary border-primary bg-primary/5" : "text-muted-foreground hover:bg-slate-50"
             }`}
           >
-            <Pencil className={`h-3.5 w-3.5 mr-2 ${editMode ? perspectiveTheme.text : "text-primary"}`} />
+            <Pencil className="h-3.5 w-3.5 mr-2 text-primary" />
             <span className="text-xs font-semibold">{editMode ? "Done Editing" : "Customize Layout"}</span>
           </Button>
         </div>
