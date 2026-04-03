@@ -15,6 +15,23 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // --- JWT Auth Guard ---
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new Error('Missing or invalid Authorization header');
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || supabaseServiceKey;
+    const anonClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data: { user: callerUser }, error: authError } = await anonClient.auth.getUser(token);
+    if (authError || !callerUser) {
+      throw new Error('Unauthorized: invalid or expired token');
+    }
+    console.log(`[dialer-start-call] Authenticated user: ${callerUser.id}`);
+    // --- End Auth Guard ---
+
     const body = await req.json();
     const { destination_number, caller_id, agent_id, call_id, organization_id } = body;
 
