@@ -217,6 +217,11 @@ const Contacts: React.FC = () => {
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
     setSearchParams(prev => { const p = new URLSearchParams(prev); p.set("tab", newTab); p.delete("contact"); p.delete("contactType"); return p; });
+    // Explicitly reset contact view state when switching tabs
+    setSelectedLead(null);
+    setSelectedClient(null);
+    setSelectedRecruit(null);
+    setSelectedAgent(null);
   };
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -766,11 +771,18 @@ const Contacts: React.FC = () => {
     }
   }, [location.state, leads]);
 
-  // Restore contact view from URL on load/refresh.
-  // Uses a pendingContactId ref so if data isn't loaded yet we retry when it arrives.
+  // Sync contact view state with URL parameters (handles initial load and browser back button)
   useEffect(() => {
     const contactId = searchParams.get("contact");
-    if (!contactId) return;
+    if (!contactId) {
+      // If contact param is missing, clear all selected contact states to unmount the detail view
+      setSelectedLead(null);
+      setSelectedClient(null);
+      setSelectedRecruit(null);
+      setSelectedAgent(null);
+      pendingContactId.current = null;
+      return;
+    }
     pendingContactId.current = contactId;
   }, [searchParams]);
 

@@ -322,7 +322,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
   const tryClose = () => {
     if (hasUnsavedChanges) setConfirmDiscard(true);
-    else { const url = new URL(window.location.href); url.searchParams.delete("contact"); url.searchParams.delete("type"); window.history.replaceState({}, "", url.toString()); onClose(); }
+    else onClose();
   };
 
   const handleAddNote = async () => {
