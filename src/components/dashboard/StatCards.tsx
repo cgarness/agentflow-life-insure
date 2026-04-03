@@ -98,10 +98,14 @@ const StatCards: React.FC<StatCardsProps> = ({
         <div
           key={card.id}
           onClick={() => onCardClick?.(card.id)}
-          className={`relative overflow-hidden bg-card/60 backdrop-blur-sm rounded-2xl border border-slate-200 transition-all duration-300 cursor-pointer hover:border-primary/30 hover:bg-card h-[140px] group`}
+          className={`relative overflow-hidden bg-white rounded-2xl shadow-xl ${
+            adminToggle === "team" ? "shadow-emerald-500/10" : "shadow-blue-500/10"
+          } transition-all duration-300 cursor-pointer hover:-translate-y-1 h-[140px] group border border-transparent hover:border-border/50`}
         >
-          {/* Subtle Accent Glow */}
-          <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-[0.03] blur-2xl group-hover:opacity-[0.08] transition-opacity duration-500 ${card.gradient}`} />
+          {/* Accent Glow */}
+          <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-[0.05] blur-2xl group-hover:opacity-[0.1] transition-opacity duration-500 ${
+            adminToggle === "team" ? "bg-emerald-500" : "bg-blue-500"
+          }`} />
           
           <div className="flex items-start justify-between relative z-10 h-full p-5">
             <div className="flex flex-col h-full w-full">
@@ -117,7 +121,9 @@ const StatCards: React.FC<StatCardsProps> = ({
                   </div>
                 ) : (
                   <div>
-                    <p className="text-3xl font-extrabold tracking-tight text-foreground transition-all duration-300 group-hover:text-primary">
+                    <p className={`text-3xl font-extrabold tracking-tight transition-all duration-300 ${
+                      adminToggle === "team" ? "text-emerald-700" : "text-blue-700"
+                    }`}>
                       {formatValue(card.value)}
                     </p>
                     
@@ -142,8 +148,14 @@ const StatCards: React.FC<StatCardsProps> = ({
               </div>
             </div>
             
-            <div className={`flex items-center justify-center w-12 h-12 rounded-2xl bg-muted/30 border border-border/20 shadow-sm transition-all duration-500 group-hover:scale-110 group-hover:bg-primary group-hover:border-primary group-hover:shadow-lg group-hover:shadow-primary/20 shrink-0 ml-2`}>
-              <card.icon className="h-5 w-5 text-muted-foreground transition-colors duration-500 group-hover:text-white" />
+            <div className={`flex items-center justify-center w-12 h-12 rounded-2xl transition-all duration-500 shrink-0 ml-2 ${
+               adminToggle === "team" 
+                ? "bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white" 
+                : "bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white"
+            } shadow-sm group-hover:shadow-lg ${
+               adminToggle === "team" ? "group-hover:shadow-emerald-600/20" : "group-hover:shadow-blue-600/20"
+            }`}>
+              <card.icon className="h-5 w-5 transition-colors duration-500" />
             </div>
           </div>
         </div>

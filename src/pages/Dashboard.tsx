@@ -158,9 +158,19 @@ const Dashboard: React.FC = () => {
   const role = profile?.role || "Agent";
   const firstName = profile?.first_name || "Agent";
 
-  // Admin toggle
-  const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("team");
+  // Perspective states
+  const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("my"); // Default to personal
   const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
+
+  // Dynamic Theme Config
+  const perspectiveTheme = {
+    primary: adminViewMode === "team" ? "emerald-600" : "blue-600",
+    bg: adminViewMode === "team" ? "bg-emerald-600" : "bg-blue-600",
+    text: adminViewMode === "team" ? "text-emerald-600" : "text-blue-600",
+    border: adminViewMode === "team" ? "border-emerald-600/20" : "border-blue-600/20",
+    lightBg: adminViewMode === "team" ? "bg-emerald-50" : "bg-blue-50",
+    shadow: adminViewMode === "team" ? "shadow-emerald-600/10" : "shadow-blue-600/10",
+  };
 
   const { data: stats, loading: statsLoading } = useDashboardStats(
     userId,
@@ -418,48 +428,22 @@ const Dashboard: React.FC = () => {
   );
 
   return (
-    <div className="p-6 space-y-8 max-w-[1600px] mx-auto">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/10 via-background to-background border border-primary/10 p-8 shadow-2xl shadow-primary/5">
-        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-60 h-60 bg-violet-500/5 rounded-full blur-3xl" />
-
-        {/* Hero Row: Greeting & Briefing */}
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-1">
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground flex items-center gap-3">
-              Good Morning, {firstName} <span className="animate-bounce-slow">👋</span>
-            </h1>
-            <p className="text-muted-foreground text-lg max-w-2xl">
-              Welcome back to AgentFlow. Here's what's happening today.
-            </p>
-          </div>
-
-          <div className="flex shrink-0">
-            {!editMode && (
-              <Button
-                size="lg"
-                onClick={() => setShowBriefing(true)}
-                className="rounded-2xl shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95 bg-primary hover:bg-primary/90 text-white font-semibold px-6 h-12"
-              >
-                Today's Briefing
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
+    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Controls Row: Filters, Perspective & Edit Actions */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-2">
         <div className="flex items-center gap-4">
-          <div className="inline-flex p-1 bg-muted/30 backdrop-blur-sm rounded-2xl border border-border/40">
+          <div className="inline-flex p-1 bg-white shadow-sm rounded-2xl border border-border/40">
             <Tabs value={timeRange} onValueChange={(v: any) => setTimeRange(v)} className="w-auto">
               <TabsList className="bg-transparent h-9 p-0 gap-1">
                 {["day", "week", "month", "year"].map((t) => (
                   <TabsTrigger 
                     key={t}
                     value={t} 
-                    className="rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider transition-all data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
+                    className={`rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider transition-all data-[state=active]:shadow-md data-[state=active]:text-white ${
+                      adminViewMode === "team" 
+                        ? "data-[state=active]:bg-emerald-600" 
+                        : "data-[state=active]:bg-blue-600"
+                    }`}
                   >
                     {t}
                   </TabsTrigger>
@@ -469,19 +453,19 @@ const Dashboard: React.FC = () => {
           </div>
 
           {(role === "Admin" || role === "Team Leader") && (
-            <div className="flex items-center gap-2 bg-muted/20 backdrop-blur-sm px-3 py-1.5 rounded-2xl border border-border/40">
+            <div className="flex items-center gap-2 bg-white shadow-sm px-3 py-1.5 rounded-2xl border border-border/40">
               <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">Perspective</span>
               <button
                 onClick={() =>
                   setAdminViewMode(adminViewMode === "team" ? "my" : "team")
                 }
-                className={`px-3 py-1 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${
                   adminViewMode === "team" 
-                    ? "bg-primary/10 text-primary border-primary/20" 
-                    : "bg-background/50 text-muted-foreground border-border/50"
+                    ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-600/20" 
+                    : "bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20"
                 }`}
               >
-                {adminViewMode === "team" ? "Team" : "Personal"}
+                {adminViewMode === "team" ? "Team Overview" : "Personal Stats"}
               </button>
             </div>
           )}
@@ -489,15 +473,17 @@ const Dashboard: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => setEditMode(!editMode)}
-            className={`transition-all rounded-xl h-9 px-4 ${
-              editMode ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-muted/50 text-muted-foreground"
+            className={`transition-all rounded-xl h-10 px-4 bg-white shadow-sm border-slate-200 ${
+              editMode 
+                ? `${perspectiveTheme.text} ${perspectiveTheme.border} ${perspectiveTheme.lightBg}` 
+                : "text-muted-foreground hover:bg-slate-50"
             }`}
           >
-            <Pencil className="h-3.5 w-3.5 mr-2" />
-            <span className="text-xs font-semibold">{editMode ? "Done Editing" : "Customize"}</span>
+            <Pencil className={`h-3.5 w-3.5 mr-2 ${editMode ? perspectiveTheme.text : "text-primary"}`} />
+            <span className="text-xs font-semibold">{editMode ? "Done Editing" : "Customize Layout"}</span>
           </Button>
         </div>
       </div>
