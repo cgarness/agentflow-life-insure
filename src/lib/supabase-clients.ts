@@ -6,7 +6,7 @@ export const clientsSupabaseApi = {
         search?: string;
         state?: string;
         policyType?: string;
-        assignedAgentId?: string;
+        assignedAgentIds?: string[];
     }): Promise<Client[]> {
         let query = (supabase as any)
             .from("clients")
@@ -24,7 +24,11 @@ export const clientsSupabaseApi = {
         }
         if (filters?.state) query = query.eq("state", filters.state);
         if (filters?.policyType) query = query.eq("policy_type", filters.policyType);
-        if (filters?.assignedAgentId) query = query.eq("assigned_agent_id", filters.assignedAgentId);
+        if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+            query = filters.assignedAgentIds.length === 1
+                ? query.eq("assigned_agent_id", filters.assignedAgentIds[0])
+                : query.in("assigned_agent_id", filters.assignedAgentIds);
+        }
 
         const { data, error } = await query;
         if (error) throw new Error(error.message);

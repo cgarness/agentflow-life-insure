@@ -4,9 +4,9 @@ import { isCallableNow, getPrimaryTimezoneGroup } from "@/utils/timezoneUtils";
 
 // ---- LEADS ----
 export const leadsSupabaseApi = {
-  async getAll(filters?: { 
-    status?: string; 
-    source?: string; 
+  async getAll(filters?: {
+    status?: string;
+    source?: string;
     search?: string;
     startDate?: string;
     endDate?: string;
@@ -15,7 +15,7 @@ export const leadsSupabaseApi = {
     attemptCounts?: string[];
     lastDisposition?: string;
     callableNow?: boolean;
-    assignedAgentId?: string;
+    assignedAgentIds?: string[];
   }): Promise<Lead[]> {
     let query = supabase
       .from("leads")
@@ -28,7 +28,11 @@ export const leadsSupabaseApi = {
     if (filters?.status) query = query.eq("status", filters.status);
     if (filters?.source) query = query.eq("lead_source", filters.source);
     if (filters?.state) query = query.eq("state", filters.state);
-    if (filters?.assignedAgentId) query = query.eq("assigned_agent_id", filters.assignedAgentId);
+    if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+      query = filters.assignedAgentIds.length === 1
+        ? query.eq("assigned_agent_id", filters.assignedAgentIds[0])
+        : query.in("assigned_agent_id", filters.assignedAgentIds);
+    }
     
     if (filters?.startDate) query = query.gte("created_at", filters.startDate);
     if (filters?.endDate) query = query.lte("created_at", filters.endDate);

@@ -230,7 +230,7 @@ const Contacts: React.FC = () => {
   const [attemptCountFilters, setAttemptCountFilters] = useState<string[]>([]);
   const [lastDispositionFilter, setLastDispositionFilter] = useState<string>("");
   const [policyTypeFilter, setPolicyTypeFilter] = useState<string>("");
-  const [downlineAgentId, setDownlineAgentId] = useState<string>("");
+  const [downlineAgentIds, setDownlineAgentIds] = useState<string[]>([]);
   const [downlineAgents, setDownlineAgents] = useState<DownlineAgent[]>([]);
 
   const [view, setView] = useState<"table" | "kanban">("table");
@@ -245,10 +245,10 @@ const Contacts: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Determine the effective agent ID for filtering:
-      // If a downline agent is selected, filter to that agent's records;
-      // otherwise use the current user's ID (own records).
-      const effectiveAgentId = downlineAgentId || user?.id;
+      // Only pass assignedAgentIds when the user has explicitly selected specific
+      // downline agents. When the array is empty, omit the filter entirely so that
+      // RLS hierarchical policies (Team Leader, Admin) return ALL accessible records.
+      const agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
 
       const leadFilters = {
         search: searchQuery,
@@ -261,20 +261,20 @@ const Contacts: React.FC = () => {
         callableNow: callableNowFilter,
         attemptCounts: attemptCountFilters,
         lastDisposition: lastDispositionFilter,
-        assignedAgentId: effectiveAgentId,
+        assignedAgentIds: agentIdFilter,
       };
 
       const clientFilters = {
         search: searchQuery,
         state: stateFilter,
         policyType: policyTypeFilter,
-        assignedAgentId: effectiveAgentId,
+        assignedAgentIds: agentIdFilter,
       };
 
       const recruitFilters = {
         search: searchQuery,
         state: stateFilter,
-        assignedAgentId: effectiveAgentId,
+        assignedAgentIds: agentIdFilter,
       };
 
       const [leadData, clientData, recruitData, agentData, stats] = await Promise.all([
@@ -292,7 +292,7 @@ const Contacts: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentId, user?.id]);
+  }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -1102,9 +1102,12 @@ const Contacts: React.FC = () => {
     if (attemptCountFilters.length > 0) active.push({ label: `Attempts: ${attemptCountFilters.join(", ")}`, onClear: () => setAttemptCountFilters([]) });
     if (lastDispositionFilter) active.push({ label: `Disposition: ${lastDispositionFilter}`, onClear: () => setLastDispositionFilter("") });
     if (policyTypeFilter) active.push({ label: `Policy: ${policyTypeFilter}`, onClear: () => setPolicyTypeFilter("") });
-    if (downlineAgentId) {
-      const agent = downlineAgents.find(a => a.id === downlineAgentId);
-      active.push({ label: `Agent: ${agent ? `${agent.firstName} ${agent.lastName}` : "Downline"}`, onClear: () => setDownlineAgentId("") });
+    if (downlineAgentIds.length > 0) {
+      const names = downlineAgentIds.map(id => {
+        const a = downlineAgents.find(ag => ag.id === id);
+        return a ? `${a.firstName} ${a.lastName}` : id;
+      });
+      active.push({ label: `Agents: ${names.join(", ")}`, onClear: () => setDownlineAgentIds([]) });
     }
 
     if (active.length === 0) return null;
@@ -1121,7 +1124,7 @@ const Contacts: React.FC = () => {
           setStatusFilter(""); setSourceFilter(""); setStateFilter("");
           setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]);
           setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter("");
-          setPolicyTypeFilter(""); setDownlineAgentId("");
+          setPolicyTypeFilter(""); setDownlineAgentIds([]);
         }} className="text-xs text-muted-foreground hover:text-primary underline">Clear All</button>
       </div>
     );
@@ -1308,7 +1311,7 @@ const Contacts: React.FC = () => {
           activeTab={tab as ContactsTab}
           filters={{
             stateFilter,
-            downlineAgentId,
+            downlineAgentIds,
             statusFilter,
             sourceFilter,
             startDate,
@@ -1321,7 +1324,7 @@ const Contacts: React.FC = () => {
           }}
           onFiltersChange={(f: ContactsFilterValues) => {
             setStateFilter(f.stateFilter);
-            setDownlineAgentId(f.downlineAgentId);
+            setDownlineAgentIds(f.downlineAgentIds);
             setStatusFilter(f.statusFilter);
             setSourceFilter(f.sourceFilter);
             setStartDate(f.startDate);
