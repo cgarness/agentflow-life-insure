@@ -38,43 +38,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
-interface Campaign {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-  description: string;
-  assigned_agent_ids: string[];
-  tags: string[];
-  total_leads: number;
-  leads_contacted: number;
-  leads_converted: number;
-  created_by: string | null;
-  created_at: string;
-}
-
-interface CampaignLead {
-  id: string;
-  campaign_id: string;
-  lead_id: string | null;
-  first_name: string;
-  last_name: string;
-  phone: string;
-  email: string;
-  state: string;
-  age: number | null;
-  status: string;
-  call_attempts: number;
-  last_called_at: string | null;
-  disposition: string | null;
-  locked_by: string | null;
-  locked_at: string | null;
-  claimed_by: string | null;
-  claimed_at: string | null;
-  source: string | null;
-  sort_order: number;
-}
+import type { Campaign, CampaignLead } from "@/lib/types";
 
 interface AgentProfile {
   id: string;
@@ -280,10 +244,10 @@ const AddLeadsModal: React.FC<{
     if (toAdd.length === 0) return;
     setAdding(true);
     const rows = toAdd.map(l => ({ campaign_id: campaignId, lead_id: l.id, first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email, state: l.state, age: l.age, status: "Queued", organization_id: organizationId }));
-    const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("campaign_leads").insert(rows);
     if (error) { toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" }); }
     else {
-      await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 } as any).eq("id", campaignId); // eslint-disable-line @typescript-eslint/no-explicit-any
+      await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 }).eq("id", campaignId);
       toast.success(`${toAdd.length} leads added to campaign`, { duration: 3000, position: "bottom-right" });
       onAdded(); onClose();
     }
@@ -428,7 +392,7 @@ const ImportCSVModal: React.FC<{
               state: lead.state,
               status: "New",
               organization_id: organizationId
-            } as any)
+            })
             .select("id")
             .single();
           
@@ -450,14 +414,14 @@ const ImportCSVModal: React.FC<{
 
       // 2. Insert into campaign_leads
       if (processedLeads.length > 0) {
-        const { error } = await supabase.from("campaign_leads").insert(processedLeads as any);
+        const { error } = await supabase.from("campaign_leads").insert(processedLeads);
         if (error) {
           toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
         } else {
           // Update campaign stats
-          await supabase.from("campaigns").update({ 
-            total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 
-          } as any).eq("id", campaignId);
+          await supabase.from("campaigns").update({
+            total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0
+          }).eq("id", campaignId);
           
           toast.success(`${processedLeads.length} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
           onImported(); 
@@ -528,7 +492,7 @@ const SortableLeadRow: React.FC<{
   isAdmin: boolean;
   isOpenPool: boolean;
   isDragEnabled: boolean;
-  user: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  user: { id: string } | null;
   agents: AgentProfile[];
   selectedLeadIds: Set<string>;
   actionMenuId: string | null;
@@ -677,7 +641,16 @@ const CampaignDetail: React.FC = () => {
     if (!id) return;
     const { data } = await supabase.from("campaigns").select("*").eq("id", id).maybeSingle();
     if (data) {
-      const c = { ...data, assigned_agent_ids: data.assigned_agent_ids || [], tags: data.tags || [] } as Campaign;
+      const c: Campaign = {
+        ...data,
+        assigned_agent_ids: (data.assigned_agent_ids || []) as string[],
+        tags: (data.tags || []) as string[],
+        description: data.description || "",
+        total_leads: data.total_leads || 0,
+        leads_contacted: data.leads_contacted || 0,
+        leads_converted: data.leads_converted || 0,
+        created_at: data.created_at || "",
+      };
       setCampaign(c);
       setSettingsForm(c);
     }
@@ -769,7 +742,7 @@ const CampaignDetail: React.FC = () => {
     } else if (role === "team leader" || role === "team_leader") {
       // Team Leader: own leads + leads claimed by direct reports + unclaimed leads
       const teamMemberIds = new Set(
-        agents.filter(a => (a as any).upline_id === currentUserId).map(a => a.id)
+        agents.filter(a => (a as AgentProfile & { upline_id?: string }).upline_id === currentUserId).map(a => a.id)
       );
       visibleLeads = visibleLeads.filter(
         l => l.claimed_by === currentUserId || (l.claimed_by && teamMemberIds.has(l.claimed_by)) || l.claimed_by == null
@@ -786,7 +759,7 @@ const CampaignDetail: React.FC = () => {
   // Status actions
   const updateStatus = async (newStatus: string) => {
     if (!id) return;
-    const { error } = await supabase.from("campaigns").update({ status: newStatus } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("campaigns").update({ status: newStatus }).eq("id", id);
     if (error) { toast.error("Failed to update status", { duration: 3000, position: "bottom-right" }); return; }
     toast.success(`Campaign ${newStatus.toLowerCase()}`, { duration: 3000, position: "bottom-right" });
     fetchCampaign();
@@ -809,7 +782,7 @@ const CampaignDetail: React.FC = () => {
     fetchLeads();
     if (id) {
       const { count } = await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", id);
-      await supabase.from("campaigns").update({ total_leads: count || 0 } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+      await supabase.from("campaigns").update({ total_leads: count || 0 }).eq("id", id);
       fetchCampaign();
     }
   };
@@ -826,7 +799,7 @@ const CampaignDetail: React.FC = () => {
     fetchLeads();
     if (id) {
       const { count } = await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", id);
-      await supabase.from("campaigns").update({ total_leads: count || 0 } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+      await supabase.from("campaigns").update({ total_leads: count || 0 }).eq("id", id);
       fetchCampaign();
     }
   };
@@ -835,7 +808,7 @@ const CampaignDetail: React.FC = () => {
   const handleBulkAssign = async (agentId: string) => {
     const ids = Array.from(selectedLeadIds);
     if (ids.length === 0) return;
-    const { error } = await supabase.from("campaign_leads").update({ claimed_by: agentId } as any).in("id", ids); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("campaign_leads").update({ claimed_by: agentId }).in("id", ids);
     if (error) { toast.error("Failed to assign agent", { duration: 3000, position: "bottom-right" }); return; }
     const agent = agents.find(a => a.id === agentId);
     toast.success(`${ids.length} leads assigned to ${agent ? getAgentDisplayName(agent) : "agent"}`, { duration: 3000, position: "bottom-right" });
@@ -885,7 +858,7 @@ const CampaignDetail: React.FC = () => {
       const chunk = updates.slice(i, i + 50);
       await Promise.all(
         chunk.map(u =>
-          supabase.from("campaign_leads").update({ sort_order: u.sort_order } as any).eq("id", u.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+          supabase.from("campaign_leads").update({ sort_order: u.sort_order }).eq("id", u.id)
         )
       );
     }
@@ -893,7 +866,7 @@ const CampaignDetail: React.FC = () => {
   };
 
 
-  const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const handleSettingsChange = (key: string, value: string | string[]) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); };
   const toggleSettingsAgent = (agentId: string) => {
     const current = (settingsForm.assigned_agent_ids || []) as string[];
     if (settingsForm.type === "Personal") { handleSettingsChange("assigned_agent_ids", [agentId]); }
@@ -908,7 +881,7 @@ const CampaignDetail: React.FC = () => {
       description: settingsForm.description,
       assigned_agent_ids: settingsForm.assigned_agent_ids,
       tags: settingsForm.tags,
-    } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+    }).eq("id", id);
     setSettingsSaving(false);
     if (error) { toast.error("Failed to save: " + error.message, { duration: 3000, position: "bottom-right" }); return; }
     toast.success("Campaign settings saved", { duration: 3000, position: "bottom-right" });
@@ -1114,7 +1087,7 @@ const CampaignDetail: React.FC = () => {
                           onActionMenu={(id) => setActionMenuId(actionMenuId === id ? null : id)}
                           onRemoveLead={(id) => { setRemoveLeadId(id); setActionMenuId(null); }}
                           onForceRelease={async (id) => {
-                            await supabase.from("campaign_leads").update({ status: "Queued", locked_by: null, locked_at: null } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+                            await supabase.from("campaign_leads").update({ status: "Queued", locked_by: null, locked_at: null }).eq("id", id);
                             toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
                             setActionMenuId(null);
                             fetchLeads(true);

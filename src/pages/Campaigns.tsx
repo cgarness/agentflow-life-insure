@@ -10,22 +10,7 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useBranding } from "@/contexts/BrandingContext";
-
-// Types
-interface Campaign {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-  description: string;
-  assigned_agent_ids: string[];
-  tags: string[];
-  total_leads: number;
-  leads_contacted: number;
-  leads_converted: number;
-  created_by: string | null;
-  created_at: string;
-}
+import type { Campaign } from "@/lib/types";
 
 interface AgentProfile {
   id: string;
@@ -164,7 +149,7 @@ const CreateCampaignModal: React.FC<{
       status: "Active",
       created_by: user?.id || null,
       organization_id: organizationId,
-    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    });
 
     setSaving(false);
     if (error) {
@@ -355,7 +340,7 @@ const DuplicateCampaignModal: React.FC<{
       leads_converted: 0,
       created_by: user?.id || null,
       organization_id: organizationId,
-    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    });
 
     setSaving(false);
     if (error) {
@@ -420,10 +405,15 @@ const Campaigns: React.FC = () => {
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false });
     if (!error && data) {
-      setCampaigns(data.map((r: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+      setCampaigns(data.map(r => ({
         ...r,
-        assigned_agent_ids: r.assigned_agent_ids || [],
-        tags: r.tags || [],
+        assigned_agent_ids: (r.assigned_agent_ids || []) as string[],
+        tags: (r.tags || []) as string[],
+        description: r.description || "",
+        total_leads: r.total_leads || 0,
+        leads_contacted: r.leads_contacted || 0,
+        leads_converted: r.leads_converted || 0,
+        created_at: r.created_at || "",
       })));
     }
     setLoading(false);
@@ -436,7 +426,7 @@ const Campaigns: React.FC = () => {
       .select("id, first_name, last_name, email, role, avatar_url")
       .eq("status", "Active");
     if (data) {
-      setAgents(data as AgentProfile[]);
+      setAgents(data as unknown as AgentProfile[]);
     }
     setAgentsLoading(false);
   }, []);

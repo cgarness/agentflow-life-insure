@@ -45,19 +45,16 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
     if (error) {
       toast.error("Failed to load active campaigns");
     } else {
-      const mapped = (data || []).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        type: c.type,
-        status: c.status,
-        description: c.description,
-        assignedAgentIds: c.assigned_agent_ids || [],
-        createdBy: c.created_by,
-        totalLeads: c.total_leads,
-        createdAt: c.created_at,
-        updatedAt: c.updated_at
-      }));
-      setCampaigns(mapped as any);
+      setCampaigns((data || []).map(c => ({
+        ...c,
+        assigned_agent_ids: (c.assigned_agent_ids || []) as string[],
+        tags: (c.tags || []) as string[],
+        description: c.description || "",
+        total_leads: c.total_leads || 0,
+        leads_contacted: c.leads_contacted || 0,
+        leads_converted: c.leads_converted || 0,
+        created_at: c.created_at || "",
+      })));
     }
     setLoading(false);
   };
@@ -103,8 +100,8 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         organization_id: organizationId,
       }));
 
-      const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-      
+      const { error } = await supabase.from("campaign_leads").insert(rows);
+
       if (error) throw error;
 
       // Update total leads count for campaign
@@ -112,10 +109,10 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         .from("campaign_leads")
         .select("id", { count: "exact", head: true })
         .eq("campaign_id", selectedCampaignId);
-      
+
       await supabase
         .from("campaigns")
-        .update({ total_leads: count || 0 } as any)
+        .update({ total_leads: count || 0 })
         .eq("id", selectedCampaignId);
 
       const campaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
@@ -145,7 +142,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
           status: "Active",
           total_leads: 0,
           organization_id: organizationId,
-        } as any)
+        })
         .select("*")
         .single();
 
@@ -164,12 +161,12 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         organization_id: organizationId,
       }));
 
-      const { error: insertError } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const { error: insertError } = await supabase.from("campaign_leads").insert(rows);
       if (insertError) throw insertError;
 
       await supabase
         .from("campaigns")
-        .update({ total_leads: rows.length } as any)
+        .update({ total_leads: rows.length })
         .eq("id", newCampaign.id);
 
       toast.success(`Campaign created and ${selectedContacts.length} leads added`, { duration: 3000, position: "bottom-right" });
@@ -258,7 +255,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
                   >
                     <div className="font-medium">{c.name}</div>
                     <div className={`text-xs ${selectedCampaignId === c.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                      {c.type} • {c.totalLeads || 0} leads
+                      {c.type} • {c.total_leads || 0} leads
                     </div>
                   </button>
                 ))

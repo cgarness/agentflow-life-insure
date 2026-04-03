@@ -521,6 +521,7 @@ export type Database = {
           state: string | null
           status: string | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           age?: number | null
@@ -545,6 +546,7 @@ export type Database = {
           state?: string | null
           status?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           age?: number | null
@@ -569,6 +571,7 @@ export type Database = {
           state?: string | null
           status?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -616,6 +619,7 @@ export type Database = {
           total_leads: number | null
           type: string
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           assigned_agent_ids?: Json | null
@@ -638,6 +642,7 @@ export type Database = {
           total_leads?: number | null
           type?: string
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           assigned_agent_ids?: Json | null
@@ -660,6 +665,7 @@ export type Database = {
           total_leads?: number | null
           type?: string
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {

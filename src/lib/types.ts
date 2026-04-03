@@ -184,20 +184,51 @@ export interface Appointment {
 export interface Campaign {
   id: string;
   name: string;
-  type: CampaignType;
-  status: CampaignStatus;
-  description?: string;
-  assignedAgentIds: string[];
-  createdBy: string;
-  scriptId?: string;
-  voicemailDropId?: string;
-  dialMode: string;
-  totalLeads: number;
-  availableLeads: number;
-  claimedLeads: number;
-  calledLeads: number;
-  createdAt: string;
-  updatedAt: string;
+  type: string;
+  status: string;
+  description: string;
+  assigned_agent_ids: string[];
+  tags: string[];
+  total_leads: number;
+  leads_contacted: number;
+  leads_converted: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  organization_id?: string | null;
+  user_id?: string | null;
+  auto_dial_enabled?: boolean | null;
+  calling_hours_start?: string | null;
+  calling_hours_end?: string | null;
+  local_presence_enabled?: boolean | null;
+  max_attempts?: number | null;
+  retry_interval_hours?: number | null;
+}
+
+export interface CampaignLead {
+  id: string;
+  campaign_id: string;
+  lead_id: string | null;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  state: string;
+  age: number | null;
+  status: string;
+  call_attempts: number;
+  last_called_at: string | null;
+  disposition: string | null;
+  locked_by: string | null;
+  locked_at: string | null;
+  claimed_by: string | null;
+  claimed_at: string | null;
+  source: string | null;
+  sort_order: number;
+  organization_id?: string | null;
+  user_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface Call {
