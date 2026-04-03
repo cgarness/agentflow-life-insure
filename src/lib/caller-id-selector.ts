@@ -69,9 +69,19 @@ export async function selectCallerID(
   );
 
   if (availableNumbers.length === 0) {
-    // Fallback: return default number even if limit hit
-    const defaultNumber = phoneNumbers.find(p => p.is_default);
-    return defaultNumber?.phone_number || phoneNumbers[0]?.phone_number || '';
+    // All numbers are exhausted or flagged — strict fallback to org primary number
+    const primaryNumber = phoneNumbers.find(p => p.is_default);
+    if (primaryNumber) {
+      console.warn('[caller-id-selector] All numbers at daily limit or flagged — falling back to org primary number:', primaryNumber.phone_number);
+      return primaryNumber.phone_number;
+    }
+    // No primary configured — this is a misconfiguration
+    if (phoneNumbers.length > 0) {
+      console.error('[caller-id-selector] CRITICAL: No is_default number configured for this organization. Using first available as emergency fallback.');
+      return phoneNumbers[0].phone_number;
+    }
+    console.error('[caller-id-selector] CRITICAL: Organization has zero phone numbers. Cannot select caller ID.');
+    return '';
   }
 
   // If local presence disabled, return cleanest number
@@ -111,7 +121,18 @@ export async function selectCallerID(
   }
 
   // Priority 3: Cleanest number overall (Clean > At Risk > Unknown)
-  return getCleanestNumber(availableNumbers);
+  const cleanest = getCleanestNumber(availableNumbers);
+  if (cleanest) return cleanest;
+
+  // Priority 4: Organization primary number (is_default=true) regardless of daily limit
+  const orgPrimary = phoneNumbers.find(p => p.is_default);
+  if (orgPrimary) {
+    console.warn('[caller-id-selector] No clean numbers available — falling back to org primary:', orgPrimary.phone_number);
+    return orgPrimary.phone_number;
+  }
+
+  console.error('[caller-id-selector] CRITICAL: No suitable caller ID found. Returning first number as emergency fallback.');
+  return phoneNumbers[0]?.phone_number || '';
 }
 
 // Helper: Get cleanest number based on spam status + score
