@@ -324,20 +324,80 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     setMiniCardOpen(true);
   };
 
+  const handleStartCall = () => {
+    if (!contactInfo?.phone) return;
+    window.dispatchEvent(new CustomEvent("quick-call", {
+      detail: {
+        phone: contactInfo.phone,
+        contactId: contactId,
+        name: contactInfo.name,
+        type: "lead" 
+      }
+    }));
+    toastSonner.info(`Connecting to ${contactInfo.name}...`);
+  };
+
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-[460px] w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
-        <DialogHeader className="p-5 border-b border-primary/10 bg-primary/[0.03]">
-          <DialogTitle className="text-base font-bold tracking-tight text-primary flex items-center gap-2">
-            <CalendarIcon className="w-4 h-4" />
-            {editing ? "Edit Appointment" : "Schedule"}
-          </DialogTitle>
-          <DialogDescription className="text-muted-foreground text-[10px] -mt-0.5">
-            Set your next meeting details below.
-          </DialogDescription>
+      <DialogContent className="sm:max-w-[480px] w-[95vw] max-h-[95vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
+        <DialogHeader className="p-4 border-b border-primary/10 bg-primary/[0.03] flex flex-row items-center justify-between space-y-0">
+          <div className="flex flex-col">
+            <DialogTitle className="text-sm font-bold tracking-tight text-primary flex items-center gap-2">
+              <CalendarIcon className="w-3.5 h-3.5" />
+              {editing ? "Edit Appointment" : "Schedule Meeting"}
+            </DialogTitle>
+            <DialogDescription className="text-[10px] text-muted-foreground opacity-80">
+              {editing ? "Update your meeting details." : "Set your next meeting details below."}
+            </DialogDescription>
+          </div>
+          
+          {editing && (
+            <div className="flex items-center gap-1.5 mr-6">
+              {contactInfo?.phone && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-full transition-colors"
+                  onClick={handleStartCall}
+                  title="Start Call"
+                >
+                  <Phone className="w-4 h-4" />
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full transition-colors"
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete Appointment"
+                >
+                  <Plus className="w-4 h-4 rotate-45" />
+                </Button>
+              )}
+            </div>
+          )}
         </DialogHeader>
 
-        <div className="p-5 pt-4 space-y-4 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+        {confirmDelete && (
+          <div className="absolute inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="bg-card border border-destructive/20 rounded-xl p-6 shadow-2xl max-w-xs w-full text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+                <Plus className="w-6 h-6 rotate-45 text-destructive" />
+              </div>
+              <div>
+                <h3 className="font-bold text-foreground">Delete Appointment?</h3>
+                <p className="text-xs text-muted-foreground mt-1">This action cannot be undone.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" className="flex-1 h-9 text-xs" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                <Button variant="destructive" className="flex-1 h-9 text-xs font-bold" onClick={handleDelete}>Delete</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="p-4 space-y-4 flex-1 overflow-y-auto min-h-0 scrollbar-thin">
           {/* Contact Section */}
           {(editing && contactId && contactInfo) || prefillContactName ? (
             <div className="bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center justify-between">
@@ -472,119 +532,99 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
             </div>
           )}
 
-          {/* Appointment Details */}
-          <div className="space-y-4 pt-1">
-            <div className="space-y-1.5">
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1">
                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Subject line</label>
               <Input 
                 value={title} 
                 onChange={e => { setTitle(e.target.value); if (errors.title) setErrors(p => { const n = {...p}; delete n.title; return n; }); }}
                 placeholder="Call purpose" 
-                className={cn("h-9 text-xs shadow-sm", errors.title && "border-destructive ring-destructive/20")} 
+                className={cn("h-8 text-xs shadow-sm", errors.title && "border-destructive ring-destructive/20")} 
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Type</label>
                 <select 
                   value={type} 
                   onChange={e => setType(e.target.value as CalAppointmentType)} 
-                  className="w-full h-9 px-3 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
+                  className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 >
                   {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Status</label>
                 <select 
                   value={status} 
                   onChange={e => setStatus(e.target.value as CalAppointmentStatus)} 
-                  className="w-full h-9 px-3 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
+                  className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 >
                   {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
             </div>
 
-            <div className="p-4 bg-muted/30 rounded-xl border border-border/50 space-y-4">
-              <div className="flex items-center gap-3 w-full">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Date</label>
                 <DateInput 
                   value={date} 
                   onChange={val => { setDate(val); if (errors.date) setErrors(p => { const n = {...p}; delete n.date; return n; }); }}
-                  className="w-full"
+                  className="w-full h-8"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4 border-t border-border/10 pt-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Starts</label>
-                  <TimeSelect value={startTime} onChange={setStartTime} error={!!errors.startTime} />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Ends</label>
-                  <TimeSelect value={endTime} onChange={val => { setEndTime(val); setUserInteractedWithEnd(true); }} error={!!errors.endTime} />
-                </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assignee</label>
+                <select 
+                  value={agent} 
+                  onChange={e => setAgent(e.target.value)} 
+                  className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
+                  disabled={currentUserRole !== "Admin" && currentUserRole !== "Team Leader"}
+                >
+                  {agents.map(a => (
+                    <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assignee</label>
-              <select 
-                value={agent} 
-                onChange={e => setAgent(e.target.value)} 
-                className="w-full h-9 px-3 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
-                disabled={currentUserRole !== "Admin" && currentUserRole !== "Team Leader"}
-              >
-                {agents.map(a => (
-                  <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
-                ))}
-              </select>
+            <div className="grid grid-cols-2 gap-3 p-3 bg-muted/30 rounded-xl border border-border/50">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Starts</label>
+                <TimeSelect value={startTime} onChange={setStartTime} error={!!errors.startTime} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Ends</label>
+                <TimeSelect value={endTime} onChange={val => { setEndTime(val); setUserInteractedWithEnd(true); }} error={!!errors.endTime} />
+              </div>
             </div>
 
-            <div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Notes</label>
               <textarea 
                 value={notes} 
                 onChange={e => setNotes(e.target.value)} 
                 rows={2} 
-                className="w-full min-h-[60px] px-3 py-2 rounded-md bg-background text-xs text-foreground border border-input focus:ring-1 focus:ring-primary shadow-sm resize-none"
+                className="w-full min-h-[50px] px-3 py-2 rounded-md bg-background text-xs text-foreground border border-input focus:ring-1 focus:ring-primary shadow-sm resize-none"
                 placeholder="Brief notes..."
               />
             </div>
           </div>
         </div>
 
-        <DialogFooter className="p-5 border-t border-border bg-muted/5 flex items-center justify-between sm:justify-between gap-4">
-          <div className="flex-1">
-            {editing && onDelete && (
-              confirmDelete ? (
-                <div className="flex items-center gap-1.5 animate-in fade-in slide-in-from-left-1 duration-200">
-                  <Button variant="ghost" size="sm" onClick={handleDelete} className="h-7 text-[9px] bg-destructive/10 text-destructive hover:bg-destructive/20 font-bold px-2">CONFIRM</Button>
-                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} className="h-7 text-[9px] font-bold px-2">CANCEL</Button>
-                </div>
-              ) : (
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => setConfirmDelete(true)}
-                  className="h-8 text-[10px] font-bold text-destructive uppercase px-2 hover:bg-destructive/5 tracking-wider"
-                >
-                  Delete Appointment
-                </Button>
-              )
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-9 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors">
-              CANCEL
-            </Button>
-            <Button 
-              size="sm" 
-              onClick={handleSave} 
-              className="h-9 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
-            >
-              CONFIRM
-            </Button>
-          </div>
+        <DialogFooter className="p-4 border-t border-border bg-muted/5 flex items-center justify-end gap-3 sm:justify-end">
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors">
+            CANCEL
+          </Button>
+          <Button 
+            size="sm" 
+            onClick={handleSave} 
+            className="h-8 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
+          >
+            CONFIRM
+          </Button>
         </DialogFooter>
       </DialogContent>
 

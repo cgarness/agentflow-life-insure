@@ -130,6 +130,27 @@ const CalendarPage: React.FC = () => {
     }
   }, []);
 
+  const getNavigationLabel = () => {
+    if (currentView === "Month") {
+      return format(currentDate, "MMMM yyyy");
+    }
+    if (currentView === "Week") {
+      const start = new Date(currentDate);
+      start.setDate(start.getDate() - start.getDay());
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      
+      if (start.getMonth() === end.getMonth()) {
+        return `${format(start, "MMM d")} – ${format(end, "d, yyyy")}`;
+      }
+      return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+    }
+    if (currentView === "Day") {
+      return format(currentDate, "MMM d, yyyy");
+    }
+    return format(currentDate, "MMMM yyyy");
+  };
+
   useEffect(() => {
     fetchAppointments();
     checkGoogleStatus();
@@ -544,13 +565,7 @@ const CalendarPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="flex flex-col items-center pointer-events-auto">
-            <h1 className="text-xl font-bold text-foreground uppercase tracking-tight">
-              {format(currentDate, 'MMMM yyyy')}
-            </h1>
-          </div>
-        </div>
+
 
         <div className="flex items-center gap-3 z-10">
           <div className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/30 border border-border mr-2">
@@ -569,7 +584,7 @@ const CalendarPage: React.FC = () => {
               <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
             </button>
           )}
-          <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg border border-border">
+          <div className="flex items-center gap-1 bg-muted/30 p-0.5 rounded-lg border border-border">
             <button 
               onClick={() => {
                 if (currentView === "Month") setCurrentDate(subMonths(currentDate, 1));
@@ -581,7 +596,9 @@ const CalendarPage: React.FC = () => {
             >
               <ChevronLeft className="w-4 h-4"/>
             </button>
-            <button onClick={() => setCurrentDate(new Date())} className="px-2 py-0.5 text-[9px] font-bold bg-accent rounded hover:bg-accent/80 transition-colors uppercase">Today</button>
+            <span className="px-3 text-[11px] font-bold text-foreground uppercase tracking-tight min-w-[120px] text-center border-x border-border/50">
+              {getNavigationLabel()}
+            </span>
             <button 
               onClick={() => {
                 if (currentView === "Month") setCurrentDate(addMonths(currentDate, 1));
@@ -594,6 +611,7 @@ const CalendarPage: React.FC = () => {
               <ChevronRight className="w-4 h-4"/>
             </button>
           </div>
+          <button onClick={() => setCurrentDate(new Date())} className="px-3 py-2 text-[10px] font-bold bg-accent/50 border border-border rounded-lg hover:bg-accent transition-colors uppercase">Today</button>
           <button onClick={() => openSchedule()} className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
             <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
           </button>
