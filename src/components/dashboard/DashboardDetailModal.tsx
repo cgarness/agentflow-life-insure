@@ -14,6 +14,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { useTelnyx } from "@/contexts/TelnyxContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 export type ModalType =
   | "callbacks"
@@ -52,6 +55,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { makeCall, isReady } = useTelnyx();
+  const { profile, user } = useAuth();
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
@@ -141,7 +146,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
       let resultData: any[] = [];
 
-      // Special handling for legacy combined views that don't support range easily
+      // Strategic Anniversary Logic: 90-day Policies / 14-day Birthdays
       if (type === "anniversaries") {
         if (pageNum > 0) {
           setHasMore(false);
@@ -149,40 +154,80 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           return;
         }
 
+        // Fetch Both Birthdays and Renewals independently of dashboard perspective
+        // Strict RLS: Always filter by the provided userId (the logged-in agent)
         const [birthdaysRes, policiesRes] = await Promise.all([
           supabase
             .from("leads")
-            .select("id, first_name, last_name, date_of_birth, email")
-            .not("date_of_birth", "is", null)
-            .limit(50),
+            .select("id, first_name, last_name, date_of_birth, phone")
+            .eq("assigned_agent_id", userId)
+            .not("date_of_birth", "is", null),
           supabase
             .from("clients")
-            .select("id, first_name, last_name, effective_date, policy_type, assigned_agent_id")
+            .select("id, first_name, last_name, effective_date, policy_type, phone, assigned_agent_id")
+            .eq("assigned_agent_id", userId)
             .not("effective_date", "is", null)
-            .eq(isFiltered ? "assigned_agent_id" : "", isFiltered ? userId : "")
-            .limit(50)
         ]);
 
-        const combined: any[] = [];
+        const birthdays: any[] = [];
+        const renewals: any[] = [];
         const todayNow = new Date();
+        todayNow.setHours(0, 0, 0, 0);
         
         (birthdaysRes.data || []).forEach(l => {
           const dob = new Date(l.date_of_birth);
           let nextBday = new Date(todayNow.getFullYear(), dob.getMonth(), dob.getDate());
           if (nextBday < todayNow) nextBday.setFullYear(todayNow.getFullYear() + 1);
-          const days = Math.ceil((nextBday.getTime() - todayNow.getTime()) / (1000 * 60 * 60 * 24));
-          if (days <= 30) combined.push({ id: l.id, contact_name: `${l.first_name} ${l.last_name}`, type: 'Birthday', date: l.date_of_birth, daysUntil: days });
+          
+          const diffTime = nextBday.getTime() - todayNow.getTime();
+          const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          // Strategic Window: 14 Days for Birthdays
+          if (days >= 0 && days <= 14) {
+            birthdays.push({ 
+              id: l.id, 
+              contact_name: `${l.first_name} ${l.last_name}`, 
+              phone: l.phone,
+              type: 'Birthday', 
+              date: l.date_of_birth, 
+              daysUntil: days,
+              isBirthday: true
+            });
+          }
         });
 
         (policiesRes.data || []).forEach(c => {
           const eff = new Date(c.effective_date);
           let nextAnniv = new Date(todayNow.getFullYear(), eff.getMonth(), eff.getDate());
           if (nextAnniv < todayNow) nextAnniv.setFullYear(todayNow.getFullYear() + 1);
-          const days = Math.ceil((nextAnniv.getTime() - todayNow.getTime()) / (1000 * 60 * 60 * 24));
-          if (days <= 30) combined.push({ id: c.id, contact_name: `${c.first_name} ${c.last_name}`, type: 'Policy Anniversary', date: c.effective_date, policy_type: c.policy_type, daysUntil: days });
+          
+          const diffTime = nextAnniv.getTime() - todayNow.getTime();
+          const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          // Strategic Window: 90 Days for Policy Renewals
+          if (days >= 0 && days <= 90) {
+            renewals.push({ 
+              id: c.id, 
+              contact_name: `${c.first_name} ${c.last_name}`, 
+              phone: c.phone,
+              type: 'Policy Anniversary', 
+              date: c.effective_date, 
+              policy_type: c.policy_type, 
+              daysUntil: days,
+              isRenewal: true
+            });
+          }
         });
 
-        resultData = combined.sort((a, b) => a.daysUntil - b.daysUntil);
+        // Grouping: Renewals first, then Birthdays, then sorted within groups
+        const sortedRenewals = renewals.sort((a, b) => a.daysUntil - b.daysUntil);
+        const sortedBirthdays = birthdays.sort((a, b) => a.daysUntil - b.daysUntil);
+        
+        // We add a 'sectionHeader' property to the first item of each group for rendering
+        if (sortedRenewals.length > 0) sortedRenewals[0].sectionHeader = "Upcoming Renewals (90 Days)";
+        if (sortedBirthdays.length > 0) sortedBirthdays[0].sectionHeader = "Upcoming Birthdays (14 Days)";
+
+        resultData = [...sortedRenewals, ...sortedBirthdays];
         setHasMore(false);
       } else {
         let query: any;
@@ -260,11 +305,16 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   };
 
   const handleRowClick = (item: any) => {
+    // If it's the anniversaries type, we only navigate if they click the profile part
+    // but the whole row was clickable before. We'll keep it clickable but ensure the call button 
+    // doesn't trigger navigation.
     onClose();
-    if (item.contact_id || item.id) {
-      const id = item.contact_id || item.id;
+    if (item.id) {
+      const id = item.id;
       if (type === "anniversaries") {
-        navigate(`/contacts?contact=${id}&tab=Leads`);
+        // Birthdays are usually Leads, Renewals are usually Clients
+        const tab = item.isBirthday ? "Leads" : "Clients";
+        navigate(`/contacts?contact=${id}&tab=${tab}`);
       } else if (type === "callbacks" || type === "appointments") {
         navigate(`/calendar`);
       } else if (type === "calls_today" || type === "missed_calls") {
@@ -275,6 +325,29 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         navigate(`/contacts?contact=${id}`);
       }
     }
+  };
+
+  const handleStartCall = (e: React.MouseEvent, item: any) => {
+    e.stopPropagation(); // Prevent row click navigation
+    
+    if (!user) {
+      toast.error("You must be logged in to make calls.");
+      return;
+    }
+
+    if (!isReady) {
+      toast.error("Dialer is not ready. Please wait or check your settings.");
+      return;
+    }
+
+    if (!item.phone) {
+      toast.error("No phone number available for this contact.");
+      return;
+    }
+
+    // Telephony Integration
+    makeCall(item.phone, undefined, item.id);
+    toast.success(`Dialing ${item.contact_name}...`);
   };
 
   const renderItemDetails = (item: any) => {
@@ -429,42 +502,66 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               ) : (
                 <div className="grid grid-cols-1 gap-3 py-2">
                   {data.map((item, idx) => (
-                    <motion.div
-                      key={item.id || idx}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2, delay: Math.min(idx, 8) * 0.03 }}
-                      whileHover={{ x: 3 }}
-                      onClick={() => handleRowClick(item)}
-                      className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 transition-colors hover:bg-accent cursor-pointer overflow-hidden"
-                    >
-                      <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
-                        type === 'calls_today' || type === 'callbacks' ? 'from-blue-400 to-indigo-500' :
-                        type === 'policies_sold' ? 'from-emerald-400 to-teal-500' :
-                        type === 'appointments' ? 'from-violet-400 to-purple-500' :
-                        'from-primary to-primary/50'
-                      }`} />
-
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-muted border border-border group-hover:scale-110 transition-all duration-300">
-                          {getIcon()}
+                    <React.Fragment key={item.id || idx}>
+                      {item.sectionHeader && (
+                        <div className="mt-4 mb-2 first:mt-0">
+                          <h4 className="text-[10px] font-black text-muted-foreground/60 uppercase tracking-[0.2em] ml-2">
+                            {item.sectionHeader}
+                          </h4>
                         </div>
-                        {renderItemDetails(item)}
-                      </div>
+                      )}
+                      <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: Math.min(idx, 8) * 0.03 }}
+                        whileHover={{ x: 3 }}
+                        onClick={() => handleRowClick(item)}
+                        className="group relative flex items-center justify-between p-4 rounded-2xl border border-border bg-card/50 transition-colors hover:bg-accent cursor-pointer overflow-hidden"
+                      >
+                        <div className={`absolute left-0 top-0 bottom-0 w-1.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-b ${
+                          type === 'calls_today' || type === 'callbacks' ? 'from-blue-400 to-indigo-500' :
+                          type === 'policies_sold' ? 'from-emerald-400 to-teal-500' :
+                          type === 'appointments' ? 'from-violet-400 to-purple-500' :
+                          'from-primary to-primary/50'
+                        }`} />
 
-                      <div className="flex items-center gap-4">
-                        {item.status && type !== "calls_today" && type !== "missed_calls" && (
-                          <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
-                            item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
-                            item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                            'bg-muted text-muted-foreground border border-border'
-                          }`}>
-                            {item.status}
-                          </span>
-                        )}
-                        <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                      </div>
-                    </motion.div>
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-muted border border-border group-hover:scale-110 transition-all duration-300">
+                            {item.isBirthday ? (
+                              <Gift className="w-5 h-5 text-pink-500" />
+                            ) : item.isRenewal ? (
+                              <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                            ) : (
+                              getIcon()
+                            )}
+                          </div>
+                          {renderItemDetails(item)}
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          {type === "anniversaries" && (
+                            <Button
+                              size="sm"
+                              onClick={(e) => handleStartCall(e, item)}
+                              className="bg-primary hover:bg-primary/90 text-white rounded-xl h-9 px-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Phone className="w-3 h-3" />
+                              <span className="text-[10px] font-bold uppercase tracking-wider">Start Call</span>
+                            </Button>
+                          )}
+                          {item.status && type !== "calls_today" && type !== "missed_calls" && (
+                            <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
+                              item.status === 'Scheduled' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
+                              item.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                              'bg-muted text-muted-foreground border border-border'
+                            }`}>
+                              {item.status}
+                            </span>
+                          )}
+                          <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                        </div>
+                      </motion.div>
+                    </React.Fragment>
                   ))}
                   
                   {isFetchingNextPage && (
