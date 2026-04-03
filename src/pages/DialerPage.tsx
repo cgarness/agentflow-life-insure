@@ -18,7 +18,6 @@ import {
   Send,
   ChevronDown,
   BarChart3,
-  Settings,
   TrendingUp,
   Clock,
   ChevronLeft,
@@ -76,6 +75,8 @@ import { DateInput } from "@/components/shared/DateInput";
 import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
+import CampaignSelection from "@/components/dialer/CampaignSelection";
+import CampaignSettingsModal from "@/components/dialer/CampaignSettingsModal";
 
 /* ─── Types ─── */
 
@@ -169,14 +170,6 @@ function mapDialerLeadToContactLead(row: any): Lead {
     updatedAt: row.updated_at || new Date().toISOString(),
   };
 }
-
-const getCampaignTypeColor = (type: string) => {
-  const t = (type || "").toUpperCase();
-  if (t === "TEAM") return "bg-blue-500/10 text-blue-400 border-blue-500/20";
-  if (t === "PERSONAL") return "bg-purple-500/10 text-purple-400 border-purple-500/20";
-  if (t.includes("POOL")) return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  return "bg-muted text-muted-foreground border-border";
-};
 
 const normalizeStatusDisplay = (status: string) => {
   if (!status) return "";
@@ -1188,6 +1181,11 @@ export default function DialerPage() {
     }
   };
 
+  const handleToggleLocalPresence = async (campaignId: string, newValue: boolean) => {
+    await supabase.from('campaigns').update({ local_presence_enabled: newValue }).eq('id', campaignId);
+    setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, local_presence_enabled: newValue } : c));
+  };
+
   // ── AutoDialer initialization ──
   useEffect(() => {
     const agentId = user?.id;
@@ -1801,288 +1799,45 @@ export default function DialerPage() {
 
   // Selection screen
   if (!selectedCampaignId) {
-    // Extract unique states from all campaign lead data for badges
-    const getStateColors = (state: string): string => {
-// ... (rest of the helper)
-      const colors: Record<string, string> = {
-        CA: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-        TX: "bg-orange-500/20 text-orange-400 border-orange-500/30",
-        FL: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-        NY: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        IL: "bg-pink-500/20 text-pink-400 border-pink-500/30",
-        PA: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-        OH: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-        GA: "bg-rose-500/20 text-rose-400 border-rose-500/30",
-        NC: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
-        MI: "bg-teal-500/20 text-teal-400 border-teal-500/30",
-        AZ: "bg-red-500/20 text-red-400 border-red-500/30",
-        NV: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-      };
-      return colors[state] || "bg-muted text-muted-foreground border-border";
-    };
-
     return (
       <>
-      <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-full mb-4">
-            <Phone className="w-3.5 h-3.5" />
-            DIALER
-          </div>
-          <h1 className="text-2xl font-bold text-foreground mb-1">Select a Campaign</h1>
-          <p className="text-sm text-muted-foreground">
-            Choose an active campaign to start dialing
-          </p>
-        </div>
-
-        <div className="w-full max-w-7xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {campaignsLoading && (
-            <div className="flex flex-col gap-4 col-span-full">
-              <div className="h-20 w-full bg-muted animate-pulse rounded-xl" />
-              <div className="h-20 w-full bg-muted animate-pulse rounded-xl" />
-              <div className="h-20 w-full bg-muted animate-pulse rounded-xl" />
-            </div>
-          )}
-          {!campaignsLoading && campaigns.length === 0 && (
-            <div className="flex items-center justify-center py-12 col-span-full">
-              <p className="text-muted-foreground text-sm">No active campaigns</p>
-            </div>
-          )}
-          {!campaignsLoading &&
-            campaigns.map((campaign: any) => {
-              const states = campaignStateStats[campaign.id] || [];
-
-              return (
-                <div
-                  key={campaign.id}
-                  className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3"
-                >
-                  {/* Campaign Name & Type - Centered */}
-                  <div className="flex flex-col items-center gap-1.5 py-2">
-                    <h3 className="font-bold text-lg text-foreground text-center line-clamp-1">{campaign.name}</h3>
-                    <span className={cn(
-                      "text-[10px] uppercase tracking-widest font-black px-2.5 py-0.5 rounded-full border",
-                      getCampaignTypeColor(campaign.type)
-                    )}>
-                      {campaign.type}
-                    </span>
-                  </div>
-
-                  {/* States - Only those in the campaign */}
-                  <div className="flex flex-col gap-2">
-                    <p className="text-[10px] uppercase tracking-widest font-black text-muted-foreground text-center">States</p>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {states.slice(0, 8).map(s => (
-                        <span
-                          key={s.state}
-                          className="flex items-center justify-center text-[10px] px-1 py-1 rounded-md font-bold transition-all bg-primary/10 text-primary border border-primary/20"
-                        >
-                          {s.state} ({s.count})
-                        </span>
-                      ))}
-                      {states.length === 0 && (
-                        <div className="col-span-full py-2 text-center text-[10px] text-muted-foreground italic">
-                          No leads assigned
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Local Presence toggle */}
-                  <div className="mt-auto flex items-center justify-between px-1 pt-3 border-t border-border/50">
-                    <span className="text-[10px] uppercase tracking-widest font-black text-muted-foreground">Local Presence</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={campaign.local_presence_enabled !== false}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const newVal = !(campaign.local_presence_enabled !== false);
-                        await supabase.from('campaigns').update({ local_presence_enabled: newVal }).eq('id', campaign.id);
-                        setCampaigns(prev => prev.map(c => c.id === campaign.id ? { ...c, local_presence_enabled: newVal } : c));
-                      }}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                        campaign.local_presence_enabled !== false ? "bg-primary" : "bg-muted"
-                      }`}
-                    >
-                      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
-                        campaign.local_presence_enabled !== false ? "translate-x-4" : "translate-x-1"
-                      }`} />
-                    </button>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCampaignId(campaign.id)}
-                      className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold uppercase tracking-widest hover:bg-primary/90 transition-all shadow-sm"
-                    >
-                      Start Dialing
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSettingsCampaignId(campaign.id)
-                        setCallingSettingsOpen(true)
-                      }}
-                      className="px-4 py-2 rounded-lg bg-accent text-foreground text-xs font-bold uppercase tracking-widest hover:bg-accent/80 flex items-center gap-1.5 transition-all"
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                      Settings
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-        </div>
-      </div>
-
-      {/* ── Calling Settings Dialog ── */}
-      <Dialog open={callingSettingsOpen} onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Calling Settings</DialogTitle>
-            <DialogDescription>
-              Configure call attempt limits and scheduling for{" "}
-              <span className="font-semibold">{campaigns.find(c => c.id === settingsCampaignId)?.name}</span>.
-            </DialogDescription>
-          </DialogHeader>
-
-          {callingSettingsLoading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
-            </div>
-          ) : (
-            <div className="space-y-5 py-2">
-              {/* Max Attempts */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Max Call Attempts</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min={1}
-                    max={99}
-                    value={isUnlimited ? "" : maxAttemptsValue}
-                    disabled={isUnlimited}
-                    onChange={(e) => setMaxAttemptsValue(Number(e.target.value))}
-                    className="w-20 rounded border border-input bg-background px-2 py-1.5 text-sm disabled:opacity-40"
-                    placeholder="3"
-                  />
-                  <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={isUnlimited}
-                      onChange={(e) => setIsUnlimited(e.target.checked)}
-                      className="accent-primary"
-                    />
-                    Unlimited
-                  </label>
-                </div>
-              </div>
-
-              {/* Calling Hours */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Calling Hours (local lead time)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={callingHoursStart}
-                    onChange={(e) => setCallingHoursStart(e.target.value)}
-                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                  <span className="text-muted-foreground text-sm">to</span>
-                  <input
-                    type="time"
-                    value={callingHoursEnd}
-                    onChange={(e) => setCallingHoursEnd(e.target.value)}
-                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                </div>
-              </div>
-
-              {/* Retry Interval */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Retry Interval (hours)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={168}
-                  value={retryIntervalHours}
-                  onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
-                  className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
-                />
-              </div>
-
-              {/* Ring Timeout */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Ring Timeout (seconds)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={5}
-                    max={120}
-                    value={ringTimeoutValue}
-                    onChange={(e) => setRingTimeoutValue(Number(e.target.value))}
-                    className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                  <span className="text-xs text-muted-foreground">(Hangs up if no answer)</span>
-                </div>
-              </div>
-
-              {/* Toggles */}
-              <div className="space-y-3">
-                <label className="flex items-center justify-between cursor-pointer select-none">
-                  <span className="text-sm font-medium">Auto-Dial</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={settingsAutoDialEnabled}
-                    onClick={() => setSettingsAutoDialEnabled((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      settingsAutoDialEnabled ? "bg-primary" : "bg-muted"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
-                        settingsAutoDialEnabled ? "translate-x-4" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </label>
-                <label className="flex items-center justify-between cursor-pointer select-none">
-                  <span className="text-sm font-medium">Local Presence</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={localPresenceEnabled}
-                    onClick={() => setLocalPresenceEnabled((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      localPresenceEnabled ? "bg-primary" : "bg-muted"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
-                        localPresenceEnabled ? "translate-x-4" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </label>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCallingSettingsOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveCallingSettings} disabled={callingSettingsSaving || callingSettingsLoading}>
-              {callingSettingsSaving ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <CampaignSelection
+          campaigns={campaigns}
+          campaignsLoading={campaignsLoading}
+          campaignStateStats={campaignStateStats}
+          onSelectCampaign={setSelectedCampaignId}
+          onOpenSettings={(id) => {
+            setSettingsCampaignId(id);
+            setCallingSettingsOpen(true);
+          }}
+          onToggleLocalPresence={handleToggleLocalPresence}
+        />
+        <CampaignSettingsModal
+          open={callingSettingsOpen}
+          onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}
+          campaignName={campaigns.find(c => c.id === settingsCampaignId)?.name || ""}
+          isUnlimited={isUnlimited}
+          setIsUnlimited={setIsUnlimited}
+          maxAttemptsValue={maxAttemptsValue}
+          setMaxAttemptsValue={setMaxAttemptsValue}
+          callingHoursStart={callingHoursStart}
+          setCallingHoursStart={setCallingHoursStart}
+          callingHoursEnd={callingHoursEnd}
+          setCallingHoursEnd={setCallingHoursEnd}
+          retryIntervalHours={retryIntervalHours}
+          setRetryIntervalHours={setRetryIntervalHours}
+          ringTimeoutValue={ringTimeoutValue}
+          setRingTimeoutValue={setRingTimeoutValue}
+          settingsAutoDialEnabled={settingsAutoDialEnabled}
+          setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
+          localPresenceEnabled={localPresenceEnabled}
+          setLocalPresenceEnabled={setLocalPresenceEnabled}
+          amdEnabledValue={amdEnabledValue}
+          setAmdEnabledValue={setAmdEnabledValue}
+          loading={callingSettingsLoading}
+          saving={callingSettingsSaving}
+          onSave={handleSaveCallingSettings}
+        />
       </>
     );
   }
@@ -3530,161 +3285,32 @@ export default function DialerPage() {
       </Dialog>
 
       {/* ── Calling Settings Dialog ── */}
-      <Dialog open={callingSettingsOpen} onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Calling Settings</DialogTitle>
-            <DialogDescription>
-              Configure call attempt limits and scheduling for{" "}
-              <span className="font-semibold">{(settingsCampaignId ? campaigns.find(c => c.id === settingsCampaignId) : selectedCampaign)?.name}</span>.
-            </DialogDescription>
-          </DialogHeader>
-
-          {callingSettingsLoading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
-            </div>
-          ) : (
-            <div className="space-y-5 py-2">
-              {/* Max Attempts */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Max Call Attempts</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min={1}
-                    max={99}
-                    value={isUnlimited ? "" : maxAttemptsValue}
-                    disabled={isUnlimited}
-                    onChange={(e) => setMaxAttemptsValue(Number(e.target.value))}
-                    className="w-20 rounded border border-input bg-background px-2 py-1.5 text-sm disabled:opacity-40"
-                    placeholder="3"
-                  />
-                  <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={isUnlimited}
-                      onChange={(e) => setIsUnlimited(e.target.checked)}
-                      className="accent-primary"
-                    />
-                    Unlimited
-                  </label>
-                </div>
-              </div>
-
-              {/* Calling Hours */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Calling Hours (local lead time)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={callingHoursStart}
-                    onChange={(e) => setCallingHoursStart(e.target.value)}
-                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                  <span className="text-muted-foreground text-sm">to</span>
-                  <input
-                    type="time"
-                    value={callingHoursEnd}
-                    onChange={(e) => setCallingHoursEnd(e.target.value)}
-                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                </div>
-              </div>
-
-              {/* Retry Interval */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Retry Interval (hours)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={168}
-                  value={retryIntervalHours}
-                  onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
-                  className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
-                />
-              </div>
-
-              {/* Ring Timeout */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Ring Timeout (seconds)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={5}
-                    max={120}
-                    value={ringTimeoutValue}
-                    onChange={(e) => setRingTimeoutValue(Number(e.target.value))}
-                    className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  />
-                  <span className="text-xs text-muted-foreground">(Hangs up if no answer)</span>
-                </div>
-              </div>
-
-              {/* Toggles */}
-              <div className="space-y-4 pt-2 border-t">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <label className="text-sm font-medium">Answering Machine Detection</label>
-                    <p className="text-[10px] text-muted-foreground leading-tight">Automatically hang up and skip to next lead if a voicemail is detected</p>
-                  </div>
-                  <Switch 
-                    checked={amdEnabledValue}
-                    onCheckedChange={setAmdEnabledValue}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Auto-Dial</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={settingsAutoDialEnabled}
-                    onClick={() => setSettingsAutoDialEnabled((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      settingsAutoDialEnabled ? "bg-primary" : "bg-muted"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
-                        settingsAutoDialEnabled ? "translate-x-4" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Local Presence</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={localPresenceEnabled}
-                    onClick={() => setLocalPresenceEnabled((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      localPresenceEnabled ? "bg-primary" : "bg-muted"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
-                        localPresenceEnabled ? "translate-x-4" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCallingSettingsOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveCallingSettings} disabled={callingSettingsSaving || callingSettingsLoading}>
-              {callingSettingsSaving ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CampaignSettingsModal
+        open={callingSettingsOpen}
+        onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}
+        campaignName={(settingsCampaignId ? campaigns.find(c => c.id === settingsCampaignId) : selectedCampaign)?.name || ""}
+        isUnlimited={isUnlimited}
+        setIsUnlimited={setIsUnlimited}
+        maxAttemptsValue={maxAttemptsValue}
+        setMaxAttemptsValue={setMaxAttemptsValue}
+        callingHoursStart={callingHoursStart}
+        setCallingHoursStart={setCallingHoursStart}
+        callingHoursEnd={callingHoursEnd}
+        setCallingHoursEnd={setCallingHoursEnd}
+        retryIntervalHours={retryIntervalHours}
+        setRetryIntervalHours={setRetryIntervalHours}
+        ringTimeoutValue={ringTimeoutValue}
+        setRingTimeoutValue={setRingTimeoutValue}
+        settingsAutoDialEnabled={settingsAutoDialEnabled}
+        setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
+        localPresenceEnabled={localPresenceEnabled}
+        setLocalPresenceEnabled={setLocalPresenceEnabled}
+        amdEnabledValue={amdEnabledValue}
+        setAmdEnabledValue={setAmdEnabledValue}
+        loading={callingSettingsLoading}
+        saving={callingSettingsSaving}
+        onSave={handleSaveCallingSettings}
+      />
     </>
   );
 }
