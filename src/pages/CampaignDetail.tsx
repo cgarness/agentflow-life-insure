@@ -844,8 +844,9 @@ const CampaignDetail: React.FC = () => {
     fetchLeads(true);
   };
 
-  // Quick call
+  // Quick call — auth-guarded
   const handleQuickCall = (lead: CampaignLead) => {
+    if (!user) { toast.error("You must be logged in to make calls"); return; }
     if (!lead.phone) return;
     window.dispatchEvent(new CustomEvent("quick-call", {
       detail: { name: `${lead.first_name} ${lead.last_name}`.trim(), phone: lead.phone, contactId: lead.lead_id || lead.id }

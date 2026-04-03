@@ -407,14 +407,17 @@ const Campaigns: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [duplicateTarget, setDuplicateTarget] = useState<Campaign | null>(null);
   const { formatDate } = useBranding();
+  const { organizationId } = useOrganization();
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
 
   const fetchCampaigns = useCallback(async () => {
+    if (!organizationId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("campaigns")
       .select("*")
+      .eq("organization_id", organizationId)
       .order("created_at", { ascending: false });
     if (!error && data) {
       setCampaigns(data.map((r: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -424,7 +427,7 @@ const Campaigns: React.FC = () => {
       })));
     }
     setLoading(false);
-  }, []);
+  }, [organizationId]);
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
