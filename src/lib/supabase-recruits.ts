@@ -2,16 +2,27 @@ import { supabase } from "@/integrations/supabase/client";
 import { Recruit } from "@/lib/types";
 
 export const recruitsSupabaseApi = {
-    async getAll(search?: string): Promise<Recruit[]> {
+    async getAll(searchOrFilters?: string | {
+        search?: string;
+        state?: string;
+        assignedAgentId?: string;
+    }): Promise<Recruit[]> {
         let query = (supabase as any)
             .from("recruits")
             .select("*")
             .order("created_at", { ascending: false });
 
-        if (search) {
-            const q = search;
+        // Support both legacy string-only search and new filter object
+        const filters = typeof searchOrFilters === "string"
+            ? { search: searchOrFilters }
+            : searchOrFilters;
+
+        if (filters?.search) {
+            const q = filters.search;
             query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`);
         }
+        if (filters?.state) query = query.eq("state", filters.state);
+        if (filters?.assignedAgentId) query = query.eq("assigned_agent_id", filters.assignedAgentId);
 
         const { data, error } = await query;
         if (error) throw new Error(error.message);

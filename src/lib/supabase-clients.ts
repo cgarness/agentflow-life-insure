@@ -2,16 +2,29 @@ import { supabase } from "@/integrations/supabase/client";
 import { Client, PolicyType } from "@/lib/types";
 
 export const clientsSupabaseApi = {
-    async getAll(search?: string): Promise<Client[]> {
+    async getAll(searchOrFilters?: string | {
+        search?: string;
+        state?: string;
+        policyType?: string;
+        assignedAgentId?: string;
+    }): Promise<Client[]> {
         let query = (supabase as any)
             .from("clients")
             .select("*")
             .order("created_at", { ascending: false });
 
-        if (search) {
-            const q = search;
+        // Support both legacy string-only search and new filter object
+        const filters = typeof searchOrFilters === "string"
+            ? { search: searchOrFilters }
+            : searchOrFilters;
+
+        if (filters?.search) {
+            const q = filters.search;
             query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`);
         }
+        if (filters?.state) query = query.eq("state", filters.state);
+        if (filters?.policyType) query = query.eq("policy_type", filters.policyType);
+        if (filters?.assignedAgentId) query = query.eq("assigned_agent_id", filters.assignedAgentId);
 
         const { data, error } = await query;
         if (error) throw new Error(error.message);
