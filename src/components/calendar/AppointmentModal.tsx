@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Phone, MessageSquare, Mail, Plus, Clock, User, Calendar as CalendarIcon } from "lucide-react";
+import { Phone, MessageSquare, Mail, Plus, Clock, User, Calendar as CalendarIcon, ChevronRight } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 
 import { toast as toastSonner } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -208,7 +209,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const currentUserRole = "Admin";
+  const { user, profile } = useAuth();
+  const isAgent = profile?.role === "Agent";
+  const isManager = profile?.role === "Admin" || profile?.role === "Team Leader";
 
   useEffect(() => {
     if (!open) return;
@@ -300,12 +303,20 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     if (!validate()) return;
     const [y, m, d] = date.split("-").map(Number);
     const dateObj = new Date(y, m - 1, d);
+    const contactIdPayload = editing?.contactId ?? prefillContactId ?? selectedContactId ?? "";
+    
+    // For agents, always assign to themselves unless editing an existing one they have access to
+    const targetUserId = isAgent ? user?.id : (agents.find(a => `${a.firstName} ${a.lastName}` === agent)?.id || user?.id);
+
     onSave({
       title: title.trim(), type, status,
       contactName: contactName.trim(),
-      contactId: editing?.contactId ?? prefillContactId ?? selectedContactId ?? "",
-      date: dateObj, startTime, endTime, agent: agent.trim(), notes: notes.trim(),
-    });
+      contactId: contactIdPayload,
+      date: dateObj, startTime, endTime, 
+      agent: agent.trim(), 
+      notes: notes.trim(),
+      user_id: targetUserId 
+    } as any);
     toastSonner.success(editing ? "Saved" : "Scheduled");
     onClose();
   };
@@ -337,9 +348,15 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     toastSonner.info(`Connecting to ${contactInfo.name}...`);
   };
 
+  const handleComingSoon = (type: string) => {
+    toastSonner.info(`${type} messaging coming soon!`, {
+      description: "We are building our Omni-channel center."
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-[480px] w-[95vw] max-h-[95vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
+      <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[95vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
         <DialogHeader className="p-4 border-b border-primary/10 bg-primary/[0.03] flex flex-row items-center justify-between space-y-0">
           <div className="flex flex-col">
             <DialogTitle className="text-sm font-bold tracking-tight text-primary flex items-center gap-2">
@@ -351,32 +368,46 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
             </DialogDescription>
           </div>
           
-          {editing && (
-            <div className="flex items-center gap-1.5 mr-6">
-              {contactInfo?.phone && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-full transition-colors"
-                  onClick={handleStartCall}
-                  title="Start Call"
-                >
-                  <Phone className="w-4 h-4" />
-                </Button>
-              )}
-              {onDelete && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full transition-colors"
-                  onClick={() => setConfirmDelete(true)}
-                  title="Delete Appointment"
-                >
-                  <Plus className="w-4 h-4 rotate-45" />
-                </Button>
-              )}
+          <div className="flex items-center gap-2 mr-6">
+            <div className="flex items-center bg-background/50 border border-border/50 rounded-lg p-0.5 mr-2">
+               <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 gap-1.5"
+                onClick={handleStartCall}
+              >
+                <Phone className="w-3 h-3" /> CALL
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[10px] font-bold text-blue-600 hover:bg-blue-50 gap-1.5"
+                onClick={() => handleComingSoon("SMS")}
+              >
+                <MessageSquare className="w-3 h-3" /> SMS
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[10px] font-bold text-orange-600 hover:bg-orange-50 gap-1.5"
+                onClick={() => handleComingSoon("EMAIL")}
+              >
+                <Mail className="w-3 h-3" /> EMAIL
+              </Button>
             </div>
-          )}
+
+            {editing && onDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full transition-colors"
+                onClick={() => setConfirmDelete(true)}
+                title="Delete Appointment"
+              >
+                <Plus className="w-4 h-4 rotate-45" />
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
         {confirmDelete && (
@@ -411,14 +442,12 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                 </div>
               </div>
               {contactId && (
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-7 text-[10px] font-bold text-primary px-2 hover:bg-primary/5"
+                <button 
                   onClick={() => { navigate('/contacts', { state: { openContactId: contactId } }); onClose(); }}
+                  className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1 transition-all"
                 >
-                  CRM <Plus className="w-2.5 h-2.5 rotate-45 ml-1" />
-                </Button>
+                  full contact view <ChevronRight className="w-3 h-3" />
+                </button>
               )}
             </div>
           ) : (
@@ -575,19 +604,20 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                   className="w-full h-8"
                 />
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assignee</label>
-                <select 
-                  value={agent} 
-                  onChange={e => setAgent(e.target.value)} 
-                  className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
-                  disabled={currentUserRole !== "Admin" && currentUserRole !== "Team Leader"}
-                >
-                  {agents.map(a => (
-                    <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
-                  ))}
-                </select>
-              </div>
+              {isManager && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assignee</label>
+                  <select 
+                    value={agent} 
+                    onChange={e => setAgent(e.target.value)} 
+                    className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
+                  >
+                    {agents.map(a => (
+                      <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3 p-3 bg-muted/30 rounded-xl border border-border/50">
