@@ -1743,6 +1743,7 @@ export type Database = {
           state: string
           status: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           age?: number | null
@@ -1766,6 +1767,7 @@ export type Database = {
           state?: string
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           age?: number | null
@@ -1789,6 +1791,7 @@ export type Database = {
           state?: string
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {

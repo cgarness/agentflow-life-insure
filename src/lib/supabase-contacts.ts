@@ -30,8 +30,8 @@ export const leadsSupabaseApi = {
     if (filters?.state) query = query.eq("state", filters.state);
     if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
       query = filters.assignedAgentIds.length === 1
-        ? query.eq("assigned_agent_id", filters.assignedAgentIds[0])
-        : query.in("assigned_agent_id", filters.assignedAgentIds);
+        ? query.eq("user_id", filters.assignedAgentIds[0])
+        : query.in("user_id", filters.assignedAgentIds);
     }
     
     if (filters?.startDate) query = query.gte("created_at", filters.startDate);
@@ -226,6 +226,7 @@ export const leadsSupabaseApi = {
             healthStatus: row.healthStatus,
             bestTimeToCall: row.bestTimeToCall,
             notes: row.notes,
+            userId: row.userId || row.assignedAgentId || "",
           }), organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           if (error) { errors++; } else { imported++; }
         } catch { errors++; }
@@ -290,6 +291,7 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
     spouseInfo: row.spouse_info ?? undefined,
     notes: row.notes ?? undefined,
     assignedAgentId: row.assigned_agent_id,
+    userId: row.user_id,
     lastContactedAt: row.last_contacted_at ?? undefined,
     attemptCount: (row.calls || []).length,
     lastDisposition: [...(row.calls || [])].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.status,
@@ -315,6 +317,7 @@ function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { //
     best_time_to_call: data.bestTimeToCall ?? null,
     notes: data.notes ?? null,
     assigned_agent_id: data.assignedAgentId,
+    user_id: data.userId || data.assignedAgentId,
     last_contacted_at: data.lastContactedAt ?? null,
     custom_fields: data.customFields ?? null,
   };

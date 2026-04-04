@@ -45,6 +45,7 @@ export async function importLeadsToSupabase(
       best_time_to_call: row.bestTimeToCall || "",
       notes: row.notes || "",
       assigned_agent_id: row.assignedAgentId || null,
+      user_id: row.userId || row.assignedAgentId || null,
       organization_id: organizationId,
       custom_fields: row.customFields || {},
       updated_at: new Date().toISOString(),

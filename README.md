@@ -1,73 +1,31 @@
-# Welcome to your Lovable project
+# AgentFlow — Life Insurance CRM & Power Dialer
+**Owner:** Chris Garness
 
-## Project info
+## Project Overview
+AgentFlow is a niche-specific CRM and Power Dialer built exclusively for Life Insurance Agencies. It integrates high-velocity calling via Telnyx, multi-tenant lead management via Supabase, and a premium enterprise UI.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## How to Edit This Code
 
-## How can I edit this code?
+### 1. Work with AI Engineering (Recommended)
+This project is primarily built and maintained using **Agentic AI Engineering**. 
+- Provide instructions, feedback, or screenshots directly to your AI Assistant.
+- The AI agent will manage the codebase, implement features, and push changes directly to the `main` branch to keep environments in sync.
 
-There are several ways of editing your application.
+### 2. Manual Local Development
+If you need to work locally:
+1.  **Clone the repository**: `git clone <YOUR_GIT_URL>`
+2.  **Install dependencies**: `npm install`
+3.  **Start development server**: `npm run dev`
+4.  **Run tests**: `npm test`
 
-**Use Lovable**
+## Technologies Used
+- **Frontend**: Vite, React (TypeScript), Tailwind CSS, Radix UI, Lucide
+- **State & Data**: Supabase (PostgreSQL), TanStack Query, Zod
+- **Telephony**: Telnyx WebRTC SDK
+- **Backend**: Supabase Edge Functions (Deno), Resend SDK
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Deployment
+The project is configured for deployment via **Vercel** and **Supabase Edge Functions**.
+- Pushing to `main` triggers an automatic build/deploy cycle.
+- Manual Edge Function deploys: `supabase functions deploy [function-name]`
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)

@@ -94,6 +94,7 @@ export interface Lead {
   spouseInfo?: string;
   notes?: string;
   assignedAgentId: string;
+  userId: string;
   lastContactedAt?: string;
   attemptCount?: number;
   lastDisposition?: string;
@@ -121,6 +122,7 @@ export interface Client {
   beneficiaryPhone?: string;
   notes?: string;
   assignedAgentId: string;
+  userId: string;
   customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -136,6 +138,7 @@ export interface Recruit {
   status: string;
   notes?: string;
   assignedAgentId: string;
+  userId: string;
   createdAt: string;
   updatedAt: string;
 }

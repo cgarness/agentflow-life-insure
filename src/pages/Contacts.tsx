@@ -253,7 +253,12 @@ const Contacts: React.FC = () => {
       // Only pass assignedAgentIds when the user has explicitly selected specific
       // downline agents. When the array is empty, omit the filter entirely so that
       // RLS hierarchical policies (Team Leader, Admin) return ALL accessible records.
-      const agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
+      // FORCE filter for current user if they are an Agent to comply with visibility fix.
+      let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
+      
+      if (!agentIdFilter && user?.role === "Agent" && user?.id) {
+        agentIdFilter = [user.id];
+      }
 
       const leadFilters = {
         search: searchQuery,
@@ -1282,7 +1287,7 @@ const Contacts: React.FC = () => {
       {/* Tabs */}
       <div className="flex items-center border-b">
         {tabs.map(t => (
-          <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setStateFilter(""); setPolicyTypeFilter(""); setDownlineAgentId(""); setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]); setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
+          <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setStateFilter(""); setPolicyTypeFilter(""); setDownlineAgentIds([]); setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]); setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
             className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}>{t}</button>
         ))}
         <div className="w-px h-5 bg-border mx-2 self-center" />

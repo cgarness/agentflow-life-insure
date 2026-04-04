@@ -80,3 +80,12 @@ All Edge logic, WebRTC code, Database Policies, and App States must be validated
   *Developer Note:* Removed generic UI click-to-dials enforcing Telephony to single views. Engineered `import-contacts` Edge Function with Bouncer RLS queries ensuring `user_id` downline security. Constructed advanced UI states for Round-Robin/Specific deployments. Centralized the 'Holding Pen' Resolution Queue trapping imports side-by-side for manual Manager review if duplicates trigger.
 - **2026-04-02 | 10:50 AM PST | [DONE] Production Go-Live Audit**  
   *Developer Note:* Executed full codebase sweep. Confirmed zero `service_role` leaks and purged legacy `bun.lock` files. Audited RLS policies for `leads`, `calls`, and `appointments` confirming strict `auth.uid()` isolation. Verified `makeCall` telephony guard. System is 100% ready for production.
+
+- **2026-04-04 | 9:58 AM PST | [DONE] Lovable Infrastructure Decoupling**  
+  *Developer Note:* Completely removed Lovable-specific documentation, prompt guidelines, and sync instructions from `README.md` and `AGENT_RULES.md`. Established Antigravity as the project's primary engineering tool and architectural lead. Updated internal Agent Rules artifact to Version 2.1.0 reflecting the new direct-AI-to-GitHub workflow.
+
+- **2026-04-04 | 10:01 AM PST | [DONE] AI Agent Rule Generalization**  
+  *Developer Note:* Generalized all internal documentation and rules to apply to any AI engineering agent interacting with the project. Replaced tool-specific names with role-based designations (Primary Engineering Agent, Advanced Architectural Agent, AI Orchestrator) to ensure cross-agent protocol synergy. Updated `agent_rules.md` artifact to Version 2.2.0.
+
+- **2026-04-04 | 10:05 AM PST | [DONE] Notion Infrastructure Removal**  
+  *Developer Note:* Completely decoupled the project from Notion. Deleted Notion sync scripts and removed `@notionhq/client` dependency. Established **VISION.md** in the repository root as the new project North Star. Re-engineered `AGENT_RULES.md` to shift all session synchronization and knowledge tracking to repository-hosted markdown files (`ROADMAP.md` and `VISION.md`). Updated internal Agent Rules artifact to Version 2.3.0.
