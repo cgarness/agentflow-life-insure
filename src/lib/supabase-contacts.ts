@@ -145,7 +145,11 @@ export const leadsSupabaseApi = {
     if (data.healthStatus !== undefined) updateData.health_status = data.healthStatus;
     if (data.bestTimeToCall !== undefined) updateData.best_time_to_call = data.bestTimeToCall;
     if (data.notes !== undefined) updateData.notes = data.notes;
-    if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+    if (data.assignedAgentId !== undefined) {
+      updateData.assigned_agent_id = data.assignedAgentId;
+      // Keep user_id in sync with assigned_agent_id so RLS policy (user_id = auth.uid()) stays valid
+      updateData.user_id = data.assignedAgentId;
+    }
     if (data.spouseInfo !== undefined) updateData.spouse_info = data.spouseInfo;
     if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
     if (data.lastContactedAt !== undefined) updateData.last_contacted_at = data.lastContactedAt;
@@ -255,7 +259,8 @@ export const leadsSupabaseApi = {
 
   async reassignAllContacts(fromUserId: string, toUserId: string): Promise<{ leads: number; clients: number; recruits: number }> {
     const [leadsRes, clientsRes, recruitsRes] = await Promise.all([
-      supabase.from("leads").update({ assigned_agent_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
+      // user_id must be kept in sync with assigned_agent_id so RLS policy (user_id = auth.uid()) stays valid
+      supabase.from("leads").update({ assigned_agent_id: toUserId, user_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
       supabase.from("clients").update({ assigned_agent_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
       supabase.from("recruits").update({ assigned_agent_id: toUserId }).eq("assigned_agent_id", fromUserId).select("id"),
     ]);
