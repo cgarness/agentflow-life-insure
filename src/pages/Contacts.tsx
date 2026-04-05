@@ -248,7 +248,14 @@ const Contacts: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
+    if (!user?.id) {
+      console.warn("fetchData: No authenticated user found, skipping fetch.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
+    console.log(`fetchData: Fetching contacts for user ${user.id} (${user.role})`);
     try {
       // Only pass assignedAgentIds when the user has explicitly selected specific
       // downline agents. When the array is empty, omit the filter entirely so that
@@ -299,6 +306,10 @@ const Contacts: React.FC = () => {
       setRecruits(recruitData);
       setAgents(agentData);
       setSourceStats(stats);
+      console.log(`fetchData: Load complete. Leads: ${leadData.length}, Clients: ${clientData.length}, Recruits: ${recruitData.length}`);
+    } catch (err: any) {
+      console.error("fetchData: Failed to load contacts data:", err);
+      toast.error(`Critical Error: ${err.message || "Failed to fetch contacts"}`);
     } finally {
       setLoading(false);
     }

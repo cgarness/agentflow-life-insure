@@ -147,8 +147,7 @@ export const leadsSupabaseApi = {
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.assignedAgentId !== undefined) {
       updateData.assigned_agent_id = data.assignedAgentId;
-      // Keep user_id in sync with assigned_agent_id so RLS policy (user_id = auth.uid()) stays valid
-      updateData.user_id = data.assignedAgentId;
+      updateData.user_id = data.assignedAgentId; // Sync user_id for RLS consistency
     }
     if (data.spouseInfo !== undefined) updateData.spouse_info = data.spouseInfo;
     if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
@@ -230,7 +229,7 @@ export const leadsSupabaseApi = {
             healthStatus: row.healthStatus,
             bestTimeToCall: row.bestTimeToCall,
             notes: row.notes,
-            userId: row.userId || row.assignedAgentId || "",
+            userId: row.userId || row.assignedAgentId || null,
           }), organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           if (error) { errors++; } else { imported++; }
         } catch { errors++; }
