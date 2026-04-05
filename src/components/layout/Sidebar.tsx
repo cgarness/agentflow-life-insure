@@ -40,8 +40,8 @@ const Sidebar: React.FC = () => {
   const isSettings = location.pathname.startsWith("/settings");
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
-      <div className="flex items-center h-16 px-4 border-b border-sidebar-border shrink-0">
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-r border-border transition-colors duration-200">
+      <div className="flex items-center h-16 px-4 border-b border-border shrink-0">
         <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
           <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: branding.primaryColor || '#3B82F6' }}>
             {branding.logoUrl ? <img src={branding.logoUrl} className="w-full h-full object-cover rounded-lg" alt="L" /> : <span className="text-white font-bold text-sm">AF</span>}
@@ -59,30 +59,41 @@ const Sidebar: React.FC = () => {
               <div key={cat.label} className="mb-4">
                 {!collapsed && <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">{cat.label}</p>}
                 {cat.sections.map(s => (
-                  <SettingsNavItem key={s.slug} icon={s.icon} label={s.label} collapsed={collapsed} isActive={searchParams.get("section") === s.slug || (!searchParams.get("section") && s.slug === "my-profile")} 
-                    onClick={() => { setSearchParams({ section: s.slug }); setMobileOpen(false); }} />
-                ))}
-              </div>
+              <SettingsNavItem key={s.slug} icon={s.icon} label={s.label} collapsed={collapsed} isActive={searchParams.get("section") === s.slug || (!searchParams.get("section") && s.slug === "my-profile")} 
+                onClick={() => { setSearchParams({ section: s.slug }); setMobileOpen(false); }} />
             ))}
-          </>
-        ) : (
-          <>
-            {MAIN_MENU.map(item => <MainNavItem key={item.path} icon={item.icon} label={item.label} path={item.path} collapsed={collapsed} 
-              isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))} onClick={() => setMobileOpen(false)} />)}
-            {isSuperAdmin && <MainNavItem icon={ShieldAlert} label="Super Admin" path="/super-admin" collapsed={collapsed} isActive={location.pathname === "/super-admin"} variant="warning" onClick={() => setMobileOpen(false)} />}
-          </>
-        )}
-      </nav>
+          </div>
+        ))}
+      </>
+    ) : (
+      <>
+        {MAIN_MENU.map(item => <MainNavItem key={item.path} icon={item.icon} label={item.label} path={item.path} collapsed={collapsed} 
+          isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))} onClick={() => setMobileOpen(false)} />)}
+        {isSuperAdmin && <MainNavItem icon={ShieldAlert} label="Super Admin" path="/super-admin" collapsed={collapsed} isActive={location.pathname === "/super-admin"} variant="warning" onClick={() => setMobileOpen(false)} />}
+      </>
+    )}
+  </nav>
 
-      <div className="border-t border-sidebar-border p-3 space-y-3 shrink-0">
-        <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm hover:bg-sidebar-accent ${collapsed ? "justify-center" : ""}`}>
-          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
-        </button>
-        {!collapsed && <div className="flex items-center gap-3 px-3 py-2"><div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">{profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}</div><div className="min-w-0 font-medium truncate text-sidebar-accent-foreground">{profile ? `${profile.first_name} ${profile.last_name}` : "Guest"}</div></div>}
-        <button onClick={toggle} className="flex items-center justify-center w-full py-2 text-sidebar-muted hover:bg-sidebar-accent">{collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}</button>
+  <div className="border-t border-border p-3 space-y-3 shrink-0">
+    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-800 sidebar-transition ${collapsed ? "justify-center" : ""}`}>
+      {theme === "dark" ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
+      {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
+    </button>
+    {!collapsed && (
+      <div className="flex items-center gap-3 px-3 py-2">
+        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">
+          {profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}
+        </div>
+        <div className="min-w-0 font-medium truncate text-slate-900 dark:text-slate-100">
+          {profile ? `${profile.first_name} ${profile.last_name}` : "Guest"}
+        </div>
       </div>
-    </div>
+    )}
+    <button onClick={toggle} className="flex items-center justify-center w-full py-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 transition-colors">
+      {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+    </button>
+  </div>
+</div>
   );
 
   return (

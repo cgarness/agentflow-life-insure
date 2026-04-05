@@ -42,8 +42,8 @@
 
 ## 3. Work Log (Recent History)
 
-- **2026-04-05 | [DONE] Sidebar & Settings UX Refactor**  
-  *Developer Note:* Implemented a unified "Settings Context" where the sidebar morphs into a categorised config navigator when on `/settings`. Eliminated internal tabs in `SettingsPage.tsx` in favour of URL-driven rendering (`?section=`). Consolidated 24 disparate tabs into 5 logical categories. Adhered to strict 200-line component architecture by modularising the Telephony, Agency, and System settings renderers.
+- **2026-04-05 | [DONE] Sidebar Contrast & Context Switch Fix**  
+  *Developer Note:* Fixed navigation text visibility in Light Mode by transitioning Sidebar and NavItems to high-contrast Slate-based styling (`bg-slate-50`, `text-slate-900`). Completed the unified Settings Context refactor with instantaneous sidebar swapping.
   
 - **2026-04-04 | [DONE] Lead Ownership Standardization**  
   *Developer Note:* Massive schema refactor to ensure every lead record across all states (Master, Campaign, Dialer) is pinned to a correct, RLS-checked `user_id`. Optimized hierarchical reporting for agency managers.
