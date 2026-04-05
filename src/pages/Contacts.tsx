@@ -296,7 +296,7 @@ const Contacts: React.FC = () => {
       };
 
       const [leadData, clientData, recruitData, agentData, stats] = await Promise.all([
-        leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); return []; }),
+        leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); toast.error(`Failed to load leads: ${e.message}`); return []; }),
         clientsSupabaseApi.getAll(clientFilters).catch(e => { console.error("Error fetching clients:", e); return []; }),
         recruitsSupabaseApi.getAll(recruitFilters).catch(e => { console.error("Error fetching recruits:", e); return []; }),
         usersApi.getAll({ search: searchQuery }).catch(e => { console.error("Error fetching agents:", e); return []; }),
