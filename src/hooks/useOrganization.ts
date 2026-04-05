@@ -17,8 +17,8 @@ export const useOrganization = () => {
       try {
         // Use basic base64 decoding for tokens
         const payload = JSON.parse(atob(session.access_token.split('.')[1]));
-        jwtOrgId = payload.org_id;
-        jwtRole = payload.user_role || "Agent";
+        jwtOrgId = payload.organization_id;
+        jwtRole = payload.role || "Agent";
         jwtIsSuperAdmin = payload.is_super_admin === true;
       } catch (e) {
         // JWT decode failed or malformed

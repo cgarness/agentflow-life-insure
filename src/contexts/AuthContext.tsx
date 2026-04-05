@@ -43,6 +43,7 @@ interface AuthContextType {
   session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isBuildingOrganization: boolean;
   impersonatedUser: Profile | null;
   isImpersonating: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -152,19 +153,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Token refreshing loop for new un-stamped sessions
   useEffect(() => {
-    if (session?.user && profile?.organization_id) {
+    if (session?.user && profile?.organization_id && profile?.role) {
       const orgIdClaim = session.user.app_metadata?.organization_id;
-      if (!orgIdClaim || orgIdClaim !== profile.organization_id) {
+      const roleClaim = session.user.app_metadata?.role;
+      
+      const needsOrgRefresh = !orgIdClaim || orgIdClaim !== profile.organization_id;
+      const needsRoleRefresh = !roleClaim || roleClaim !== profile.role;
+      
+      if (needsOrgRefresh || needsRoleRefresh) {
         setIsBuildingOrganization(true);
         let attempts = 0;
         const interval = setInterval(async () => {
           attempts++;
           const { data } = await supabase.auth.refreshSession();
-          if (data.session?.user?.app_metadata?.organization_id === profile.organization_id || attempts > 10) {
+          const newOrgId = data.session?.user?.app_metadata?.organization_id;
+          const newRole = data.session?.user?.app_metadata?.role;
+          
+          const orgSync = newOrgId === profile.organization_id;
+          const roleSync = newRole === profile.role;
+          
+          if ((orgSync && roleSync) || attempts > 10) {
             clearInterval(interval);
             if (data.session) setSession(data.session);
             setIsBuildingOrganization(false);
-            if (attempts > 10) console.warn("[Auth] Token refresh timed out. Local RLS evaluation may fail.");
+            if (attempts > 10) console.warn("[Auth] Token refresh timed out. Role/Org RLS evaluation may be stale.");
           }
         }, 1000);
         return () => clearInterval(interval);
@@ -313,7 +325,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       realProfile: profile,
       impersonatedUser,
       isImpersonating: !!impersonatedUser,
-      session, isAuthenticated: !!session, isLoading,
+      session, isAuthenticated: !!session, isLoading, isBuildingOrganization,
       login, signup, logout, resetPassword, updateProfile,
       checkProfileSetupNeeded, markProfileSetupSeen,
       startImpersonation, stopImpersonation

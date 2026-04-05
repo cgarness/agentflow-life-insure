@@ -209,8 +209,8 @@ const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: ()
 
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
-  const { user } = useAuth();
-  const { organizationId } = useOrganization();
+  const { user, isBuildingOrganization } = useAuth();
+  const { organizationId, role } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -248,14 +248,15 @@ const Contacts: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    if (!user?.id) {
-      console.warn("fetchData: No authenticated user found, skipping fetch.");
+    if (!user?.id || isBuildingOrganization) {
+      console.warn(`fetchData: ${!user?.id ? "No user" : "Building organization"}, skipping fetch.`);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    console.log(`fetchData: Fetching contacts for user ${user.id} (${user.role})`);
+    // Secure diagnostic logging (no PII)
+    console.info(`[Diagnostic] Session Ready. User: ${user.id.slice(0, 8)}... | Role: ${role} | Org: ${organizationId?.slice(0, 8)}...`);
     try {
       // Only pass assignedAgentIds when the user has explicitly selected specific
       // downline agents. When the array is empty, omit the filter entirely so that
