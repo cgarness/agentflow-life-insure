@@ -21,7 +21,7 @@ export const leadsSupabaseApi = {
       .from("leads")
       .select(`
         *,
-        calls(status, created_at)
+        call_logs(status, created_at)
       `)
       .order("created_at", { ascending: false });
 
@@ -297,8 +297,8 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
     assignedAgentId: row.assigned_agent_id,
     userId: row.user_id,
     lastContactedAt: row.last_contacted_at ?? undefined,
-    attemptCount: (row.calls || []).length,
-    lastDisposition: [...(row.calls || [])].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.status,
+    attemptCount: (row.call_logs || []).length,
+    lastDisposition: [...(row.call_logs || [])].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.status,
     customFields: row.custom_fields ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
