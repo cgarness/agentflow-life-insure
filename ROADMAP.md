@@ -1,91 +1,63 @@
-# AgentFlow: Living Roadmap
+# AgentFlow | Living Roadmap 🚀
 
-**Last Updated:** April 2026
-**Primary Demographic:** Life Insurance Agencies
-
-This file serves as the definitive source of truth across all AI tools and sessions building AgentFlow. It establishes rigorous tracking over deployments, environment variables, core migrations, and the exact state of functional modules. 
-
-All Edge logic, WebRTC code, Database Policies, and App States must be validated against this structure prior to generation.
+**Owner:** Chris Garness | **Last Updated:** April 5, 2026
+**Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
 
 ## 1. System Status & Module Health
 
-### Authentication & Tenant Structure `[STABLE]`
-- **State**: The `auth.users` engine successfully triggers mirroring actions to `public.profiles`. RLS bounds are heavily scoped via JWT claims to ensure zero multi-tenant data bleed. Super Admin override exists via the `is_super_admin` role.
-- **Next Up**: Finalize Resend-based transactional emailing from inside the invitation and password reset `.maybeSingle()` edge loops.
+### 🔐 Authentication & Tenant Isolation `[STABLE]`
+- **State**: Supabase Auth triggers `profiles` mirroring. Multi-tenant isolation is enforced via custom JWT claims (`organization_id`, `role`) and hierarchical `ltree` logic for downline management.
+- **Recent Update**: Standardized `leads.user_id` and implemented `standardize_leads_user_id.sql` to ensure perfect ownership tracking.
+- **Next Up**: Finalize invitation logic for Managers to invite downline Agents with auto-assigned `upline_path`.
 
-### Supabase Database Architecture `[HARDENED]`
-- **State**: `organizations`, `profiles`, `calls`, `campaign_leads`, `telnyx_settings`.
-- **Role Scoping**: 
-  - Admin = Sees entire `<org_id>`
-  - Manager = Sees personal elements `+` hierarchy agents via `ltree` structure.
-  - Agent = Sees only strict `auth.uid()` bounds.
+### 🏗️ Database Infrastructure `[AUDITED — REWORKING]`
+- **State**: The core table audit (Step 2) identified critical missing root objects.
+- **Gaps**: Missing physical `organizations` table, `tasks` (follow-ups), and `dial_sessions` (metrics blocks).
+- **Next Up**: Execute **SaaS Core Migration Block** to create `organizations` (multi-tenancy root), `tasks`, and `dial_sessions`.
 
-### Power Dialer & Telephony Stack `[ACTIVE, TWO-LEGGED]`
-- **State**: Advanced Server-Side bridging in production via `telnyx-webhook`. The flow is fundamentally decentralized from the UI. 1. Agent asks for dial. 2. Edge Function dials the prospect (PSTN Leg 1). 3. Webhook parses Answer/Hangup (detects AMD natively). 4. Upon detecting humans it executes bridging to the React WebRTC SDK.
-- **Constraints**: Telnyx Keys and App-IDs must *never* be handled on the frontend; they must always query from Supabase Vaults.
-- **Next Up**: Optimize state boundaries replacing rigid `DialerPage.tsx` array loads with dynamic Realtime Injection.
+### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
+- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers.
+- **Features**: Smart Caller ID (Local Presence), Answering Machine Detection (AMD), Ring Timeout, and mandatory dispositions.
+- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time.
 
-### CRM & Kanban Visualization `[IN PROGRESS]`
-- **State**: Contacts are structurally partitioned via rigid SQL definitions into `Leads` (Pipeline), `Clients` (Closed-Won), and `Recruits` (Agency).
-- **Next Up**: Transitioning legacy flat-data data tables onto a `@dnd-kit` visual Drag-n-Drop Kanban dashboard inherently updating standard SQL lifecycles via RPCs natively. 
+### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
+- **State**: Entirely missing billing and SaaS partitioning layer.
+- **Features Required**: Stripe integration, subscription tiers (Starter, Pro, Agency), and plan-based limiting (User caps, Dialing limits).
+- **Next Up**: Initialize Stripe SDK and construct the `billing` Edge Function for subscription lifecycle management.
 
 ---
 
-## 2. Environment Variables Log
+## 2. Recent Database Migration History (April 2026)
 
-| Variable Name | Required Location | Domain |
+| Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
-| `TELNYX_API_KEY` | Edge Secrets (`telnyx_settings` table proxy) | Dialer Integration |
-| `SUPABASE_URL` | Edge Native / React Root | App Backbone |
-| `SUPABASE_ANON_KEY` | React Root | Frontend Reads |
-| `SUPABASE_SERVICE_ROLE_KEY` | Edge Secrets | Webhook writes & RLS Bypasses |
-| `RESEND_API_KEY` | Edge Secrets | Transactional emails |
-| `OPENAI_API_KEY` | Edge Secrets | AI Analysis & Features |
-| `PUBLIC_SITE_URL` | Edge Secrets | Auth Redirection (Production) |
+| `20260404000000` | `standardize_leads_user_id.sql` | Aligned all lead ownership to unified `user_id` field for RLS performance. |
+| `20260404000001` | `fix_leads_user_id_drift.sql` | Repaired historical lead data drift where ownership mapping was disconnected. |
+| `20260404100000` | `dialer_rls_audit.sql` | Hardened Row-Level Security for campaigns and dialer state components. |
+| `20260405000000` | `sync_leads_user_id_trigger.sql` | Added real-time trigger to sync master lead ownership with campaign states. |
 
 ---
 
-## 3. Database Migration History (Most Recent)
+## 3. Work Log (Recent History)
 
-| Migration ID | File Name / Topic | Result |
-| :--- | :--- | :--- |
-| `20260401000300` | `harden_handle_new_user.sql` | Fixed silent profile creation crashes by enforcing complete Null-Safety. |
-| `20260401000400` | `update_invitations_rls.sql` | Enforced strict organizational cross-tenant checks on newly invited agents. |
-| `20260402000004` | `fix_invitations_leak.sql` | Hardened invitation RLS policies and added secure RPC for token verification. |
+- **2026-04-05 | [DONE] Sidebar & Settings UX Refactor**  
+  *Developer Note:* Implemented a unified "Settings Context" where the sidebar morphs into a categorised config navigator when on `/settings`. Eliminated internal tabs in `SettingsPage.tsx` in favour of URL-driven rendering (`?section=`). Consolidated 24 disparate tabs into 5 logical categories. Adhered to strict 200-line component architecture by modularising the Telephony, Agency, and System settings renderers.
+  
+- **2026-04-04 | [DONE] Lead Ownership Standardization**  
+  *Developer Note:* Massive schema refactor to ensure every lead record across all states (Master, Campaign, Dialer) is pinned to a correct, RLS-checked `user_id`. Optimized hierarchical reporting for agency managers.
+
+- **2026-04-04 | [DONE] Agent Rule & Documentation Generalization**  
+  *Developer Note:* Decoupled codebase from Lovable/Notion. Established **VISION.md** and **ROADMAP.md** as repository-native sources of truth. Updated **AGENT_RULES.md (v2.3.0)** to focus on the Antigravity (AI Orchestrator) workflow.
+
+- **2026-04-02 | [DONE] Production Readiness Audit**  
+  *Developer Note:* Verified security boundaries. Confirmed absolute RLS isolation for Leads, Clients, and Appointments. Verified Telnyx WebRTC stability for agent "Power Hours."
 
 ---
 
-## 4. Work Log (Check-in/Check-out)
-
-> *Format: Date | Task Completed | Notes*
-
-- **2026-04-01 | [DONE] Arch Manual Baseline Built**  
-  *Developer Note:* Established foundational `AGENT_RULES.md` rules and generated the complete architectural reports bounding the AI logic completely to the Life Insurance vertical. Solidified the "Webhook-First" and `Resend SDK` strategies.
-
-- **2026-04-01 | [DONE] Codebase Hardening Sprint (Phase 1)**  
-  *Developer Note:* Replaced dangerous `.single()` data fetching calls with `.maybeSingle()` across Dashboard and core configs. Added exact `Zod` form validation to `AddLeadModal` and `AddClientModal`. Installed automatic network drop reconnect logic into the `TelnyxContext` WebRTC hook.
-
-- **2026-04-02 | [DONE] Automated Call Activity Logging**  
-  *Developer Note:* Captured WebRTC states inside `TelnyxContext` via `activeLeadIdRef`. Non-blocking `insertCallLog` method implemented to persist metrics to new `call_logs` table (migration `20260402000000_create_call_logs.sql`).
-
-- **2026-04-02 | [DONE] JWT Auth Claims & RLS Optimization**  
-  *Developer Note:* Eradicated slow RLS subqueries. Pushed `organization_id` natively into `auth.users.raw_app_meta_data` via SQL trigger (`20260402000001_jwt_auth_claims.sql`). Re-wrote `leads`, `clients`, and `call_logs` policies relying strictly on `public.get_org_id()` (`20260402000002_lockdown_rls.sql`). Handled token issuance latency by blocking new agent dashboards with a polling loading spinner in `AuthContext.tsx`.
-
-- **2026-04-01 | 7:37 PM PST | [DONE] Authentication & Onboarding QA Audit**  
-  *Developer Note:* Surgically addressed 5 critical bugs. Fixed UI/UX parity for Signup and AcceptInvite pages. Implemented a dedicated Confirmation page and forced email verification by disabling automatic confirmation in the `create-user` Edge Function. Hardened invitation management with a "Revoke -> Delete" flow and secure RLS isolation. (Migration `20260402000004_fix_invitations_leak.sql`).
-
-- **2026-04-02 | 8:41 AM PST | [DONE] Contacts QA Audit & Edge Routing**  
-  *Developer Note:* Removed generic UI click-to-dials enforcing Telephony to single views. Engineered `import-contacts` Edge Function with Bouncer RLS queries ensuring `user_id` downline security. Constructed advanced UI states for Round-Robin/Specific deployments. Centralized the 'Holding Pen' Resolution Queue trapping imports side-by-side for manual Manager review if duplicates trigger.
-- **2026-04-02 | 10:50 AM PST | [DONE] Production Go-Live Audit**  
-  *Developer Note:* Executed full codebase sweep. Confirmed zero `service_role` leaks and purged legacy `bun.lock` files. Audited RLS policies for `leads`, `calls`, and `appointments` confirming strict `auth.uid()` isolation. Verified `makeCall` telephony guard. System is 100% ready for production.
-
-- **2026-04-04 | 9:58 AM PST | [DONE] Lovable Infrastructure Decoupling**  
-  *Developer Note:* Completely removed Lovable-specific documentation, prompt guidelines, and sync instructions from `README.md` and `AGENT_RULES.md`. Established Antigravity as the project's primary engineering tool and architectural lead. Updated internal Agent Rules artifact to Version 2.1.0 reflecting the new direct-AI-to-GitHub workflow.
-
-- **2026-04-04 | 10:01 AM PST | [DONE] AI Agent Rule Generalization**  
-  *Developer Note:* Generalized all internal documentation and rules to apply to any AI engineering agent interacting with the project. Replaced tool-specific names with role-based designations (Primary Engineering Agent, Advanced Architectural Agent, AI Orchestrator) to ensure cross-agent protocol synergy. Updated `agent_rules.md` artifact to Version 2.2.0.
-
-- **2026-04-04 | 10:05 AM PST | [DONE] Notion Infrastructure Removal**  
-  *Developer Note:* Completely decoupled the project from Notion. Deleted Notion sync scripts and removed `@notionhq/client` dependency. Established **VISION.md** in the repository root as the new project North Star. Re-engineered `AGENT_RULES.md` to shift all session synchronization and knowledge tracking to repository-hosted markdown files (`ROADMAP.md` and `VISION.md`). Updated internal Agent Rules artifact to Version 2.3.0.
+## 4. Phase 4 Deployment Strategy (Q2 2026)
+1.  **SaaS Infrastructure**: Deploy `organizations` table and Stripe billing loops.
+2.  **Follow-up Engine**: Deploy `tasks` and unified `notifications` for agent follow-ups.
+3.  **Real-Time Metrics**: Connect `dial_sessions` to custom agent leaderboards based on live telnyx connects.
+4.  **GO-LIVE**: Final production rollout for agency trial users.

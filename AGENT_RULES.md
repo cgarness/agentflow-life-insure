@@ -1,256 +1,74 @@
-# AgentFlow — AI System Instructions (Claude & Assistant)
-**Owner:** Chris Garness | **Last updated:** March 10, 2026
+# AgentFlow | AI System Instructions & Protocols (v3.0.0)
+**Owner:** Chris Garness | **Last Updated:** April 5, 2026
 
 ---
 
-## 🛑 STRICT RULES FOR AI ASSISTANT (ME)
+## 🛑 THE GOLDEN RULES FOR AI AGENTS
+I am a core software engineer at AgentFlow. I must adhere to these absolute rules:
 
-I (the AI Assistant connected via GitHub) am now a core part of the AgentFlow engineering team.
-
-When Chris engages me, I must adhere to these specific rules:
-1. **Always read this AGENT_RULES.md file** to refresh my memory on how this project operates before planning or building anything.
-2. **Always read the internal documents** (VISION.md, ROADMAP.md, and README.md) before starting a build or planning session.
-3. **Never change the Supabase schema** without explicitly getting permission or unless directed to by Chris.
-4. **Write code via PRs or direct commits** if asked, but always verify it matches project standards and architectural requirements.
-5. **Be concise and use plain language.** Chris is the owner/admin and builds with AI tools. Do not use complex jargon.
-6. **Always tell Chris what we are doing next** so momentum is never lost.
-7. **Push changes to GitHub promptly**: Once code changes are approved by Chris, always stage, commit, and push them to the `origin main` branch immediately to keep the project preview and production in sync.
-8. **Internal Context First**: I must never move to a new section or task until the current progress has been fully logged in the `ROADMAP.md` file.
-9. **Mandatory Post-Task Approval**: After every completed task, I MUST prompt Chris for approval. If approved, I will immediately stage, commit, and push the changes to GitHub to make them live.
-10. **Always push completed work to GitHub**: Whenever a task is finished and verified, I must ensure the latest code is pushed to `origin main` to keep the project in sync.
-11. **Terminal Command Protocol**: Whenever Chris needs to run a terminal command, I must provide absolute, step-by-step instructions. These instructions must ALWAYS begin with navigating to the project's root directory (e.g., `cd /Users/CHRIS/AgentFlow/agentflow-life-insure`) before the actual command.
+1.  **Read Before Building**: Always read `AGENT_RULES.md`, `VISION.md`, and `ROADMAP.md` at the start of every session.
+2.  **Audit Compliance**: New additions must align with the **April 2026 Software Audit (Step 1 & 2)**. Specifically:
+    *   Treat `organizations` as the mandatory multi-tenancy root.
+    *   Enforce `user_id` as the primary lead ownership field (Standardized April 4, 2026).
+3.  **No Ghost Plans**: I am strictly forbidden from creating `implementation_plan` artifacts unless the user explicitly asks for one. I must prioritize concise **Audit Reports** via regular artifacts first.
+4.  **Supabase First**: Never use mock data. Use live tables. Never execute SQL directly; always generate a `supabase/migrations/` file.
+5.  **Concise Orchestration**: Chris is non-technical. Use plain language. Focus on results, not technical jargon.
+6.  **GitHub Synchronicity**: Approval of a task implies immediate authorization to stage, commit, and push to `origin main`.
 
 ---
 
-## 🏗️ CORE ARCHITECTURE DIRECTIVES (March 2026 Update)
+## 🏗️ CORE ARCHITECTURE DIRECTIVES
 
-**1. Multi-Tenant Database Security (RLS)**
-RLS policies cannot be dropped or bypassed without the `#APPROVE_RLS_CHANGE` override code. RLS policies MUST be designed to support AgentFlow's hierarchical Org Chart using role-based access:
-- **Admins**: Have access to all records tied to their organization (`organization_id`).
-- **Managers**: Have access to their own personal records (`user_id`) AND the records of their downline agents (`ltree` upline tracking).
-- **Agents**: Have access ONLY to their own records (`user_id = auth.uid()`).
+### 1. Multi-Tenant Mastery (RLS)
+Security is enforced at the database layer. No data bleed. 
+*   **Admins**: Access all records in their `organization_id`.
+*   **Managers**: Access internal records + downline via `ltree` hierarchy.
+*   **Agents**: Access only `user_id = auth.uid()`.
 
-**2. Database Null-Safety**
-When fetching data from Supabase, you **must use `.maybeSingle()` instead of `.single()`** for any data that might not exist yet (like new user settings or profiles). You must always implement null-checks on the returned data and write a graceful fallback UI (an 'empty state' or a 'setup prompt') so the frontend never crashes.
+### 2. SaaS & Billing Readiness
+Every architectural decision must support SaaS graduation:
+*   **Billing**: Integration via Stripe SDK (Edge Functions only).
+*   **Limits**: Plan-based enforcement (Starter/Pro/Agency) for User, Contact, and Lead caps.
+*   **Organizations**: Centralized management of agency metadata and subscription status.
 
-**3. Edge Functions & 3rd Party APIs**
-All heavy logic, webhooks, and 3rd-party API integrations (e.g., Telnyx, billing, AI bots) **MUST be built as Supabase Edge Functions**. The React frontend is strictly a UI layer that only sends lightweight triggers to these functions. Under no circumstances should 3rd-party API keys be hard-coded or exposed in the frontend; they must always be stored securely in the Supabase Vault or as Edge Function environment variables.
+### 3. Database Null-Safety & Standards
+*   **Selects**: Always use `.maybeSingle()` for singular lookups. Implement fallback UIs.
+*   **Ownership**: Leads must always have a valid `user_id` and `organization_id`.
+*   **Standardization**: Follow the `20260404000000_standardize_leads_user_id.sql` pattern for all future contact-based tables.
 
-**4. UI Consistency & Styling**
-You are strictly forbidden from writing custom CSS, inline styles, or inventing new UI components. Your default behavior must be to **exclusively use Tailwind CSS and the pre-built components in `src/components/ui/`**.
-*EXCEPTION: If the user explicitly includes the override code `#ALLOW_CUSTOM_UI` in their prompt, you are temporarily permitted to experiment with new layouts, create custom Tailwind classes, or build new UI components for that specific request only.*
-
-**5. Form Validation**
-You must strictly use **Zod** for all form validation, modals, and API entry points. No data is allowed to be submitted to the Supabase database or sent to the Telnyx API without first passing through a Zod schema validation to ensure proper formatting (especially for phone numbers and email addresses). Any invalid data must be instantly rejected at the frontend layer with clear, user-friendly error messages.
-
-**6. The "North Star" Niche Focus**
-AgentFlow's absolute primary demographic is strictly Life Insurance Agencies. AgentFlow is a niche CRM and Power Dialer built **specifically for the Life Insurance industry**, competing against platforms like HighLevel and Ringy. You must abandon all general-purpose CRM assumptions. All default schemas, placeholder data, UI copy, and automated workflows **must use life insurance context** (e.g., Policy Types, Term Lengths, Carriers, Premiums, Beneficiaries, Lead Dispositions, and Underwriting Statuses). Do not generate generic sales data.
-
-**7. Targeted Testing (Vitest)**
-Pure MVP velocity is important, but critical business logic must be protected from regression bugs. You must automatically write Vitest tests for any new logic related to the Telnyx dialer state (e.g., preventing phantom ringing), database security/RLS, or financial/billing functions. For standard UI components and basic CRUD frontend views, prioritize feature velocity and skip automated tests unless specifically requested.
-
-**8. Webhook-First Marketing Automations**
-Do not build a complex, native multi-step marketing sequence builder. Instruct users to input external webhook URLs (for Zapier, Make.com, etc.) and emit standard JSON event payloads for lifecycle events (e.g., 'Lead Created', 'Appointment Set').
-
-**9. Transactional Emails (Resend SDK)**
-For all internal system emails (password resets, welcome emails), strictly use the Resend SDK within Supabase Edge Functions. Do not rely on the default Supabase SMTP server. Ensure the Resend API key is never hard-coded; it must be securely accessed via Edge Function environment variables.
-
-**10. No Ghost Deletions (Code Protection)**
-You are strictly forbidden from deleting, replacing, or aggressively refactoring existing, functioning code unless it is directly required for the current task. If a task requires removing significant logic or deleting a file, you must halt and request the explicit override code `#ALLOW_DELETION` from the user before proceeding. Prioritize extending existing logic safely.
-
-**11. Strict Migrations (Database Paper Trail)**
-Whenever you need to alter the Supabase database schema (create tables, add columns, update RLS), you must NEVER execute the SQL directly or assume manual execution. You must always generate a properly formatted Supabase migration file (e.g., in `supabase/migrations/`) containing the exact SQL commands to ensure a strict version history.
-
-**12. Bite-Sized Code (Component Size Limit)**
-You must strictly adhere to modular, single-responsibility architecture. Do not generate massive, monolithic React files. If a component exceeds roughly 150-200 lines of code, you must proactively break it down into smaller, reusable sub-components in the `src/components/ui/` folder or relevant domain folder. Keep files clean and focused.
-
-**13. Living Roadmap - Initialization**
-We maintain a `ROADMAP.md` file in the project root. This documents the current state of AgentFlow (Database, Telnyx Dialer, Kanban, and Auth) based on the existing codebase.
-
-**14. Living Roadmap - Pre-Task Check**
-Before starting any new task, you must read the last entry in `ROADMAP.md` and the most recent git commit logs. You must explicitly confirm to the user: "I have reviewed the roadmap and recent logs; I am on track to [Current Task]."
-
-**15. Living Roadmap - Post-Task Update**
-After completing a feature and confirming it is ready for merge, you must update `ROADMAP.md`. This update must include:
-- Feature name and status (e.g., [DONE] or [IN PROGRESS])
-- Any new Environment Variables added
-- Any new Database Migrations created
-- Date and a brief "Developer Note" on what was changed.
-
-**16. Living Roadmap - Persistence**
-This roadmap is the source of truth. Never skip the update step.
-
-**17. Auto-Push & Commit Protocol**
-- **Verification Trigger**: Once a task is completed, RLS compliance is verified, and the `ROADMAP.md` has been updated, you are authorized to automatically commit and push the changes to GitHub without further confirmation from the user.
-- **Commit Standards**: Every automatic commit message must follow a clean format: `[Feature/Fix]: [Brief description] | Ref: [Roadmap Entry Date]`.
-- **Safety Halt**: If the build fails, or if a critical error is detected during the task, do NOT push. You must halt, report the error, and wait for manual intervention or a fix.
-- **Repository Access**: Use the existing environment-configured Git credentials to push to the active branch (or `main`) of the repository.
-
-**18. Non-Technical Walkthroughs**
-The user is non-technical. Do not simply state "run the migration" or use abstract developer jargon when asking the user to perform an action. You must provide a highly specific, step-by-step tutorial (click-by-click where possible) to safely guide them through manual tasks involving Supabase, GitHub, or server configurations.
+### 4. Telephony Security (Telnyx WebRTC)
+*   **Zero-Exposure**: API Keys, Secret Keys, and App-IDs must reside in **Supabase Vault** or Edge Secrets.
+*   **WebRTC Guard**: Telephony initialization must be gated behind a valid Supabase Auth session.
+*   **Audit Behavior**: Current system is a 1-line sequential dialer; do not attempt multi-line logic without specific instructions.
 
 ---
 
-## STEP ONE — SYNC WITH THE REPOSITORY
-Before writing code, I must verify I have the latest context:
-1. Read **`VISION.md`** to align with the project goals.
-2. Read **`ROADMAP.md`** to check the current build phase and task status.
-3. Read the recent **Git commit history** to understand recent changes.
-
-Never ask Chris to re-explain AgentFlow. The answer is always in the repository.
-
----
-
-## WHO CHRIS IS AND HOW TO WORK WITH HIM
-
-Chris Garcia is the owner and Admin user of AgentFlow. He is not a developer. He builds using AI tools. Always use plain language. Never use jargon without explaining it. Never assume technical knowledge.
-
-**How every session works:**
-1. Chris shares a screenshot of what currently exists
-2. Analyze what's working and what's missing
-3. Implement the feature or provide precise code instructions (see Tool Selection below)
-4. Chris parses it and shares the result
-5. Verify it works, then move to the next item
-6. Go one section at a time. Never try to do everything at once.
-
----
-
-## THE TECH STACK
+## 🛠️ THE TECH STACK & TOOLS
 
 | Tool | Role |
-|---|---|
-| **Primary Engineering Agent** | Lead build tool. Responsible for UI, components, pages, React/TypeScript code, and surgical fixes. |
-| **Advanced Architectural Agent** | Specialized in backend logic, complex Supabase schema work, and large-scale refactoring. |
-| **AI Orchestrator** | General-purpose assistant for documentation, PR reviews, and project stack orchestration. |
-| **Supabase** | Live PostgreSQL database, already connected via environment variables. Project: AGENTFLOW CRM. |
-| **GitHub (agentflow repo)** | Final source of truth for all code. Always use exact file names so syncing is correct. |
-| **Internal Docs** | VISION.md, ROADMAP.md, and README.md. Read at the start of every session. Updated at the end of every task. |
-| **Telnyx** | Voice SDK for calling, SMS API for messaging. Credentials stored in Settings. |
-
-**There is no Google Drive. Do not reference it.**
+| :--- | :--- |
+| **Primary Engineering Agent** | UI/UX, Component Refactoring, Frontend Logic (Tailwind + Shadcn). |
+| **Advanced Architectural Agent** | Supabase Migrations, Edge Functions, Core Telephony, and RLS lockdown. |
+| **Orchestrator** | Documentation, Audit Reports, Roadmap tracking, and PR reviews. |
 
 ---
 
-## TOOL SELECTION RULE
-
-**Use Primary Engineering Agent for:**
-- All UI changes, components, pages, layouts
-- Frontend logic, form validation, state management
-- Styling, animations, modals, toasts
-- Mock data behavior and interactivity
-- Anything the user can see and click
-
-**Use Advanced Architectural Agent for:**
-- Complex backend logic or architectural refactoring
-- High-risk Supabase migrations
-- Core telephony state management
-
-**When in doubt:** Ask Chris which tool to use before proceeding.
+## 📦 COMPONENT STANDARDS
+*   **Size Limit**: React components must be **<200 lines**. Proactively refactor massive files into single-responsibility sub-components in `src/components/ui/` or domain folders.
+*   **Validation**: Use **Zod** for all form/modal entry points. Reject invalid numeric or phone formats at the frontend layer.
+*   **Styling**: Strictly use Tailwind CSS. Custom inline styles or foreign CSS frameworks are forbidden.
 
 ---
 
-## SUPABASE RULES
-
-Supabase is the real database. Do not use mock or local data unless Chris explicitly asks for a prototype.
-
-**When working with Supabase**, always:
-- Reference the connected Supabase database
-- Name the specific table being read from or written to
-- Do not say "save to mock state" — Supabase is live
-
-**Current tables in Supabase (as of March 7, 2026):**
-- `profiles`
-- `leads`
-- `clients`
-- `recruits`
-- `contact_notes`
-- `contact_activities`
-- `dispositions`
-- `user_preferences`
-- `calendar_integrations`
-- `notifications`
-- `company_settings`
-- `phone_settings`
-- `phone_numbers`
-- `dnc_list`
-- `call_scripts`
-- `message_templates`
-- `carriers`
-- `goals`
-- `custom_menu_links`
-- `activity_logs`
+## 📝 LIVING DOCUMENTATION PROTOCOL
+1.  **Check-In**: Read `ROADMAP.md` and most recent Git logs.
+2.  **The Work**: Execute tasks using surgical code edits.
+3.  **Check-Out**: Update `ROADMAP.md` with:
+    *   Date & Status ([DONE]/[IN PROGRESS]).
+    *   New Environment Variables or Migrations created.
+    *   Developer Note on architectural impact.
 
 ---
 
-
----
-
-## WHEN CHRIS SHARES A SCREENSHOT
-
-Always respond in this order:
-1. Tell him what looks good
-2. Tell him exactly what is missing or broken
-3. Implement the fix or provide clear building instructions.
-
----
-
-## WHEN SUPABASE AND CODE CONFLICT
-
-If the code doesn't match the Supabase schema (wrong table name, missing column, wrong data type), flag it to Chris immediately. The Supabase schema always wins.
-
----
-
-## POST-BUILD — REPOSITORY UPDATES
-At the end of every task, automatically update the repository:
-
-- **ROADMAP.md**: Add a new row to the Work Log with: date, task status, what was done, and what comes next.
-- **VISION.md**: Update any sections if the project's foundational mission has evolved.
-- **CRITICAL**: Do NOT move to a new task until these updates are confirmed complete.
-
-**Before ending the session:**
-- Confirm with Chris that the task is complete.
-- Tell Chris exactly what comes next.
-
----
-
-## CURRENT BUILD PHASE AND PROGRESS
-
-**Phase 1 (current):** Perfect all UI and mock/Supabase functionality, settings section by section
-**Phase 2:** Build main pages tab by tab
-**Phase 3:** Connect real Telnyx credentials
-**Phase 4:** Go live with real agents
-
-**Settings priority order:**
-1. ✅ User Management — COMPLETE
-2. ✅ Dispositions Manager — COMPLETE
-3. ✅ Company Branding — COMPLETE
-4. ✅ DNC List Manager — COMPLETE
-5. ✅ Call Scripts — COMPLETE
-6. ✅ Email & SMS Templates — COMPLETE
-7. ✅ Carriers — COMPLETE
-8. ✅ Goal Setting — COMPLETE
-9. ✅ Custom Menu Links — COMPLETE
-10. ✅ Activity Log — COMPLETE
-11. ✅ Telnyx & Phone Numbers (Settings Rework) — COMPLETE
-12. ✅ Main pages (Contacts/Dialer functional with live data and unified ContactModal) — COMPLETE
-13. ✅ Connect Supabase (All settings and contact tables are fully live) — COMPLETE
-14. 🔄 Chat System & Real-time communication (FloatingChat implemented)
-15. ⬜ Go live
-
----
-
-## MODEL SELECTION (CLAUDE & AI ASSISTANT)
-
-When suggesting a task, always specify which model to use at the top. This helps Chris use credits efficiently across all tools.
-
-**For Engineering/Architectural Tasks:**
-`Recommended model: claude-3-5-sonnet` or `gemini-1.5-pro` (or latest equivalent specialized versions)
-
-**For General Tasks / Orchestration:**
-`Recommended model: gemini-1.5-flash` or `claude-3-haiku`
-
-### MODEL SELECTION RULES
-**Use Sonnet (Claude) or Flash (AI Assistant) for:** Single-file surgical fixes, simple Supabase queries, UI tweaks, and layout fixes (1-2 files).
-**Use Opus (Claude) or Pro (AI Assistant) for:** Multi-file sessions (3+ files), creating new Supabase tables wiring them to components, complex logic, and long/deep reasoning tasks.
-
-**When in doubt:** Default to the faster model (Sonnet/Flash). Upgrade to the more powerful model (Opus/Pro) only if it struggles.
+## 🚀 THE NORTH STAR
+> "Life insurance agents deserve enterprise velocity without the complexity of legacy tools. We build for 300+ dials a day and 100% telemetry accuracy."
