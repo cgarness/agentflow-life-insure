@@ -175,7 +175,9 @@ BEGIN
 
   -- ── Step 4: Build team agent array for Team campaigns ─────────────
   -- campaigns.assigned_agent_ids is a JSONB array of UUID strings.
-  -- For Team campaigns we scope to leads assigned to those agents.
+  -- For Team campaigns we scope to leads whose leads.assigned_agent_id
+  -- is one of the agents listed on the campaign.
+  -- NOTE: assigned_agent_id lives on the leads table, NOT campaign_leads.
   IF upper(v_campaign.type) = 'TEAM' THEN
     SELECT ARRAY(
       SELECT jsonb_array_elements_text(v_campaign.assigned_agent_ids)::UUID
@@ -195,7 +197,7 @@ BEGIN
     JOIN public.leads l ON l.id = cl.lead_id
     WHERE cl.campaign_id = p_campaign_id
       AND cl.organization_id = public.get_org_id()
-      AND cl.assigned_agent_id::UUID = ANY(v_team_agents)
+      AND l.assigned_agent_id = ANY(v_team_agents)
       AND cl.status NOT IN ('DNC', 'Completed', 'Removed')
       AND cl.id NOT IN (
         SELECT dll.lead_id

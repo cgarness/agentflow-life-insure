@@ -74,12 +74,15 @@ export function useLeadLock() {
       const type = campaignType.toUpperCase();
 
       // ── Personal campaign: direct query, no lock needed ───────────────────
+      // assigned_agent_id lives on the leads table (not campaign_leads),
+      // so we use an inner join to scope to the calling agent's leads only.
       if (type === "PERSONAL") {
+        const userId = (await supabase.auth.getUser()).data.user?.id ?? "";
         const { data, error } = await supabase
           .from("campaign_leads")
-          .select("*")
+          .select("*, leads!inner(id, assigned_agent_id)")
           .eq("campaign_id", campaignId)
-          .eq("assigned_agent_id", (await supabase.auth.getUser()).data.user?.id ?? "")
+          .eq("leads.assigned_agent_id", userId)
           .not("status", "in", '("DNC","Completed","Removed")')
           .order("created_at", { ascending: true })
           .limit(1)
