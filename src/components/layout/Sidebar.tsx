@@ -40,8 +40,8 @@ const Sidebar: React.FC = () => {
   const isSettings = location.pathname.startsWith("/settings");
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-r border-border transition-colors duration-200">
-      <div className="flex items-center h-16 px-4 border-b border-border shrink-0">
+    <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
+      <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
         <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
           <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: branding.primaryColor || '#3B82F6' }}>
             {branding.logoUrl ? <img src={branding.logoUrl} className="w-full h-full object-cover rounded-lg" alt="L" /> : <span className="text-white font-bold text-sm">AF</span>}
@@ -74,9 +74,9 @@ const Sidebar: React.FC = () => {
     )}
   </nav>
 
-  <div className="border-t border-border p-3 space-y-3 shrink-0">
-    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-800 sidebar-transition ${collapsed ? "justify-center" : ""}`}>
-      {theme === "dark" ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
+  <div className="border-t border-slate-800 p-3 space-y-3 shrink-0">
+    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm hover:bg-slate-800 sidebar-transition ${collapsed ? "justify-center" : ""}`}>
+      {theme === "dark" ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-400" />}
       {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
     </button>
     {!collapsed && (
@@ -84,12 +84,12 @@ const Sidebar: React.FC = () => {
         <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">
           {profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}
         </div>
-        <div className="min-w-0 font-medium truncate text-slate-900 dark:text-slate-100">
+        <div className="min-w-0 font-medium truncate text-slate-100">
           {profile ? `${profile.first_name} ${profile.last_name}` : "Guest"}
         </div>
       </div>
     )}
-    <button onClick={toggle} className="flex items-center justify-center w-full py-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 transition-colors">
+    <button onClick={toggle} className="flex items-center justify-center w-full py-2 text-slate-500 hover:text-slate-100 transition-colors">
       {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
     </button>
   </div>

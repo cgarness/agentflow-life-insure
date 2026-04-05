@@ -42,8 +42,8 @@
 
 ## 3. Work Log (Recent History)
 
-- **2026-04-05 | [DONE] Sidebar Contrast & Context Switch Fix**  
-  *Developer Note:* Fixed navigation text visibility in Light Mode by transitioning Sidebar and NavItems to high-contrast Slate-based styling (`bg-slate-50`, `text-slate-900`). Completed the unified Settings Context refactor with instantaneous sidebar swapping.
+- **2026-04-05 | [DONE] Permanent Dark Sidebar (Command Center)**  
+  *Developer Note:* Enforced a constant dark theme for the Sidebar (Slate-900) to maintain a premium "Command Center" aesthetic across all global themes. Decoupled navigation elements from Light Mode styles to ensure 100% mission-critical visibility and consistency.
   
 - **2026-04-04 | [DONE] Lead Ownership Standardization**  
   *Developer Note:* Massive schema refactor to ensure every lead record across all states (Master, Campaign, Dialer) is pinned to a correct, RLS-checked `user_id`. Optimized hierarchical reporting for agency managers.
