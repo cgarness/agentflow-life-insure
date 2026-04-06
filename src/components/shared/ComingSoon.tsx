@@ -35,11 +35,11 @@ const ComingSoon: React.FC<ComingSoonProps> = ({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
             </span>
-            Roadmap Item
+            Coming Soon
           </div>
 
           <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-4 tracking-tight">
-            {title}
+            {title} <span className="text-primary font-light italic">— Coming Soon</span>
           </h1>
           
           <p className="text-muted-foreground text-lg max-w-md mx-auto mb-8 leading-relaxed">
