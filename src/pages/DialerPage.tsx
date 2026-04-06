@@ -70,6 +70,12 @@ import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
+import {
+  sortQueue,
+  applyDispositionToQueue,
+  queueOrderChanged,
+  type CampaignLead,
+} from "@/lib/queue-manager";
 import { normalizeState } from "@/utils/stateUtils";
 import { DateInput } from "@/components/shared/DateInput";
 import { supabase } from "@/integrations/supabase/client";
@@ -694,7 +700,38 @@ export default function DialerPage() {
         } else {
           setHasMoreLeads(true);
         }
-        setLeadQueue(leads);
+
+        // ── Queue Lifecycle: fetch retry interval + pre-populate retry_eligible_at ──
+        let campaignRetryInterval = 24;
+        try {
+          const { data: campData } = await supabase
+            .from('campaigns')
+            .select('retry_interval_hours')
+            .eq('id', selectedCampaignId)
+            .maybeSingle();
+          if (campData?.retry_interval_hours != null) {
+            campaignRetryInterval = campData.retry_interval_hours as number;
+            setRetryIntervalHours(campaignRetryInterval);
+          }
+        } catch { /* non-critical */ }
+
+        const now = new Date();
+        const enriched: CampaignLead[] = (leads as CampaignLead[]).map(lead => {
+          // Pre-populate retry_eligible_at for previously-called leads
+          if (lead.status === 'Called' && lead.last_called_at && campaignRetryInterval > 0) {
+            const eligibleAt = new Date(
+              new Date(lead.last_called_at).getTime() + campaignRetryInterval * 3_600_000
+            );
+            // Only set if not yet eligible (still in the future)
+            if (eligibleAt > now) {
+              return { ...lead, retry_eligible_at: eligibleAt.toISOString() };
+            }
+          }
+          return lead;
+        });
+
+        const sorted = sortQueue(enriched, now);
+        setLeadQueue(sorted);
         setCurrentOffset(BATCH_SIZE);
 
         // Check for saved queue position
@@ -708,7 +745,7 @@ export default function DialerPage() {
               .maybeSingle();
 
             if (savedState) {
-              const savedIndex = leads.findIndex(
+              const savedIndex = sorted.findIndex(
                 (l: any) => (l.lead_id || l.id) === savedState.current_lead_id
               );
               if (savedIndex >= 0) {
@@ -830,6 +867,25 @@ export default function DialerPage() {
     attempts: 'Attempts', status: 'Status', best_time: 'Best Time', health: 'Health',
   };
 
+  // ── 60-second queue re-sort: promotes leads whose retry/callback time has arrived ──
+  useEffect(() => {
+    if (!selectedCampaignId || lockMode) return;
+    const interval = setInterval(() => {
+      const now = new Date();
+      setLeadQueue(prev => {
+        const updated = sortQueue(prev as CampaignLead[], now);
+        if (queueOrderChanged(prev as CampaignLead[], updated)) {
+          autoDialer?.setQueue(updated);
+          toast("Queue updated — new leads are now eligible", { duration: 2000 });
+          return updated;
+        }
+        return prev;
+      });
+    }, 60_000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaignId, lockMode, autoDialer]);
+
   const fetchHistory = useCallback(async (leadId: string) => {
     setLoadingHistory(true);
     try {
@@ -874,6 +930,36 @@ export default function DialerPage() {
       historyEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [history]);
+
+  /* --- queue lifecycle --- */
+
+  /**
+   * Applies a disposition's queue behavior (retry / callback / permanent remove),
+   * re-sorts the queue, and resets the dialer head to index 0.
+   * Called after every disposition save in both the manual and auto-dispose paths.
+   */
+  const applyQueueLifecycle = useCallback((
+    disposedLead: CampaignLead,
+    dispositionName: string,
+    callbackDueAt: string | null,
+  ) => {
+    const now = new Date();
+    setLeadQueue(prev => {
+      const newQueue = applyDispositionToQueue(
+        prev as CampaignLead[],
+        disposedLead,
+        dispositionName,
+        retryIntervalHours,
+        callbackDueAt,
+        now,
+      );
+      autoDialer?.setQueue(newQueue);
+      autoDialer?.setIndex(0);
+      return newQueue;
+    });
+    setCurrentLeadIndex(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryIntervalHours, autoDialer]);
 
   /* --- call handlers --- */
 
@@ -1056,13 +1142,12 @@ export default function DialerPage() {
     setNoteText("");
     setNoteError(false);
     setCurrentCallId(null);
-    setCurrentLeadIndex((i) => {
-      const next = i + 1;
-      autoDialer?.setIndex(next);
-      return next;
-    });
+    // ── Queue Lifecycle: remove disposed lead, re-sort, reset to head ──
+    if (currentLead) {
+      applyQueueLifecycle(currentLead as CampaignLead, disposition.name, null);
+    }
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
-  }, [currentCallId, autoDialer]);
+  }, [currentCallId, currentLead, applyQueueLifecycle]);
 
   const handleMachineDetectedAction = useCallback(async () => {
     // Prevent double-processing
@@ -1810,20 +1895,48 @@ export default function DialerPage() {
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
-        // Delegate advance + auto-dial logic
         if (lockMode) {
-          // Team/Open: fetch next locked lead atomically
+          // Team/Open: fetch next locked lead atomically — lock mode bypasses queue lifecycle
           setShowWrapUp(false);
           setSelectedDisp(null);
           setNoteText("");
           setNoteError(false);
           setCurrentCallId(null);
           await loadLockModeLead();
-        } else if (autoDialer && selectedDisp) {
-          await autoDialer.saveDispositionAndNext(selectedDisp.id, noteText || undefined);
-          // advance happens via auto-dial-next-lead / auto-dial-lead-closed events
         } else {
-          handleAdvance();
+          // ── Queue Lifecycle: re-insert disposed lead at correct priority tier ──
+          // Resolve callbackDueAt from the inline callback scheduler if active
+          let callbackDueAt: string | null = null;
+          if (selectedDisp?.callbackScheduler && callbackDate && callbackTime) {
+            // Build ISO from the selected date + time (same values used to save the appointment)
+            const [h, rest] = callbackTime.split(':');
+            const [min, period] = (rest || '').split(' ');
+            let hours24 = parseInt(h, 10);
+            if (period === 'PM' && hours24 < 12) hours24 += 12;
+            if (period === 'AM' && hours24 === 12) hours24 = 0;
+            callbackDueAt = new Date(
+              callbackDate.getFullYear(),
+              callbackDate.getMonth(),
+              callbackDate.getDate(),
+              hours24,
+              parseInt(min || '0', 10),
+            ).toISOString();
+          }
+
+          if (currentLead) {
+            applyQueueLifecycle(currentLead as CampaignLead, selectedDisp?.name || '', callbackDueAt);
+          }
+
+          // UI wrap-up cleanup (replaces handleAdvance — queue reset is the advance)
+          setShowWrapUp(false);
+          setSelectedDisp(null);
+          setNoteText("");
+          setNoteError(false);
+          setCurrentCallId(null);
+          setCallbackDate(undefined);
+          setCallbackTime("");
+          setClaimRingActive(false);
+          cancelClaimTimer();
         }
       } else {
         toast.dismiss(toastId);
