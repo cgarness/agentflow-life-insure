@@ -86,8 +86,15 @@ import CampaignSettingsModal from "@/components/dialer/CampaignSettingsModal";
 import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
 import QueuePanel from "@/components/dialer/QueuePanel";
 import ClaimRing from "@/components/dialer/ClaimRing";
+import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
+import {
+  fetchNextQueuedLead,
+  buildFiltersFromQueueState,
+  releaseAllAgentLocks,
+  releaseAllAgentLocksBeacon,
+} from "@/lib/dialer-queue";
 
 /* ─── Types ─── */
 
@@ -1581,11 +1588,26 @@ export default function DialerPage() {
     return () => window.removeEventListener("auto-dial-session-end", handleSessionEnd);
   }, []);
 
-  // ── beforeunload: release lock + stop heartbeat + cancel claim ──
+  // ── Cache access token for synchronous beforeunload usage ──
+  const accessTokenRef = useRef<string>("");
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      accessTokenRef.current = data?.session?.access_token || "";
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      accessTokenRef.current = session?.access_token || "";
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // ── beforeunload: release ALL agent locks + stop heartbeat + cancel claim ──
   useEffect(() => {
     const handleUnload = () => {
-      if (currentLead?.id && lockMode) {
-        releaseLock(currentLead.id as string);
+      // Bulk-release all locks for this campaign via beacon (survives page unload)
+      if (lockMode && selectedCampaignId) {
+        const sbUrl = import.meta.env.VITE_SUPABASE_URL as string;
+        const token = accessTokenRef.current || (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
+        releaseAllAgentLocksBeacon(selectedCampaignId, sbUrl, token);
       }
       stopHeartbeat();
       cancelClaimTimer();
@@ -1593,7 +1615,7 @@ export default function DialerPage() {
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentLead?.id, lockMode]);
+  }, [lockMode, selectedCampaignId]);
 
   // ── Telnyx answer → start claim timer (Team/Open only) ──
   useEffect(() => {
@@ -1896,13 +1918,53 @@ export default function DialerPage() {
         }
 
         if (lockMode) {
-          // Team/Open: fetch next locked lead atomically — lock mode bypasses queue lifecycle
+          // Team/Open: release current lock, then fetch next via 90s-TTL RPC
           setShowWrapUp(false);
           setSelectedDisp(null);
           setNoteText("");
           setNoteError(false);
           setCurrentCallId(null);
-          await loadLockModeLead();
+          stopHeartbeat();
+          // Release the lock on the current lead
+          if (currentLead?.id) {
+            await releaseLock(currentLead.id as string);
+          }
+          // Fetch next lead using campaign-type-aware helper
+          const filters = buildFiltersFromQueueState(queueFilter);
+          const nextLead = await fetchNextQueuedLead(
+            campaignType,
+            selectedCampaignId!,
+            organizationId || "",
+            user?.id || "",
+            filters,
+          );
+          if (nextLead) {
+            // Enrich with full leads table data
+            const { data: fullRow } = await supabase
+              .from("campaign_leads")
+              .select("*, lead:leads(*)")
+              .eq("id", nextLead.id)
+              .maybeSingle();
+            let merged: any = nextLead;
+            if (fullRow) {
+              const { lead: leadData, ...campaignLead } = fullRow as any;
+              merged = {
+                ...(leadData || {}),
+                ...campaignLead,
+                state: campaignLead.state || leadData?.state || "",
+                id: campaignLead.id,
+                lead_id: leadData?.id || campaignLead.lead_id,
+              };
+            }
+            setLeadQueue([merged]);
+            setCurrentLeadIndex(0);
+            // Start heartbeat for the new lock
+            startHeartbeat(nextLead.id, () => loadLockModeLead());
+          } else {
+            setLeadQueue([]);
+            setHasMoreLeads(false);
+            toast("Queue empty — no more leads available");
+          }
         } else {
           // ── Queue Lifecycle: re-insert disposed lead at correct priority tier ──
           // Resolve callbackDueAt from the inline callback scheduler if active
@@ -2385,8 +2447,9 @@ export default function DialerPage() {
         <button
           onClick={() => {
             // Release lock + stop heartbeat + cancel claim on session end
-            if (lockMode && currentLead?.id) {
-              releaseLock(currentLead.id as string);
+            // Release all locks for this campaign (bulk cleanup)
+            if (lockMode && selectedCampaignId) {
+              releaseAllAgentLocks(selectedCampaignId);
             }
             stopHeartbeat();
             cancelClaimTimer();
@@ -2845,6 +2908,10 @@ export default function DialerPage() {
                     // ClaimRing fires this at 30s — claim is already handled by useHardClaim timer
                     // This callback is a UI signal only; no DB call here.
                   }}
+                />
+                <LockTimerArc
+                  active={lockMode && !!currentLead}
+                  campaignType={campaignType}
                 />
                 <button
                   onClick={handleCall}
@@ -3407,6 +3474,10 @@ export default function DialerPage() {
           <DialogFooter>
             <Button
               onClick={() => {
+                // Release all locks for this campaign (bulk cleanup)
+                if (lockMode && selectedCampaignId) {
+                  releaseAllAgentLocks(selectedCampaignId);
+                }
                 // Clear saved queue position
                 if (user?.id && selectedCampaignId) {
                   (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any

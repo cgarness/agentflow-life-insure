@@ -40,10 +40,17 @@
 | `20260405100000` | `smart_queue_lock_system.sql` | Atomic fetch-and-lock for Team/Open Pool campaigns. `dialer_lead_locks` table + 3 RPCs. |
 | `20260406000000` | `hard_claim_engine.sql` | `claim_lead` RPC (SECURITY DEFINER) for permanent ownership transfer via `leads.assigned_agent_id`. Added `queue_filters` JSONB column to `campaigns`. |
 | `20260406200000` | `add_leads_to_campaign_rpc.sql` | `add_leads_to_campaign` RPC (SECURITY DEFINER) enforcing Personal/Team/Open ownership rules before inserting into `campaign_leads`. |
+| `20260406400000` | `dialer_lead_locks.sql` | `fetch_and_lock_next_lead` RPC (90s TTL, no leads JOIN) + `release_all_agent_locks` RPC + composite index on `(campaign_id, expires_at)`. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] Dialer Queue Routing by Campaign Type — Atomic Lock RPC + DialerPage Wiring**
+  *Migration:* `20260406400000_dialer_lead_locks.sql`
+  *Files Created:* `src/lib/dialer-queue.ts`, `src/components/dialer/LockTimerArc.tsx`
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Built `fetch_and_lock_next_lead` RPC (90-second TTL, SECURITY DEFINER) and `release_all_agent_locks` RPC for bulk cleanup. Added composite index `(campaign_id, expires_at)` on `dialer_lead_locks`. Extracted `fetchNextQueuedLead`, `buildFiltersFromQueueState`, `releaseAllAgentLocks`, and `releaseAllAgentLocksBeacon` into `src/lib/dialer-queue.ts` to keep DialerPage under 200-line-per-section limit. DialerPage `handleSaveAndNext` lock-mode path now calls `release_lead_lock` → `fetchNextQueuedLead` → enrich → set queue → `startHeartbeat`. Both End Session buttons (header + dialog) call `releaseAllAgentLocks`. `beforeunload` handler uses `releaseAllAgentLocksBeacon` with `fetch(..., { keepalive: true })` for reliable delivery during page unload; access token is cached in a ref via `onAuthStateChange` listener for synchronous access. Created `LockTimerArc` component (CSS `@property`-driven conic-gradient arc, 90s duration) displayed for Team/Open campaigns only. `fetch_and_lock_next_lead` filters only on `campaign_leads` columns (state, max_attempts) — no JOIN to `leads` table to avoid deadlock risk with `FOR UPDATE SKIP LOCKED`. The existing `get_next_queue_lead` RPC (5-min TTL, JOINs leads) is preserved for the `useLeadLock` hook; both RPCs are documented in the migration header.
 
 - **2026-04-06 | [DONE] campaign_leads RLS Refinement — Personal Campaign Scoping**
   *Migration:* `20260406300000_campaign_leads_rls_personal_scope.sql`
@@ -412,5 +419,66 @@ Replaced the `campaign_leads_select` RLS policy with a campaign-type-aware versi
 
 ### What's Next
 
-- **Prompt 4**: Final campaign integrity hardening
 - Consider a future migration to normalize all `profiles.role` values to a single canonical string and update all RLS policies to match, eliminating the need for dual-variant `IN` checks
+
+---
+
+## 12. Context Snapshot — Dialer Queue Routing by Campaign Type (2026-04-06)
+
+### RPC Signatures Built
+
+| RPC | Params | Returns | TTL | Notes |
+|---|---|---|---|---|
+| `fetch_and_lock_next_lead` | `(p_campaign_id UUID, p_filters JSONB)` | `SETOF campaign_leads` | 90s | No JOIN to leads; filters on campaign_leads only |
+| `release_all_agent_locks` | `(p_campaign_id UUID)` | `VOID` | n/a | Deletes all locks for `auth.uid()` in campaign |
+
+**Pre-existing RPCs preserved (20260405100000):**
+
+| RPC | TTL | Notes |
+|---|---|---|
+| `get_next_queue_lead` | 5 min | JOINs leads table for lead_score/lead_source filters; used by `useLeadLock.ts` |
+| `renew_lead_lock` | extends 5 min | Heartbeat renewal |
+| `release_lead_lock` | n/a | Single lock release by lead_id |
+
+### Column Names Verified from Schema
+
+**campaign_leads columns used in `fetch_and_lock_next_lead`:**
+- `campaign_id`, `organization_id`, `status`, `state`, `call_attempts`, `created_at`
+
+**Columns NOT on campaign_leads (live on `leads` table only):**
+- `lead_score` — score filtering is NOT supported in lock-mode `fetch_and_lock_next_lead` by design
+- `lead_source` — source filtering is NOT supported in lock-mode by design
+- Rationale: adding a JOIN to `leads` inside `FOR UPDATE SKIP LOCKED` increases lock scope and creates deadlock risk
+
+### Campaign Type Routing Confirmed
+
+| Campaign Type | Queue Fetch Method | Lock? | Filter Source |
+|---|---|---|---|
+| Personal | Direct `campaign_leads` query scoped to `userId` | No | Frontend `queueFilter` state (all keys) |
+| Team | `fetch_and_lock_next_lead` RPC | 90s TTL | `buildFiltersFromQueueState` (state, max_attempts only) |
+| Open / Open Pool | `fetch_and_lock_next_lead` RPC | 90s TTL | `buildFiltersFromQueueState` (state, max_attempts only) |
+
+### Lock Lifecycle Wired
+
+| Event | Action |
+|---|---|
+| `handleSaveAndNext` (lock mode) | `release_lead_lock` → `fetchNextQueuedLead` → enrich → `startHeartbeat` |
+| `handleAdvance` / `handleSkip` (lock mode) | `releaseLock` → `loadLockModeLead` (existing useLeadLock path) |
+| End Session (header button) | `releaseAllAgentLocks(campaignId)` |
+| End Session (dialog button) | `releaseAllAgentLocks(campaignId)` |
+| `beforeunload` | `releaseAllAgentLocksBeacon` via `fetch(..., { keepalive: true })` |
+
+### Extractions to Helper Files
+
+| File | Exports | Purpose |
+|---|---|---|
+| `src/lib/dialer-queue.ts` | `fetchNextQueuedLead`, `buildFiltersFromQueueState`, `releaseAllAgentLocks`, `releaseAllAgentLocksBeacon`, `LockModeFilters` | Campaign-type-aware queue operations extracted from DialerPage |
+| `src/components/dialer/LockTimerArc.tsx` | `LockTimerArc` | 90-second CSS conic-gradient arc for Team/Open lock window visualization |
+
+### What the Next Developer Needs to Know
+
+1. **Two lock RPCs coexist** — `get_next_queue_lead` (5-min, with leads JOIN) and `fetch_and_lock_next_lead` (90s, no JOIN). Do NOT consolidate without understanding the TTL and deadlock implications.
+2. **`accessTokenRef`** caches the Supabase access token for synchronous `beforeunload` usage. Updated via `onAuthStateChange` listener.
+3. **`LockTimerArc`** uses CSS `@property` for animatable `--lock-progress` custom property. Requires browser support for `@property` (Chrome 85+, Edge 85+, Safari 15.4+).
+4. **`buildFiltersFromQueueState`** intentionally drops `minScore`, `maxScore`, and `leadSource` — these require a leads table JOIN that is unsafe inside `FOR UPDATE SKIP LOCKED`.
+5. **Lock-mode `handleSaveAndNext`** enriches the RPC result with a secondary `campaign_leads.select("*, lead:leads(*)")` query. This is the same pattern used by `loadLockModeLead`.
