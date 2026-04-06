@@ -101,7 +101,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const isAutoDialingRef = useRef(false);
+
   const activeCallIdRef = useRef<string | null>(null);
   const activeCallControlIdRef = useRef<string | null>(null);
   const pendingAbortCallIdRef = useRef<string | null>(null);
@@ -324,12 +324,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const hangUp = useCallback(async () => {
     const callId = activeCallIdRef.current;
     const controlId = activeCallControlIdRef.current;
-    const wasAutoDialing = isAutoDialingRef.current;
 
     console.log("[TelnyxContext] Initiating dual-layer hangup.", { callId, controlId });
 
-    // 1. Optimistic UI Reset (Instant)
-    // We set callState to "ended" first to trigger wrap-up UI in DialerPage
+    // 1. Instant UI update — triggers wrap-up phase in DialerPage
     setCallState("ended");
     
     // Check if we are in the middle of a dial initiation (Race Condition handling)
@@ -380,27 +378,22 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
 
-    // Snappy cleanup of local states
+    // Immediate cleanup of local states — no delay so wrap-up UI can take over
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
+    // Reset call-specific refs synchronously (callState stays "ended" for wrap-up)
+    activeCallIdRef.current = null;
+    activeCallControlIdRef.current = null;
+
+    // Deferred cosmetic reset — gives the "ended" state time to trigger wrap-up effects
     endResetRef.current = setTimeout(() => {
-      setCallState("idle");
-      setCallDuration(0);
       setCurrentCall(null);
       setIsMuted(false);
       setIsOnHold(false);
-      isAutoDialingRef.current = false;
-      activeCallIdRef.current = null;
-      activeCallControlIdRef.current = null;
-
-      if (wasAutoDialing) {
-        console.log("[AutoDialer] Call ended manually, triggering next lead...");
-        window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
-      }
-    }, 200); // UI feel is snappy but allows "ended" effects to fire
+    }, 200);
   }, []);
 
   // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
@@ -610,21 +603,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Immediately finalize database record
           finalizeCallRecord(callDuration);
 
+          // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
           endResetRef.current = setTimeout(() => {
-            const wasAutoDialing = isAutoDialingRef.current;
-            isAutoDialingRef.current = false;
-            
-            setCallState("idle");
-            setCallDuration(0);
             setCurrentCall(null);
             setIsMuted(false);
             setIsOnHold(false);
-
-            if (wasAutoDialing) {
-              console.log("[AutoDialer] Call ended, triggering next lead...");
-              window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
-            }
-          }, 200); // Reduced from 2000ms for snappier UI
+          }, 200);
           return;
         }
 
@@ -680,22 +664,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Immediately finalize database record
           finalizeCallRecord(callDuration);
 
+          // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
           endResetRef.current = setTimeout(() => {
-            const wasAutoDialing = isAutoDialingRef.current;
-            isAutoDialingRef.current = false;
-
-            setCallState("idle");
-            setCallDuration(0);
             setCurrentCall(null);
             setIsMuted(false);
             setIsOnHold(false);
             callRef.current = null;
-
-            if (wasAutoDialing) {
-              console.log("[AutoDialer] Call ended, triggering next lead...");
-              window.dispatchEvent(new CustomEvent("auto-dial-next-lead"));
-            }
-          }, 200); // Reduced from 2000ms for snappier UI
+          }, 200);
         }
       });
 
@@ -787,7 +762,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
-      isAutoDialingRef.current = !!clientState;
+
       activeLeadIdRef.current = isValidUUID(clientState) ? clientState : null;
       setCallState("dialing");
       setIsMuted(false);

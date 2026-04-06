@@ -830,6 +830,16 @@ export default function DialerPage() {
     return () => { hasDialedOnce.current = false; };
   }, [selectedCampaignId]);
 
+  // ── Sync autoDialEnabled from campaign settings on selection ──
+  useEffect(() => {
+    if (!selectedCampaign) return;
+    const campaignAutoDialValue = selectedCampaign.auto_dial_enabled;
+    // Only sync if the campaign has an explicit setting (not null/undefined)
+    if (campaignAutoDialValue != null) {
+      setAutoDialEnabled(campaignAutoDialValue);
+    }
+  }, [selectedCampaignId, selectedCampaign]);
+
   // Load more leads when we get close to the end of the queue (Personal only)
   useEffect(() => {
     if (!lockMode && selectedCampaignId && hasMoreLeads && !loadingLeads && leadQueue.length > 0) {
@@ -859,6 +869,12 @@ export default function DialerPage() {
         && score >= queueFilter.minScore && score <= queueFilter.maxScore;
     });
 
+    // ── Campaign max_attempts enforcement: hide leads that exceeded max attempts ──
+    const campaignMaxAttempts = selectedCampaign?.max_attempts;
+    if (campaignMaxAttempts != null && campaignMaxAttempts > 0) {
+      q = q.filter(({ lead }) => (lead.call_attempts || 0) < campaignMaxAttempts);
+    }
+
     // Apply sort
     switch (queueSort) {
       case 'age_oldest':
@@ -879,7 +895,7 @@ export default function DialerPage() {
     }
 
     return q;
-  }, [leadQueue, queueSort, queueFilter]);
+  }, [leadQueue, queueSort, queueFilter, selectedCampaign?.max_attempts]);
 
   // Unique values for filter dropdowns (derived from current queue)
   const uniqueStatuses = useMemo(() => [...new Set(leadQueue.map(l => l.status).filter(Boolean))], [leadQueue]);
@@ -1576,15 +1592,7 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState, showWrapUp]);
 
-  // ── Auto-dial next lead event (auto-dial ON) ──
-  useEffect(() => {
-    const handleNextLead = () => {
-      handleAdvance();
-    };
-    window.addEventListener("auto-dial-next-lead", handleNextLead);
-    return () => window.removeEventListener("auto-dial-next-lead", handleNextLead);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
 
   // ── Auto-dial lead closed event (auto-dial OFF) ──
   useEffect(() => {

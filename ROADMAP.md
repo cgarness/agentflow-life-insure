@@ -47,6 +47,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-06 | [DONE] Dialer Hangup Lag Fix — Wrap-Up Phase Enforcement**
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Root cause: TelnyxContext was dispatching `auto-dial-next-lead` CustomEvents from inside `hangUp`, `telnyx.error`, and `telnyx.notification` handlers. This caused the WebRTC layer to short-circuit the UI's wrap-up phase, skipping dispositions and triggering UI shift lag. Fix removes all three `window.dispatchEvent(new CustomEvent("auto-dial-next-lead"))` calls, deletes the `isAutoDialingRef` tracking ref (no longer needed), and collapses the delayed `setCallState("idle")` reset — `callState` now stays `"ended"` until DialerPage's wrap-up phase explicitly transitions it via `handleAdvance`. Also removed the matching event listener in DialerPage. Added a `useEffect` that syncs `autoDialEnabled` from the campaign's `auto_dial_enabled` column when a campaign is selected — ensures the auto-dial toggle obeys campaign settings. Added `max_attempts` filtering to `displayQueue` memo so over-attempted leads that slipped through initial fetch are excluded from the display queue. Zero schema changes, zero new dependencies, zero TypeScript errors.
+
 - **2026-04-06 | [DONE] Fix campaign_leads user_id Column + RPC Hotfix**
   *Migration:* `20260406500000_fix_campaign_leads_user_id.sql`
   *Files Modified:* `ROADMAP.md`
@@ -493,3 +497,50 @@ Replaced the `campaign_leads_select` RLS policy with a campaign-type-aware versi
 3. **`LockTimerArc`** uses CSS `@property` for animatable `--lock-progress` custom property. Requires browser support for `@property` (Chrome 85+, Edge 85+, Safari 15.4+).
 4. **`buildFiltersFromQueueState`** intentionally drops `minScore`, `maxScore`, and `leadSource` — these require a leads table JOIN that is unsafe inside `FOR UPDATE SKIP LOCKED`.
 5. **Lock-mode `handleSaveAndNext`** enriches the RPC result with a secondary `campaign_leads.select("*, lead:leads(*)")` query. This is the same pattern used by `loadLockModeLead`.
+
+---
+
+## 13. Context Snapshot — Dialer Hangup Lag Fix (2026-04-06)
+
+### What Was Changed
+
+Removed all `auto-dial-next-lead` CustomEvent dispatching from TelnyxContext. The WebRTC layer no longer dictates when the lead advances — this is now exclusively controlled by the UI's wrap-up phase in DialerPage.
+
+### TelnyxContext Changes
+
+| Item | Before | After |
+|---|---|---|
+| `isAutoDialingRef` | Tracked whether current call was auto-initiated | **Deleted** — no longer needed |
+| `hangUp()` endResetRef timeout | Set `callState("idle")` + dispatched `auto-dial-next-lead` after 200ms | Sets refs to null synchronously; deferred timeout only clears `currentCall`, `isMuted`, `isOnHold` — `callState` stays `"ended"` |
+| `telnyx.error` (code -32002) timeout | Read `isAutoDialingRef` → dispatched `auto-dial-next-lead` | Deferred timeout only clears cosmetic state |
+| `telnyx.notification` (destroy/hangup) timeout | Read `isAutoDialingRef` → dispatched `auto-dial-next-lead` | Deferred timeout only clears cosmetic state |
+| `makeCall()` | Set `isAutoDialingRef.current = !!clientState` | Removed |
+
+### DialerPage Changes
+
+| Item | Before | After |
+|---|---|---|
+| `auto-dial-next-lead` listener | `useEffect` listening for CustomEvent → `handleAdvance()` | **Deleted** — event no longer exists |
+| `autoDialEnabled` sync | Not synced from campaign on selection | New `useEffect` reads `selectedCampaign.auto_dial_enabled` and sets local state |
+| `displayQueue` memo | No max_attempts filtering | Filters out leads where `call_attempts >= campaign.max_attempts` |
+| `handleHangUp` | Correctly does NOT touch `currentLeadIndex` | Unchanged — confirmed correct |
+
+### Call Lifecycle After Fix
+
+```
+Agent presses Call → handleCall() → initiateCall() → TelnyxContext.makeCall()
+→ Telnyx notification (active) → callState = "active"
+→ Agent hangs up → handleHangUp() → TelnyxContext.hangUp()
+  → callState = "ended" (INSTANT)
+  → DialerPage useEffect detects "ended" → setShowWrapUp(true)
+  → Agent selects disposition → handleSaveAndNext() / handleSaveOnly()
+  → handleAdvance() → currentLeadIndex++ or loadLockModeLead()
+  → Reactive auto-dial useEffect fires on new currentLead?.id (if auto-dial ON)
+```
+
+### What the Next Developer Needs to Know
+
+1. **`callState` stays `"ended"` after hangup** — it is NOT auto-reset to `"idle"` by TelnyxContext. DialerPage's wrap-up phase is the only code path that triggers lead advancement.
+2. **Auto-dial still works** — it's driven by the reactive `useEffect` on `currentLead?.id` that fires after `handleAdvance()` moves the queue head. No event listener needed.
+3. **Campaign `auto_dial_enabled`** is now synced on campaign selection. If a manager disables auto-dial on a campaign, agents entering that campaign will have auto-dial off by default.
+4. **`displayQueue` now enforces `max_attempts`** at the display layer. This is a safety net — the RPC and initial fetch also filter, but leads that slip through (e.g. race conditions with concurrent agents) are hidden.
