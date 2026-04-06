@@ -1,0 +1,144 @@
+import React, { useEffect, useRef, useState } from "react";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const RADIUS = 40;
+const STROKE_WIDTH = 3;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const CLAIM_DURATION_MS = 30_000;
+const COMPLETE_LINGER_MS = 600;
+
+// ─── Props ───────────────────────────────────────────────────────────────────
+
+interface ClaimRingProps {
+  /** True when call is connected AND campaign is Team or Open. */
+  active: boolean;
+  /**
+   * Fired when the 30s arc completes. This is a UI signal only —
+   * the actual claim_lead RPC is called by useHardClaim, not here.
+   */
+  onClaim: () => void;
+  /** Campaign type — returns null for Personal. */
+  campaignType: string;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+/**
+ * ClaimRing — 30-second SVG arc that overlays the Call button.
+ *
+ * Visual only. Does not touch the database.
+ * Returns null for Personal campaigns.
+ * Uses a JS ref for the timer and CSS transitions for the animation.
+ */
+export default function ClaimRing({
+  active,
+  onClaim,
+  campaignType,
+}: ClaimRingProps) {
+  const circleRef = useRef<SVGCircleElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [completed, setCompleted] = useState(false);
+
+  const type = campaignType.toUpperCase();
+  const isTeam = type === "TEAM";
+  const isPersonal = type === "PERSONAL";
+
+  // Stroke colour: purple for Team, amber for Open
+  const strokeColor = isTeam ? "#8b5cf6" : "#f59e0b";
+
+  useEffect(() => {
+    const circle = circleRef.current;
+    if (!circle) return;
+
+    if (active) {
+      // Reset then animate in the next frame so the transition fires.
+      circle.style.transition = "none";
+      circle.style.strokeDashoffset = String(CIRCUMFERENCE);
+      circle.style.stroke = strokeColor;
+      setVisible(true);
+      setCompleted(false);
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          circle.style.transition = `stroke-dashoffset ${CLAIM_DURATION_MS}ms linear`;
+          circle.style.strokeDashoffset = "0";
+        });
+      });
+
+      // JS timer fires onClaim after 30s
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        if (circle) circle.style.stroke = "#22c55e";
+        setCompleted(true);
+        onClaim();
+        // Fade out after brief green flash
+        setTimeout(() => setVisible(false), COMPLETE_LINGER_MS);
+      }, CLAIM_DURATION_MS);
+    } else {
+      // Reset immediately — call dropped before 30s
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      circle.style.transition = "none";
+      circle.style.strokeDashoffset = String(CIRCUMFERENCE);
+      setVisible(false);
+      setCompleted(false);
+    }
+
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // Personal campaigns: no ring
+  if (isPersonal) return null;
+
+  return (
+    <svg
+      width="100"
+      height="100"
+      viewBox="0 0 100 100"
+      className="absolute inset-0 pointer-events-none"
+      style={{
+        opacity: visible ? 1 : 0,
+        transition: completed ? `opacity ${COMPLETE_LINGER_MS}ms ease-out` : "none",
+      }}
+      aria-hidden="true"
+    >
+      {/* Background track */}
+      <circle
+        cx="50"
+        cy="50"
+        r={RADIUS}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={STROKE_WIDTH}
+        className="text-muted/20"
+      />
+      {/* Animated arc */}
+      <circle
+        ref={circleRef}
+        cx="50"
+        cy="50"
+        r={RADIUS}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={STROKE_WIDTH}
+        strokeDasharray={CIRCUMFERENCE}
+        strokeDashoffset={CIRCUMFERENCE}
+        strokeLinecap="round"
+        style={{
+          transform: "rotate(-90deg)",
+          transformOrigin: "50% 50%",
+        }}
+      />
+    </svg>
+  );
+}
