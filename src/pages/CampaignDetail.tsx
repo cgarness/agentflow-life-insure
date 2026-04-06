@@ -283,7 +283,6 @@ const AddLeadsModal: React.FC<{
     const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     if (error) { toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" }); }
     else {
-      await supabase.from("campaigns").update({ total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 } as any).eq("id", campaignId); // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.success(`${toAdd.length} leads added to campaign`, { duration: 3000, position: "bottom-right" });
       onAdded(); onClose();
     }
@@ -454,11 +453,6 @@ const ImportCSVModal: React.FC<{
         if (error) {
           toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
         } else {
-          // Update campaign stats
-          await supabase.from("campaigns").update({ 
-            total_leads: (await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId)).count || 0 
-          } as any).eq("id", campaignId);
-          
           toast.success(`${processedLeads.length} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
           onImported(); 
           onClose();
@@ -808,8 +802,6 @@ const CampaignDetail: React.FC = () => {
     setRemoveLeadId(null);
     fetchLeads();
     if (id) {
-      const { count } = await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", id);
-      await supabase.from("campaigns").update({ total_leads: count || 0 } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
       fetchCampaign();
     }
   };
@@ -825,8 +817,6 @@ const CampaignDetail: React.FC = () => {
     setBulkRemoveConfirm(false);
     fetchLeads();
     if (id) {
-      const { count } = await supabase.from("campaign_leads").select("id", { count: "exact", head: true }).eq("campaign_id", id);
-      await supabase.from("campaigns").update({ total_leads: count || 0 } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
       fetchCampaign();
     }
   };

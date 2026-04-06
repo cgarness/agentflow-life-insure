@@ -44,6 +44,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-06 | [DONE] Total Leads Auto-Trigger**
+  *Migration:* `20260406100000_campaign_leads_count_trigger.sql`
+  *Files Modified:* `src/pages/CampaignDetail.tsx`, `src/components/contacts/AddToCampaignModal.tsx`, `ROADMAP.md`
+  *Developer Note:* Replaced 6 manual `total_leads` count-and-update calls with a single Postgres trigger (`trg_sync_campaign_total_leads`) that fires AFTER INSERT/DELETE/UPDATE on `campaign_leads`. Returns `NEW` for INSERT/UPDATE, `OLD` for DELETE — per Postgres AFTER trigger contract. Trigger function uses `GREATEST(..., 0)` on decrements to prevent negative counts. One-time backfill `UPDATE` syncs all existing campaigns from live row counts. Also fixed `.single()` → `.maybeSingle()` on the campaign INSERT fetch in `AddToCampaignModal`. All `organization_id` scoping on `campaign_leads` rows is unchanged — trigger is count-only and does not touch org fields.
+
 - **2026-04-06 | [DONE] Intelligent Queue Lifecycle Management**
   *Files Created:* `src/lib/queue-manager.ts`
   *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/QueuePanel.tsx`, `ROADMAP.md`
@@ -259,3 +264,43 @@ Lock-mode (Team / Open Pool) is **unchanged** — these campaigns use atomic DB 
 - Connect `dial_sessions` persistence so re-insertion timing is visible in agency reports.
 - Expose retry interval in the queue UI so agents can see "when this lead re-enters" at a glance from the Queue tab.
 - Consider persisting `retry_eligible_at` / `callback_due_at` as actual DB columns if multi-session lifecycle continuity is required (currently in-memory only, resets on page reload).
+
+---
+
+## 9. Context Snapshot — Total Leads Auto-Trigger (2026-04-06)
+
+### What Was Built
+
+A Postgres trigger that makes `campaigns.total_leads` a fully DB-managed counter. No frontend code is responsible for maintaining this value.
+
+### Database Layer
+
+| Object | Type | Behavior |
+|---|---|---|
+| `sync_campaign_total_leads()` | Trigger function | INSERT → +1; DELETE → GREATEST(-1, 0); UPDATE w/ campaign_id change → decrement old, increment new |
+| `trg_sync_campaign_total_leads` | AFTER trigger | Fires FOR EACH ROW on INSERT OR DELETE OR UPDATE of `campaign_leads` |
+| Backfill `UPDATE` | One-time | Sets `total_leads` from live `campaign_leads` row counts for all existing campaigns |
+
+**Return contract (per Postgres AFTER trigger spec):**
+- `INSERT` → returns `NEW`
+- `DELETE` → returns `OLD`
+- `UPDATE` → returns `NEW`
+
+### Frontend Changes
+
+6 manual update calls removed across 2 files:
+
+| File | Removed |
+|---|---|
+| `src/pages/CampaignDetail.tsx` | 4 blocks — `handleAdd` (post-INSERT), CSV import (post-INSERT), `handleRemoveLead` (post-DELETE), `handleBulkRemove` (post-DELETE) |
+| `src/components/contacts/AddToCampaignModal.tsx` | 2 blocks — `handleAddToExisting` (post-INSERT), `handleCreateAndAdd` (post-INSERT) |
+
+**Also fixed:** `AddToCampaignModal.tsx` campaign INSERT `.single()` → `.maybeSingle()` per AGENT_RULES null-safety standard.
+
+**Left intact:** `total_leads: 0` initial value on new campaign INSERT rows — this is a valid seed value on the `campaigns` record, not a `campaign_leads` mutation.
+
+### What Prompt 2 Depends On
+
+- `campaigns.total_leads` is now always accurate; any future UI that displays this count can trust it directly without a re-count query.
+- If a future migration adds bulk-delete or TRUNCATE paths on `campaign_leads`, those paths will bypass the FOR EACH ROW trigger. Add a statement-level trigger or re-run the backfill UPDATE in that migration.
+- `organization_id` scoping is untouched — trigger is count-only and never reads or writes org fields.
