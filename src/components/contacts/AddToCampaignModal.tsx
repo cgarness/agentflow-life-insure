@@ -107,17 +107,6 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
       
       if (error) throw error;
 
-      // Update total leads count for campaign
-      const { count } = await supabase
-        .from("campaign_leads")
-        .select("id", { count: "exact", head: true })
-        .eq("campaign_id", selectedCampaignId);
-      
-      await supabase
-        .from("campaigns")
-        .update({ total_leads: count || 0 } as any)
-        .eq("id", selectedCampaignId);
-
       const campaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
       toast.success(`${toAdd.length} leads added to ${campaignName}`, { duration: 3000, position: "bottom-right" });
       onSuccess();
@@ -147,7 +136,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
           organization_id: organizationId,
         } as any)
         .select("*")
-        .single();
+        .maybeSingle();
 
       if (createError) throw createError;
 
@@ -166,11 +155,6 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
 
       const { error: insertError } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
       if (insertError) throw insertError;
-
-      await supabase
-        .from("campaigns")
-        .update({ total_leads: rows.length } as any)
-        .eq("id", newCampaign.id);
 
       toast.success(`Campaign created and ${selectedContacts.length} leads added`, { duration: 3000, position: "bottom-right" });
       onSuccess();
