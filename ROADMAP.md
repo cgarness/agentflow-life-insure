@@ -41,10 +41,16 @@
 | `20260406000000` | `hard_claim_engine.sql` | `claim_lead` RPC (SECURITY DEFINER) for permanent ownership transfer via `leads.assigned_agent_id`. Added `queue_filters` JSONB column to `campaigns`. |
 | `20260406200000` | `add_leads_to_campaign_rpc.sql` | `add_leads_to_campaign` RPC (SECURITY DEFINER) enforcing Personal/Team/Open ownership rules before inserting into `campaign_leads`. |
 | `20260406400000` | `dialer_lead_locks.sql` | `fetch_and_lock_next_lead` RPC (90s TTL, no leads JOIN) + `release_all_agent_locks` RPC + composite index on `(campaign_id, expires_at)`. |
+| `20260406500000` | `fix_campaign_leads_user_id.sql` | Hotfix: ensures `user_id` column exists on `campaign_leads` (IF NOT EXISTS + backfill from `claimed_by`); recreates `add_leads_to_campaign` without `user_id` in INSERT (column DEFAULT handles it). Resolves "column user_id does not exist" runtime error. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] Fix campaign_leads user_id Column + RPC Hotfix**
+  *Migration:* `20260406500000_fix_campaign_leads_user_id.sql`
+  *Files Modified:* `ROADMAP.md`
+  *Developer Note:* Root cause was a two-part failure: migration `20260403100000_campaigns_rls.sql` added `user_id` to `campaign_leads` on local but was not fully applied on the remote database, leaving the column absent. The previously deployed `add_leads_to_campaign` function body referenced `user_id` in its INSERT column list (an older version), causing the runtime error "column user_id does not exist." The hotfix migration (1) adds `user_id UUID REFERENCES auth.users(id)` to `campaign_leads` using `IF NOT EXISTS` (idempotent), (2) backfills from `claimed_by` for existing rows, (3) sets `DEFAULT auth.uid()`, and (4) `CREATE OR REPLACE`s the function with the correct body that omits `user_id` from the INSERT — the column DEFAULT handles assignment automatically. No frontend code was modified.
 
 - **2026-04-06 | [DONE] Dialer Queue Routing by Campaign Type — Atomic Lock RPC + DialerPage Wiring**
   *Migration:* `20260406400000_dialer_lead_locks.sql`
