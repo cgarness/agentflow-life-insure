@@ -44,6 +44,15 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-06 | [DONE] Intelligent Queue Lifecycle Management**
+  *Files Created:* `src/lib/queue-manager.ts`
+  *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/QueuePanel.tsx`, `ROADMAP.md`
+  *No migrations required — all queue state is in-memory only.*
+  *Developer Note:* Implemented fully managed queue lifecycle with priority-tiered ordering. Foundational to 300+ dials/day with zero manual queue management.
+  **queue-manager.ts** — New library containing all queue logic: `CampaignLead` interface with in-memory `retry_eligible_at` / `callback_due_at` fields; `DISPOSITION_QUEUE_BEHAVIOR` map (No Answer/Not Available/Left Voicemail/Interested → retry, DNC/Not Interested/Appointment Set → permanent remove, Call Back → callback hold); `sortQueue()` (4 tiers: Callback Due Now → New Leads → Retry Eligible → Pending); `applyDispositionToQueue()` (removes + re-inserts + re-sorts after every save); `queueOrderChanged()` (position-by-position ID comparison); `formatTimeUntil()` (human countdown); `getLeadTier()` (tier 1–4 classifier for UI badges).
+  **DialerPage.tsx** — `loadWithResume` now fetches `retry_interval_hours` from campaigns, pre-populates `retry_eligible_at` for any previously-called leads whose interval hasn't expired, then runs `sortQueue()` before `setLeadQueue`. `applyQueueLifecycle` callback centralizes disposition → queue change wiring. `handleAutoDispose` now calls `applyQueueLifecycle` instead of incrementing index. `handleSaveAndNext` (Personal/non-lock path) calls `applyQueueLifecycle` + resets to index 0 instead of calling `handleAdvance`; lock-mode path is unchanged. 60-second `setInterval` effect re-sorts the queue and toasts if order changed (clears on unmount and `selectedCampaignId → null`).
+  **QueuePanel.tsx** — Lead rows now compute tier via `getLeadTier`. Tier 1 rows show amber "Callback Due" badge; Tier 3 rows show green "Ready" badge; Tier 4 rows show muted countdown ("Retry in Xh Ym" / "Callback in Xd Yh") and apply `opacity-50` to signal not-yet-callable status.
+
 - **2026-04-06 | [DONE] Dialer Behavioral Bugfixes (Three-Fix Block)**
   *Files Modified:* `src/lib/auto-dialer.ts`, `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* Three targeted fixes applied to the power dialer.
@@ -204,3 +213,49 @@ Three focused behavioral fixes applied to `src/lib/auto-dialer.ts` and `src/page
 ### What's Next
 - Consider wiring `ringTimeoutRef.current` into a setRingTimeout API on TelnyxContext if per-campaign ring timeout overrides are needed (currently TelnyxContext reads global `phone_settings` itself).
 - Session stats are in-memory only; if `dial_sessions` table is implemented (see Roadmap Phase 4), `sessionStats` should persist there on `endSession`.
+
+---
+
+## 8. Context Snapshot — Intelligent Queue Lifecycle Management (2026-04-06)
+
+### What Was Built
+
+A fully managed in-memory queue lifecycle system that dynamically re-positions leads after every disposition. All logic is isolated in `src/lib/queue-manager.ts`.
+
+### Architecture
+
+| Function | Behavior |
+|---|---|
+| `sortQueue(leads, now)` | 4-tier priority sort: Callback Due → New → Retry Eligible → Pending |
+| `applyDispositionToQueue(...)` | Removes disposed lead, applies behavior from `DISPOSITION_QUEUE_BEHAVIOR`, re-inserts with timestamps, re-sorts |
+| `queueOrderChanged(a, b)` | Position-by-position ID comparison — drives 60s poll toast |
+| `formatTimeUntil(ts, now)` | "Xh Ym" / "Xd Yh" / "Due now" countdown strings |
+| `getLeadTier(lead, now)` | Returns 1–4 for QueuePanel badge rendering |
+
+### Disposition Routing
+
+| Disposition | Queue Action |
+|---|---|
+| No Answer, Not Available, Left Voicemail, Interested | `remove_until_retry` — re-enters after `retry_interval_hours` |
+| Not Interested, DNC, Appointment Set, Appt Set | `remove_permanent` — gone from session queue |
+| Call Back, Call Back Later | `remove_until_callback` — re-enters at scheduled callback time |
+| (anything else) | `keep_at_bottom` — pushed to end of sorted queue |
+
+### Advance Model Change
+
+Previous model: `currentLeadIndex++` after every disposition.
+New model: disposed lead is removed → queue re-sorted → `currentLeadIndex` reset to 0 (head of sorted queue is always the next-to-dial). The auto-dial reactive `useEffect` on `currentLead?.id` naturally fires on the new head.
+
+Lock-mode (Team / Open Pool) is **unchanged** — these campaigns use atomic DB locks via `useLeadLock` and bypass all in-memory queue lifecycle.
+
+### Deferred Edge Cases
+
+- `callback_at` / `scheduled_callback_at` columns not confirmed present on `campaign_leads`; `callbackDueAt` is derived from the inline callback scheduler UI (`callbackDate` + `callbackTime` state) and falls back to 48h if null.
+- `handleSaveOnly` (save without advance) intentionally does NOT apply queue lifecycle — the agent may save and continue reviewing the lead.
+- `autoSaveNoAnswer` (rapid no-answer path) uses `handleAdvance` — consider migrating to `applyQueueLifecycle` in a future pass if you want no-answer leads to re-sort immediately.
+
+### What's Next
+
+- Connect `dial_sessions` persistence so re-insertion timing is visible in agency reports.
+- Expose retry interval in the queue UI so agents can see "when this lead re-enters" at a glance from the Queue tab.
+- Consider persisting `retry_eligible_at` / `callback_due_at` as actual DB columns if multi-session lifecycle continuity is required (currently in-memory only, resets on page reload).

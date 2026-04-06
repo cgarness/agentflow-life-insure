@@ -2,6 +2,7 @@ import React from "react";
 import { Loader2, Users, ListFilter, SortAsc, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import QueuePanelLocked from "./QueuePanelLocked";
+import { getLeadTier, formatTimeUntil, type CampaignLead } from "@/lib/queue-manager";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -241,6 +242,10 @@ export default function QueuePanel({
         displayQueue.map(({ lead, originalIndex }) => {
           const isCurrent = originalIndex === currentLeadIndex;
           const isPast = originalIndex < currentLeadIndex;
+          const now = new Date();
+          const tier = getLeadTier(lead as CampaignLead, now);
+          const isPending = tier === 4 && !isCurrent && !isPast;
+
           return (
             <div
               key={String(lead.id)}
@@ -251,6 +256,8 @@ export default function QueuePanel({
                   ? "bg-primary/10 border-primary ring-1 ring-primary/20"
                   : isPast
                   ? "opacity-50 grayscale bg-muted/30 border-transparent"
+                  : isPending
+                  ? "opacity-50 bg-muted/20 border-border/50"
                   : "bg-card hover:bg-accent/50 border-border"
               )}
             >
@@ -271,7 +278,7 @@ export default function QueuePanel({
                 <div className="text-[10px] text-muted-foreground truncate font-medium">
                   {String(lead.phone || "")}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   {queuePreviewFields.map((field, fi) => {
                     const val = renderQueuePreviewValue(lead, field);
                     return val !== "—" ? (
@@ -280,6 +287,30 @@ export default function QueuePanel({
                       </span>
                     ) : null;
                   })}
+                  {/* ── Tier Badges ── */}
+                  {!isCurrent && !isPast && tier === 1 && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500 shrink-0">
+                      Callback Due
+                    </span>
+                  )}
+                  {!isCurrent && !isPast && tier === 3 && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 shrink-0">
+                      Ready
+                    </span>
+                  )}
+                  {!isCurrent && !isPast && tier === 4 && (() => {
+                    const ts = String(lead.retry_eligible_at || lead.callback_due_at || "");
+                    const label = ts
+                      ? (lead.callback_due_at
+                          ? `Callback in ${formatTimeUntil(ts, now)}`
+                          : `Retry in ${formatTimeUntil(ts, now)}`)
+                      : null;
+                    return label ? (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+                        {label}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               </div>
               {isCurrent && (
