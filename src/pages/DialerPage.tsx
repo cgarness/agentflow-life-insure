@@ -1178,20 +1178,22 @@ export default function DialerPage() {
       console.log('[AMD] Found "No Answer" disposition, auto-advancing...');
       setSelectedDisp(noAnswerDisp);
       setShowWrapUp(false); // Force close modal if open
-      
-      if (autoDialer && autoDialer.isEnabled()) {
-        await autoDialer.saveDispositionAndNext(noAnswerDisp.id);
-      } else {
-        handleAutoDispose(noAnswerDisp);
-      }
+      // Route through handleAutoDispose so applyQueueLifecycle is always called
+      await handleAutoDispose(noAnswerDisp);
     } else {
-      // No matching disposition — still advance
-      console.warn('No "No Answer" disposition found, advancing without disposition');
-      handleSkip(); // Reuse skip logic to advance lead
+      // No matching disposition — apply lifecycle with plain name so
+      // DISPOSITION_QUEUE_BEHAVIOR still routes to remove_until_retry
+      console.warn('No "No Answer" disposition found, applying lifecycle with fallback');
+      applyQueueLifecycle(
+        currentLead as CampaignLead,
+        'No Answer',
+        null,
+      );
     }
     // Reset AMD status after brief display
     setTimeout(() => setAmdStatus('idle'), 2000);
-  }, [user?.id, dispositions, autoDialer, handleAutoDispose, handleSkip]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, dispositions, handleAutoDispose, applyQueueLifecycle, currentLead]);
 
   // ── Real-time AMD detection ──
   useEffect(() => {
@@ -1671,7 +1673,8 @@ export default function DialerPage() {
     } catch {
       /* ignore */
     }
-    handleAdvance();
+    // ── Queue Lifecycle: re-queue lead at retry interval instead of dropping it ──
+    applyQueueLifecycle(currentLead as CampaignLead, d.name, null);
   }
 
   const saveCallData = async () => {

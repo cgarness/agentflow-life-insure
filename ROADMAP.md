@@ -44,6 +44,13 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-06 | [DONE] Queue Lifecycle — Rapid-Advance Path Audit**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *No migrations. No new components.*
+  *Developer Note:* Follow-up patch closing two advance paths that bypassed `applyQueueLifecycle` — meaning those leads were silently dropped from the queue rather than re-inserted after the retry interval.
+  **Bug 1 — `autoSaveNoAnswer`**: Replaced `handleAdvance()` with `applyQueueLifecycle(currentLead, d.name, null)`. This path fires when any "No Answer"-named disposition is selected in the wrap-up panel (ring timeout, rapid disposition press). Leads now re-enter at Tier 3 after `retry_interval_hours`.
+  **Bug 2 — `handleMachineDetectedAction` (AMD path)**: When AMD detected a machine and autoDialer was enabled, the code called `autoDialer.saveDispositionAndNext()` → fired `auto-dial-next-lead` event → `handleAdvance()`. Replaced with `handleAutoDispose(noAnswerDisp)` which already routes through `applyQueueLifecycle`. Fallback (no No Answer disp found) now calls `applyQueueLifecycle` with `'No Answer'` string directly so `DISPOSITION_QUEUE_BEHAVIOR` still routes to `remove_until_retry`.
+
 - **2026-04-06 | [DONE] Intelligent Queue Lifecycle Management**
   *Files Created:* `src/lib/queue-manager.ts`
   *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/QueuePanel.tsx`, `ROADMAP.md`
@@ -252,10 +259,36 @@ Lock-mode (Team / Open Pool) is **unchanged** — these campaigns use atomic DB 
 
 - `callback_at` / `scheduled_callback_at` columns not confirmed present on `campaign_leads`; `callbackDueAt` is derived from the inline callback scheduler UI (`callbackDate` + `callbackTime` state) and falls back to 48h if null.
 - `handleSaveOnly` (save without advance) intentionally does NOT apply queue lifecycle — the agent may save and continue reviewing the lead.
-- `autoSaveNoAnswer` (rapid no-answer path) uses `handleAdvance` — consider migrating to `applyQueueLifecycle` in a future pass if you want no-answer leads to re-sort immediately.
+- `autoSaveNoAnswer` (rapid no-answer path) — **FIXED** in the rapid-advance audit (2026-04-06).
 
 ### What's Next
 
 - Connect `dial_sessions` persistence so re-insertion timing is visible in agency reports.
 - Expose retry interval in the queue UI so agents can see "when this lead re-enters" at a glance from the Queue tab.
 - Consider persisting `retry_eligible_at` / `callback_due_at` as actual DB columns if multi-session lifecycle continuity is required (currently in-memory only, resets on page reload).
+
+---
+
+## 9. Context Snapshot — Rapid-Advance Path Audit (2026-04-06)
+
+### What Was Patched
+
+Two advance paths that bypassed `applyQueueLifecycle` were identified and fixed in `src/pages/DialerPage.tsx`.
+
+| Path | Old Behavior | New Behavior |
+|---|---|---|
+| `autoSaveNoAnswer` | `handleAdvance()` — lead silently dropped | `applyQueueLifecycle(lead, d.name, null)` — re-queued at retry interval |
+| `handleMachineDetectedAction` (autoDialer enabled) | `autoDialer.saveDispositionAndNext()` → event → `handleAdvance()` | `handleAutoDispose(noAnswerDisp)` — routes through `applyQueueLifecycle` |
+| `handleMachineDetectedAction` (no No Answer disp found) | `handleSkip()` — lead dropped | `applyQueueLifecycle(lead, 'No Answer', null)` — DISPOSITION_QUEUE_BEHAVIOR routes to `remove_until_retry` |
+
+### Other Advance Paths Reviewed (Not Changed)
+
+| Path | Decision |
+|---|---|
+| `handleSkip` (calling-hours out-of-hours skip) | No call saved → no lifecycle timestamp. Lead remains in queue at current position; still callable next cycle. Intentionally unchanged. |
+| `auto-dial-next-lead` / `auto-dial-lead-closed` event listeners | Both fired only by `autoDialer.saveDispositionAndNext()`. That method is now unreachable from all normal code paths (AMD path was the last caller). Listeners left in place as a safety net. |
+| `shouldAdvanceAfterModal` in callback/appointment modals | Fires after the standalone callback/appointment modals are dismissed. `handleSaveAndNext` already applied lifecycle before these modals opened. These `handleAdvance()` calls are legacy modal-dismiss handlers; they increment index after lifecycle has reset to 0, potentially advancing one extra slot. Deferred — low frequency path, low urgency. |
+
+### Still Deferred
+
+- `shouldAdvanceAfterModal` modal-dismiss `handleAdvance()` calls could theoretically skip the first lead in the re-sorted queue in edge cases where the modal is dismissed after `handleSaveAndNext` has already reset the index. Low frequency in practice.
