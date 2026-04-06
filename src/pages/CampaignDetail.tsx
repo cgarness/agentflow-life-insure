@@ -279,11 +279,19 @@ const AddLeadsModal: React.FC<{
     const toAdd = leads.filter(l => selected.has(l.id) && !existingLeadIds.has(l.id));
     if (toAdd.length === 0) return;
     setAdding(true);
-    const rows = toAdd.map(l => ({ campaign_id: campaignId, lead_id: l.id, first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email, state: l.state, age: l.age, status: "Queued", organization_id: organizationId }));
-    const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const leadIds = toAdd.map(l => l.id);
+    const { data, error } = await supabase.rpc("add_leads_to_campaign", {
+      p_campaign_id: campaignId,
+      p_lead_ids: leadIds,
+    });
     if (error) { toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" }); }
     else {
-      toast.success(`${toAdd.length} leads added to campaign`, { duration: 3000, position: "bottom-right" });
+      const result = data as { added: number; skipped: number; skipped_ids: string[] };
+      if (result.skipped > 0) {
+        toast.success(`${result.added} leads added, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
+      } else {
+        toast.success(`${result.added} leads added to campaign`, { duration: 3000, position: "bottom-right" });
+      }
       onAdded(); onClose();
     }
     setAdding(false);
@@ -447,14 +455,23 @@ const ImportCSVModal: React.FC<{
         });
       }
 
-      // 2. Insert into campaign_leads
+      // 2. Insert into campaign_leads via ownership-validated RPC
       if (processedLeads.length > 0) {
-        const { error } = await supabase.from("campaign_leads").insert(processedLeads as any);
+        const leadIds = processedLeads.map(l => l.lead_id).filter(Boolean) as string[];
+        const { data, error } = await supabase.rpc("add_leads_to_campaign", {
+          p_campaign_id: campaignId,
+          p_lead_ids: leadIds,
+        });
         if (error) {
           toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
         } else {
-          toast.success(`${processedLeads.length} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
-          onImported(); 
+          const result = data as { added: number; skipped: number; skipped_ids: string[] };
+          if (result.skipped > 0) {
+            toast.success(`${result.added} leads imported, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
+          } else {
+            toast.success(`${result.added} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
+          }
+          onImported();
           onClose();
         }
       }

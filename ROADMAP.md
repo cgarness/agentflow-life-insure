@@ -39,10 +39,16 @@
 | `20260405000000` | `sync_leads_user_id_trigger.sql` | Added real-time trigger to sync master lead ownership with campaign states. |
 | `20260405100000` | `smart_queue_lock_system.sql` | Atomic fetch-and-lock for Team/Open Pool campaigns. `dialer_lead_locks` table + 3 RPCs. |
 | `20260406000000` | `hard_claim_engine.sql` | `claim_lead` RPC (SECURITY DEFINER) for permanent ownership transfer via `leads.assigned_agent_id`. Added `queue_filters` JSONB column to `campaigns`. |
+| `20260406200000` | `add_leads_to_campaign_rpc.sql` | `add_leads_to_campaign` RPC (SECURITY DEFINER) enforcing Personal/Team/Open ownership rules before inserting into `campaign_leads`. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] add_leads_to_campaign RPC with Ownership Validation**
+  *Migration:* `20260406200000_add_leads_to_campaign_rpc.sql`
+  *Files Modified:* `src/components/contacts/AddToCampaignModal.tsx`, `src/pages/CampaignDetail.tsx`, `ROADMAP.md`
+  *Developer Note:* Created a SECURITY DEFINER Postgres RPC `add_leads_to_campaign(p_campaign_id, p_lead_ids)` that enforces campaign-type ownership rules at the database layer. Personal campaigns require `lead.assigned_agent_id = campaign.user_id`; Team campaigns require the lead's agent to be in the campaign creator's downline (via `is_ancestor_of`); Open campaigns only check organization membership. Function performs dedup (skips leads already in campaign), batch-inserts valid leads with `status='Queued'`, and returns `{added, skipped, skipped_ids}` as JSONB. Refactored 3 frontend insert paths (AddToCampaignModal `handleAdd` + `handleCreateAndAdd`, CampaignDetail `handleAdd` + `doImport`) to call the RPC instead of direct `.insert()`. Toast notifications now show skip counts. `import-contacts` Edge Function was NOT touched — it has its own validation path. All columns are native UUID — no type casts needed.
 
 - **2026-04-06 | [DONE] Total Leads Auto-Trigger**
   *Migration:* `20260406100000_campaign_leads_count_trigger.sql`
@@ -304,3 +310,62 @@ A Postgres trigger that makes `campaigns.total_leads` a fully DB-managed counter
 - `campaigns.total_leads` is now always accurate; any future UI that displays this count can trust it directly without a re-count query.
 - If a future migration adds bulk-delete or TRUNCATE paths on `campaign_leads`, those paths will bypass the FOR EACH ROW trigger. Add a statement-level trigger or re-run the backfill UPDATE in that migration.
 - `organization_id` scoping is untouched — trigger is count-only and never reads or writes org fields.
+
+---
+
+## 10. Context Snapshot — add_leads_to_campaign RPC (2026-04-06)
+
+### What Was Built
+
+A server-side Postgres RPC that validates lead ownership rules before inserting into `campaign_leads`, enforcing Personal/Team/Open campaign type logic at the database layer.
+
+### Database Layer
+
+| Object | Type | Behavior |
+|---|---|---|
+| `add_leads_to_campaign(p_campaign_id, p_lead_ids)` | SECURITY DEFINER function | Validates org membership, campaign type ownership rules, dedup, then batch-inserts valid leads |
+
+**Ownership Rules by Campaign Type:**
+
+| Type | Rule | Skip Reason |
+|---|---|---|
+| Personal | `lead.assigned_agent_id = campaign.user_id` | `not_owned_by_campaign_creator` |
+| Team | `is_ancestor_of(campaign.user_id, lead.assigned_agent_id)` OR direct match | `outside_team_downline` |
+| Open / Open Pool | `lead.organization_id = get_org_id()` (org membership only) | `outside_organization` |
+
+**Additional skip conditions:**
+- Lead not found or wrong org → `outside_organization`
+- Lead already in `campaign_leads` for this campaign → `already_in_campaign`
+
+**Return contract:** `JSONB { added: int, skipped: int, skipped_ids: uuid[] }`
+
+### Frontend Changes
+
+3 direct `.insert()` calls replaced with `supabase.rpc('add_leads_to_campaign')`:
+
+| File | Function | Change |
+|---|---|---|
+| `AddToCampaignModal.tsx` | `handleAdd` | Removed client-side dedup query + filter; RPC handles dedup |
+| `AddToCampaignModal.tsx` | `handleCreateAndAdd` | Replaced post-create `.insert()` with RPC call |
+| `CampaignDetail.tsx` | `handleAdd` (AddLeadsModal) | Replaced inline `.insert()` with RPC call |
+| `CampaignDetail.tsx` | `doImport` (CSV import) | Replaced `.insert(processedLeads)` with RPC; master lead creation loop unchanged |
+
+All toast notifications now show skip counts when leads are skipped (e.g. "12 leads added, 3 skipped").
+
+### Schema Decisions Made
+
+| Decision | Rationale |
+|---|---|
+| Both `leads.assigned_agent_id` and `campaigns.user_id` are UUID | Migration `20260331200100` standardized `assigned_agent_id` to UUID; no casts needed |
+| SECURITY DEFINER | Must read leads across agent boundaries for Team/Open validation |
+| Dedup inside RPC, not client | Single source of truth; eliminates race conditions from concurrent adds |
+| `UPPER(campaign.type)` comparison | DB stores mixed-case values ('Personal', 'Team', 'Open Pool'); normalizing avoids case bugs |
+| CSV import still creates master leads client-side | RPC only validates + inserts into `campaign_leads`; master lead creation is a separate concern |
+| `import-contacts` Edge Function untouched | Has its own server-side validation path; not part of this refactor |
+
+### What's Next (Prompts 3 & 4)
+
+- **Prompt 3**: Campaign Settings UI — queue filters editor, campaign configuration modal
+- **Prompt 4**: Campaign integrity tests or additional hardening
+- The `total_leads` trigger (`trg_sync_campaign_total_leads`) fires automatically on the RPC's INSERT — no manual count needed
+- If bulk-remove or TRUNCATE paths are added to `campaign_leads`, they bypass the FOR EACH ROW trigger; add a statement-level trigger in that migration
