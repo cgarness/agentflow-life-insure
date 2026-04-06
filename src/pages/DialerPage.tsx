@@ -582,7 +582,15 @@ export default function DialerPage() {
         .maybeSingle();
       const filters: QueueFilters = (campaignData?.queue_filters as QueueFilters) ?? {};
 
-      const lock = await getNextLead(selectedCampaignId, selectedCampaign.type, filters);
+      let lock = await getNextLead(selectedCampaignId, selectedCampaign.type, filters);
+
+      // Silent single retry: if two agents called getNextLead at the same
+      // millisecond, one may receive null even though leads remain.
+      // One retry is enough — genuine empty queue returns null twice.
+      if (!lock) {
+        lock = await getNextLead(selectedCampaignId, selectedCampaign.type, filters);
+      }
+
       if (!lock) {
         setLeadQueue([]);
         setHasMoreLeads(false);

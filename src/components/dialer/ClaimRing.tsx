@@ -38,6 +38,9 @@ export default function ClaimRing({
 }: ClaimRingProps) {
   const circleRef = useRef<SVGCircleElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // cancelledRef lets the rAF double-callback bail out if active flipped
+  // to false before both frames fired — prevents mid-reset arc restart.
+  const cancelledRef = useRef(false);
   const [visible, setVisible] = useState(false);
   const [completed, setCompleted] = useState(false);
 
@@ -53,15 +56,22 @@ export default function ClaimRing({
     if (!circle) return;
 
     if (active) {
-      // Reset then animate in the next frame so the transition fires.
+      cancelledRef.current = false;
+
+      // Hard-reset position with transition disabled first.
       circle.style.transition = "none";
       circle.style.strokeDashoffset = String(CIRCUMFERENCE);
       circle.style.stroke = strokeColor;
       setVisible(true);
       setCompleted(false);
 
+      // Two rAF hops ensure the browser has painted the reset before we
+      // enable the transition — otherwise the browser may skip the jump.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
+          // If active flipped false before we get here, do nothing — the
+          // else branch already reset the circle synchronously.
+          if (cancelledRef.current) return;
           circle.style.transition = `stroke-dashoffset ${CLAIM_DURATION_MS}ms linear`;
           circle.style.strokeDashoffset = "0";
         });
@@ -70,6 +80,7 @@ export default function ClaimRing({
       // JS timer fires onClaim after 30s
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
+        if (cancelledRef.current) return;
         if (circle) circle.style.stroke = "#22c55e";
         setCompleted(true);
         onClaim();
@@ -77,11 +88,14 @@ export default function ClaimRing({
         setTimeout(() => setVisible(false), COMPLETE_LINGER_MS);
       }, CLAIM_DURATION_MS);
     } else {
-      // Reset immediately — call dropped before 30s
+      // Mark cancelled so any pending rAF callback does not overwrite this reset.
+      cancelledRef.current = true;
+
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      // Instant visual reset — no transition.
       circle.style.transition = "none";
       circle.style.strokeDashoffset = String(CIRCUMFERENCE);
       setVisible(false);
@@ -89,6 +103,7 @@ export default function ClaimRing({
     }
 
     return () => {
+      cancelledRef.current = true;
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
