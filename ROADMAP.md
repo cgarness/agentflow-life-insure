@@ -101,10 +101,15 @@
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* Built the campaign-aware dialer UI with full staged lead reveal, hidden queue for Team/Open, 30s claim ring animation, and campaign type visual identity stripe + badge. Also built the missing Hard Claim Engine (useHardClaim) that was a blocker for this task — the previous task left it incomplete. Schema gaps discovered and resolved: `claim_lead` RPC (SECURITY DEFINER, updates `leads.assigned_agent_id` ONLY — never `campaign_leads`) and `queue_filters` JSONB column on campaigns for manager-set filters. Lock-mode lead loading (Team/Open) uses atomic `getNextLead()` one lead at a time; Personal still uses batch queue. beforeunload listener cleans up lock + heartbeat + claim timer.
 
-- **2026-04-05 | [DONE] Smart Queue Lock System**
-  *Migration:* `20260405100000_smart_queue_lock_system.sql`
-  *Files Created:* `src/hooks/useLeadLock.ts`
-  *Developer Note:* Implemented atomic fetch-and-lock queue system for Team and Open Pool campaigns. Created `dialer_lead_locks` table with a unique partial index on `(lead_id) WHERE expires_at > now()` to enforce single active lock per lead. Three RPCs: `get_next_queue_lead` (SECURITY DEFINER, SELECT FOR UPDATE SKIP LOCKED — zero dead air), `renew_lead_lock` (30s heartbeat), `release_lead_lock` (called on skip/disposition/unload). Personal campaigns bypass the lock entirely via a direct `campaign_leads` query. Schema note: "contacts" in the task spec maps to `campaign_leads` in this codebase. Team pool scoped via `campaigns.assigned_agent_ids` (no `team_members` table exists). Filters (`status`, `state`, `lead_source`, `max_attempts`, `min_score`, `max_score`) designed as a flat key-value JSONB payload to support future plan-based filter limits.
+- **2026-04-06 | [DONE] Implement Coming Soon Placeholders**  
+  *Developer Note:* Implemented a premium, animated "Coming Soon" experience across Conversations, AI Agents, and Training modules. Created a reusable `ComingSoon` component alignment with the platform's vision for high-velocity agency operations.
+
+- **2026-04-06 | [DONE] Settings Layout Documentation Audit**  
+  *Developer Note:* Completed a comprehensive field-level map of the AgentFlow Settings architecture. Audited all components in `src/components/settings/` and generated the authoritative `docs/SETTINGS_LAYOUT.md` reference for future development.
+
+- **2026-04-06 | [DONE] Campaigns Architecture Diagnostic Audit**  
+  *Developer Note:* Perform a comprehensive end-to-end audit of the Campaigns feature. Mapped RLS security, lead state transitions, and AutoDialer integration. Identified bottlenecks in CSV ingestion and campaign action automation. [See Campaigns_Diagnostic_Report.md for details].
+
 
 - **2026-04-05 | [DONE] Permanent Dark Sidebar (Command Center)**  
   *Developer Note:* Enforced a constant dark theme for the Sidebar (Slate-900) to maintain a premium "Command Center" aesthetic across all global themes. Decoupled navigation elements from Light Mode styles to ensure 100% mission-critical visibility and consistency.

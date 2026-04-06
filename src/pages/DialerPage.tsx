@@ -606,20 +606,45 @@ export default function DialerPage() {
    * Calls getNextLead() to atomically fetch + lock one lead,
    * then fetches its full joined data and sets it as leadQueue[0].
    * Returns true if a lead was loaded, false if queue is empty.
+   *
+   * Accepts an optional campaignType override so callers don't depend
+   * on `selectedCampaign` being available in the closure. When omitted,
+   * the type is fetched directly from the campaigns table (self-sufficient).
    */
-  const loadLockModeLead = useCallback(async (): Promise<boolean> => {
-    if (!selectedCampaignId || !selectedCampaign) return false;
+  const loadLockModeLead = useCallback(async (overrideCampaignType?: string): Promise<boolean> => {
+    if (!selectedCampaignId) return false;
     setLoadingLeads(true);
     try {
+      // Resolve campaign type: use override, then closure, then fetch from DB
+      let resolvedType = overrideCampaignType || selectedCampaign?.type;
+      let campaignData: any = null;
+      if (!resolvedType) {
+        const { data } = await supabase
+          .from("campaigns")
+          .select("type, queue_filters, max_attempts")
+          .eq("id", selectedCampaignId)
+          .maybeSingle() as { data: any };
+        campaignData = data;
+        resolvedType = data?.type;
+      }
+      if (!resolvedType) {
+        console.error("[loadLockModeLead] Could not resolve campaign type");
+        setLoadingLeads(false);
+        return false;
+      }
+
       // Fetch manager-set filters from the campaign record
-      const { data: campaignData } = await supabase
-        .from("campaigns")
-        .select("queue_filters, max_attempts")
-        .eq("id", selectedCampaignId)
-        .maybeSingle();
+      if (!campaignData) {
+        const { data } = await supabase
+          .from("campaigns")
+          .select("queue_filters, max_attempts")
+          .eq("id", selectedCampaignId)
+          .maybeSingle();
+        campaignData = data;
+      }
       const filters: QueueFilters = (campaignData?.queue_filters as QueueFilters) ?? {};
 
-      const lock = await getNextLead(selectedCampaignId, selectedCampaign.type, filters);
+      const lock = await getNextLead(selectedCampaignId, resolvedType, filters);
       if (!lock) {
         setLeadQueue([]);
         setHasMoreLeads(false);
@@ -651,10 +676,11 @@ export default function DialerPage() {
       // Start heartbeat using campaign_leads.id (the lock key)
       startHeartbeat(lock.id, () => {
         // Lock lost — silently re-fetch next lead
-        loadLockModeLead();
+        loadLockModeLead(resolvedType);
       });
       return true;
-    } catch {
+    } catch (err) {
+      console.error("[loadLockModeLead] Error:", err);
       toast.error("Failed to load next lead");
       return false;
     } finally {
@@ -694,6 +720,18 @@ export default function DialerPage() {
       setCurrentLeadIndex(0);
       setCurrentOffset(0);
       setHasMoreLeads(true);
+      return;
+    }
+
+    // For lock-mode campaigns, we need the campaign type to be resolved.
+    // If selectedCampaign isn't available yet (e.g. campaigns haven't loaded),
+    // the loadLockModeLead function will self-resolve the type from the DB.
+    // However, we also need lockMode to be correctly computed, which depends
+    // on selectedCampaign. If campaigns haven't loaded yet and lockMode is
+    // incorrectly false, we'd run the wrong path. Guard against this:
+    if (lockMode === false && !selectedCampaign) {
+      // campaigns not loaded yet — lockMode may be incorrectly false.
+      // Wait for campaigns to load before deciding the loading path.
       return;
     }
 
@@ -779,12 +817,13 @@ export default function DialerPage() {
 
     if (lockMode) {
       // Team / Open Pool: atomic lock-based single-lead loading
-      loadLockModeLead();
+      // Pass the campaign type explicitly to avoid closure staleness
+      loadLockModeLead(selectedCampaign?.type);
     } else {
       loadWithResume();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, lockMode, user?.id, organizationId]);
+  }, [selectedCampaignId, selectedCampaign, lockMode, user?.id, organizationId]);
   // Reset hasDialedOnce when campaign changes so the first call must always be manual
   useEffect(() => {
     hasDialedOnce.current = false;
@@ -978,7 +1017,7 @@ export default function DialerPage() {
     previousNumber: string;
   } | null>(null);
 
-  const handleAdvance = useCallback(() => {
+  const handleAdvance = useCallback(async () => {
     setShowWrapUp(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -989,20 +1028,23 @@ export default function DialerPage() {
 
     if (lockMode && currentLead?.id) {
       stopHeartbeat();
-      releaseLock(currentLead.id as string);
-      loadLockModeLead();
+      // Await the lock release before fetching next lead to prevent
+      // the RPC from re-fetching the lead we just released.
+      await releaseLock(currentLead.id as string);
+      await loadLockModeLead();
       return;
     }
 
-    setCurrentLeadIndex((i) => {
-      const next = i + 1;
+    setCurrentLeadIndex((prev) => {
+      // Clamp to end of queue for Personal campaigns
+      const next = Math.min(prev + 1, leadQueue.length - 1);
       autoDialer?.setIndex(next);
       return next;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDialer, lockMode, currentLead?.id]);
+  }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
-  const handleSkip = useCallback(() => {
+  const handleSkip = useCallback(async () => {
     setIsEditingContact(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -1014,19 +1056,22 @@ export default function DialerPage() {
     if (lockMode && currentLead?.id) {
       const campaignLeadId = currentLead.id as string;
       stopHeartbeat();
-      releaseLock(campaignLeadId);
+      // Await the lock release before fetching next lead so the RPC
+      // doesn't re-serve the same lead we just skipped.
+      await releaseLock(campaignLeadId);
       // Load next lead atomically for Team/Open
-      loadLockModeLead();
+      await loadLockModeLead();
       return;
     }
 
-    setCurrentLeadIndex((i) => {
-      const next = i + 1;
+    setCurrentLeadIndex((prev) => {
+      // Clamp to end of queue for Personal campaigns
+      const next = Math.min(prev + 1, leadQueue.length - 1);
       autoDialer?.setIndex(next);
       return next;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDialer, lockMode, currentLead?.id]);
+  }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
   const proceedWithCall = useCallback((leadPhone: string, callerNumber: string, callId?: string) => {
     lastUsedCallerId.current = callerNumber;
@@ -1693,7 +1738,7 @@ export default function DialerPage() {
     } catch {
       /* ignore */
     }
-    handleAdvance();
+    await handleAdvance();
   }
 
   const saveCallData = async () => {
