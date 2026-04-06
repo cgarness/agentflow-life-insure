@@ -22,70 +22,30 @@ export async function getCampaigns(organizationId: string | null = null) {
 }
 
 export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
-  // 1. Fetch campaign settings for multi-attempt logic
-  let campaignQuery = supabase
-    .from("campaigns")
-    .select("max_attempts, retry_interval_hours")
-    .eq("id", campaignId);
+  const { data, error } = await supabase
+    .rpc("get_enterprise_queue_leads", {
+      p_campaign_id: campaignId,
+      p_org_id: organizationId || undefined,
+      p_limit: limit,
+      p_offset: offset
+    })
+    .select("*, lead:leads(*)");
 
-  if (organizationId) {
-    campaignQuery = campaignQuery.eq("organization_id", organizationId);
-  }
-
-  const { data: campaign } = await campaignQuery.maybeSingle();
-
-  const maxAttempts = campaign?.max_attempts ?? 1;
-  const retryInterval = campaign?.retry_interval_hours ?? 0;
-
-  // 2. Build the query
-  // We want leads that are 'Queued' OR ('Called' AND attempts < max AND time passed)
-  let query = supabase
-    .from("campaign_leads")
-    .select("*, lead:leads(*)")
-    .eq("campaign_id", campaignId)
-    .not("status", "in", '("DNC","Completed","Removed")') // Exclude terminal statuses
-    .order("created_at", { ascending: true });
-
-  if (organizationId) {
-    query = query.eq("organization_id", organizationId);
-  }
-
-  const { data, error } = await query.range(offset, offset + limit - 1);
   if (error) throw new Error(error.message);
 
-  const now = new Date();
-
-  // 3. Flatten and Filter by attempts/interval
-  return (data ?? [])
-    .map(row => {
-      const { lead, ...campaignLead } = row;
-      return {
-        ...(lead || {}),
-        ...campaignLead,
-        state: campaignLead.state || lead?.state || "",
-        id: campaignLead.id,
-        lead_id: lead?.id || campaignLead.lead_id
-      };
-    })
-    .filter(lead => {
-      // If Queued, always include
-      if (lead.status === "Queued") return true;
-      
-      // If Called, check attempts and interval
-      if (lead.status === "Called") {
-        const attempts = lead.call_attempts ?? 0;
-        if (attempts >= maxAttempts) return false;
-
-        if (retryInterval > 0 && lead.last_called_at) {
-          const lastCalled = new Date(lead.last_called_at);
-          const hoursSince = (now.getTime() - lastCalled.getTime()) / (1000 * 60 * 60);
-          if (hoursSince < retryInterval) return false;
-        }
-        return true;
-      }
-
-      return false; // Other statuses like 'Locked', 'Claimed' might be handled differently
-    });
+  // Flatten and map to the interface expected by the UI
+  return ((data as any[]) ?? []).map(row => {
+    const { lead, ...campaignLead } = row;
+    return {
+      ...(lead || {}),
+      ...campaignLead,
+      state: campaignLead.state || lead?.state || "",
+      id: campaignLead.id,
+      lead_id: lead?.id || campaignLead.lead_id,
+      // Pre-populate callback_due_at so the UI can show due callbacks
+      callback_due_at: campaignLead.scheduled_callback_at
+    };
+  });
 }
 
 export async function getLeadHistory(leadId: string, organizationId: string | null = null) {

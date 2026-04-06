@@ -135,14 +135,19 @@ export default function CampaignSettingsModal({
             {/* Retry Interval */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Retry Interval (hours)</label>
-              <input
-                type="number"
-                min={1}
-                max={168}
-                value={retryIntervalHours}
-                onChange={(e) => setRetryIntervalHours(Number(e.target.value))}
-                className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={168}
+                  value={retryIntervalHours}
+                  onChange={(e) => setRetryIntervalHours(Math.max(0, Number(e.target.value)))}
+                  className="w-24 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {retryIntervalHours === 0 ? "(Immediate retry)" : ""}
+                </span>
+              </div>
             </div>
 
             {/* Ring Timeout */}

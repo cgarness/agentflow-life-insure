@@ -516,6 +516,7 @@ export type Database = {
           locked_by: string | null
           organization_id: string | null
           phone: string | null
+          scheduled_callback_at: string | null
           sort_order: number | null
           source: string | null
           state: string | null
@@ -540,6 +541,7 @@ export type Database = {
           locked_by?: string | null
           organization_id?: string | null
           phone?: string | null
+          scheduled_callback_at?: string | null
           sort_order?: number | null
           source?: string | null
           state?: string | null
@@ -564,6 +566,7 @@ export type Database = {
           locked_by?: string | null
           organization_id?: string | null
           phone?: string | null
+          scheduled_callback_at?: string | null
           sort_order?: number | null
           source?: string | null
           state?: string | null
@@ -2671,6 +2674,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_enterprise_queue_leads: {
+        Args: {
+          p_campaign_id: string
+          p_org_id?: string
+          p_limit?: number
+          p_offset?: number
+        }
+        Returns: Database["public"]["Tables"]["campaign_leads"]["Row"][]
+      }
       get_user_org_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_team_id: { Args: never; Returns: string }

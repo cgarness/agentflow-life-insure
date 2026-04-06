@@ -184,6 +184,7 @@ function mapDialerLeadToContactLead(row: any): Lead {
     assignedAgentId: row.claimed_by || row.assigned_agent_id || "",
     lastContactedAt: row.last_contacted_at ?? undefined,
     customFields: row.custom_fields ?? undefined,
+    userId: row.user_id || "",
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.updated_at || new Date().toISOString(),
   };
@@ -763,6 +764,7 @@ export default function DialerPage() {
         const now = new Date();
         const enriched: CampaignLead[] = (leads as CampaignLead[]).map(lead => {
           // Pre-populate retry_eligible_at for previously-called leads
+          // Skip if retryInterval is 0 (immediate retry — no wait period)
           if (lead.status === 'Called' && lead.last_called_at && campaignRetryInterval > 0) {
             const eligibleAt = new Date(
               new Date(lead.last_called_at).getTime() + campaignRetryInterval * 3_600_000
@@ -771,6 +773,10 @@ export default function DialerPage() {
             if (eligibleAt > now) {
               return { ...lead, retry_eligible_at: eligibleAt.toISOString() };
             }
+          }
+          // Pre-populate callback_due_at from scheduled_callback_at
+          if (lead.scheduled_callback_at) {
+            return { ...lead, callback_due_at: lead.scheduled_callback_at };
           }
           return lead;
         });
@@ -1057,8 +1063,13 @@ export default function DialerPage() {
       autoDialer?.setIndex(next);
       return next;
     });
+    
+    if (autoDialEnabled && autoDialer) {
+      console.log("[DialerPage] Resuming Auto-Dialer after advance");
+      autoDialer.resumeAutoDialer();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
+  }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, autoDialEnabled]);
 
   const handleSkip = useCallback(async () => {
     setIsEditingContact(false);
@@ -1557,8 +1568,6 @@ export default function DialerPage() {
 
   // ── Auto-Dial Reactive Trigger (Lead Advance) ──
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-
     const triggerAutoCall = async () => {
       // FIX 2: Must press Call at least once before auto-dial fires
       if (!hasDialedOnce.current) return;
@@ -1574,6 +1583,15 @@ export default function DialerPage() {
       // 1. Guard check: only trigger if auto-dial is enabled, dialer is ready,
       //    we have a lead, and wrap-up is NOT open (agent is dispositioning).
       if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || telnyxStatus !== "ready" || showWrapUp) {
+        if (autoDialEnabled) {
+          console.log("[AutoDialer] Initiation blocked:", {
+            isEnabled: autoDialer?.isEnabled(),
+            hasLead: !!currentLead,
+            telnyxCallState,
+            telnyxStatus,
+            showWrapUp
+          });
+        }
         return;
       }
 
@@ -1596,7 +1614,7 @@ export default function DialerPage() {
 
       console.log(`[AutoDialer] Reactive trigger: Waiting 2000ms before dialing ${currentLead.first_name}...`);
 
-      timer = setTimeout(async () => {
+      const timer = setTimeout(async () => {
         // Double-check guards after delay to ensure user didn't pause, start a manual call, or open wrap-up
         if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || telnyxStatus !== "ready" || showWrapUp) {
           return;
@@ -1605,13 +1623,11 @@ export default function DialerPage() {
         console.log("[AutoDialer] 2000ms delay complete. Initiating call to:", currentLead.phone);
         handleCall();
       }, 2000);
+
+      return () => clearTimeout(timer);
     };
 
     triggerAutoCall();
-
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState, showWrapUp]);
 
@@ -1849,6 +1865,39 @@ export default function DialerPage() {
           end_time: "",
           notes: noteText,
         }, organizationId);
+
+        // ── Sync scheduled_callback_at to campaign_leads for waterfall queue ──
+        try {
+          const [h, rest] = callbackTime.split(':');
+          const [min, period] = (rest || '').split(' ');
+          let hours24 = parseInt(h, 10);
+          if (period === 'PM' && hours24 < 12) hours24 += 12;
+          if (period === 'AM' && hours24 === 12) hours24 = 0;
+          const callbackISO = new Date(
+            callbackDate.getFullYear(),
+            callbackDate.getMonth(),
+            callbackDate.getDate(),
+            hours24,
+            parseInt(min || '0', 10),
+          ).toISOString();
+          await supabase
+            .from('campaign_leads')
+            .update({ scheduled_callback_at: callbackISO } as any)
+            .eq('id', currentLead.id);
+        } catch (e) {
+          console.warn('[DialerPage] Failed to sync scheduled_callback_at', e);
+        }
+      } else {
+        // ── Clear scheduled_callback_at if not a callback disposition ──
+        // This prevents stale callbacks from keeping a lead at the front of the queue
+        try {
+          await supabase
+            .from('campaign_leads')
+            .update({ scheduled_callback_at: null } as any)
+            .eq('id', currentLead.id);
+        } catch (e) {
+          console.warn('[DialerPage] Failed to clear scheduled_callback_at', e);
+        }
       }
 
       // 3. Save call record
@@ -2069,6 +2118,11 @@ export default function DialerPage() {
           setCallbackTime("");
           setClaimRingActive(false);
           cancelClaimTimer();
+          
+          if (autoDialEnabled && autoDialer) {
+            console.log("[DialerPage] Resuming Auto-Dialer after save-and-next");
+            autoDialer.resumeAutoDialer();
+          }
         }
       } else {
         toast.dismiss(toastId);

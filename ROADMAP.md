@@ -42,10 +42,17 @@
 | `20260406200000` | `add_leads_to_campaign_rpc.sql` | `add_leads_to_campaign` RPC (SECURITY DEFINER) enforcing Personal/Team/Open ownership rules before inserting into `campaign_leads`. |
 | `20260406400000` | `dialer_lead_locks.sql` | `fetch_and_lock_next_lead` RPC (90s TTL, no leads JOIN) + `release_all_agent_locks` RPC + composite index on `(campaign_id, expires_at)`. |
 | `20260406500000` | `fix_campaign_leads_user_id.sql` | Hotfix: ensures `user_id` column exists on `campaign_leads` (IF NOT EXISTS + backfill from `claimed_by`); recreates `add_leads_to_campaign` without `user_id` in INSERT (column DEFAULT handles it). Resolves "column user_id does not exist" runtime error. |
+| `20260406600000` | `campaign_leads_scheduled_callback.sql` | Added `scheduled_callback_at` (TIMESTAMPTZ) to `campaign_leads` for native prioritization. |
+| `20260406700000` | `enterprise_waterfall_rpc.sql` | `get_enterprise_queue_leads` RPC: full DB-level filtering (Timezones, Max Attempts, Retry Intervals). |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] Enterprise Waterfall Queue — DB Refactor + Timezone Compliance + Auto-Dial Fix**
+  *Migration:* `20260406700000_enterprise_waterfall_rpc.sql`, `20260406600000_campaign_leads_scheduled_callback.sql`
+  *Files Modified:* `src/lib/dialer-api.ts`, `src/pages/DialerPage.tsx`, `src/integrations/supabase/types.ts`, `src/components/dialer/CampaignSettingsModal.tsx`, `ROADMAP.md`
+  *Developer Note:* Massive architectural upgrade to the dialer queue. **Fix 1 — Enterprise Waterfall RPC**: Created `get_enterprise_queue_leads` RPC which moves all queue logic (Timezone-aware calling hours, Max Attempts, and Retry Intervals) to the database level. This fixes broken pagination where JS-level filtering caused "empty" batches. The RPC maps US states to IANA timezones and handles the US Daylight Savings transitions natively. **Fix 2 — Zero-Interval Support**: Explicitly bypasses time-checks if `retry_interval_hours` is set to 0, enabling high-velocity immediate retries. **Fix 3 — Auto-Dial Initiation**: Resolved a bug where auto-dial would stall after dispositioning. Added explicit `autoDialer.resumeAutoDialer()` calls to `handleSaveAndNext` and `handleAdvance`. Added detailed console instrumentation to the `triggerAutoCall` reactive trigger to trace initiation blocks. Verified zero TypeScript regressions.
 
 - **2026-04-06 | [DONE] Ring Timeout Enforcement + Call Count UI + Auto-Dial Stall Fix**
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
@@ -592,3 +599,43 @@ Three behavioral fixes applied to `src/pages/DialerPage.tsx`. No new components,
 2. **`call_attempts` is updated locally AND in the DB** — the DB update happens inside `saveCall` / `updateLeadStatus`. The local `setLeadQueue` update is for instant UI feedback only.
 3. **Auto-dial flow after wrap-up**: Agent dispositions → `handleSaveAndNext` → `applyQueueLifecycle` resets index to 0 → `showWrapUp` set to `false` → reactive trigger fires on `currentLead?.id` change AND `showWrapUp` change → 2000ms delay → `handleCall()`.
 
+---
+
+## 15. Context Snapshot — Enterprise Queue Waterfall (2026-04-06)
+
+### What Was Built
+
+A database-first waterfall queue that handles compliance and prioritization at the RPC level, ensuring the frontend only receives "dial-ready" leads.
+
+### RPC: `get_enterprise_queue_leads`
+
+| Logic | Implementation |
+|---|---|
+| **Max Attempts** | `cl.call_attempts < campaign.max_attempts` |
+| **Retry Interval** | `cl.last_called_at + retry_interval <= now()` (Bypassed if `retry_interval = 0`) |
+| **Calling Hours** | Timezone-aware map: `cl.state` → `IANA timezone`. Compares `now() AT TIME ZONE l.tz` to campaign `start`/`end` times. |
+| **Waterfall Sort** | 1. Due Callbacks (`scheduled_callback_at <= now`) 2. New Leads 3. Retry Eligible |
+| **Terminal Filter** | Excludes `DNC`, `Completed`, `Removed` at the DB layer. |
+
+### Frontend Integration
+
+- **`dialer-api.ts`**: `getCampaignLeads` now calls the RPC with `p_limit` and `p_offset`. It uses `.select("*, lead:leads(*)")` on the RPC result to maintain type consistency with joined master contact data.
+- **`DialerPage.tsx`**: 
+    - The reactive `triggerAutoCall` now has detailed logging for `isEnabled`, `telnyxCallState`, and `showWrapUp`.
+    - `autoDialer.resumeAutoDialer()` is explicitly called during advance/save-next transitions to ensure the class-based state matches the UI state.
+    - `scheduled_callback_at` (new TIMESTAMPTZ column) is synced from the UI disposition modal to drive the DB priority waterfall.
+
+### Decisions Made
+
+| Decision | Rationale |
+|---|---|
+| Move filtering to DB | Pagination (`limit`/`offset`) is impossible to calculate in JS if most leads are ineligible. |
+| Timezone Map in SQL | Centralizes compliance. Mapping `CA` → `America/Los_Angeles` allows Postgres to handle DST offsets correctly without JS libraries like `moment-timezone`. |
+| Zero-hour bypass | Explicitly checking `IF v_retry_hrs = 0` prevents `interval '0 hours'` math that could lead to edge-case exclusions. |
+| `SETOF public.campaign_leads` | Returning the full table row allows PostgREST to join the `leads` table on the result, keeping the API clean and type-safe. |
+
+### Next Steps for Future Developers
+
+1. **Type Regeneration**: If you run `npx supabase gen types`, ensure `scheduled_callback_at` and the RPC are preserved or re-generated into `types.ts`.
+2. **Calling Hours Edge Cases**: States with multiple timezones (e.g. `KY`, `TN`) are defaulted to the primary state timezone. If pin-point accuracy is needed, map by `cl.phone` (area code) instead of `cl.state`.
+3. **Queue Panel Sync**: The `QueuePanel` still uses `displayQueue` (memoized). Ensure `displayQueue` remains synced with the RPC results fetched via `fetchLeadsBatch`.
