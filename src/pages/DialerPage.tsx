@@ -77,6 +77,11 @@ import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
 import CampaignSelection from "@/components/dialer/CampaignSelection";
 import CampaignSettingsModal from "@/components/dialer/CampaignSettingsModal";
+import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
+import QueuePanel from "@/components/dialer/QueuePanel";
+import ClaimRing from "@/components/dialer/ClaimRing";
+import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
+import { useHardClaim } from "@/hooks/useHardClaim";
 
 /* ─── Types ─── */
 
@@ -282,7 +287,7 @@ export default function DialerPage() {
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
   const { addAppointment } = useCalendar();
@@ -291,6 +296,11 @@ export default function DialerPage() {
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [shouldAdvanceAfterModal, setShouldAdvanceAfterModal] = useState(false);
+
+  // ── Campaign-aware dialer hooks ──
+  const { getNextLead, releaseLock, startHeartbeat, stopHeartbeat } = useLeadLock();
+  const { startClaimTimer, cancelClaimTimer, claimOnDisposition, claimedLeadIds } = useHardClaim();
+  const [claimRingActive, setClaimRingActive] = useState(false);
 
   // ── Auto-Dial state ──
   const [autoDialer, setAutoDialer] = useState<AutoDialer | null>(null);
@@ -362,6 +372,26 @@ export default function DialerPage() {
 
   const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
+
+  // ── Campaign type helpers ──
+  const campaignType = (selectedCampaign?.type || "Personal") as string;
+  /** True for Team and Open Pool campaigns — uses atomic lock queue. */
+  const lockMode = useMemo(() => {
+    const t = campaignType.toUpperCase();
+    return t === "TEAM" || t.includes("OPEN");
+  }, [campaignType]);
+
+  /**
+   * callStatus drives staged lead reveal in LeadCard.
+   * Personal always shows 'connected'. Team/Open stages through idle→ringing→connected.
+   */
+  const callStatus = useMemo<CallStatus>(() => {
+    if (!lockMode) return "connected"; // Personal: full reveal always
+    if (!currentLead) return "idle";
+    if (telnyxCallState === "dialing") return "ringing";
+    if (telnyxCallState === "active" || telnyxCallState === "ended" || showWrapUp) return "connected";
+    return "idle";
+  }, [lockMode, currentLead, telnyxCallState, showWrapUp]);
 
   /* --- data loading --- */
 
@@ -534,6 +564,68 @@ export default function DialerPage() {
   const [currentOffset, setCurrentOffset] = useState(0);
   const BATCH_SIZE = 50;
 
+  /**
+   * Lock-mode lead loader (Team / Open Pool).
+   * Calls getNextLead() to atomically fetch + lock one lead,
+   * then fetches its full joined data and sets it as leadQueue[0].
+   * Returns true if a lead was loaded, false if queue is empty.
+   */
+  const loadLockModeLead = useCallback(async (): Promise<boolean> => {
+    if (!selectedCampaignId || !selectedCampaign) return false;
+    setLoadingLeads(true);
+    try {
+      // Fetch manager-set filters from the campaign record
+      const { data: campaignData } = await supabase
+        .from("campaigns")
+        .select("queue_filters, max_attempts")
+        .eq("id", selectedCampaignId)
+        .maybeSingle();
+      const filters: QueueFilters = (campaignData?.queue_filters as QueueFilters) ?? {};
+
+      const lock = await getNextLead(selectedCampaignId, selectedCampaign.type, filters);
+      if (!lock) {
+        setLeadQueue([]);
+        setHasMoreLeads(false);
+        return false;
+      }
+
+      // Enrich with full leads table data (campaign_leads row from RPC lacks joined fields)
+      const { data: fullRow } = await supabase
+        .from("campaign_leads")
+        .select("*, lead:leads(*)")
+        .eq("id", lock.id)
+        .maybeSingle();
+
+      let merged: any = lock;
+      if (fullRow) {
+        const { lead: leadData, ...campaignLead } = fullRow as any;
+        merged = {
+          ...(leadData || {}),
+          ...campaignLead,
+          state: campaignLead.state || leadData?.state || "",
+          id: campaignLead.id,
+          lead_id: leadData?.id || campaignLead.lead_id,
+        };
+      }
+
+      setLeadQueue([merged]);
+      setCurrentLeadIndex(0);
+      setHasMoreLeads(false); // lock mode = one lead at a time
+      // Start heartbeat using campaign_leads.id (the lock key)
+      startHeartbeat(lock.id, () => {
+        // Lock lost — silently re-fetch next lead
+        loadLockModeLead();
+      });
+      return true;
+    } catch {
+      toast.error("Failed to load next lead");
+      return false;
+    } finally {
+      setLoadingLeads(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaignId, selectedCampaign, getNextLead, startHeartbeat]);
+
   const fetchLeadsBatch = useCallback(async (campaignId: string, offset: number, clear = false) => {
     setLoadingLeads(true);
     try {
@@ -617,17 +709,23 @@ export default function DialerPage() {
       }
     };
 
-    loadWithResume();
-  }, [selectedCampaignId, user?.id, organizationId]);
+    if (lockMode) {
+      // Team / Open Pool: atomic lock-based single-lead loading
+      loadLockModeLead();
+    } else {
+      loadWithResume();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaignId, lockMode, user?.id, organizationId]);
 
-  // Load more leads when we get close to the end of the queue
+  // Load more leads when we get close to the end of the queue (Personal only)
   useEffect(() => {
-    if (selectedCampaignId && hasMoreLeads && !loadingLeads && leadQueue.length > 0) {
+    if (!lockMode && selectedCampaignId && hasMoreLeads && !loadingLeads && leadQueue.length > 0) {
       if (currentLeadIndex >= leadQueue.length - 10) {
         fetchLeadsBatch(selectedCampaignId, currentOffset);
       }
     }
-  }, [currentLeadIndex, leadQueue.length, selectedCampaignId, hasMoreLeads, loadingLeads, currentOffset, fetchLeadsBatch]);
+  }, [lockMode, currentLeadIndex, leadQueue.length, selectedCampaignId, hasMoreLeads, loadingLeads, currentOffset, fetchLeadsBatch]);
 
   // Persist queue preferences to localStorage
   useEffect(() => { localStorage.setItem(QUEUE_SORT_KEY, queueSort); }, [queueSort]);
@@ -764,12 +862,23 @@ export default function DialerPage() {
     setNoteText("");
     setNoteError(false);
     setCurrentCallId(null);
+    setClaimRingActive(false);
+    cancelClaimTimer();
+
+    if (lockMode && currentLead?.id) {
+      stopHeartbeat();
+      releaseLock(currentLead.id as string);
+      loadLockModeLead();
+      return;
+    }
+
     setCurrentLeadIndex((i) => {
       const next = i + 1;
       autoDialer?.setIndex(next);
       return next;
     });
-  }, [autoDialer]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDialer, lockMode, currentLead?.id]);
 
   const handleSkip = useCallback(() => {
     setIsEditingContact(false);
@@ -777,12 +886,25 @@ export default function DialerPage() {
     setNoteText("");
     setNoteError(false);
     setCurrentCallId(null);
+    setClaimRingActive(false);
+    cancelClaimTimer();
+
+    if (lockMode && currentLead?.id) {
+      const campaignLeadId = currentLead.id as string;
+      stopHeartbeat();
+      releaseLock(campaignLeadId);
+      // Load next lead atomically for Team/Open
+      loadLockModeLead();
+      return;
+    }
+
     setCurrentLeadIndex((i) => {
       const next = i + 1;
       autoDialer?.setIndex(next);
       return next;
     });
-  }, [autoDialer]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDialer, lockMode, currentLead?.id]);
 
   const proceedWithCall = useCallback((leadPhone: string, callerNumber: string, callId?: string) => {
     lastUsedCallerId.current = callerNumber;
@@ -1322,7 +1444,37 @@ export default function DialerPage() {
     return () => window.removeEventListener("auto-dial-session-end", handleSessionEnd);
   }, []);
 
+  // ── beforeunload: release lock + stop heartbeat + cancel claim ──
+  useEffect(() => {
+    const handleUnload = () => {
+      if (currentLead?.id && lockMode) {
+        releaseLock(currentLead.id as string);
+      }
+      stopHeartbeat();
+      cancelClaimTimer();
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLead?.id, lockMode]);
 
+  // ── Telnyx answer → start claim timer (Team/Open only) ──
+  useEffect(() => {
+    if (!lockMode || !currentLead) return;
+    if (telnyxCallState === "active") {
+      setClaimRingActive(true);
+      startClaimTimer(
+        currentLead.id as string,
+        (currentLead.lead_id || currentLead.id) as string,
+        selectedCampaignId || ""
+      );
+    } else if (telnyxCallState === "idle" || telnyxCallState === "ended") {
+      setClaimRingActive(false);
+      // Cancel timer only on idle (ended keeps the card revealed during wrap-up)
+      if (telnyxCallState === "idle") cancelClaimTimer();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telnyxCallState, lockMode, currentLead?.id]);
 
   /* --- caller ID selection --- */
   // Redundant helper removed, now using getSmartCallerId from TelnyxContext
@@ -1503,6 +1655,20 @@ export default function DialerPage() {
         console.warn("Master contact record update failed during save", e);
       }
 
+      // ── Hard Claim (Team / Open Pool only) ──
+      if (lockMode) {
+        await claimOnDisposition(
+          currentLead.id as string,
+          masterId as string,
+          selectedCampaignId!,
+          selectedDisp?.name || "",
+          telnyxCallDuration
+        );
+        stopHeartbeat();
+        releaseLock(currentLead.id as string);
+        setClaimRingActive(false);
+      }
+
       // ── Campaign Action logic ──
       if (selectedDisp) {
         const action = selectedDisp.campaignAction || 'none';
@@ -1590,8 +1756,16 @@ export default function DialerPage() {
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
-        // Delegate advance + auto-dial logic to autoDialer
-        if (autoDialer && selectedDisp) {
+        // Delegate advance + auto-dial logic
+        if (lockMode) {
+          // Team/Open: fetch next locked lead atomically
+          setShowWrapUp(false);
+          setSelectedDisp(null);
+          setNoteText("");
+          setNoteError(false);
+          setCurrentCallId(null);
+          await loadLockModeLead();
+        } else if (autoDialer && selectedDisp) {
           await autoDialer.saveDispositionAndNext(selectedDisp.id, noteText || undefined);
           // advance happens via auto-dial-next-lead / auto-dial-lead-closed events
         } else {
@@ -2025,11 +2199,31 @@ export default function DialerPage() {
         </div>
       )}
       <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mt-4 lg:-mt-6 -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
+        {/* ── CAMPAIGN TYPE STRIPE (3px, full-width) ── */}
+        {lockMode && (() => {
+          const t = campaignType.toUpperCase();
+          const gradient = t === "TEAM"
+            ? "linear-gradient(to right, #6366f1, #8b5cf6, #a855f7)"
+            : "linear-gradient(to right, #f59e0b, #ef4444, #f59e0b)";
+          return (
+            <div
+              style={{ height: "3px", background: gradient, flexShrink: 0 }}
+              aria-hidden="true"
+            />
+          );
+        })()}
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 py-1 gap-4">
         {/* LEFT */}
         <button
           onClick={() => {
+            // Release lock + stop heartbeat + cancel claim on session end
+            if (lockMode && currentLead?.id) {
+              releaseLock(currentLead.id as string);
+            }
+            stopHeartbeat();
+            cancelClaimTimer();
+            setClaimRingActive(false);
             // Clear saved queue position
             if (user?.id && selectedCampaignId) {
               (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -2125,9 +2319,25 @@ export default function DialerPage() {
             <span className="w-2 h-2 rounded-full bg-success inline-block" />
             <span className="text-success text-xs font-semibold">Dialer Ready</span>
           </div>
-          <span className="bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
-            {selectedCampaign?.name ?? "No Campaign"}
-          </span>
+          {/* Campaign type badge */}
+          {(() => {
+            const t = campaignType.toUpperCase();
+            const isTeam = t === "TEAM";
+            const isOpen = t.includes("OPEN");
+            const dotColor = isTeam ? "#8b5cf6" : isOpen ? "#f59e0b" : "#22c55e";
+            const typeLabel = isTeam ? "TEAM" : isOpen ? "OPEN" : "PERSONAL";
+            return (
+              <div className="flex items-center gap-1.5 bg-accent/30 border border-border px-2 py-0.5 rounded-full">
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: dotColor }}
+                />
+                <span className="text-[10px] font-bold font-mono text-foreground uppercase tracking-widest">
+                  {typeLabel} · {selectedCampaign?.name ?? "No Campaign"}
+                </span>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -2272,89 +2482,18 @@ export default function DialerPage() {
               )}
             </div>
 
-            {/* Scrollable details — flex-1 overflow-y-auto */}
-            <div className="p-4 flex-1 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-4">
-                {[
-                  { label: "First Name", value: currentLead?.first_name, key: "first_name" },
-                  { label: "Last Name", value: currentLead?.last_name, key: "last_name" },
-                  { label: "Phone", value: currentLead?.phone, key: "phone" },
-                  { label: "Email", value: currentLead?.email, key: "email" },
-                  { label: "State", value: currentLead?.state, key: "state" },
-                  { label: "Age", value: currentLead?.age, key: "age" },
-                  { label: "DOB", value: currentLead?.date_of_birth, key: "date_of_birth" },
-                  { label: "Health", value: currentLead?.health_status, key: "health_status" },
-                  { label: "Best Time", value: currentLead?.best_time_to_call, key: "best_time_to_call" },
-                  { label: "Spouse", value: currentLead?.spouse_info, key: "spouse_info" },
-                  { label: "Source", value: currentLead?.source, key: "source" },
-                ].map((f) => (
-                  <div key={f.label} className="min-w-0">
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{f.label}</div>
-                    {isEditingContact ? (
-                      <input 
-                        type="text"
-                        value={editForm[f.key] || ""}
-                        onChange={(e) => setEditForm({ ...editForm, [f.key]: e.target.value })}
-                        className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
-                      />
-                    ) : (
-                      <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{f.value || "—"}</div>
-                    )}
-                  </div>
-                ))}
-
-                {/* Assigned Agent */}
-                <div className="min-w-0">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">Assigned Agent</div>
-                  <div className={cn("text-sm font-semibold mt-0.5 truncate", currentLead?.assigned_agent_id ? "text-foreground" : "text-muted-foreground")}>
-                    {assignedAgentName || (currentLead?.assigned_agent_id ? 'Unknown Agent' : 'Unassigned')}
-                  </div>
-                </div>
-
-                {/* Dynamically render ALL other fields found in currentLead */}
-                {currentLead && Object.entries(currentLead).map(([key, value]) => {
-                  // Skip system/internal fields already handled or not meant for display
-                  const skippedKeys = [
-                    'id', 'lead_id', 'campaign_id', 'first_name', 'last_name', 
-                    'phone', 'email', 'state', 'age', 'date_of_birth', 
-                    'health_status', 'best_time_to_call', 'spouse_info', 
-                    'lead_score', 'source', 'status', 'created_at', 'updated_at',
-                    'claimed_by', 'claimed_at', 'locked_by', 'locked_at',
-                    'call_attempts', 'last_called_at', 'disposition', 'sort_order',
-                    'custom_fields', 'lead', 'assigned_agent_id'
-                  ];
-                  
-                  if (skippedKeys.includes(key) || value === null || value === undefined) return null;
-                  
-                  // Handle custom_fields object specifically if it exists
-                  if (key === 'custom_fields' && typeof value === 'object') {
-                    return Object.entries(value as object).map(([ckey, cval]) => (
-                      <div key={ckey} className="min-w-0 border-t pt-2 col-span-2">
-                        <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{ckey.replace(/_/g, ' ')}</div>
-                        {isEditingContact ? (
-                          <input 
-                            type="text"
-                            value={String(editForm[ckey] ?? cval)}
-                            onChange={(e) => setEditForm({ ...editForm, [ckey]: e.target.value })}
-                            className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
-                          />
-                        ) : (
-                          <div className="text-sm font-semibold text-foreground mt-0.5">{String(cval) || "—"}</div>
-                        )}
-                      </div>
-                    ));
-                  }
-
-                  // Handle normal fields
-                  return (
-                    <div key={key} className="min-w-0">
-                      <div className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{key.replace(/_/g, ' ')}</div>
-                      <div className="text-sm font-semibold text-foreground mt-0.5 truncate">{String(value) || "—"}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            {/* Staged lead reveal — handled by LeadCard */}
+            <LeadCard
+              lead={currentLead}
+              callStatus={callStatus}
+              callAttempts={currentLead?.call_attempts ?? 0}
+              maxAttempts={selectedCampaign?.max_attempts ?? null}
+              lastDisposition={history.find(h => h.type === "call")?.disposition ?? null}
+              isClaimed={claimedLeadIds.has((currentLead?.lead_id || currentLead?.id) as string)}
+              isEditing={isEditingContact}
+              editForm={editForm}
+              onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
+            />
           </div>
         </div>
 
@@ -2525,13 +2664,23 @@ export default function DialerPage() {
                 )}
               </button>
             ) : (
-              <button
-                onClick={handleCall}
-                className="bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-success/90 shadow-lg shadow-success/20"
-              >
-                <Phone className="w-4 h-4" />
-                <span className="leading-none">Call</span>
-              </button>
+              <div className="relative">
+                <ClaimRing
+                  active={claimRingActive}
+                  campaignType={campaignType}
+                  onClaim={() => {
+                    // ClaimRing fires this at 30s — claim is already handled by useHardClaim timer
+                    // This callback is a UI signal only; no DB call here.
+                  }}
+                />
+                <button
+                  onClick={handleCall}
+                  className="w-full bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-success/90 shadow-lg shadow-success/20"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span className="leading-none">Call</span>
+                </button>
+              </div>
             )}
             <button
               onClick={handleSkip}
@@ -2747,266 +2896,36 @@ export default function DialerPage() {
 
 
                 {leftTab === "queue" && (
-                  <div className="flex flex-col gap-2">
-                    {/* Queue toolbar: sort, filter, field picker */}
-                    {leadQueue.length > 0 && (
-                      <div className="flex items-center gap-1 mb-1">
-                        {/* Sort dropdown */}
-                        <div className="relative flex-1">
-                          <SortAsc className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                          <select
-                            value={queueSort}
-                            onChange={(e) => setQueueSort(e.target.value as typeof queueSort)}
-                            className="w-full pl-6 pr-2 py-1 text-[10px] font-bold uppercase tracking-wide bg-muted/30 border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
-                          >
-                            <option value="default">Default</option>
-                            <option value="age_oldest">Oldest First</option>
-                            <option value="attempts_fewest">Fewest Attempts</option>
-                            <option value="timezone">State / Timezone</option>
-                            <option value="score_high">Score High→Low</option>
-                            <option value="name_az">Name A→Z</option>
-                          </select>
-                        </div>
-                        {/* Filter toggle */}
-                        <button
-                          onClick={() => { setShowQueueFilters(v => !v); setShowQueueFieldPicker(false); }}
-                          className={cn(
-                            "p-1.5 rounded-lg border transition-colors",
-                            showQueueFilters
-                              ? "bg-primary/10 border-primary text-primary"
-                              : "bg-muted/30 border-border text-muted-foreground hover:text-foreground"
-                          )}
-                          title="Filter queue"
-                        >
-                          <ListFilter className="w-3.5 h-3.5" />
-                        </button>
-                        {/* Field picker toggle */}
-                        <button
-                          onClick={() => { setShowQueueFieldPicker(v => !v); setShowQueueFilters(false); }}
-                          className={cn(
-                            "p-1.5 rounded-lg border transition-colors",
-                            showQueueFieldPicker
-                              ? "bg-primary/10 border-primary text-primary"
-                              : "bg-muted/30 border-border text-muted-foreground hover:text-foreground"
-                          )}
-                          title="Customize card fields"
-                        >
-                          <SlidersHorizontal className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Filter panel */}
-                    {showQueueFilters && (
-                      <div className="bg-muted/20 border border-border rounded-lg p-3 flex flex-col gap-2 mb-1">
-                        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Filters</div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Status</label>
-                            <select
-                              value={queueFilter.status}
-                              onChange={(e) => setQueueFilter(f => ({ ...f, status: e.target.value }))}
-                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                              <option value="">All</option>
-                              {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">State</label>
-                            <select
-                              value={queueFilter.state}
-                              onChange={(e) => setQueueFilter(f => ({ ...f, state: e.target.value }))}
-                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                              <option value="">All</option>
-                              {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Lead Source</label>
-                            <select
-                              value={queueFilter.leadSource}
-                              onChange={(e) => setQueueFilter(f => ({ ...f, leadSource: e.target.value }))}
-                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                              <option value="">All</option>
-                              {uniqueSources.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Max Attempts</label>
-                            <select
-                              value={queueFilter.maxAttempts}
-                              onChange={(e) => setQueueFilter(f => ({ ...f, maxAttempts: Number(e.target.value) }))}
-                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                              <option value={99}>Any</option>
-                              <option value={0}>0 (Never Called)</option>
-                              <option value={1}>≤ 1</option>
-                              <option value={2}>≤ 2</option>
-                              <option value={3}>≤ 3</option>
-                              <option value={5}>≤ 5</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Min Score</label>
-                            <select
-                              value={queueFilter.minScore}
-                              onChange={(e) => setQueueFilter(f => ({ ...f, minScore: Number(e.target.value) }))}
-                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                              {[0,1,2,3,4,5,6,7,8,9].map(n => <option key={n} value={n}>{n}+</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[9px] uppercase tracking-wide text-muted-foreground font-bold">Max Score</label>
-                            <select
-                              value={queueFilter.maxScore}
-                              onChange={(e) => setQueueFilter(f => ({ ...f, maxScore: Number(e.target.value) }))}
-                              className="w-full mt-0.5 px-2 py-1 text-[10px] bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            >
-                              {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>≤{n}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 })}
-                          className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground hover:text-destructive mt-1 text-left"
-                        >
-                          Clear Filters
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Field picker panel */}
-                    {showQueueFieldPicker && (
-                      <div className="bg-muted/20 border border-border rounded-lg p-3 mb-1">
-                        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">Card Preview Fields (pick 2)</div>
-                        <div className="grid grid-cols-2 gap-1">
-                          {(Object.keys(PREVIEW_FIELD_LABELS) as QueuePreviewField[]).map((field) => {
-                            const isSelected = queuePreviewFields.includes(field);
-                            const slotIndex = queuePreviewFields.indexOf(field);
-                            return (
-                              <button
-                                key={field}
-                                onClick={() => {
-                                  setQueuePreviewFields(prev => {
-                                    if (isSelected) {
-                                      // Remove it, fill the other slot stays
-                                      const other = prev.find(f => f !== field) || 'state';
-                                      return [other, other] as [QueuePreviewField, QueuePreviewField];
-                                    }
-                                    // Replace the least-recently selected slot (slot 1 first)
-                                    return [prev[0], field] as [QueuePreviewField, QueuePreviewField];
-                                  });
-                                }}
-                                className={cn(
-                                  "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-tight transition-all",
-                                  isSelected
-                                    ? "bg-primary/10 border-primary text-primary"
-                                    : "bg-card border-border text-muted-foreground hover:bg-accent"
-                                )}
-                              >
-                                {isSelected && (
-                                  <span className="w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[8px] flex items-center justify-center font-black shrink-0">
-                                    {slotIndex + 1}
-                                  </span>
-                                )}
-                                {PREVIEW_FIELD_LABELS[field]}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Queue count / filter notice */}
-                    {(queueSort !== 'default' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10) && (
-                      <div className="text-[9px] text-muted-foreground font-medium px-1">
-                        Showing {displayQueue.length} of {leadQueue.length} leads
-                      </div>
-                    )}
-
-                    {leadQueue.length === 0 ? (
-                      <div className="text-center py-8">
-                        <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
-                        <p className="text-sm text-muted-foreground">Queue is empty</p>
-                      </div>
-                    ) : displayQueue.length === 0 ? (
-                      <div className="text-center py-6">
-                        <ListFilter className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-20" />
-                        <p className="text-xs text-muted-foreground">No leads match filters</p>
-                      </div>
-                    ) : (
-                      displayQueue.map(({ lead, originalIndex }) => {
-                        const isCurrent = originalIndex === currentLeadIndex;
-                        const isPast = originalIndex < currentLeadIndex;
-                        return (
-                          <div
-                            key={lead.id}
-                            onClick={() => setCurrentLeadIndex(originalIndex)}
-                            className={`p-3 rounded-lg border flex items-center gap-3 cursor-pointer transition-all ${
-                              isCurrent
-                                ? "bg-primary/10 border-primary ring-1 ring-primary/20"
-                                : isPast
-                                ? "opacity-50 grayscale bg-muted/30 border-transparent"
-                                : "bg-card hover:bg-accent/50 border-border"
-                            }`}
-                          >
-                            <div
-                              className={`w-2 h-2 rounded-full shrink-0 ${
-                                isCurrent
-                                  ? "bg-primary animate-pulse"
-                                  : isPast
-                                  ? "bg-muted"
-                                  : "bg-muted-foreground/30"
-                              }`}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-bold text-foreground truncate uppercase tracking-tight">
-                                {lead.first_name} {lead.last_name}
-                              </div>
-                              <div className="text-[10px] text-muted-foreground truncate font-medium">
-                                {lead.phone}
-                              </div>
-                              {/* Preview fields */}
-                              <div className="flex items-center gap-2 mt-0.5">
-                                {queuePreviewFields.map((field, fi) => {
-                                  const val = renderQueuePreviewValue(lead, field);
-                                  return val !== '—' ? (
-                                    <span key={fi} className="text-[9px] text-muted-foreground/70 truncate">
-                                      {val}
-                                    </span>
-                                  ) : null;
-                                })}
-                              </div>
-                            </div>
-                            {isCurrent && (
-                              <div className="text-[9px] font-black uppercase text-primary tracking-widest shrink-0">
-                                Now
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-
-                    {loadingLeads && (
-                      <div className="flex items-center justify-center p-4">
-                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      </div>
-                    )}
-
-                    {hasMoreLeads && !loadingLeads && leadQueue.length > 0 && (
-                      <button
-                        onClick={() => fetchLeadsBatch(selectedCampaignId!, currentOffset)}
-                        className="text-[10px] text-muted-foreground hover:text-primary py-2 uppercase tracking-widest font-bold"
-                      >
-                        Load More
-                      </button>
-                    )}
-                  </div>
+                  <QueuePanel
+                    campaignType={campaignType}
+                    campaignId={selectedCampaignId!}
+                    organizationId={organizationId}
+                    userRole={(profile as any)?.role || "Agent"}
+                    displayQueue={displayQueue as any}
+                    leadQueue={leadQueue as any}
+                    currentLeadIndex={currentLeadIndex}
+                    onSelectLead={setCurrentLeadIndex}
+                    queueSort={queueSort}
+                    setQueueSort={setQueueSort}
+                    showQueueFilters={showQueueFilters}
+                    setShowQueueFilters={setShowQueueFilters}
+                    showQueueFieldPicker={showQueueFieldPicker}
+                    setShowQueueFieldPicker={setShowQueueFieldPicker}
+                    queuePreviewFields={queuePreviewFields}
+                    setQueuePreviewFields={setQueuePreviewFields}
+                    loadingLeads={loadingLeads}
+                    hasMoreLeads={hasMoreLeads}
+                    currentOffset={currentOffset}
+                    fetchLeadsBatch={fetchLeadsBatch}
+                    renderQueuePreviewValue={renderQueuePreviewValue}
+                    PREVIEW_FIELD_LABELS={PREVIEW_FIELD_LABELS}
+                    onClearFilters={() => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 })}
+                    filterSummary={
+                      (queueSort !== 'default' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
+                        ? `Showing ${displayQueue.length} of ${leadQueue.length} leads`
+                        : ""
+                    }
+                  />
                 )}
 
                 {leftTab === "scripts" && (
