@@ -1293,7 +1293,8 @@ export default function DialerPage() {
   }, [telnyxCallState, amdEnabled]);
 
   // Trigger wrap-up when call ends (covers remote hangup)
-  // Also checks for AMD machine detection to auto-dispose
+  // AMD machine detection may auto-advance if auto-dial is on.
+  // Manual hang-up ALWAYS shows the wrap-up panel — agent chooses disposition.
   useEffect(() => {
     if (telnyxCallState === "ended") {
       // Capture state before resets
@@ -1301,27 +1302,13 @@ export default function DialerPage() {
       const duration = telnyxCallDuration;
       telnyxHangUp();
 
-      // ── Auto-Disposition for Auto-Dialer ──
-      // If the call was not "meaningful" (e.g. < 10s talk time), auto-record No Answer
       const isMeaningful = duration >= 10;
-      if (autoDialEnabled && autoDialer?.isEnabled() && !isMeaningful && amdStatus !== 'machine') {
-        const noAnswerDisp = dispositions.find(d => 
-          d.name.toLowerCase() === 'no answer' || d.name.toLowerCase().includes('no answer')
-        );
-        if (noAnswerDisp) {
-          console.log("[AutoDialer] Non-meaningful call (< 10s), auto-disposing as No Answer");
-          autoDialer.saveDispositionAndNext(noAnswerDisp.id).catch(err => {
-            console.error("[AutoDialer] Auto-disposition failed:", err);
-          });
-          return; // Skip wrap-up modal and manual disposition
-        }
-      }
 
-      // Check for AMD machine detection (Fallback if Realtime missed it)
+      // Check for AMD machine detection (only auto-advance path on call end)
       const checkAmd = async () => {
         if (!amdEnabled) {
           setAmdStatus('idle');
-          if (!isMeaningful && autoDialEnabled) return; // Already handled by auto-disposition
+          // Always show wrap-up after manual hang-up so agent can disposition
           setShowWrapUp(true);
           return;
         }
@@ -1349,7 +1336,8 @@ export default function DialerPage() {
             }
           }
 
-          if (callRecord?.amd_result === 'machine' && amdStatus !== 'machine') {
+          // AMD machine detection: auto-advance ONLY if auto-dial is on
+          if (callRecord?.amd_result === 'machine' && amdStatus !== 'machine' && autoDialEnabled) {
             await handleMachineDetectedAction();
             return;
           }
@@ -1365,14 +1353,11 @@ export default function DialerPage() {
           setAmdStatus('idle');
         }
 
-        // Only show wrap-up if not already advanced by machine detection or auto-disposition
-        setShowWrapUp(current => {
-          if (amdStatus === 'machine') return false;
-          return true;
-        });
+        // Always show wrap-up so agent can manually disposition
+        setShowWrapUp(true);
       };
 
-      setTimeout(checkAmd, 3000);
+      setTimeout(checkAmd, 500);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
@@ -1547,8 +1532,9 @@ export default function DialerPage() {
         telnyxStatus
       });
 
-      // 1. Guard check: only trigger if auto-dial is enabled, dialer is ready, and we have a lead
-      if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || telnyxStatus !== "ready") {
+      // 1. Guard check: only trigger if auto-dial is enabled, dialer is ready,
+      //    we have a lead, and wrap-up is NOT open (agent is dispositioning).
+      if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || telnyxStatus !== "ready" || showWrapUp) {
         return;
       }
 
@@ -1588,7 +1574,7 @@ export default function DialerPage() {
       if (timer) clearTimeout(timer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState]);
+  }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState, showWrapUp]);
 
   // ── Auto-dial next lead event (auto-dial ON) ──
   useEffect(() => {
