@@ -47,6 +47,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-06 | [DONE] Ring Timeout Enforcement + Call Count UI + Auto-Dial Stall Fix**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Three targeted fixes. **Fix 1 — Strict Ring Timeout**: New `useEffect` monitors `telnyxCallState === "dialing"` and fires a `setTimeout` at `ringTimeoutRef.current * 1000`ms. If still dialing when the timer fires (and AMD hasn't confirmed human), calls `telnyxHangUp()` + toast. This closes the gap where TelnyxContext's built-in ring timeout could be bypassed by early state transitions. **Fix 2 — Call Count UI**: `handleSaveOnly`, `handleSaveAndNext` (lock-mode path already correct), and `autoSaveNoAnswer` now inject `call_attempts: (l.call_attempts || 0) + 1` into the local `setLeadQueue` update alongside the status change. This ensures the queue panel and `displayQueue`'s max_attempts filter reflect the true attempt count without waiting for a DB round-trip. **Fix 3 — Auto-Dial Stall**: Added `showWrapUp` to the inner `setTimeout` guard inside the auto-dial reactive trigger. Previously, if the wrap-up modal opened during the 2000ms delay, the auto-dial would fire behind the modal. Now it aborts and re-triggers only when `showWrapUp` flips to `false` (already in the outer dependency array from the prior commit). Zero schema changes, zero TypeScript errors.
+
 - **2026-04-06 | [DONE] Dialer Hangup Lag Fix — Wrap-Up Phase Enforcement**
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* Root cause: TelnyxContext was dispatching `auto-dial-next-lead` CustomEvents from inside `hangUp`, `telnyx.error`, and `telnyx.notification` handlers. This caused the WebRTC layer to short-circuit the UI's wrap-up phase, skipping dispositions and triggering UI shift lag. Fix removes all three `window.dispatchEvent(new CustomEvent("auto-dial-next-lead"))` calls, deletes the `isAutoDialingRef` tracking ref (no longer needed), and collapses the delayed `setCallState("idle")` reset — `callState` now stays `"ended"` until DialerPage's wrap-up phase explicitly transitions it via `handleAdvance`. Also removed the matching event listener in DialerPage. Added a `useEffect` that syncs `autoDialEnabled` from the campaign's `auto_dial_enabled` column when a campaign is selected — ensures the auto-dial toggle obeys campaign settings. Added `max_attempts` filtering to `displayQueue` memo so over-attempted leads that slipped through initial fetch are excluded from the display queue. Zero schema changes, zero new dependencies, zero TypeScript errors.
@@ -544,3 +548,47 @@ Agent presses Call → handleCall() → initiateCall() → TelnyxContext.makeCal
 2. **Auto-dial still works** — it's driven by the reactive `useEffect` on `currentLead?.id` that fires after `handleAdvance()` moves the queue head. No event listener needed.
 3. **Campaign `auto_dial_enabled`** is now synced on campaign selection. If a manager disables auto-dial on a campaign, agents entering that campaign will have auto-dial off by default.
 4. **`displayQueue` now enforces `max_attempts`** at the display layer. This is a safety net — the RPC and initial fetch also filter, but leads that slip through (e.g. race conditions with concurrent agents) are hidden.
+
+---
+
+## 14. Context Snapshot — Ring Timeout + Call Count + Auto-Dial Stall Fix (2026-04-06)
+
+### What Was Changed
+
+Three behavioral fixes applied to `src/pages/DialerPage.tsx`. No new components, no schema migrations.
+
+### Fix 1 — Strict Ring Timeout Enforcement
+
+| Aspect | Detail |
+|---|---|
+| Location | New `useEffect` after AMD detecting effect |
+| Trigger | `telnyxCallState === "dialing"` |
+| Timer | `ringTimeoutRef.current * 1000` ms |
+| Guard | Aborts if AMD has confirmed `'human'` |
+| Action | `telnyxHangUp()` + `toast.info()` |
+| Why needed | TelnyxContext has its own ring timeout effect, but it checks `callRef.current.state` which may not always reflect the actual ringing state accurately. This DialerPage-level timeout is a belt-and-suspenders enforcement. |
+
+### Fix 2 — Call Count UI Increment
+
+| Handler | Before | After |
+|---|---|---|
+| `handleSaveOnly` | `setLeadQueue` updated `status` only | Also sets `call_attempts: (l.call_attempts \|\| 0) + 1` |
+| `autoSaveNoAnswer` | No local queue update | Adds `setLeadQueue` with `status: d.name` + `call_attempts` increment before `handleAdvance()` |
+| `handleSaveAndNext` (Personal) | Queue update via `applyQueueLifecycle` | `applyQueueLifecycle` already removes the lead — attempts are tracked in the re-inserted copy |
+| `handleSaveAndNext` (Lock) | Queue replaced with fresh DB data | Already correct — DB row has updated `call_attempts` |
+
+### Fix 3 — Auto-Dial Stall After Wrap-Up
+
+| Aspect | Detail |
+|---|---|
+| Root cause | Inner `setTimeout` guard (2000ms delay) did not check `showWrapUp` |
+| Fix | Added `showWrapUp` to the guard: `if (... \|\| showWrapUp) return;` |
+| Outer dependency | `showWrapUp` was already in the outer `useEffect` dependency array (added in previous commit) |
+| Behavior | When wrap-up closes → `showWrapUp` flips to `false` → effect re-fires → `triggerAutoCall` evaluates → 2000ms delay → inner guard passes → `handleCall()` |
+
+### What the Next Developer Needs to Know
+
+1. **Two ring timeout mechanisms exist**: TelnyxContext has one based on `callRef.current.state`, DialerPage has one based on `telnyxCallState`. Both are intentional — they cover different edge cases.
+2. **`call_attempts` is updated locally AND in the DB** — the DB update happens inside `saveCall` / `updateLeadStatus`. The local `setLeadQueue` update is for instant UI feedback only.
+3. **Auto-dial flow after wrap-up**: Agent dispositions → `handleSaveAndNext` → `applyQueueLifecycle` resets index to 0 → `showWrapUp` set to `false` → reactive trigger fires on `currentLead?.id` change AND `showWrapUp` change → 2000ms delay → `handleCall()`.
+

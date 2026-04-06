@@ -1308,6 +1308,29 @@ export default function DialerPage() {
     }
   }, [telnyxCallState, amdEnabled]);
 
+  // ── Strict Ring Timeout Enforcement ──
+  // If a call has been ringing/dialing beyond the configured ring timeout and
+  // no human has been confirmed by AMD, auto-hangup to prevent phantom calls.
+  useEffect(() => {
+    if (telnyxCallState !== "dialing") return;
+    if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
+
+    const timeoutMs = ringTimeoutRef.current * 1000;
+    const timeoutId = setTimeout(() => {
+      // If AMD confirmed human, do NOT auto-hangup
+      if (amdEnabled && amdStatus === 'human') return;
+      // Only hangup if still in dialing state (not already connected or ended)
+      if (telnyxCallState === "dialing") {
+        console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
+        toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);
+        telnyxHangUp();
+      }
+    }, timeoutMs);
+
+    return () => clearTimeout(timeoutId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telnyxCallState, telnyxHangUp]);
+
   // Trigger wrap-up when call ends (covers remote hangup)
   // AMD machine detection may auto-advance if auto-dial is on.
   // Manual hang-up ALWAYS shows the wrap-up panel — agent chooses disposition.
@@ -1574,8 +1597,8 @@ export default function DialerPage() {
       console.log(`[AutoDialer] Reactive trigger: Waiting 2000ms before dialing ${currentLead.first_name}...`);
 
       timer = setTimeout(async () => {
-        // Double-check guards after delay to ensure user didn't pause or start a manual call
-        if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || telnyxStatus !== "ready") {
+        // Double-check guards after delay to ensure user didn't pause, start a manual call, or open wrap-up
+        if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || telnyxStatus !== "ready" || showWrapUp) {
           return;
         }
 
@@ -1732,6 +1755,11 @@ export default function DialerPage() {
     } catch {
       /* ignore */
     }
+    // Update local queue: set status + increment call_attempts for the disposed lead
+    setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex
+      ? { ...l, status: d.name, call_attempts: (l.call_attempts || 0) + 1 }
+      : l
+    ));
     await handleAdvance();
   }
 
@@ -1931,9 +1959,12 @@ export default function DialerPage() {
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
-        // Update local status
+        // Update local status + call_attempts
         if (selectedDisp) {
-          setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, status: selectedDisp.name } : l));
+          setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex
+            ? { ...l, status: selectedDisp.name, call_attempts: (l.call_attempts || 0) + 1 }
+            : l
+          ));
         }
       } else {
         toast.dismiss(toastId);
