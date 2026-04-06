@@ -45,6 +45,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-06 | [DONE] campaign_leads RLS Refinement — Personal Campaign Scoping**
+  *Migration:* `20260406300000_campaign_leads_rls_personal_scope.sql`
+  *Files Modified:* `ROADMAP.md`
+  *Developer Note:* Replaced the overly permissive `campaign_leads_select` RLS policy (which allowed any org member to see all campaign leads) with a campaign-type-aware policy. Agents in Personal campaigns now see only leads where `claimed_by` or `user_id` matches their auth UID. Agents in Team/Open/Open Pool campaigns see all leads (required for queue display and lock-mode dialing). Admins and Team Leaders see all campaign leads org-wide. Also fixed the `'Team Lead'` vs `'Team Leader'` role string inconsistency in `campaigns_select`, `campaigns_update`, and `campaigns_delete` policies — all three now accept both variants via `IN ('Admin', 'Team Leader', 'Team Lead')`. No INSERT/UPDATE/DELETE policies on `campaign_leads` were touched. CampaignDetail.tsx reviewed: its frontend `filteredLeads` filter for agents (`claimed_by === currentUserId`) is complementary, not conflicting — no code change needed.
+
 - **2026-04-06 | [DONE] add_leads_to_campaign RPC with Ownership Validation**
   *Migration:* `20260406200000_add_leads_to_campaign_rpc.sql`
   *Files Modified:* `src/components/contacts/AddToCampaignModal.tsx`, `src/pages/CampaignDetail.tsx`, `ROADMAP.md`
@@ -369,3 +374,43 @@ All toast notifications now show skip counts when leads are skipped (e.g. "12 le
 - **Prompt 4**: Campaign integrity tests or additional hardening
 - The `total_leads` trigger (`trg_sync_campaign_total_leads`) fires automatically on the RPC's INSERT — no manual count needed
 - If bulk-remove or TRUNCATE paths are added to `campaign_leads`, they bypass the FOR EACH ROW trigger; add a statement-level trigger in that migration
+
+---
+
+## 11. Context Snapshot — campaign_leads RLS Refinement (2026-04-06)
+
+### What Was Changed
+
+Replaced the `campaign_leads_select` RLS policy with a campaign-type-aware version that scopes agent visibility based on campaign type. Also fixed role string inconsistency across three `campaigns` table policies.
+
+### Findings Before Writing
+
+| Finding | Detail |
+|---|---|
+| Old policy name | `"campaign_leads_select"` (from `20260403100000_campaigns_rls.sql`, line 115) |
+| Old USING clause | `is_super_admin() OR organization_id = get_org_id()` — no role or campaign-type scoping |
+| Role strings from `get_user_role()` | Function reads `profiles.role` directly; profile creation stores `'Team Leader'` (with "er") |
+| Role string bug in campaigns RLS | `20260403100000` used `'Team Lead'` (without "er") in SELECT/UPDATE/DELETE — Team Leaders fell through to `user_id`/`assigned_agent_ids` fallback |
+| Campaigns SELECT policy fix needed | **Yes** — also UPDATE and DELETE policies had the same `'Team Lead'` string |
+
+### New campaign_leads_select Logic
+
+| Role | Campaign Type | Visibility |
+|---|---|---|
+| Super Admin | Any | All rows |
+| Admin | Any | All rows in org |
+| Team Leader / Team Lead | Any | All rows in org |
+| Agent | Team / Open / Open Pool | All leads in that campaign (needed for queue display + lock-mode dialing) |
+| Agent | Personal | Only leads where `claimed_by = auth.uid()` OR `user_id = auth.uid()` |
+
+### CampaignDetail.tsx Review
+
+- `fetchLeads` (line 701): `supabase.from("campaign_leads").select("*, lead:leads(*)").eq("campaign_id", id)` — no additional campaign-type filter
+- `filteredLeads` memo (lines 770-794): applies frontend role filter — agents see only `claimed_by === currentUserId`
+- **No breakage**: For Personal campaigns, RLS now enforces the same constraint at DB level (frontend filter is redundant but harmless). For Team/Open campaigns, RLS returns all leads; the frontend filter then shows only claimed ones in the management UI, which is correct behavior. The dialer page uses separate query paths (`useLeadLock` / `get_next_queue_lead` RPC).
+- **No code change required.**
+
+### What's Next
+
+- **Prompt 4**: Final campaign integrity hardening
+- Consider a future migration to normalize all `profiles.role` values to a single canonical string and update all RLS policies to match, eliminating the need for dual-variant `IN` checks
