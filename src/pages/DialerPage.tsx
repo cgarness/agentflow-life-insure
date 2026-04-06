@@ -261,6 +261,7 @@ export default function DialerPage() {
   const [aptEndTime, setAptEndTime] = useState("10:30 AM");
   const [aptNotes, setAptNotes] = useState("");
   const [dialerStats, setDialerStats] = useState<DialerDailyStats | null>(null);
+  const [sessionStats, setSessionStats] = useState({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
 
   useEffect(() => {
     const contactId = searchParams.get("contact");
@@ -287,6 +288,9 @@ export default function DialerPage() {
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
+  const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const ringTimeoutRef = useRef<number>(20);
+  const hasDialedOnce = useRef(false);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
@@ -415,6 +419,10 @@ export default function DialerPage() {
 
   // ── Session duration ticker (live-ticking from session_started_at) ──
   useEffect(() => {
+    if (sessionTimerRef.current) {
+      clearInterval(sessionTimerRef.current);
+      sessionTimerRef.current = null;
+    }
     if (!dialerStats?.session_started_at) {
       setSessionElapsed(0);
       return;
@@ -424,9 +432,25 @@ export default function DialerPage() {
       setSessionElapsed(Math.floor((Date.now() - startTime) / 1000));
     };
     tick(); // immediate
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
+    sessionTimerRef.current = setInterval(tick, 1000);
+    return () => {
+      if (sessionTimerRef.current) {
+        clearInterval(sessionTimerRef.current);
+        sessionTimerRef.current = null;
+      }
+    };
   }, [dialerStats?.session_started_at]);
+
+  // ── Stop session timer when campaign is exited ──
+  useEffect(() => {
+    if (!selectedCampaignId) {
+      if (sessionTimerRef.current) {
+        clearInterval(sessionTimerRef.current);
+        sessionTimerRef.current = null;
+      }
+      setSessionElapsed(0);
+    }
+  }, [selectedCampaignId]);
 
   /* --- queries --- */
   
@@ -717,6 +741,11 @@ export default function DialerPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, lockMode, user?.id, organizationId]);
+  // Reset hasDialedOnce when campaign changes so the first call must always be manual
+  useEffect(() => {
+    hasDialedOnce.current = false;
+    return () => { hasDialedOnce.current = false; };
+  }, [selectedCampaignId]);
 
   // Load more leads when we get close to the end of the queue (Personal only)
   useEffect(() => {
@@ -977,6 +1006,8 @@ export default function DialerPage() {
         session_started_at: isFirstCall ? now : null,
       }).catch(() => {});
     }
+    hasDialedOnce.current = true;
+    setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
   }, [currentLead, telnyxStatus, telnyxErrorMessage, dialerStats, user?.id, initiateCall]);
@@ -991,6 +1022,11 @@ export default function DialerPage() {
         total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
         last_updated_at: new Date().toISOString(),
       } : prev);
+      setSessionStats(prev => ({
+        ...prev,
+        calls_connected: prev.calls_connected + 1,
+        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
+      }));
       // Persist to Supabase
       if (user?.id) {
         upsertDialerStats(user.id, {
@@ -1335,8 +1371,12 @@ export default function DialerPage() {
     const agentId = user?.id;
     if (!selectedCampaignId || !agentId) return;
     const dialer = new AutoDialer(sessionIdRef.current, selectedCampaignId, agentId, organizationId);
-    dialer.startSession();
+    dialer.startSession().then(() => {
+      ringTimeoutRef.current = dialer.getRingTimeout();
+    });
     setAutoDialer(dialer);
+    // Reset session-scoped stats on campaign entry
+    setSessionStats({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
     // Eagerly register TelnyxRTC so the client is ready before the first call
     telnyxInitialize();
     return () => {
@@ -1359,6 +1399,9 @@ export default function DialerPage() {
     let timer: NodeJS.Timeout;
 
     const triggerAutoCall = async () => {
+      // FIX 2: Must press Call at least once before auto-dial fires
+      if (!hasDialedOnce.current) return;
+
       console.log("[AutoDialer] Reactive trigger check:", {
         autoDialEnabled,
         dialerEnabled: autoDialer?.isEnabled(),
@@ -1377,6 +1420,15 @@ export default function DialerPage() {
       if (!session) {
         console.warn("[AutoDialer] Reactive trigger blocked: No active auth session.");
         toast.error("Standard Authentication Required. Please log in to make calls.");
+        return;
+      }
+
+      // FIX 1: Enforce calling hours for the lead's state (auto-dial only)
+      const leadState = currentLead.state || '';
+      if (!autoDialer.checkCallingHours(leadState)) {
+        const displayState = leadState || 'this state';
+        toast.warning(`Outside calling hours for ${displayState} — skipping lead`);
+        handleSkip();
         return;
       }
 
@@ -1729,6 +1781,7 @@ export default function DialerPage() {
         toast.success("Call saved successfully", { id: toastId });
         if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
+          setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
@@ -1753,6 +1806,7 @@ export default function DialerPage() {
         toast.success("Saved successfully", { id: toastId });
         if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
+          setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
@@ -2224,6 +2278,12 @@ export default function DialerPage() {
             stopHeartbeat();
             cancelClaimTimer();
             setClaimRingActive(false);
+            // Stop session timer
+            if (sessionTimerRef.current) {
+              clearInterval(sessionTimerRef.current);
+              sessionTimerRef.current = null;
+            }
+            setSessionElapsed(0);
             // Clear saved queue position
             if (user?.id && selectedCampaignId) {
               (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -2256,11 +2316,11 @@ export default function DialerPage() {
           ) : (
             [
               { label: "Session Duration", value: dialerStats?.session_started_at ? fmtSessionDuration(sessionElapsed) : "—" },
-              { label: "Calls Made", value: dialerStats?.calls_made ?? 0 },
-              { label: "Connected", value: dialerStats?.calls_connected ?? 0 },
-              { label: "Answer Rate", value: (dialerStats?.calls_made ?? 0) > 0 ? `${(((dialerStats?.calls_connected ?? 0) / (dialerStats?.calls_made ?? 1)) * 100).toFixed(0)}%` : "—" },
-              { label: "Policies Sold", value: dialerStats?.policies_sold ?? 0 },
-              { label: "Avg Talk Time", value: (dialerStats?.calls_connected ?? 0) > 0 ? fmtDuration(Math.round((dialerStats?.total_talk_seconds ?? 0) / (dialerStats?.calls_connected ?? 1))) : "—" },
+              { label: "Calls Made", value: sessionStats.calls_made },
+              { label: "Connected", value: sessionStats.calls_connected },
+              { label: "Answer Rate", value: sessionStats.calls_made > 0 ? `${Math.round(sessionStats.calls_connected / sessionStats.calls_made * 100)}%` : "—" },
+              { label: "Policies Sold", value: sessionStats.policies_sold },
+              { label: "Avg Talk Time", value: sessionStats.calls_connected > 0 ? fmtDuration(Math.round(sessionStats.total_talk_seconds / sessionStats.calls_connected)) : "—" },
             ].map((s) => (
               <div
                 key={s.label}

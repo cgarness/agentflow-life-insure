@@ -2,6 +2,34 @@ import { supabase } from "@/integrations/supabase/client";
 import { selectCallerID } from './caller-id-selector';
 import { createCall } from './dialer-api';
 
+/** Maps US state abbreviations to their primary IANA timezone. */
+const STATE_TO_TZ: Record<string, string> = {
+  // Eastern
+  CT: 'America/New_York', DE: 'America/New_York', FL: 'America/New_York',
+  GA: 'America/New_York', IN: 'America/New_York', ME: 'America/New_York',
+  MD: 'America/New_York', MA: 'America/New_York', MI: 'America/New_York',
+  NH: 'America/New_York', NJ: 'America/New_York', NY: 'America/New_York',
+  NC: 'America/New_York', OH: 'America/New_York', PA: 'America/New_York',
+  RI: 'America/New_York', SC: 'America/New_York', VT: 'America/New_York',
+  VA: 'America/New_York', WV: 'America/New_York',
+  // Central
+  AL: 'America/Chicago', AR: 'America/Chicago', IL: 'America/Chicago',
+  IA: 'America/Chicago', KS: 'America/Chicago', KY: 'America/Chicago',
+  LA: 'America/Chicago', MN: 'America/Chicago', MS: 'America/Chicago',
+  MO: 'America/Chicago', NE: 'America/Chicago', ND: 'America/Chicago',
+  OK: 'America/Chicago', SD: 'America/Chicago', TN: 'America/Chicago',
+  TX: 'America/Chicago', WI: 'America/Chicago',
+  // Mountain
+  AZ: 'America/Phoenix', CO: 'America/Denver', ID: 'America/Denver',
+  MT: 'America/Denver', NM: 'America/Denver', UT: 'America/Denver',
+  WY: 'America/Denver',
+  // Pacific
+  CA: 'America/Los_Angeles', NV: 'America/Los_Angeles', OR: 'America/Los_Angeles',
+  WA: 'America/Los_Angeles',
+  // Non-contiguous
+  AK: 'America/Anchorage', HI: 'Pacific/Honolulu',
+};
+
 interface CampaignLead {
   id: string;       // campaign_lead junction row ID
   lead_id: string;  // master lead UUID from leads table
@@ -34,6 +62,10 @@ export class AutoDialer {
   private localPresenceEnabled: boolean;
   private maxAttempts: number = 1;
   private retryIntervalHours: number = 0;
+  private callingHoursStart: string = '09:00';
+  private callingHoursEnd: string = '21:00';
+  private ringTimeout: number = 20;
+  private amdEnabled: boolean = false;
 
   constructor(sessionId: string, campaignId: string, agentId: string, organizationId: string | null = null) {
     this.sessionId = sessionId;
@@ -73,7 +105,7 @@ export class AutoDialer {
     try {
       let campaignQuery = supabase
         .from('campaigns')
-        .select('local_presence_enabled, max_attempts, retry_interval_hours')
+        .select('local_presence_enabled, max_attempts, retry_interval_hours, calling_hours_start, calling_hours_end')
         .eq('id', this.campaignId);
 
       if (this.organizationId) {
@@ -85,12 +117,32 @@ export class AutoDialer {
       this.localPresenceEnabled = (campaign as any)?.local_presence_enabled ?? true;
       this.maxAttempts = (campaign as any)?.max_attempts ?? 1;
       this.retryIntervalHours = (campaign as any)?.retry_interval_hours ?? 0;
+      this.callingHoursStart = ((campaign as any)?.calling_hours_start as string)?.slice(0, 5) ?? '09:00';
+      this.callingHoursEnd = ((campaign as any)?.calling_hours_end as string)?.slice(0, 5) ?? '21:00';
 
       if (!campaign) {
         console.warn(`[AutoDialer] campaigns row not found for id=${this.campaignId}, using defaults`);
       }
     } catch (err) {
       console.warn('[AutoDialer] Failed to load campaign settings', err);
+    }
+
+    // Load phone settings (ring timeout + AMD) for this organization
+    if (this.organizationId) {
+      try {
+        const { data: phoneSettings } = await supabase
+          .from('phone_settings')
+          .select('ring_timeout, amd_enabled')
+          .eq('organization_id', this.organizationId)
+          .maybeSingle();
+
+        if (phoneSettings) {
+          this.ringTimeout = (phoneSettings as any).ring_timeout ?? 20;
+          this.amdEnabled = (phoneSettings as any).amd_enabled ?? false;
+        }
+      } catch (err) {
+        console.warn('[AutoDialer] Failed to load phone settings, using defaults', err);
+      }
     }
 
     // Load phone numbers for this organization
@@ -264,6 +316,34 @@ export class AutoDialer {
   /** Check if auto-dial is currently enabled */
   isEnabled(): boolean {
     return this.autoDialEnabled;
+  }
+
+  /**
+   * Returns true if the current local time in the lead's state is within the
+   * campaign's configured calling hours window.
+   * Defaults to Eastern time when the state is unrecognized.
+   */
+  checkCallingHours(leadState: string): boolean {
+    if (!this.callingHoursStart || !this.callingHoursEnd) return true;
+    const tz = STATE_TO_TZ[leadState?.toUpperCase()] ?? 'America/New_York';
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const rawHour = parts.find(p => p.type === 'hour')?.value ?? '00';
+    const minute = parts.find(p => p.type === 'minute')?.value ?? '00';
+    // '24' can occur at midnight in some locales — normalize to '00'
+    const h = parseInt(rawHour, 10) % 24;
+    const current = `${String(h).padStart(2, '0')}:${minute.padStart(2, '0')}`;
+    return current >= this.callingHoursStart && current < this.callingHoursEnd;
+  }
+
+  /** Returns the ring timeout in seconds loaded from phone_settings (default 20). */
+  getRingTimeout(): number {
+    return this.ringTimeout;
   }
 
   async endSession(): Promise<void> {
