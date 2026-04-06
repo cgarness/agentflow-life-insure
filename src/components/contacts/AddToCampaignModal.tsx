@@ -70,45 +70,25 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
 
     setSaving(true);
     try {
-      // Get existing leads in this campaign to avoid duplicates
-      const { data: existingLeads } = await supabase
-        .from("campaign_leads")
-        .select("lead_id, phone")
-        .eq("campaign_id", selectedCampaignId);
-      
-      const existingIds = new Set(existingLeads?.map(l => l.lead_id).filter(Boolean));
-      const existingPhones = new Set(existingLeads?.map(l => l.phone).filter(Boolean));
+      const leadIds = selectedContacts.map(c => c.id);
+      const { data, error } = await supabase.rpc("add_leads_to_campaign", {
+        p_campaign_id: selectedCampaignId,
+        p_lead_ids: leadIds,
+      });
 
-      const toAdd = selectedContacts.filter(c => 
-        !existingIds.has(c.id) && !existingPhones.has(c.phone)
-      );
-
-      if (toAdd.length === 0) {
-        toast.info("All selected contacts are already in this campaign");
-        setSaving(false);
-        onClose();
-        return;
-      }
-
-      const rows = toAdd.map(c => ({
-        campaign_id: selectedCampaignId,
-        lead_id: c.id,
-        first_name: c.firstName,
-        last_name: c.lastName,
-        phone: c.phone,
-        email: c.email,
-        state: c.state,
-        age: c.age || null,
-        status: "Queued",
-        organization_id: organizationId,
-      }));
-
-      const { error } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-      
       if (error) throw error;
 
+      const result = data as { added: number; skipped: number; skipped_ids: string[] };
       const campaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
-      toast.success(`${toAdd.length} leads added to ${campaignName}`, { duration: 3000, position: "bottom-right" });
+
+      if (result.added === 0 && result.skipped > 0) {
+        toast.info(`All ${result.skipped} leads skipped — not eligible for this campaign`);
+      } else if (result.skipped > 0) {
+        toast.success(`${result.added} leads added to ${campaignName}, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
+      } else {
+        toast.success(`${result.added} leads added to ${campaignName}`, { duration: 3000, position: "bottom-right" });
+      }
+
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -140,23 +120,19 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
 
       if (createError) throw createError;
 
-      const rows = selectedContacts.map(c => ({
-        campaign_id: newCampaign.id,
-        lead_id: c.id,
-        first_name: c.firstName,
-        last_name: c.lastName,
-        phone: c.phone,
-        email: c.email,
-        state: c.state,
-        age: c.age || null,
-        status: "Queued",
-        organization_id: organizationId,
-      }));
-
-      const { error: insertError } = await supabase.from("campaign_leads").insert(rows as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const leadIds = selectedContacts.map(c => c.id);
+      const { data: rpcResult, error: insertError } = await supabase.rpc("add_leads_to_campaign", {
+        p_campaign_id: newCampaign.id,
+        p_lead_ids: leadIds,
+      });
       if (insertError) throw insertError;
 
-      toast.success(`Campaign created and ${selectedContacts.length} leads added`, { duration: 3000, position: "bottom-right" });
+      const result = rpcResult as { added: number; skipped: number; skipped_ids: string[] };
+      if (result.skipped > 0) {
+        toast.success(`Campaign created — ${result.added} leads added, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
+      } else {
+        toast.success(`Campaign created and ${result.added} leads added`, { duration: 3000, position: "bottom-right" });
+      }
       onSuccess();
       onClose();
     } catch (err: any) {
