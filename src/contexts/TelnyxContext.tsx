@@ -225,8 +225,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!orphanCall) return;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const { data: { session } } = await supabase.auth.refreshSession();
+      if (!session?.access_token) {
         toast.error('Session expired. Please log in again.');
         return;
       }
@@ -354,8 +354,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Layer 2: Secure Server-Side Hangup via Edge Function (awaited — ensures PSTN leg is terminated)
     if (callId) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
+        const { data: { session } } = await supabase.auth.refreshSession();
+        if (session?.access_token) {
           const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
           const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
@@ -393,6 +393,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Deferred cosmetic reset — gives the "ended" state time to trigger wrap-up effects
     endResetRef.current = setTimeout(() => {
       setCurrentCall(null);
+      setCallState("idle");
       setIsMuted(false);
       setIsOnHold(false);
     }, 200);
@@ -631,6 +632,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
           endResetRef.current = setTimeout(() => {
             setCurrentCall(null);
+            setCallState("idle");
             setIsMuted(false);
             setIsOnHold(false);
           }, 200);
@@ -692,6 +694,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
           endResetRef.current = setTimeout(() => {
             setCurrentCall(null);
+            setCallState("idle");
             setIsMuted(false);
             setIsOnHold(false);
             callRef.current = null;
@@ -760,9 +763,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    // 1. Authentication Check: Ensure user has an active Supabase session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (!session || sessionError) {
+    // 1. Authentication Check: Force-refresh to ensure a fresh token for Edge Functions
+    const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
+    if (!session?.access_token || sessionError) {
       console.warn("[TelnyxContext] Call blocked: No active auth session.", sessionError);
       toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
       return;
@@ -870,8 +873,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           
           if (controlId) {
             // Trigger the Edge hangup logic
-            const { data: { session: currentSession } } = await supabase.auth.getSession();
-            if (currentSession) {
+            const { data: { session: currentSession } } = await supabase.auth.refreshSession();
+            if (currentSession?.access_token) {
               fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
                 method: "POST",
                 headers: {
@@ -879,9 +882,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   "Authorization": `Bearer ${currentSession.access_token}`,
                   "apikey": SUPABASE_ANON_KEY,
                 },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                   call_id: callRecord.id,
-                  call_control_id: controlId 
+                  call_control_id: controlId
                 }),
               }).catch(err => console.warn("[TelnyxContext] Pending abort hangup failed:", err));
             }

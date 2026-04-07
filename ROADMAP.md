@@ -52,6 +52,19 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-07 | [DONE] Bugfix — Edge Function 401 + callState Stuck on "ended" + Ring Timeout Shows Wrap-Up**
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Three targeted production bugs fixed.
+
+  **Bug 1 — 401 on dialer-hangup Edge Function (`TelnyxContext.tsx`):** Root cause confirmed: `supabase.auth.getSession()` returns a cached session. If the token is expired or near-expiry, the cached `access_token` is stale and the Edge Function rejects it with HTTP 401. **Fix:** Replaced all `getSession()` calls that feed tokens to Edge Function fetches (`dialer-hangup` and `dialer-start-call`) with `refreshSession()`, which forces a fresh token. Applied to 4 call sites: `hangUp()`, `hangUpOrphan()`, `makeCall()` auth check, and the race-condition abort path in `makeCall()`. Guard changed from `if (session)` to `if (session?.access_token)` for null-safety.
+
+  **Bug 2 — telnyxCallState Stuck on "ended", Blocks Auto-Dial (`TelnyxContext.tsx`):** Root cause confirmed: after `hangUp()` fires, `callState` is set to `"ended"` but the deferred 200ms cleanup block only resets `currentCall`, `isMuted`, and `isOnHold` — it never explicitly resets `callState` back to `"idle"`. The auto-dial useEffect requires `telnyxCallState === "idle"` to fire, so auto-dial was permanently blocked after the first call end. **Fix:** Added explicit `setCallState("idle")` to all three deferred cleanup blocks: (1) `hangUp()` setTimeout, (2) `telnyx.notification` destroy/hangup handler setTimeout, (3) `telnyx.error` remote hangup handler setTimeout.
+
+  **Bug 3 — Ring Timeout Opens Wrap-Up Instead of Auto-Dispositioning (`DialerPage.tsx`):** Root cause confirmed: the useEffect watching `telnyxCallState === "ended"` unconditionally opened the wrap-up modal via `setShowWrapUp(true)`. It did not distinguish between a call that was answered then hung up vs. a call that timed out without answer. **Fix:** Added `callWasAnswered` ref. Set to `true` when `telnyxCallState` transitions to `"active"`. Reset to `false` when a new call is initiated in `handleCall()`. In the "ended" useEffect, if `!callWasAnswered.current`, the call is auto-dispositioned as "No Answer" via `handleAutoDispose()` (reusing existing silent-disposition infrastructure) and `autoDialer.resumeAutoDialer()` is called to continue the queue — no wrap-up modal is shown. Answered calls still show the full wrap-up flow with AMD checks.
+
+  *Zero schema changes. Zero TypeScript errors (`npx tsc --noEmit` clean).*
+  *Context Snapshot:* Root causes — (1) cached `getSession()` returning stale JWT, (2) missing explicit `setCallState("idle")` in deferred cleanup, (3) no distinction between answered vs. unanswered calls in the "ended" useEffect. What changed — `refreshSession()` for all Edge Function auth, explicit idle reset in 3 locations, `callWasAnswered` ref gating wrap-up vs. silent auto-disposition. What to test next — (1) Trigger ring timeout → confirm NO wrap-up modal appears, call is auto-dispositioned as "No Answer", and next lead loads automatically. (2) Answer a call then hang up → confirm wrap-up modal still appears normally. (3) Check console for `Edge hangup returned HTTP` — should no longer show 401. (4) Enable auto-dial, let ring timeout fire → confirm auto-dial continues to next lead without getting stuck. (5) Test `hangUpOrphan()` from the orphan recovery UI → confirm no 401.
+
 - **2026-04-07 | [DONE] Bugfix — Ring Timeout PSTN Leak + Queue Index Reset + Background Re-sort Disruption**
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/lib/auto-dialer.ts`, `ROADMAP.md`
   *Developer Note:* Three targeted production bugs fixed plus dead-code cleanup.

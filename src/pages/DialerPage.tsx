@@ -305,6 +305,7 @@ export default function DialerPage() {
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ringTimeoutRef = useRef<number>(20);
   const hasDialedOnce = useRef(false);
+  const callWasAnswered = useRef(false);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
@@ -1188,6 +1189,7 @@ export default function DialerPage() {
       }).catch(() => {});
     }
     hasDialedOnce.current = true;
+    callWasAnswered.current = false;
     setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
@@ -1335,6 +1337,13 @@ export default function DialerPage() {
     }
   }, [telnyxCallState, amdEnabled]);
 
+  // Track whether the current call was answered (reached "active" state)
+  useEffect(() => {
+    if (telnyxCallState === "active") {
+      callWasAnswered.current = true;
+    }
+  }, [telnyxCallState]);
+
   // ── Strict Ring Timeout Enforcement ──
   // If a call has been ringing/dialing beyond the configured ring timeout and
   // no human has been confirmed by AMD, auto-hangup to prevent phantom calls.
@@ -1360,21 +1369,42 @@ export default function DialerPage() {
 
   // Trigger wrap-up when call ends (covers remote hangup)
   // AMD machine detection may auto-advance if auto-dial is on.
-  // Manual hang-up ALWAYS shows the wrap-up panel — agent chooses disposition.
+  // Ring timeout (call never answered) auto-dispositions as "No Answer" silently.
+  // Manual hang-up of an answered call ALWAYS shows the wrap-up panel.
   useEffect(() => {
     if (telnyxCallState === "ended") {
       // Capture state before resets
       const savedCallId = currentCallId;
       const duration = telnyxCallDuration;
+      const wasAnswered = callWasAnswered.current;
       telnyxHangUp();
 
-      const isMeaningful = duration >= 10;
+      // ── Ring timeout / no answer path — auto-disposition silently ──
+      if (!wasAnswered) {
+        console.log("[DialerPage] Call ended without being answered — auto-dispositioning as No Answer.");
+        const noAnswerDisp = dispositions.find(d =>
+          d.name.toLowerCase() === 'no answer'
+        ) || dispositions.find(d =>
+          d.name.toLowerCase().includes('no answer')
+        );
 
-      // Check for AMD machine detection (only auto-advance path on call end)
+        if (noAnswerDisp) {
+          handleAutoDispose(noAnswerDisp);
+        } else {
+          console.warn('[DialerPage] No "No Answer" disposition found — advancing without disposition.');
+          handleAdvance();
+        }
+
+        if (autoDialEnabled && autoDialer) {
+          autoDialer.resumeAutoDialer();
+        }
+        return;
+      }
+
+      // ── Answered call path — check AMD then show wrap-up ──
       const checkAmd = async () => {
         if (!amdEnabled) {
           setAmdStatus('idle');
-          // Always show wrap-up after manual hang-up so agent can disposition
           setShowWrapUp(true);
           return;
         }
@@ -1426,7 +1456,7 @@ export default function DialerPage() {
       setTimeout(checkAmd, 500);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, amdEnabled, autoDialer, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, handleAdvance, amdEnabled, autoDialer, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
