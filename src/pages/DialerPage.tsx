@@ -95,7 +95,10 @@ import {
   releaseAllAgentLocksBeacon,
 } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
-import { HistorySkeleton } from "@/components/dialer/DialerSkeletons";
+import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSkeletons";
+import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
+import { ConversationHistory } from "@/components/dialer/ConversationHistory";
+import { DialerActions } from "@/components/dialer/DialerActions";
 
 /* ─── Types ─── */
 
@@ -1022,17 +1025,7 @@ export default function DialerPage() {
       });
   }, [currentLead?.assigned_agent_id]);
 
-  useEffect(() => {
-    if (historyEndRef.current) {
-      const currentLeadId = currentLead?.id || currentLead?.lead_id;
-      // Force "auto" (instant) behavior if transitioning to a new lead
-      const isNewLead = lastScrolledLeadIdRef.current !== currentLeadId;
-      const behavior = isNewLead ? "auto" : "smooth";
-      
-      historyEndRef.current.scrollIntoView({ behavior });
-      lastScrolledLeadIdRef.current = currentLeadId;
-    }
-  }, [history, currentLead?.id, currentLead?.lead_id]);
+  // Removed scroll-to-bottom effect in favor of CSS flex-col-reverse anchoring in ConversationHistory component
 
   /* --- queue lifecycle --- */
 
@@ -1112,7 +1105,7 @@ export default function DialerPage() {
       return next;
     });
     
-    setTimeout(() => setIsAdvancing(false), 300);
+    setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
     
     if (autoDialEnabled) {
       console.log("[DialerPage] Auto-Dialer will advance reactively via state machine");
@@ -1146,7 +1139,7 @@ export default function DialerPage() {
       const next = Math.min(prev + 1, leadQueue.length - 1);
       return next;
     });
-    setTimeout(() => setIsAdvancing(false), 300);
+    setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
@@ -2658,33 +2651,14 @@ export default function DialerPage() {
         </button>
 
         {/* CENTER: centered inline stats in subtle boxes */}
-        <div className="flex items-center justify-center flex-1 gap-2">
-          {statsLoading ? (
-            Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex flex-col items-center px-3 py-1 bg-accent/30 border border-border/50 rounded-xl min-w-[70px]">
-                <Skeleton className="h-2 w-10 mb-1" />
-                <Skeleton className="h-2.5 w-6" />
-              </div>
-            ))
-          ) : (
-            [
-              { label: "Session Duration", value: dialerStats?.session_started_at ? fmtSessionDuration(sessionElapsed) : "—" },
-              { label: "Calls Made", value: sessionStats.calls_made },
-              { label: "Connected", value: sessionStats.calls_connected },
-              { label: "Answer Rate", value: sessionStats.calls_made > 0 ? `${Math.round(sessionStats.calls_connected / sessionStats.calls_made * 100)}%` : "—" },
-              { label: "Policies Sold", value: sessionStats.policies_sold },
-              { label: "Avg Talk Time", value: sessionStats.calls_connected > 0 ? fmtDuration(Math.round(sessionStats.total_talk_seconds / sessionStats.calls_connected)) : "—" },
-            ].map((s) => (
-              <div
-                key={s.label}
-                className="flex flex-col items-center px-3 py-1 bg-accent/30 border border-border/50 rounded-xl min-w-0 h-14 justify-center transition-all hover:bg-accent/50"
-              >
-                <div className="text-[8px] text-muted-foreground uppercase tracking-wider font-semibold truncate w-full text-center">{s.label}</div>
-                <div className="text-xs font-bold font-mono text-foreground">{s.value}</div>
-              </div>
-            ))
-          )}
-        </div>
+        <DialerHeaderStats 
+          statsLoading={statsLoading}
+          sessionStartedAt={dialerStats?.session_started_at}
+          sessionElapsed={sessionElapsed}
+          sessionStats={sessionStats}
+          fmtSessionDuration={fmtSessionDuration}
+          fmtDuration={fmtDuration}
+        />
 
         {/* RIGHT */}
         <div className="flex items-center gap-3 shrink-0">
@@ -2884,6 +2858,7 @@ export default function DialerPage() {
 
             {/* Staged lead reveal — handled by LeadCard */}
             <LeadCard
+              key={currentLead?.id || currentLead?.lead_id || "idle"}
               lead={currentLead}
               callStatus={callStatus}
               callAttempts={currentLead?.call_attempts ?? 0}
@@ -2899,531 +2874,44 @@ export default function DialerPage() {
         </div>
 
         {/* ── CENTER COLUMN (Conversation History) ── */}
-        <div className="flex-[1.5] flex flex-col overflow-hidden min-h-0">
-          <div className="flex flex-col flex-1 overflow-hidden bg-card border rounded-xl">
-            {/* Header — shrink-0 */}
-            <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-primary" />
-                <span className="font-semibold text-sm text-foreground">Conversation History</span>
-              </div>
-              <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border">
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">From:</span>
-                <select
-                  value={selectedCallerNumber}
-                  onChange={(e) => setSelectedCallerNumber(e.target.value)}
-                  className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all"
-                >
-                  <option value="">AI Local Presence</option>
-                  {availableNumbers.map(n => (
-                    <option key={n.phone_number} value={n.phone_number}>
-                      {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Scrollable feed — flex-1 overflow-y-auto */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-              {loadingHistory && <HistorySkeleton />}
-              {!loadingHistory && history.length === 0 && (
-                <p className="text-muted-foreground text-sm text-center py-6">No activity yet</p>
-              )}
-              {!loadingHistory &&
-                history.map((item) => (
-                  <div key={item.id} className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
-                      {historyIcon(item.type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm text-foreground">{item.description}</span>
-                        {item.type === "call" && item.disposition && (
-                          <span
-                            className="text-xs px-2 py-0.5 rounded-full font-medium"
-                            style={{
-                              backgroundColor: item.disposition_color
-                                ? `${item.disposition_color}33`
-                                : undefined,
-                              color: item.disposition_color ?? undefined,
-                            }}
-                          >
-                            {item.disposition}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {formatDateTime(new Date(item.created_at))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              <div ref={historyEndRef} />
-            </div>
-          </div>
-
-          {/* SMS composer — shrink-0, fixed at bottom */}
-          <div className="shrink-0 bg-card border rounded-xl flex flex-col mt-3">
-            <div className="px-4 pt-3">
-              {/* Tab Fields */}
-              {smsTab === "email" ? (
-                <div className="flex flex-col gap-2">
-                  <input
-                    value={subjectText}
-                    onChange={(e) => setSubjectText(e.target.value)}
-                    placeholder="Subject"
-                    className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full"
-                  />
-                  <textarea
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Type EMAIL message…"
-                    className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20"
-                  />
-                </div>
-              ) : (
-                <div className="text-foreground">
-                  <input
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Type SMS message…"
-                    className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Action Buttons Row: Tabs (Left) + Actions (Right) */}
-            <div className="flex items-center justify-between px-4 py-3 border-t mt-3">
-              {/* LEFT: Tab switcher */}
-              <div className="flex gap-1">
-                {(["sms", "email"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => handleSmsTabChange(tab)}
-                    className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all ${
-                      smsTab === tab
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-muted-foreground hover:bg-accent"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-
-              {/* RIGHT: Templates + Send */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleOpenTemplates}
-                  className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent/80 transition-colors"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  Templates
-                </button>
-
-                <button
-                  onClick={handleSendMessage}
-                  className="bg-success text-success-foreground rounded-lg px-4 py-1.5 text-xs font-bold flex items-center gap-2 hover:bg-success/90 transition-all shadow-sm border border-success/20"
-                  title={smsTab === "email" ? "Send Email" : "Send SMS"}
-                >
-                  <span>Send</span>
-                  <Send className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ConversationHistory
+          history={history}
+          loadingHistory={loadingHistory}
+          formatDateTime={formatDateTime}
+          smsTab={smsTab}
+          messageText={messageText}
+          subjectText={subjectText}
+          selectedCallerNumber={selectedCallerNumber}
+          availableNumbers={availableNumbers}
+          onSmsTabChange={handleSmsTabChange}
+          onOpenTemplates={handleOpenTemplates}
+          onSendMessage={handleSendMessage}
+          onMessageChange={(text) => setMessageText(text)}
+          onSubjectChange={(text) => setSubjectText(text)}
+          onCallerNumberChange={setSelectedCallerNumber}
+        />
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
-        <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
-          {/* Top Actions: Hang Up / Skip */}
-          <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
-            {telnyxCallState === "active" || telnyxCallState === "dialing" ? (
-              <button
-                onClick={handleHangUp}
-                className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90 shadow-lg shadow-destructive/20"
-              >
-                <PhoneOff className="w-4 h-4" />
-                <span className="leading-none">Hang Up</span>
-                <span className="font-mono text-[9px] opacity-80">{fmtDuration(telnyxCallDuration)}</span>
-                {amdEnabled && amdStatus !== 'idle' && (
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                    amdStatus === 'detecting' ? 'bg-yellow-500/20 text-yellow-400 animate-pulse' :
-                    amdStatus === 'human' ? 'bg-emerald-500/20 text-emerald-400' :
-                    amdStatus === 'machine' ? 'bg-red-500/20 text-red-400' : ''
-                  }`}>
-                    {amdStatus === 'detecting' ? '🔍 AMD' :
-                     amdStatus === 'human' ? '👤 Human' :
-                     amdStatus === 'machine' ? '🤖 Machine' : ''}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <div className="relative">
-                <ClaimRing
-                  active={claimRingActive}
-                  campaignType={campaignType}
-                  onClaim={() => {
-                    // ClaimRing fires this at 30s — claim is already handled by useHardClaim timer
-                    // This callback is a UI signal only; no DB call here.
-                  }}
-                />
-                <LockTimerArc
-                  active={lockMode && !!currentLead}
-                  campaignType={campaignType}
-                />
-                <button
-                  onClick={handleCall}
-                  className="w-full bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-success/90 shadow-lg shadow-success/20"
-                >
-                  <Phone className="w-4 h-4" />
-                  <span className="leading-none">Call</span>
-                </button>
-              </div>
-            )}
-            <button
-              onClick={handleSkip}
-              className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
-            >
-              <ArrowRight className="w-4 h-4" />
-              <span className="leading-none">Skip</span>
-            </button>
-          </div>
+        <DialerActions
+          telnyxCallState={telnyxCallState}
+          telnyxCallDuration={telnyxCallDuration}
+          amdEnabled={amdEnabled}
+          amdStatus={amdStatus}
+          claimRingActive={claimRingActive}
+          campaignType={campaignType}
+          lockMode={lockMode}
+          currentLead={currentLead}
+          leftTab={leftTab}
+          dispositions={dispositions}
+          selectedDisp={selectedDisp}
+          fmtDuration={fmtDuration}
+          onHangUp={handleHangUp}
+          onCall={handleCall}
+          onSkip={handleSkip}
+          onSelectTab={setLeftTab}
+          onSelectDisposition={handleSelectDisposition}
+        />
 
-          {/* Main Controls Card with truly fixed footer */}
-          <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 min-w-0">
-              <div className="grid grid-cols-3 border-b shrink-0">
-                {(["dispositions", "queue", "scripts"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setLeftTab(t)}
-                    className={`py-2.5 text-[10px] uppercase tracking-widest font-bold transition-all ${
-                      leftTab === t
-                        ? "bg-primary/10 text-primary border-b-2 border-primary"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-muted/5">
-                {leftTab === "dispositions" && (
-                  <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-right-2 duration-300">
-                    <div>
-                      <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2 block">
-                        Select Outcome
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {dispositions.map((d) => (
-                          <button
-                            key={d.id}
-                            onClick={() => handleSelectDisposition(d)}
-                            className={cn(
-                              "flex flex-col items-center justify-center p-2 rounded-lg border text-[10px] font-bold uppercase tracking-tight text-center transition-all h-16 group relative",
-                              selectedDisp?.id === d.id
-                                ? "ring-2 ring-primary border-primary bg-primary/10 text-primary"
-                                : "border-border bg-card text-muted-foreground hover:bg-accent"
-                            )}
-                            style={selectedDisp?.id === d.id ? {} : { 
-                              backgroundColor: d.color ? `${d.color}15` : undefined,
-                              borderColor: d.color ? `${d.color}30` : undefined,
-                              color: d.color ?? undefined
-                            }}
-                          >
-                            <span className="line-clamp-2">{d.name}</span>
-                            {/* Small indicator dots for requirements */}
-                            <div className="absolute top-1 right-1 flex gap-0.5">
-                              {d.requireNotes && <div className="w-1 h-1 rounded-full bg-current opacity-60" title="Notes Required" />}
-                              {(d.appointmentScheduler || d.callbackScheduler) && <div className="w-1 h-1 rounded-full bg-current opacity-60" title="Scheduling Required" />}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Requirement Sections */}
-                    {selectedDisp && (
-                      <div className="flex flex-col gap-4 pt-4 border-t">
-                        {/* Requirement: Notes */}
-                        {selectedDisp.requireNotes && (
-                          <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-                            <div className="flex items-center justify-between">
-                              <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground flex items-center gap-1.5">
-                                <FileText className="w-3 h-3" /> Call Notes *
-                              </label>
-                              <span className={cn(
-                                "text-[9px] px-1.5 py-0.5 rounded-full font-bold",
-                                noteText.length >= (selectedDisp.minNoteChars || 0)
-                                  ? "bg-success/10 text-success"
-                                  : "bg-destructive/10 text-destructive"
-                              )}>
-                                {noteText.length >= (selectedDisp.minNoteChars || 0) ? "Done" : `${selectedDisp.minNoteChars - noteText.length} chars left`}
-                              </span>
-                            </div>
-                            <textarea
-                              value={noteText}
-                              onChange={(e) => setNoteText(e.target.value)}
-                              placeholder={`Enter at least ${selectedDisp.minNoteChars} characters...`}
-                              className={cn(
-                                "w-full bg-card border rounded-lg p-2.5 text-xs placeholder:text-muted-foreground focus:ring-1 focus:ring-primary h-24 resize-none transition-all",
-                                noteText.length < (selectedDisp.minNoteChars || 0) ? "border-muted-foreground/30 focus:border-primary" : "border-success/50"
-                              )}
-                            />
-                          </div>
-                        )}
-
-                        {/* Requirement: Callback */}
-                        {selectedDisp.callbackScheduler && (
-                          <div className="space-y-3 animate-in slide-in-from-top-2 duration-300">
-                            <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground flex items-center gap-1.5">
-                              <Clock className="w-3 h-3" /> Schedule Callback *
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-muted-foreground font-medium">Date</span>
-                                <DateInput
-                                  value={callbackDate ? callbackDate.toISOString().split('T')[0] : ""}
-                                  onChange={(val) => setCallbackDate(val ? new Date(val + "T00:00:00") : undefined)}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-muted-foreground font-medium">Time</span>
-                                <select 
-                                  value={callbackTime}
-                                  onChange={(e) => setCallbackTime(e.target.value)}
-                                  className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none h-[30px]"
-                                >
-                                  <option value="">Select Time</option>
-                                  {Array.from({ length: 48 }).map((_, i) => {
-                                    const h = Math.floor(i / 2);
-                                    const m = (i % 2) * 30;
-                                    const period = h < 12 ? "AM" : "PM";
-                                    const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                                    const time = `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
-                                    return <option key={time} value={time}>{time}</option>;
-                                  })}
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Requirement: Appointment */}
-                        {selectedDisp.appointmentScheduler && (
-                          <div className="space-y-3 animate-in slide-in-from-top-2 duration-300">
-                            <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground flex items-center gap-1.5">
-                              <CalendarIcon className="w-3 h-3" /> Schedule Appointment *
-                            </label>
-                            <div className="space-y-2.5">
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-muted-foreground font-medium">Title</span>
-                                <input
-                                  value={aptTitle}
-                                  onChange={(e) => setAptTitle(e.target.value)}
-                                  className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none"
-                                  placeholder="Appointment Title"
-                                />
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                  <span className="text-[9px] text-muted-foreground font-medium">Type</span>
-                                  <select
-                                    value={aptType}
-                                    onChange={(e) => setAptType(e.target.value)}
-                                    className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none h-[30px]"
-                                  >
-                                    <option value="Sales Call">Sales Call</option>
-                                    <option value="Follow Up">Follow Up</option>
-                                    <option value="Policy Review">Policy Review</option>
-                                    <option value="Recruit Interview">Recruit Interview</option>
-                                    <option value="Other">Other</option>
-                                  </select>
-                                </div>
-                                <div className="space-y-1">
-                                  <span className="text-[9px] text-muted-foreground font-medium">Date</span>
-                                  <DateInput
-                                    value={aptDate}
-                                    onChange={setAptDate}
-                                  />
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                  <span className="text-[9px] text-muted-foreground font-medium">Start Time</span>
-                                  <select
-                                    value={aptStartTime}
-                                    onChange={(e) => setAptStartTime(e.target.value)}
-                                    className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none h-[30px]"
-                                  >
-                                    {Array.from({ length: 48 }).map((_, i) => {
-                                      const h = Math.floor(i / 2);
-                                      const m = (i % 2) * 30;
-                                      const period = h < 12 ? "AM" : "PM";
-                                      const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                                      const time = `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
-                                      return <option key={time} value={time}>{time}</option>;
-                                    })}
-                                  </select>
-                                </div>
-                                <div className="space-y-1">
-                                  <span className="text-[9px] text-muted-foreground font-medium">End Time</span>
-                                  <select
-                                    value={aptEndTime}
-                                    onChange={(e) => setAptEndTime(e.target.value)}
-                                    className="w-full bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:ring-1 focus:ring-primary outline-none h-[30px]"
-                                  >
-                                    {Array.from({ length: 48 }).map((_, i) => {
-                                      const h = Math.floor(i / 2);
-                                      const m = (i % 2) * 30;
-                                      const period = h < 12 ? "AM" : "PM";
-                                      const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-                                      const time = `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
-                                      return <option key={time} value={time}>{time}</option>;
-                                    })}
-                                  </select>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-
-                {leftTab === "queue" && (
-                  <QueuePanel
-                    campaignType={campaignType}
-                    campaignId={selectedCampaignId!}
-                    organizationId={organizationId}
-                    userRole={(profile as any)?.role || "Agent"}
-                    displayQueue={displayQueue as any}
-                    leadQueue={leadQueue as any}
-                    currentLeadIndex={currentLeadIndex}
-                    onSelectLead={setCurrentLeadIndex}
-                    queueSort={queueSort}
-                    setQueueSort={setQueueSort}
-                    showQueueFilters={showQueueFilters}
-                    setShowQueueFilters={setShowQueueFilters}
-                    showQueueFieldPicker={showQueueFieldPicker}
-                    setShowQueueFieldPicker={setShowQueueFieldPicker}
-                    queuePreviewFields={queuePreviewFields}
-                    setQueuePreviewFields={setQueuePreviewFields}
-                    loadingLeads={loadingLeads}
-                    hasMoreLeads={hasMoreLeads}
-                    currentOffset={currentOffset}
-                    fetchLeadsBatch={fetchLeadsBatch}
-                    renderQueuePreviewValue={renderQueuePreviewValue}
-                    PREVIEW_FIELD_LABELS={PREVIEW_FIELD_LABELS}
-                    onClearFilters={() => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 })}
-                    filterSummary={
-                      (queueSort !== 'default' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
-                        ? `Showing ${displayQueue.length} of ${leadQueue.length} leads`
-                        : ""
-                    }
-                  />
-                )}
-
-                {leftTab === "scripts" && (
-                  <div className="flex flex-col gap-2">
-                    {availableScripts.length === 0 ? (
-                      <div className="text-center py-8">
-                        <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
-                        <p className="text-sm text-muted-foreground">No scripts available</p>
-                      </div>
-                    ) : (
-                      availableScripts.map((script) => (
-                        <button
-                          key={script.id}
-                          onClick={() => setActiveScriptId(script.id)}
-                          className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors flex items-center justify-between group"
-                        >
-                          <span className="text-xs font-bold text-foreground uppercase tracking-tight">
-                            {script.name}
-                          </span>
-                          <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-              {/* Fixed Footer for Right Column Actions */}
-              <div className="p-4 border-t bg-card shrink-0">
-                {selectedDisp && (
-                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {/* Unified Requirement Indicator */}
-                    {(selectedDisp.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0)) ||
-                     (selectedDisp.callbackScheduler && (!callbackDate || !callbackTime)) ||
-                     (selectedDisp.appointmentScheduler && (!aptTitle || !aptDate || !aptStartTime || !aptEndTime)) ? (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2 px-3 py-2 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
-                          <Activity className="w-3.5 h-3.5 animate-pulse" />
-                          <span className="text-[10px] font-bold uppercase tracking-tight">
-                            Requirements Missing
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1 px-1">
-                          {selectedDisp.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0) && (
-                            <div className="text-[9px] text-destructive flex items-center gap-1">
-                              <X className="w-2.5 h-2.5" /> Notes ({selectedDisp.minNoteChars - noteText.length} more chars)
-                            </div>
-                          )}
-                          {selectedDisp.callbackScheduler && (!callbackDate || !callbackTime) && (
-                            <div className="text-[9px] text-destructive flex items-center gap-1">
-                              <X className="w-2.5 h-2.5" /> Callback Date & Time
-                            </div>
-                          )}
-                          {selectedDisp.appointmentScheduler && (!aptTitle || !aptDate || !aptStartTime || !aptEndTime) && (
-                            <div className="text-[9px] text-destructive flex items-center gap-1">
-                              <X className="w-2.5 h-2.5" /> Appointment Details
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-success/10 border border-success/20 rounded-lg text-success">
-                          <Check className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-tight">Ready to Save</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {!selectedDisp && (
-                  <div className="mb-3 px-3 py-2 bg-muted/50 border border-border rounded-lg text-muted-foreground flex items-center gap-2">
-                    <Activity className="w-3.5 h-3.5 opacity-50" />
-                    <span className="text-[10px] font-bold uppercase tracking-tight">Select a disposition to save</span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={handleSaveOnly}
-                    disabled={!selectedDisp}
-                    className="h-11 rounded-xl bg-accent text-accent-foreground font-bold text-xs shadow-sm hover:bg-accent/80 transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={handleSaveAndNext}
-                    disabled={!selectedDisp}
-                    className="h-11 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Save and Next
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
