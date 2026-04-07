@@ -121,7 +121,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const activeCallControlIdRef = useRef<string | null>(null);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
-  const isDialingRef = useRef(false);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -772,18 +771,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
 
-<<<<<<< HEAD
-  const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, clientState?: string) => {
-    if (isDialingRef.current) {
-      console.warn("[TelnyxContext] makeCall blocked — dial already in progress");
-      return;
-=======
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions): Promise<string | undefined> => {
     // ── EXECUTION LOCK: prevent concurrent/rapid-fire invocations ──
     if (isDialingRef.current) {
       console.warn("[TelnyxContext] makeCall blocked — already dialing (execution lock).");
       return undefined;
->>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
     }
 
     if (status !== "ready") {
@@ -940,12 +932,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
       setCallState("idle");
-<<<<<<< HEAD
-=======
       return undefined;
     } finally {
       // ── LOCK RELEASED ──
->>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
       isDialingRef.current = false;
     }
   }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id]);
