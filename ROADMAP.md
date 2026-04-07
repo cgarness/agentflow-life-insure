@@ -45,10 +45,16 @@
 | `20260406600000` | `campaign_leads_scheduled_callback.sql` | Added `scheduled_callback_at` (TIMESTAMPTZ) to `campaign_leads` for native prioritization. |
 | `20260406700000` | `enterprise_waterfall_rpc.sql` | `get_enterprise_queue_leads` RPC: full DB-level filtering (Timezones, Max Attempts, Retry Intervals). |
 | `20260406800000` | `fix_enterprise_rpc_columns.sql` | Fixed column mismatch in `get_enterprise_queue_leads` RPC; ensured perfect `SETOF` alignment. |
+| `20260406900000` | `patch_enterprise_rpc_nulls.sql` | Patched RPC with `COALESCE` guards for NULL states, statuses, and call_attempts. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] Fix Dialer Queue NULL Handling — Fresh Lead Loading Patch**
+  *Migration:* `20260406900000_patch_enterprise_rpc_nulls.sql`
+  *Files Modified:* `ROADMAP.md`
+  *Developer Note:* Resolved a critical bug where fresh/imported leads were not appearing in the dialer queue. **Fix — COALESCE Guards**: SQL comparisons like `call_attempts < max_attempts` fail (return NULL) if either side is NULL, causing Postgres to drop the row in a `WHERE` clause. Added `COALESCE(cl.call_attempts, 0)` and `COALESCE(v_max_att, 9999)` to ensure comparisons evaluate correctly even for first-time dials or unlimited campaigns. Also patched `cl.status` and `cl.state` with fallbacks ('Queued' and 'America/New_York' respectively) to prevent leads with incomplete data from being filtered out of the dashboard.
 
 - **2026-04-06 | [DONE] Fix Dialer Queue Crash — RPC Column Alignment + Error Exposure**
   *Migration:* `20260406800000_fix_enterprise_rpc_columns.sql`
@@ -639,6 +645,39 @@ A database-first waterfall queue that handles compliance and prioritization at t
 | Timezone Map in SQL | Centralizes compliance. Mapping `CA` → `America/Los_Angeles` allows Postgres to handle DST offsets correctly without JS libraries like `moment-timezone`. |
 | Zero-hour bypass | Explicitly checking `IF v_retry_hrs = 0` prevents `interval '0 hours'` math that could lead to edge-case exclusions. |
 | `SETOF public.campaign_leads` | Returning the full table row allows PostgREST to join the `leads` table on the result, keeping the API clean and type-safe. |
+---
+
+## 17. Context Snapshot — Dialer Queue NULL Handling (2026-04-06)
+
+### What Was Built
+
+A robustness patch to the Enterprise Waterfall RPC to handle `NULL` state comfortably without dropping leads.
+
+### The Problem: Strict NULL Exclusion
+
+In PostgreSQL, boolean comparisons with `NULL` (e.g., `attempts < 10` where attempts is `NULL`) result in `NULL`. In a `WHERE` clause, any row that evaluates to `NULL` is treated as `FALSE`. This meant that:
+1. **Fresh Leads** (status=NULL or call_attempts=NULL) were invisible.
+2. **Unlimited Campaigns** (max_attempts=NULL) were returning 0 leads.
+3. **Unknown States** (state=NULL) could not be mapped to a timezone and were dropped.
+
+### The Fix: COALESCE wrappers
+
+The patch introduces fallback values for all critical filtering columns:
+
+| Column | Fallback | Purpose |
+|---|---|---|
+| `call_attempts` | `0` | New leads start at 0 attempts for comparison. |
+| `max_attempts` | `9999` | Treat NULL as unlimited (effectively). |
+| `status` | `'Queued'` | Treat missing status as ready-to-dial. |
+| `lead_tz` | `'America/New_York'` | Default to EST for calling hour checks if state is unknown. |
+
+### Verified Logic: New Lead Bypass
+
+New leads where `last_called_at IS NULL` now correctly bypass the retry interval block (Bucket C) and are categorized as 'Queued' (Bucket B) via the internal `COALESCE(status, 'Queued') = 'Queued'` logic.
+
+### Status Verified
+1. **Migration 20260406900000** applied.
+2. **Dialer Page** verified for fresh lead loading.
 
 ### Next Steps for Future Developers
 
