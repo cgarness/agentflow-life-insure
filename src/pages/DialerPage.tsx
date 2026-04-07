@@ -1616,72 +1616,6 @@ export default function DialerPage() {
     }
   }, [autoDialer, leadQueue, currentLeadIndex]);
 
-  // ── Auto-Dial Reactive Trigger (Lead Advance) ──
-<<<<<<< HEAD
-  useEffect(() => {
-    const triggerAutoCall = async () => {
-      // FIX 2: Must press Call at least once before auto-dial fires
-      if (!hasDialedOnce.current) return;
-
-      console.log("[AutoDialer] Reactive trigger check:", {
-        autoDialEnabled,
-        dialerEnabled: autoDialer?.isEnabled(),
-        leadId: currentLead?.id,
-        callState: telnyxCallState,
-        telnyxStatus
-      });
-
-      // 1. Guard check: only trigger if auto-dial is enabled, dialer is ready,
-      //    we have a lead, and wrap-up is NOT open (agent is dispositioning).
-      if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || !["idle","ready"].includes(telnyxStatus) || showWrapUp) {
-        if (autoDialEnabled) {
-          console.log("[AutoDialer] Initiation blocked:", {
-            isEnabled: autoDialer?.isEnabled(),
-            hasLead: !!currentLead,
-            telnyxCallState,
-            telnyxStatus,
-            showWrapUp
-          });
-        }
-        return;
-      }
-
-      // 2. Authentication Check: Ensure user has an active Supabase session before dialing
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn("[AutoDialer] Reactive trigger blocked: No active auth session.");
-        toast.error("Standard Authentication Required. Please log in to make calls.");
-        return;
-      }
-
-      // FIX 1: Enforce calling hours for the lead's state (auto-dial only)
-      const leadState = currentLead.state || '';
-      if (!autoDialer.checkCallingHours(leadState)) {
-        const displayState = leadState || 'this state';
-        toast.warning(`Outside calling hours for ${displayState} — skipping lead`);
-        handleSkip();
-        return;
-      }
-
-      console.log(`[AutoDialer] Reactive trigger: Waiting 2000ms before dialing ${currentLead.first_name}...`);
-
-      const timer = setTimeout(async () => {
-        // Double-check guards after delay to ensure user didn't pause, start a manual call, or open wrap-up
-        if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || !["idle","ready"].includes(telnyxStatus) || showWrapUp) {
-          return;
-        }
-
-        console.log("[AutoDialer] 2000ms delay complete. Initiating call to:", currentLead.phone);
-        handleCall();
-      }, 2000);
-
-      return () => clearTimeout(timer);
-    };
-
-    triggerAutoCall();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState, showWrapUp]);
-=======
   // ── Two-Lane State Machine Hook ──
   // Replaces the old scattered triggerAutoCall useEffect with a formalized
   // Fast Path (timeout/AMD auto-advance) vs Deliberate Path (Save & Next) machine.
@@ -1696,7 +1630,6 @@ export default function DialerPage() {
     onCall: handleCall,
     onSkip: handleSkip,
   });
->>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
 
 
 

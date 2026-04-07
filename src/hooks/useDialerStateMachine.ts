@@ -189,14 +189,7 @@ export function useDialerStateMachine({
     currentLead,
   ]);
 
-  // ── Reset the last-dialed guard when lead changes ──
-  useEffect(() => {
-    const leadId = currentLead?.id || currentLead?.lead_id;
-    if (leadId !== lastAutoDialedLeadId.current) {
-      // Lead changed — allow auto-dial for the new lead
-      lastAutoDialedLeadId.current = null;
-    }
-  }, [currentLead?.id, currentLead?.lead_id]);
+  // (Lead change reset removed to prevent race conditions during auto-advance)
 
   return { machineState };
 }
