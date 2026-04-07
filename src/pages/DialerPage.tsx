@@ -1609,6 +1609,11 @@ export default function DialerPage() {
     };
   }, [selectedCampaignId, organizationId, telnyxInitialize]);
 
+  const memoizedCheckHours = useCallback(
+    (state: string) => checkCallingHours(state, callingHoursStart, callingHoursEnd),
+    [callingHoursStart, callingHoursEnd]
+  );
+
   // ── Two-Lane State Machine Hook ──
   const { machineState } = useDialerStateMachine({
     isAutoDialEnabled: autoDialEnabled && !isPaused,
@@ -1617,7 +1622,7 @@ export default function DialerPage() {
     currentLead,
     hasDialedOnce,
     showWrapUp,
-    checkCallingHours: (state: string) => checkCallingHours(state, callingHoursStart, callingHoursEnd),
+    checkCallingHours: memoizedCheckHours,
     onCall: handleCall,
     onSkip: handleSkip,
   });

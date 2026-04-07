@@ -186,7 +186,6 @@ export function useDialerStateMachine({
     onCall,
     onSkip,
     hasDialedOnce,
-    currentLead,
   ]);
 
   // (Lead change reset removed to prevent race conditions during auto-advance)
