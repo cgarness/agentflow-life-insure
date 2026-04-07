@@ -4,12 +4,12 @@ import {
   PhoneOff, Search, Delete, Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useTelnyx } from "@/contexts/TelnyxContext";
+import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
 import { useNavigate } from "react-router-dom";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
-import { createCall, saveCall } from "@/lib/dialer-api";
+import { saveCall } from "@/lib/dialer-api";
 import { selectCallerID } from "@/lib/caller-id-selector";
 import { DateInput } from "@/components/shared/DateInput";
 
@@ -361,10 +361,17 @@ const FloatingDialer: React.FC = () => {
     return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const proceedWithCall = (destinationNumber: string, callerNumber: string, callId?: string) => {
+  const proceedWithCall = async (destinationNumber: string, callerNumber: string, contactId?: string | null) => {
     lastUsedCallerId.current = callerNumber;
+    // Use MakeCallOptions for consolidated single-point call creation in TelnyxContext
+    const opts: MakeCallOptions = {
+      contactId: contactId || selectedContact?.id || null,
+      contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : null,
+      contactPhone: destinationNumber,
+      contactType: selectedContact?.type || null,
+    };
+    const callId = await telnyxMakeCall(destinationNumber, callerNumber || undefined, opts);
     setCurrentCallId(callId || null);
-    telnyxMakeCall(destinationNumber, callerNumber || undefined, callId);
     setOnCall(true);
     setCallSeconds(0);
   };
@@ -378,25 +385,10 @@ const FloatingDialer: React.FC = () => {
     const leadPhone = dialedNumber.trim() || destinationNumber;
     if (!leadPhone) return;
 
-    // For all calls, create record first if possible
-    let callId;
-    if (user && contactId) {
-      try {
-        callId = await createCall({
-          contact_id: contactId,
-          agent_id: user.id,
-          caller_id_used: finalCallerId,
-          contact_name: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : destinationNumber,
-          contact_phone: destinationNumber,
-          contact_type: selectedContact?.type,
-        }, organizationId);
-      } catch (err) {
-        console.error("Failed to create call record:", err);
-      }
-    }
-
+    // Consolidated call creation: TelnyxContext.makeCall handles call record creation.
+    // No more separate dialer-api.createCall here.
     if (!contactId) {
-      proceedWithCall(destinationNumber, finalCallerId, callId);
+      proceedWithCall(destinationNumber, finalCallerId);
       return;
     }
     const previousNumber = await getPreviousCallerId(contactId);
@@ -404,13 +396,13 @@ const FloatingDialer: React.FC = () => {
       const prevRecord = availableNumbers.find(n => n.phone_number === previousNumber);
       const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
       if (!prevIsFlagged) {
-        proceedWithCall(destinationNumber, previousNumber, callId);
+        proceedWithCall(destinationNumber, previousNumber, contactId);
       } else {
         setPendingCall({ leadPhone: destinationNumber, contactId, proposedNumber: finalCallerId, previousNumber });
         setShowCallerIdWarning(true);
       }
     } else {
-      proceedWithCall(destinationNumber, finalCallerId, callId);
+      proceedWithCall(destinationNumber, finalCallerId, contactId);
     }
   };
 

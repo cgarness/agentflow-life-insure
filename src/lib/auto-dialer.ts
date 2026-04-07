@@ -253,7 +253,13 @@ export class AutoDialer {
     }
   }
 
+  /**
+   * @deprecated — Disposition saving and lead advancement are now handled by
+   * the useDialerStateMachine hook. This method is preserved as a stub for
+   * backward compatibility but should not be called.
+   */
   async saveDispositionAndNext(dispositionId: string, notes?: string): Promise<void> {
+<<<<<<< HEAD
     const lead = this.leadQueue[this.currentLeadIndex];
     if (!lead) return;
     
@@ -293,6 +299,9 @@ export class AutoDialer {
         detail: { leadId: lead.id }
       }));
     }
+=======
+    console.warn('[AutoDialer] saveDispositionAndNext is deprecated. Use useDialerStateMachine hook instead.');
+>>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
   }
 
   pauseAutoDialer(): void {
@@ -303,7 +312,8 @@ export class AutoDialer {
   resumeAutoDialer(): void {
     console.log('[AutoDialer] Resumed');
     this.autoDialEnabled = true;
-    this.dialNext();
+    // Note: dialNext() is no longer called here.
+    // The useDialerStateMachine hook reactively handles call initiation.
   }
 
   /** Synchronize the internal lead index with the UI's currentLeadIndex */

@@ -40,13 +40,12 @@ import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import {
   getCampaignLeads,
   getLeadHistory,
-  createCall,
   saveCall,
   saveNote,
   saveAppointment,
   updateLeadStatus,
 } from "@/lib/dialer-api";
-import { useTelnyx } from "@/contexts/TelnyxContext";
+import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
 import {
   Dialog,
   DialogContent,
@@ -95,6 +94,7 @@ import {
   releaseAllAgentLocks,
   releaseAllAgentLocksBeacon,
 } from "@/lib/dialer-queue";
+import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
 
 /* ─── Types ─── */
 
@@ -1118,11 +1118,20 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
-  const proceedWithCall = useCallback((leadPhone: string, callerNumber: string, callId?: string) => {
+  const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
     lastUsedCallerId.current = callerNumber;
+    // Consolidated: MakeCallOptions passes all metadata to TelnyxContext.makeCall
+    // where the single call record is created.
+    const opts: MakeCallOptions = {
+      contactId: contactId || null,
+      campaignId: selectedCampaignId || null,
+      campaignLeadId: currentLead?.id || null,
+      contactName: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim() || null,
+      contactPhone: leadPhone,
+    };
+    const callId = await telnyxMakeCall(leadPhone, callerNumber || undefined, opts);
     setCurrentCallId(callId || null);
-    telnyxMakeCall(leadPhone, callerNumber || undefined, callId);
-  }, [telnyxMakeCall]);
+  }, [telnyxMakeCall, selectedCampaignId, currentLead]);
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
     if (!user) {
@@ -1130,24 +1139,8 @@ export default function DialerPage() {
       return;
     }
     const smartCallerId = await getSmartCallerId(leadPhone, contactId);
-    
-    // For manual calls, we create the record first to get a callId
-    let callId;
-    try {
-      callId = await createCall({
-        contact_id: contactId,
-        agent_id: user?.id || "",
-        campaign_id: selectedCampaignId || undefined,
-        caller_id_used: smartCallerId,
-        contact_name: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim(),
-        contact_phone: leadPhone,
-      }, organizationId);
-    } catch (err) {
-      console.error("Failed to create call record for manual call:", err);
-    }
-
-    proceedWithCall(leadPhone, smartCallerId, callId);
-  }, [getSmartCallerId, user?.id, selectedCampaignId, currentLead, organizationId, proceedWithCall]);
+    proceedWithCall(leadPhone, smartCallerId, contactId);
+  }, [getSmartCallerId, user?.id, proceedWithCall]);
 
   const handleCall = useCallback(() => {
     if (!currentLead) {
@@ -1624,6 +1617,7 @@ export default function DialerPage() {
   }, [autoDialer, leadQueue, currentLeadIndex]);
 
   // ── Auto-Dial Reactive Trigger (Lead Advance) ──
+<<<<<<< HEAD
   useEffect(() => {
     const triggerAutoCall = async () => {
       // FIX 2: Must press Call at least once before auto-dial fires
@@ -1687,6 +1681,22 @@ export default function DialerPage() {
     triggerAutoCall();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLead?.id, autoDialEnabled, telnyxStatus, telnyxCallState, showWrapUp]);
+=======
+  // ── Two-Lane State Machine Hook ──
+  // Replaces the old scattered triggerAutoCall useEffect with a formalized
+  // Fast Path (timeout/AMD auto-advance) vs Deliberate Path (Save & Next) machine.
+  const { machineState } = useDialerStateMachine({
+    isAutoDialEnabled: autoDialEnabled,
+    telnyxCallState,
+    telnyxStatus,
+    currentLead,
+    hasDialedOnce,
+    showWrapUp,
+    checkCallingHours: autoDialer?.checkCallingHours.bind(autoDialer),
+    onCall: handleCall,
+    onSkip: handleSkip,
+  });
+>>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
 
 
 

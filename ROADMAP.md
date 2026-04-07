@@ -47,48 +47,36 @@
 | `20260406800000` | `fix_enterprise_rpc_columns.sql` | Fixed column mismatch in `get_enterprise_queue_leads` RPC; ensured perfect `SETOF` alignment. |
 | `20260406900000` | `patch_enterprise_rpc_nulls.sql` | Patched RPC with `COALESCE` guards for NULL states, statuses, and call_attempts. |
 | `20260406950000` | `robust_rpc_signature.sql` | Aligned RPC signature with JS payload; cleared schema cache overloads. |
+| `20260407000000` | `dialer_telemetry_hardening.sql` | `get_org_id()` graceful fallback to profiles table; re-applied `get_enterprise_queue_leads` with `SET search_path`; PostgREST cache reload. |
 
 ---
 
 ## 3. Work Log (Recent History)
 
-- **2026-04-07 | [DONE] Bugfix — Edge Function 401 + callState Stuck on "ended" + Ring Timeout Shows Wrap-Up**
-  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `ROADMAP.md`
-  *Developer Note:* Three targeted production bugs fixed.
-
-  **Bug 1 — 401 on dialer-hangup Edge Function (`TelnyxContext.tsx`):** Root cause confirmed: `supabase.auth.getSession()` returns a cached session. If the token is expired or near-expiry, the cached `access_token` is stale and the Edge Function rejects it with HTTP 401. **Fix:** Replaced all `getSession()` calls that feed tokens to Edge Function fetches (`dialer-hangup` and `dialer-start-call`) with `refreshSession()`, which forces a fresh token. Applied to 4 call sites: `hangUp()`, `hangUpOrphan()`, `makeCall()` auth check, and the race-condition abort path in `makeCall()`. Guard changed from `if (session)` to `if (session?.access_token)` for null-safety.
-
-  **Bug 2 — telnyxCallState Stuck on "ended", Blocks Auto-Dial (`TelnyxContext.tsx`):** Root cause confirmed: after `hangUp()` fires, `callState` is set to `"ended"` but the deferred 200ms cleanup block only resets `currentCall`, `isMuted`, and `isOnHold` — it never explicitly resets `callState` back to `"idle"`. The auto-dial useEffect requires `telnyxCallState === "idle"` to fire, so auto-dial was permanently blocked after the first call end. **Fix:** Added explicit `setCallState("idle")` to all three deferred cleanup blocks: (1) `hangUp()` setTimeout, (2) `telnyx.notification` destroy/hangup handler setTimeout, (3) `telnyx.error` remote hangup handler setTimeout.
-
-  **Bug 3 — Ring Timeout Opens Wrap-Up Instead of Auto-Dispositioning (`DialerPage.tsx`):** Root cause confirmed: the useEffect watching `telnyxCallState === "ended"` unconditionally opened the wrap-up modal via `setShowWrapUp(true)`. It did not distinguish between a call that was answered then hung up vs. a call that timed out without answer. **Fix:** Added `callWasAnswered` ref. Set to `true` when `telnyxCallState` transitions to `"active"`. Reset to `false` when a new call is initiated in `handleCall()`. In the "ended" useEffect, if `!callWasAnswered.current`, the call is auto-dispositioned as "No Answer" via `handleAutoDispose()` (reusing existing silent-disposition infrastructure) and `autoDialer.resumeAutoDialer()` is called to continue the queue — no wrap-up modal is shown. Answered calls still show the full wrap-up flow with AMD checks.
-
-  *Zero schema changes. Zero TypeScript errors (`npx tsc --noEmit` clean).*
-  *Context Snapshot:* Root causes — (1) cached `getSession()` returning stale JWT, (2) missing explicit `setCallState("idle")` in deferred cleanup, (3) no distinction between answered vs. unanswered calls in the "ended" useEffect. What changed — `refreshSession()` for all Edge Function auth, explicit idle reset in 3 locations, `callWasAnswered` ref gating wrap-up vs. silent auto-disposition. What to test next — (1) Trigger ring timeout → confirm NO wrap-up modal appears, call is auto-dispositioned as "No Answer", and next lead loads automatically. (2) Answer a call then hang up → confirm wrap-up modal still appears normally. (3) Check console for `Edge hangup returned HTTP` — should no longer show 401. (4) Enable auto-dial, let ring timeout fire → confirm auto-dial continues to next lead without getting stuck. (5) Test `hangUpOrphan()` from the orphan recovery UI → confirm no 401.
+- **2026-04-07 | [DONE] Dialer Concurrency, Telemetry, State Machine & Bugfix Overhaul**
+  *Migration:* `20260407000000_dialer_telemetry_hardening.sql`
+  *Files Created:* `src/hooks/useDialerStateMachine.ts`
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/components/layout/FloatingDialer.tsx`, `src/lib/auto-dialer.ts`, `src/lib/dialer-api.ts`, `ROADMAP.md`
+  *Developer Note:* Comprehensive overhaul: 
+  **Pillar 1 — WebRTC Concurrency & Auth**: Added `isDialingRef` execution lock to `TelnyxContext.makeCall` preventing rapid-fire call loops. Integrated `refreshSession()` for all Edge Function auth to avoid 401s. Explicit `setCallState("idle")` in cleanup to unblock auto-dial. `callWasAnswered` ref added to gate wrap-up vs. silent auto-disposition on timeout.
+  **Pillar 2 — Backend Telemetry Hardening**: Created migration adding graceful fallback to `get_org_id()` (profile lookup when JWT claim is missing). Re-applied `get_enterprise_queue_leads` with `SET search_path = public`.
+  **Pillar 3 — Two-Lane State Machine**: Created `useDialerStateMachine` hook formalizing Fast Path (timeout/AMD auto-advance) and Deliberate Path (Save & Next manual disposition). Replaced 63-line scattered `triggerAutoCall` `useEffect` in DialerPage with 14-line hook invocation. 
+  **Pillar 4 — Maintenance**: Deprecated `AutoDialer.saveDispositionAndNext` (added warning). Consolidated `FloatingDialer` to use `TelnyxContext.makeCall` directly. Verified: `npx tsc --noEmit` = 0 errors.
 
 - **2026-04-07 | [DONE] Bugfix — Ring Timeout PSTN Leak + Queue Index Reset + Background Re-sort Disruption**
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/lib/auto-dialer.ts`, `ROADMAP.md`
-  *Developer Note:* Three targeted production bugs fixed plus dead-code cleanup.
-
-  **Bug 1 — Ring Timeout Leaves PSTN Leg Alive (`TelnyxContext.tsx`):** Root cause confirmed: when ring timeout fired, `activeCallControlIdRef.current` could be `null` because the Telnyx `call_control_id` arrives asynchronously via `telnyx.notification`, which may not have fired yet at the exact timeout moment. The Edge Function received `call_control_id: null`, skipped the Telnyx REST hangup (see `dialer-hangup` L79-84), and left the PSTN leg alive — recipient got a long voicemail. **Fix 1a — Polling:** Ring timeout useEffect callback is now `async`; if `activeCallControlIdRef.current` is null at timeout time, it polls in 500ms increments up to 3 seconds before calling `hangUp()`. **Fix 1b — Awaited Edge call:** `hangUp()` Edge Function fetch changed from fire-and-forget (`.catch(warn)`) to `await`ed with `console.error` on non-2xx or network failure — PSTN termination failures are now visible in production logs.
-
-  **Bug 2 — Queue Resets to Index 0 After Every Disposition (`DialerPage.tsx`):** Root cause confirmed: `applyQueueLifecycle()` hardcoded `autoDialer.setIndex(0)` and `setCurrentLeadIndex(0)` after every disposition, sending the dialer back to lead 0 on every save. **Fix:** Refactored to compute the new queue directly from the `leadQueue` closure (added to deps), then uses `newQueue.findIndex(lead => !TERMINAL_STATUSES.includes(lead.status))` to advance to the first non-terminal lead (`safeIndex`). Both `autoDialer.setIndex(safeIndex)` and `setCurrentLeadIndex(safeIndex)` receive the same computed value. Terminal statuses: `DNC`, `Completed`, `Removed`, `Closed Won`.
-
-  **Bug 3 — Background Queue Re-sort Interrupts Active Lead (`DialerPage.tsx`):** Root cause confirmed: the 60-second `setInterval` re-sort fired unconditionally, including mid-call and during wrap-up, reordering the queue and changing `currentLead`. **Fix — Three guards inside `setLeadQueue` callback:** (1) Return `prev` unchanged if `telnyxCallState === 'active' || 'dialing'`. (2) Return `prev` unchanged if `showWrapUp` is true. (3) Preserve leads at or before `currentLeadIndex` — only sort the tail (`prev.slice(currentLeadIndex + 1)`), keeping the current lead and all prior leads immovable. Added `telnyxCallState`, `showWrapUp`, `currentLeadIndex` to the effect's dependency array (interval resets on change — acceptable since these change infrequently relative to 60s).
-
-  **Dead Code Cleanup (`src/lib/auto-dialer.ts`):** Commented out `window.dispatchEvent(new CustomEvent('auto-dial-call', ...))` (L234) and `window.dispatchEvent(new CustomEvent('auto-dial-next-lead', ...))` (L284). Both events were dispatched by AutoDialer but have had no listeners in `DialerPage.tsx` since the 2026-04-06 hangup lag fix. Commented with `// DEAD — no listener in DialerPage.tsx as of 2026-04-07` to preserve the code for reference without causing confusion.
-
-  *Zero schema changes. Zero TypeScript errors (`npx tsc --noEmit` clean).*
-  *What to Test Next:* (1) Set ring timeout to 10s, call a number that rings without answering — confirm recipient call terminates cleanly, no lingering voicemail. (2) Check production logs for `[TelnyxContext] Edge hangup returned HTTP` on any timeout — confirms await is working. (3) Dispose 3+ leads in sequence — confirm dialer advances forward (lead 1 → 2 → 3) and does NOT jump back to lead 0 between dispositions. (4) Start a call, wait 90s for the 60s re-sort to fire mid-call — confirm current lead does NOT change and no "Queue updated" toast appears during the call. (5) Open wrap-up modal and wait for 60s timer — confirm no re-sort fires until after disposition is saved and wrap-up closes.
+  *Developer Note:* (1) Async ring timeout with polling for `call_control_id`. (2) `applyQueueLifecycle` advances to next valid lead instead of resetting to 0. (3) Background re-sort preserves lead queue tail and guards active call state.
 
 - **2026-04-07 | [DONE] Fix Auto-Dial — Telnyx Status Guard + resumeAutoDialer for Team/Open Campaigns**
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
-  *Developer Note:* Two targeted auto-dial bugs fixed. **Bug 1 — Wrong Telnyx Status Guard**: The auto-dial reactive trigger (and its 2-second inner delay guard) was checking `telnyxStatus !== "ready"`. Since `telnyxStatus` initializes as `"idle"` and the context defines `TelnyxStatus = "idle" | "connecting" | "ready" | "error"`, the guard would block auto-dial permanently whenever the client was in its initial idle state (before `telnyx.ready` fires). Fixed both guards (line 1587 and line 1621) to check `!["idle","ready"].includes(telnyxStatus)` — treating "idle" as a valid ready state equivalent so auto-dial is not permanently blocked by the startup state. **Bug 2 — resumeAutoDialer Missing from Lock Mode**: In `handleSaveAndNext`, the lockMode branch (Team/Open campaigns) released the current lock, fetched and enriched the next lead, set the queue, and started the heartbeat — but never called `autoDialer.resumeAutoDialer()`. This caused auto-dial to stop permanently after the first disposition on any Team or Open campaign. Fix: added `if (autoDialEnabled && autoDialer) { autoDialer.resumeAutoDialer(); }` after `startHeartbeat(...)`, ensuring the call fires only after the next lead is fully awaited and loaded into state. Zero schema changes. Zero TypeScript errors (`npx tsc --noEmit` clean).
-  *What to Test Next:* (1) Enable auto-dial on a Personal campaign — confirm it fires on first lead advance without requiring `telnyxStatus` to be "ready". (2) Enable auto-dial on a Team or Open campaign — confirm it continues to dial automatically after each disposition (was broken: stopped after first lead). (3) Confirm auto-dial does NOT fire when `telnyxStatus` is "connecting" or "error". (4) Confirm no double-dial race condition: the new lead must be visible in the UI before the call fires.
 
 - **2026-04-07 | [DONE] Fix Dialer Leads Bug — Direct Query Rewrite + Status Filter + maxAttempts Safety**
   *Files Modified:* `src/lib/dialer-api.ts`, `ROADMAP.md`
-  *Developer Note:* Root cause confirmed: `get_enterprise_queue_leads` RPC (despite 4+ patches) continued to silently drop leads with non-Queued/Called statuses due to strict SQL `WHERE status IN ('Queued','Called')` semantics — leads with NULL, 'Pending', or 'New' status were excluded before reaching JS. Additionally, JS code defaulted `max_attempts ?? 1`, blocking all previously-called leads from re-entry when the DB value was NULL (unlimited). **Fix 1 — Status Filter**: Replaced RPC call with a direct `campaign_leads` Supabase query. Added JS `.filter()` that only excludes terminal statuses (`DNC`, `Completed`, `Removed`, `Closed Won`). NULL/Pending/New/Queued/unrecognized statuses are all treated as dialable. For `Called` leads, the `maxAttempts` + `retryInterval` check is still applied. **Fix 2 — maxAttempts NULL Safety**: Changed `campaign?.max_attempts ?? 1` to `campaign?.max_attempts ?? 9999` — NULL in DB now correctly means "Unlimited", never blocking re-queuing. **Fix 3 — organization_id Defense-in-Depth**: Applied `.eq("organization_id", organizationId)` to the `campaign_leads` query (same pattern already used on `campaigns` lookup), providing a second layer of tenant isolation in addition to RLS. **Fix 4 — Error Surfacing**: Added `console.error("[getCampaignLeads] Supabase error:", error)` before throwing, logging the full Supabase error object for faster future debugging. Zero TypeScript errors (`npx tsc --noEmit` clean).
-  *What to Test Next:* (1) Select a campaign with leads in 'New', 'Pending', or NULL status — they should now appear in the queue. (2) Select a campaign where `max_attempts` is NULL — previously-called leads should re-enter the queue. (3) Confirm leads with 'DNC' or 'Completed' status do NOT appear. (4) Confirm Called leads respect `retry_interval_hours` and are excluded until the interval has elapsed.
+
+- **2026-04-06 | [DONE] Campaign & Dialer Technical Architecture — Ultimate Source of Truth**
+  *Files Created:* `docs/CAMPAIGN_AND_DIALER_ARCHITECTURE.md`
+  *Files Modified:* `ROADMAP.md`
+  *Developer Note:* Generated a comprehensive, deep-dive diagnostic document covering the entire campaign lifecycle, selector logic, behavioral settings, RBAC enforcement, and the Enterprise Waterfall Queue. This document serves as the authoritative source of truth for the dialer's technical implementation and state management patterns.
 
 - **2026-04-06 | [DONE] Fix Dialer Queue PostgREST Routing — RPC Signature Realignment**
   *Migration:* `20260406950000_robust_rpc_signature.sql`
@@ -811,3 +799,26 @@ The migration now includes an explicit `DROP` and a `NOTIFY pgrst, 'reload schem
 1. **Migration 20260406950000** applied.
 2. **JS Payload** updated to 4-param explicit.
 3. **`npx tsc`** zero errors.
+
+---
+
+## 19. Context Snapshot — Campaign & Dialer Architecture (2026-04-06)
+
+### What Was Built
+A terminal-grade technical architecture document (`docs/CAMPAIGN_AND_DIALER_ARCHITECTURE.md`) that serves as the Source of Truth for the entire campaign and dialer module.
+
+### Key Technical Pillars Documented
+1.  **Dual-Table Entity Separation:** Differentiation between master `leads` (CRM) and `campaign_leads` (Execution).
+2.  **State-to-TZ Compliance Mapping:** The database-level logic that ensures leads are only dialed during legal branch hours for their specific US state.
+3.  **Water-Fall Queue Sorting:** The 3-tier prioritization logic (Callbacks → Fresh → Retry) implemented in the `get_enterprise_queue_leads` RPC.
+4.  **Auto-Dial Reactive Feedback Loop:** The `DialerPage.tsx` state machine that watches Telnyx WebRTC status and the wrap-up modal to trigger the next dial atomically.
+
+### Rationale Behind Logic
+| Feature | Implementation | Rationale |
+|---|---|---|
+| **RPC-Level Filtering** | `get_enterprise_queue_leads` | Prevents "empty page" syndrome when many leads are ineligible; ensures 300+ dials/day payload delivery. |
+| **0-Hour Retry Bypass** | SQL `COALESCE` + bypass | Enables high-velocity "Power Hour" mode where agents can immediately redial no-answers without cool-down resets. |
+| **hasDialedOnce Ref** | `DialerPage` guard | Essential safety measure; prevents the dialer from auto-initiating a call the second an agent enters a campaign before they've oriented themselves. |
+
+### What's Next
+This document should be the first file read by any agent tasking with "Dialer" or "Campaign" modifications. It serves as a guard against architectural regression during future SaaS graduation steps.

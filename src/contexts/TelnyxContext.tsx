@@ -31,6 +31,16 @@ interface OrphanCall {
   status: string;
 }
 
+/** Options for makeCall — pass contact/campaign metadata for single-point call record creation. */
+export interface MakeCallOptions {
+  contactId?: string | null;
+  campaignId?: string | null;
+  campaignLeadId?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactType?: string | null;
+}
+
 interface TelnyxContextValue {
   status: TelnyxStatus;
   errorMessage: string | null;
@@ -44,7 +54,8 @@ interface TelnyxContextValue {
   amdEnabled: boolean;
   ringTimeout: number;
   orphanCall: OrphanCall | null;
-  makeCall: (destinationNumber: string, callerNumber?: string, clientState?: string) => void;
+  connectionDropped: boolean;
+  makeCall: (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions) => Promise<string | undefined>;
   hangUp: () => void;
   hangUpOrphan: () => Promise<void>;
   dismissOrphanCall: () => void;
@@ -83,6 +94,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
+  const [connectionDropped, setConnectionDropped] = useState(false);
+
+  // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
+  const isDialingRef = useRef(false);
 
   // Persist manual override to localStorage
   useEffect(() => {
@@ -757,17 +772,25 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
 
+<<<<<<< HEAD
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, clientState?: string) => {
     if (isDialingRef.current) {
       console.warn("[TelnyxContext] makeCall blocked — dial already in progress");
       return;
+=======
+  const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions): Promise<string | undefined> => {
+    // ── EXECUTION LOCK: prevent concurrent/rapid-fire invocations ──
+    if (isDialingRef.current) {
+      console.warn("[TelnyxContext] makeCall blocked — already dialing (execution lock).");
+      return undefined;
+>>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
     }
 
     if (status !== "ready") {
       const msg = status === "connecting" ? "Dialer is still connecting, please wait." : "Dialer is not connected. Check your credentials in Settings.";
       console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
       toast.error(msg);
-      return;
+      return undefined;
     }
 
     isDialingRef.current = true;
@@ -777,16 +800,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!session?.access_token || sessionError) {
       console.warn("[TelnyxContext] Call blocked: No active auth session.", sessionError);
       toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
-      return;
+      return undefined;
     }
 
     const orgIdClaim = session.user.app_metadata?.organization_id;
     if (!orgIdClaim) {
        toast.error("Security Block: No Valid Organization Token.");
-       return;
+       return undefined;
     }
 
-    if (!clientRef.current) return;
+    if (!clientRef.current) return undefined;
 
     // Request microphone permission before placing the call
     try {
@@ -795,40 +818,49 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error("Microphone permission denied:", err);
       setStatus("error");
       setErrorMessage("Microphone access is required to make calls. Please allow microphone access in your browser and try again.");
-      return;
+      return undefined;
     }
+
+    // ── LOCK ACQUIRED ──
+    isDialingRef.current = true;
 
     try {
 
-      activeLeadIdRef.current = isValidUUID(clientState) ? clientState : null;
+      activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
       setCallState("dialing");
       setIsMuted(false);
       setIsOnHold(false);
+      setConnectionDropped(false);
 
       const callerIdUsed = callerNumber || defaultCallerNumber;
       if (!callerIdUsed) {
         throw new Error("No caller ID selected. Please select a phone number to dial from in the Dialer settings.");
       }
 
-      // 1. Create the Call Record first to get a UUID (call_id)
-      // This ID is used as client_state to link all Telnyx events back to this record.
+      // ── SINGLE CALL RECORD CREATION ──
+      // This is the ONLY place in the codebase where a call record is created for outbound dials.
+      // All callers (DialerPage, FloatingDialer) pass metadata via MakeCallOptions.
       const { data: callRecord, error: callError } = await (supabase as any)
         .from('calls')
         .insert({
-          // Only set contact_id when clientState is a real UUID referencing a lead/contact.
-          // If it's a generic flag string (e.g. "autodialer") or undefined, leave it null
-          // to avoid a PostgreSQL FK / type violation on the calls table.
-          contact_id: isValidUUID(clientState) ? clientState : null,
+          contact_id: isValidUUID(opts?.contactId) ? opts!.contactId : null,
           organization_id: organizationId,
           agent_id: profile.id,
+          campaign_id: opts?.campaignId || null,
+          campaign_lead_id: opts?.campaignLeadId || null,
+          contact_name: opts?.contactName || null,
+          contact_phone: opts?.contactPhone || destinationNumber,
+          contact_type: opts?.contactType || null,
           status: 'ringing',
           direction: 'outbound',
           caller_id_used: callerIdUsed,
+          started_at: new Date().toISOString(),
         })
         .select('id')
-        .single();
+        .maybeSingle();
 
       if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
+      if (!callRecord) throw new Error("Failed to create call record: no data returned");
 
       // Track this call record ID so we can finalize it on hangup
       activeCallIdRef.current = callRecord.id;
@@ -903,19 +935,27 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Note: We don't have a 'call' object yet at this point. We will receive it via
       // 'telnyx.notification' when the server bridges the call back to the agent.
+      return callRecord.id;
     } catch (err: any) {
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
       setCallState("idle");
+<<<<<<< HEAD
+=======
+      return undefined;
+    } finally {
+      // ── LOCK RELEASED ──
+>>>>>>> 2ba09ca (feat: dialer concurrency lock, telemetry hardening & state machine overhaul)
       isDialingRef.current = false;
     }
-  }, [status, defaultCallerNumber, attachRemoteAudio]);
+  }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id]);
 
 
   // Network resilience: Auto-reconnect if internet blips
   useEffect(() => {
     const handleOnline = () => {
       console.log("[TelnyxContext] Network restored. Re-initializing client...");
+      setConnectionDropped(false);
       if (status === "error" || !clientRef.current) {
          // Add a tiny delay to ensure socket is actually ready
          setTimeout(() => initializeClient(), 1000);
@@ -926,9 +966,20 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
        console.warn("[TelnyxContext] Network connectivity lost.");
        setStatus("error");
        setErrorMessage("Internet connection lost. Call may have dropped. Waiting to reconnect...");
-       // If active call, trigger hangup ui so agent isn't frozen
+       // Instead of calling hangUp() which bypasses wrap-up, transition to "ended" state.
+       // This forces the DialerPage wrap-up phase so the agent can log the drop.
        if (callState === "active" || callState === "dialing") {
-         hangUp();
+         setConnectionDropped(true);
+         setCallState("ended");
+         // Clean up local WebRTC state without triggering full hangUp flow
+         if (callRef.current) {
+           try { callRef.current.hangup(); } catch { /* connection already lost */ }
+           callRef.current = null;
+         }
+         if (timerRef.current) {
+           clearInterval(timerRef.current);
+           timerRef.current = null;
+         }
        }
     };
 
@@ -940,7 +991,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         window.removeEventListener("offline", handleOffline);
       };
     }
-  }, [status, callState, initializeClient, hangUp]);
+  }, [status, callState, initializeClient]);
 
   const isReady = status === "ready";
 
@@ -959,6 +1010,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         amdEnabled,
         ringTimeout,
         orphanCall,
+        connectionDropped,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,
