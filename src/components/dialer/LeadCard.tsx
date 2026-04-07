@@ -29,6 +29,7 @@ interface LeadCardProps {
   isEditing: boolean;
   editForm: Record<string, unknown>;
   onEditChange: (key: string, value: string) => void;
+  isAdvancing?: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -92,9 +93,10 @@ export default function LeadCard({
   isEditing,
   editForm,
   onEditChange,
+  isAdvancing,
 }: LeadCardProps) {
   // ── idle ──────────────────────────────────────────────────────────────────
-  if (callStatus === "idle" || !lead) {
+  if (callStatus === "idle" || !lead || isAdvancing) {
     return (
       <div className="p-4 flex-1">
         <LeadInfoSkeleton />

@@ -229,6 +229,9 @@ export default function DialerPage() {
   };
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
+  const currentLead = leadQueue[currentLeadIndex] ?? null;
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [loadingLeads, setLoadingLeads] = useState(false);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
   const [leftTab, setLeftTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
@@ -279,16 +282,28 @@ export default function DialerPage() {
   const [sessionStats, setSessionStats] = useState({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
 
   useEffect(() => {
+    if (isAdvancing || loadingLeads || !currentLead) return;
+    
+    const leadId = currentLead.lead_id || currentLead.id;
+    const currentParam = searchParams.get("contact");
+    
+    if (leadId && leadId !== currentParam) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set("contact", leadId);
+      setSearchParams(newParams, { replace: true });
+    }
+  }, [currentLead, isAdvancing, loadingLeads, searchParams, setSearchParams]);
+
+  useEffect(() => {
     const contactId = searchParams.get("contact");
     if (contactId && !showFullViewDrawer && !fetchingFromUrl) {
       // If already in queue, just switch to it
       const match = leadQueue.find(l => (l.lead_id === contactId || l.id === contactId));
-      if (match) {
+      if (match && leadQueue.indexOf(match) !== currentLeadIndex) {
         setCurrentLeadIndex(leadQueue.indexOf(match));
-        setShowFullViewDrawer(true);
       }
     }
-  }, [searchParams, leadQueue, showFullViewDrawer, fetchingFromUrl]);
+  }, [searchParams, leadQueue, showFullViewDrawer, fetchingFromUrl, currentLeadIndex]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [sessionElapsed, setSessionElapsed] = useState(0);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
@@ -392,7 +407,6 @@ export default function DialerPage() {
   const [showQueueFilters, setShowQueueFilters] = useState(false);
   const [showQueueFieldPicker, setShowQueueFieldPicker] = useState(false);
 
-  const currentLead = leadQueue[currentLeadIndex] ?? null;
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
 
   // ── Campaign type helpers ──
@@ -601,7 +615,6 @@ export default function DialerPage() {
     setLeadStages(leadStagesData);
   }, [leadStagesData]);
 
-  const [loadingLeads, setLoadingLeads] = useState(false);
   const [hasMoreLeads, setHasMoreLeads] = useState(true);
   const [currentOffset, setCurrentOffset] = useState(0);
   const BATCH_SIZE = 50;
@@ -619,6 +632,7 @@ export default function DialerPage() {
   const loadLockModeLead = useCallback(async (overrideCampaignType?: string): Promise<boolean> => {
     if (!selectedCampaignId) return false;
     setLoadingLeads(true);
+    setIsAdvancing(true);
     try {
       // Resolve campaign type: use override, then closure, then fetch from DB
       let resolvedType = overrideCampaignType || selectedCampaign?.type;
@@ -690,6 +704,7 @@ export default function DialerPage() {
       return false;
     } finally {
       setLoadingLeads(false);
+      setTimeout(() => setIsAdvancing(false), 300);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, selectedCampaign, getNextLead, startHeartbeat]);
@@ -1030,6 +1045,7 @@ export default function DialerPage() {
     dispositionName: string,
     callbackDueAt: string | null,
   ) => {
+    setIsAdvancing(true);
     const now = new Date();
     // Compute new queue from the captured leadQueue closure (personal campaigns only; lock mode
     // never calls this function). leadQueue is in deps so the closure is always current.
@@ -1046,7 +1062,13 @@ export default function DialerPage() {
       lead => !TERMINAL_STATUSES.includes((lead as any).status || '')
     );
     const safeIndex = nextIndex === -1 ? 0 : nextIndex;
+    
+    // Update both atomically
     setLeadQueue(newQueue);
+    setCurrentLeadIndex(safeIndex);
+    
+    // Small delay before unlocking UI to allow React to flush renders
+    setTimeout(() => setIsAdvancing(false), 300);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadQueue, retryIntervalHours]);
 
@@ -1061,6 +1083,7 @@ export default function DialerPage() {
   } | null>(null);
 
   const handleAdvance = useCallback(async () => {
+    setIsAdvancing(true);
     setShowWrapUp(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -1075,6 +1098,9 @@ export default function DialerPage() {
       // the RPC from re-fetching the lead we just released.
       await releaseLock(currentLead.id as string);
       await loadLockModeLead();
+      // loadLockModeLead internally handles setIsAdvancing(false) if we integrate it,
+      // or we handle it here.
+      setIsAdvancing(false);
       return;
     }
 
@@ -1084,6 +1110,8 @@ export default function DialerPage() {
       return next;
     });
     
+    setTimeout(() => setIsAdvancing(false), 300);
+    
     if (autoDialEnabled) {
       console.log("[DialerPage] Auto-Dialer will advance reactively via state machine");
     }
@@ -1091,6 +1119,7 @@ export default function DialerPage() {
   }, [autoDialEnabled, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
   const handleSkip = useCallback(async () => {
+    setIsAdvancing(true);
     setIsEditingContact(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -1107,8 +1136,15 @@ export default function DialerPage() {
       await releaseLock(campaignLeadId);
       // Load next lead atomically for Team/Open
       await loadLockModeLead();
+      setIsAdvancing(false);
       return;
     }
+
+    setCurrentLeadIndex((prev) => {
+      const next = Math.min(prev + 1, leadQueue.length - 1);
+      return next;
+    });
+    setTimeout(() => setIsAdvancing(false), 300);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
@@ -2845,6 +2881,7 @@ export default function DialerPage() {
               isEditing={isEditingContact}
               editForm={editForm}
               onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
+              isAdvancing={isAdvancing}
             />
           </div>
         </div>
