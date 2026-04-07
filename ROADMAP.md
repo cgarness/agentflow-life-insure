@@ -63,6 +63,15 @@
   **Pillar 3 — Two-Lane State Machine**: Created `useDialerStateMachine` hook formalizing Fast Path (timeout/AMD auto-advance) and Deliberate Path (Save & Next manual disposition). Replaced 63-line scattered `triggerAutoCall` `useEffect` in DialerPage with 14-line hook invocation. 
   **Pillar 4 — Maintenance**: Deprecated `AutoDialer.saveDispositionAndNext` (added warning). Consolidated `FloatingDialer` to use `TelnyxContext.makeCall` directly. Verified: `npx tsc --noEmit` = 0 errors.
 
+- **2026-04-07 | [DONE] Auto-Dialer Stabilization & Circuit Breaker Implementation**
+  *Files Created:* `src/lib/CircuitBreaker.ts`
+  *Files Modified:* `src/pages/DialerPage.tsx`, `src/contexts/TelnyxContext.tsx`, `src/lib/dialer-api.ts`, `src/hooks/useDialerStateMachine.ts`
+  *Developer Note:* Hardened the dialer against infinite loops and network flooding. 
+  **Pillar 1 — Circuit Breaker**: Implemented `CircuitBreaker` utility to track rapid-fire call failures (>5 failures in 60s window). Toggles Auto-Dial OFF permanently when tripped to protect Supabase/WebRTC resources.
+  **Pillar 2 — Network Throttling**: Integrated `AbortController` into all lead data fetching (history, activities, profile) to cancel stale requests during rapid "Skip" actions.
+  **Pillar 3 — Lock Hardening**: Refactored `isDialingRef` in `TelnyxContext` to synchronize exclusively with `callState` (idle/ended), preventing concurrent call initiation race conditions.
+  **Pillar 4 — Timing Stabilization**: Increased `AUTO_DIAL_DELAY_MS` to 3000ms and added `isAdvancing` guards to all async fetch/advance paths to ensure atomic lead transitions.
+
 - **2026-04-07 | [DONE] Bugfix — Ring Timeout PSTN Leak + Queue Index Reset + Background Re-sort Disruption**
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/lib/auto-dialer.ts`, `ROADMAP.md`
   *Developer Note:* (1) Async ring timeout with polling for `call_control_id`. (2) `applyQueueLifecycle` advances to next valid lead instead of resetting to 0. (3) Background re-sort preserves lead queue tail and guards active call state.

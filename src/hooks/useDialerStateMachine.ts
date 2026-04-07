@@ -65,7 +65,7 @@ export interface UseDialerStateMachineReturn {
  * AUTO_DIAL_DELAY_MS — time between disposition commit and next call initiation.
  * 2 seconds gives the UI time to update and the agent a beat to orient.
  */
-const AUTO_DIAL_DELAY_MS = 2000;
+const AUTO_DIAL_DELAY_MS = 3000;
 
 export function useDialerStateMachine({
   isAutoDialEnabled,

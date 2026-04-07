@@ -99,6 +99,7 @@ import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSke
 import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
 import { ConversationHistory } from "@/components/dialer/ConversationHistory";
 import { DialerActions } from "@/components/dialer/DialerActions";
+import { CircuitBreaker } from "@/lib/CircuitBreaker";
 
 /* ─── Types ─── */
 
@@ -273,6 +274,8 @@ export default function DialerPage() {
   const [callbackTime, setCallbackTime] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  
+  const circuitBreakerRef = useRef(new CircuitBreaker({ threshold: 5, windowMs: 60000 }));
   
   // Appointment/Callback state for inline scheduling
   const [aptTitle, setAptTitle] = useState("");
@@ -986,24 +989,33 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, lockMode, telnyxCallState, showWrapUp, currentLeadIndex]);
 
-  const fetchHistory = useCallback(async (leadId: string) => {
+  const fetchHistory = useCallback(async (leadId: string, signal?: AbortSignal) => {
+    if (isAdvancing) return;
     setLoadingHistory(true);
     try {
-      const data = await getLeadHistory(leadId);
-      setHistory(data);
-    } catch (err) {
-      toast.error("Failed to load history");
+      const data = await getLeadHistory(leadId, organizationId, signal);
+      if (!signal?.aborted) {
+        setHistory(data);
+      }
+    } catch (err: any) {
+      if (err.message !== 'Aborted') {
+        console.warn("Failed to load history:", err);
+      }
     } finally {
-      setLoadingHistory(false);
+      if (!signal?.aborted) {
+        setLoadingHistory(false);
+      }
     }
-  }, []);
+  }, [organizationId, isAdvancing]);
 
   useEffect(() => {
     if (!currentLead) {
       setHistory([]);
       return;
     }
-    fetchHistory(currentLead.lead_id || currentLead.id);
+    const controller = new AbortController();
+    fetchHistory(currentLead.lead_id || currentLead.id, controller.signal);
+    return () => controller.abort();
   }, [currentLead, fetchHistory]);
 
   useEffect(() => {
@@ -1011,18 +1023,22 @@ export default function DialerPage() {
       setAssignedAgentName(null);
       return;
     }
+    const controller = new AbortController();
     supabase
       .from('profiles')
       .select('first_name, last_name')
       .eq('id', currentLead.assigned_agent_id)
       .maybeSingle()
       .then(({ data }) => {
-        if (data) {
-          setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
-        } else {
-          setAssignedAgentName(null);
+        if (!controller.signal.aborted) {
+          if (data) {
+            setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
+          } else {
+            setAssignedAgentName(null);
+          }
         }
       });
+    return () => controller.abort();
   }, [currentLead?.assigned_agent_id]);
 
   // Removed scroll-to-bottom effect in favor of CSS flex-col-reverse anchoring in ConversationHistory component
@@ -1078,6 +1094,7 @@ export default function DialerPage() {
   } | null>(null);
 
   const handleAdvance = useCallback(async () => {
+    if (isAdvancing) return;
     setIsAdvancing(true);
     setShowWrapUp(false);
     setSelectedDisp(null);
@@ -1484,6 +1501,19 @@ export default function DialerPage() {
         // Always show wrap-up so agent can manually disposition
         setShowWrapUp(true);
       };
+
+      // ── Circuit Breaker Logic ──
+      // Record failure if call ended in < 2s and was not answered by a machine (AMD)
+      // Genuine No Answer calls that ring full duration should not trip it.
+      const isRapidFailure = !wasAnswered && duration < 2 && amdStatus !== 'machine';
+      if (isRapidFailure) {
+        const tripped = circuitBreakerRef.current.recordFailure();
+        if (tripped && autoDialEnabled) {
+          setAutoDialEnabled(false);
+          toast.error("Auto-Dialer disabled: Multiple rapid failures detected. Please check your connection.");
+          circuitBreakerRef.current.reset();
+        }
+      }
 
       setTimeout(checkAmd, 500);
     }

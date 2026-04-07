@@ -96,8 +96,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
   const [connectionDropped, setConnectionDropped] = useState(false);
 
+
   // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
   const isDialingRef = useRef(false);
+
+  // Synchronize lock with callState to ensure it is released when a call ends or is idle.
+  useEffect(() => {
+    if (callState === "idle" || callState === "ended") {
+      isDialingRef.current = false;
+    }
+  }, [callState]);
 
   // Persist manual override to localStorage
   useEffect(() => {
@@ -932,8 +940,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCallState("idle");
       return undefined;
     } finally {
-      // ── LOCK RELEASED ──
-      isDialingRef.current = false;
+      // Initiation phase complete. The execution lock isDialingRef.current 
+      // remains true if the call started, and is released via useEffect when it ends.
     }
   }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id]);
 

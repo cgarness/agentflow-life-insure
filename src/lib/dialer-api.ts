@@ -89,7 +89,7 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
   });
 }
 
-export async function getLeadHistory(leadId: string, organizationId: string | null = null) {
+export async function getLeadHistory(leadId: string, organizationId: string | null = null, signal?: AbortSignal) {
   let callsQuery = supabase
     .from("calls")
     .select("*")
@@ -105,10 +105,15 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
     activityQuery = activityQuery.eq("organization_id", organizationId);
   }
 
+  // Use Promise.all but respect the signal
   const [callsRes, activityRes] = await Promise.all([
     callsQuery,
     activityQuery,
   ]);
+
+  if (signal?.aborted) {
+    throw new Error('Aborted');
+  }
 
   if (callsRes.error) throw new Error(callsRes.error.message);
   if (activityRes.error) throw new Error(activityRes.error.message);
