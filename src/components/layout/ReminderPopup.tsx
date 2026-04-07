@@ -70,17 +70,19 @@ const ReminderPopup: React.FC = () => {
     const loadPrefs = async () => {
       const { data } = await supabase
         .from("user_preferences")
-        .select("preference_key, preference_value")
+        .select("settings")
         .eq("user_id", user.id)
-        .in("preference_key", [AGENT_REMINDER_TIME_KEY, AGENT_REMINDER_SOUND_KEY]);
+        .maybeSingle();
         
-      data?.forEach(pref => {
-        if (pref.preference_key === AGENT_REMINDER_TIME_KEY) {
-          setLeadTimeMinutes(Number(pref.preference_value));
-        } else if (pref.preference_key === AGENT_REMINDER_SOUND_KEY) {
-          setSoundEnabled(pref.preference_value === true || pref.preference_value === "true");
+      if (data?.settings) {
+        const settings = data.settings as any;
+        if (settings[AGENT_REMINDER_TIME_KEY] !== undefined) {
+          setLeadTimeMinutes(Number(settings[AGENT_REMINDER_TIME_KEY]));
         }
-      });
+        if (settings[AGENT_REMINDER_SOUND_KEY] !== undefined) {
+          setSoundEnabled(settings[AGENT_REMINDER_SOUND_KEY] === true || settings[AGENT_REMINDER_SOUND_KEY] === "true");
+        }
+      }
     };
     
     loadPrefs();

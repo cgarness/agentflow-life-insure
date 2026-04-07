@@ -172,16 +172,27 @@ const CalendarSettings: React.FC = () => {
 
     setGoogleSyncSaving(true);
     try {
+      // 1. Fetch current settings to merge
+      const { data: current } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const newSettings = {
+        ...(current?.settings as object || {}),
+        [GOOGLE_SYNC_PREFERENCE_KEY]: nextSettings
+      };
+
       const { error } = await supabase
         .from("user_preferences")
         .upsert(
-          [{
+          {
             user_id: user.id,
-            preference_key: GOOGLE_SYNC_PREFERENCE_KEY,
-            preference_value: nextSettings as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+            settings: newSettings as any,
             updated_at: new Date().toISOString(),
-          }],
-          { onConflict: "user_id,preference_key" },
+          },
+          { onConflict: "user_id" },
         );
 
       if (error) throw error;
@@ -249,16 +260,16 @@ const CalendarSettings: React.FC = () => {
         const [{ data: prefData, error: prefError }, statusData] = await Promise.all([
           supabase
             .from("user_preferences")
-            .select("preference_value")
+            .select("settings")
             .eq("user_id", user.id)
-            .eq("preference_key", GOOGLE_SYNC_PREFERENCE_KEY)
             .maybeSingle(),
           invokeAuthedFunction("google-calendar-status"),
         ]);
 
         if (prefError) throw prefError;
 
-        const saved = prefData?.preference_value;
+        const settings = prefData?.settings as any;
+        const saved = settings?.[GOOGLE_SYNC_PREFERENCE_KEY];
         const parsed = saved && typeof saved === "object" && !Array.isArray(saved)
           ? (saved as Partial<GoogleSyncSettings>)
           : {};
@@ -297,19 +308,21 @@ const CalendarSettings: React.FC = () => {
       try {
         const { data, error } = await supabase
           .from("user_preferences")
-          .select("preference_key, preference_value")
+          .select("settings")
           .eq("user_id", user.id)
-          .in("preference_key", [AGENT_REMINDER_TIME_KEY, AGENT_REMINDER_SOUND_KEY]);
+          .maybeSingle();
 
         if (error) throw error;
 
-        data?.forEach(pref => {
-          if (pref.preference_key === AGENT_REMINDER_TIME_KEY) {
-            setAgentReminderTime(Number(pref.preference_value));
-          } else if (pref.preference_key === AGENT_REMINDER_SOUND_KEY) {
-            setAgentReminderSound(pref.preference_value === true || pref.preference_value === "true");
+        const settings = data?.settings as any;
+        if (settings) {
+          if (settings[AGENT_REMINDER_TIME_KEY] !== undefined) {
+            setAgentReminderTime(Number(settings[AGENT_REMINDER_TIME_KEY]));
           }
-        });
+          if (settings[AGENT_REMINDER_SOUND_KEY] !== undefined) {
+            setAgentReminderSound(settings[AGENT_REMINDER_SOUND_KEY] === true || settings[AGENT_REMINDER_SOUND_KEY] === "true");
+          }
+        }
       } catch (err) {
         console.error("Error loading agent reminder settings:", err);
       }
@@ -469,22 +482,29 @@ const CalendarSettings: React.FC = () => {
     if (!user?.id) return;
     setAgentRemindersSaving(true);
     try {
+      // 1. Fetch current settings to merge
+      const { data: current } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const newSettings = {
+        ...(current?.settings as object || {}),
+        [AGENT_REMINDER_TIME_KEY]: agentReminderTime,
+        [AGENT_REMINDER_SOUND_KEY]: agentReminderSound
+      };
+
       const { error } = await supabase
         .from("user_preferences")
-        .upsert([
+        .upsert(
           {
             user_id: user.id,
-            preference_key: AGENT_REMINDER_TIME_KEY,
-            preference_value: agentReminderTime as any,
+            settings: newSettings as any,
             updated_at: new Date().toISOString(),
           },
-          {
-            user_id: user.id,
-            preference_key: AGENT_REMINDER_SOUND_KEY,
-            preference_value: agentReminderSound as any,
-            updated_at: new Date().toISOString(),
-          }
-        ], { onConflict: "user_id,preference_key" });
+          { onConflict: "user_id" }
+        );
 
       if (error) throw error;
 

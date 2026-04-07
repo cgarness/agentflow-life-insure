@@ -1589,12 +1589,14 @@ const DisplaySettingsTab: React.FC = () => {
       try {
         const { data } = await supabase
           .from("user_preferences")
-          .select("preference_value")
+          .select("settings")
           .eq("user_id", user.id)
-          .eq("preference_key", "contact_columns")
-          .single();
-        if (data?.preference_value) {
-          setColumns(data.preference_value as typeof columns);
+          .maybeSingle();
+        if (data?.settings) {
+          const settings = data.settings as any;
+          if (settings.contact_columns) {
+            setColumns(settings.contact_columns as typeof columns);
+          }
         }
       } finally {
         setLoadingPrefs(false);
@@ -1638,11 +1640,23 @@ const DisplaySettingsTab: React.FC = () => {
     setSaving(true);
     try {
       if (user?.id) {
+        // 1. Fetch current settings to merge
+        const { data: current } = await supabase
+          .from("user_preferences")
+          .select("settings")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        const newSettings = {
+          ...(current?.settings as object || {}),
+          contact_columns: columns
+        };
+
         const { error } = await supabase
           .from("user_preferences")
           .upsert(
-            { user_id: user.id, preference_key: "contact_columns", preference_value: columns },
-            { onConflict: "user_id,preference_key" }
+            { user_id: user.id, settings: newSettings as any },
+            { onConflict: "user_id" }
           );
         if (error) throw error;
       }

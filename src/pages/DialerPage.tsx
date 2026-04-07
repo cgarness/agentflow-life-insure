@@ -57,7 +57,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { AutoDialer } from "@/lib/auto-dialer";
+import { checkCallingHours } from "@/utils/dialerUtils";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { useCalendar } from "@/contexts/CalendarContext";
@@ -323,8 +323,9 @@ export default function DialerPage() {
   const [claimRingActive, setClaimRingActive] = useState(false);
 
   // ── Auto-Dial state ──
-  const [autoDialer, setAutoDialer] = useState<AutoDialer | null>(null);
+  // ── Auto-Dial settings and telemetry (replaces AutoDialer class) ──
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
+  const ringTimeoutRef = useRef<number>(30); // local default, updated via DB
   const [isPaused, setIsPaused] = useState(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
   // DNC warning
@@ -955,7 +956,6 @@ export default function DialerPage() {
         const sortedTail = sortQueue(tail as CampaignLead[], now);
         const updated = [...head, ...sortedTail] as typeof prev;
         if (queueOrderChanged(prev as CampaignLead[], updated)) {
-          autoDialer?.setQueue(updated);
           toast("Queue updated — new leads are now eligible", { duration: 2000 });
           return updated;
         }
@@ -964,7 +964,7 @@ export default function DialerPage() {
     }, 60_000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, lockMode, autoDialer, telnyxCallState, showWrapUp, currentLeadIndex]);
+  }, [selectedCampaignId, lockMode, telnyxCallState, showWrapUp, currentLeadIndex]);
 
   const fetchHistory = useCallback(async (leadId: string) => {
     setLoadingHistory(true);
@@ -1041,11 +1041,8 @@ export default function DialerPage() {
     );
     const safeIndex = nextIndex === -1 ? 0 : nextIndex;
     setLeadQueue(newQueue);
-    autoDialer?.setQueue(newQueue);
-    autoDialer?.setIndex(safeIndex);
-    setCurrentLeadIndex(safeIndex);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadQueue, retryIntervalHours, autoDialer]);
+  }, [leadQueue, retryIntervalHours]);
 
   /* --- call handlers --- */
 
@@ -1078,16 +1075,14 @@ export default function DialerPage() {
     setCurrentLeadIndex((prev) => {
       // Clamp to end of queue for Personal campaigns
       const next = Math.min(prev + 1, leadQueue.length - 1);
-      autoDialer?.setIndex(next);
       return next;
     });
     
-    if (autoDialEnabled && autoDialer) {
-      console.log("[DialerPage] Resuming Auto-Dialer after advance");
-      autoDialer.resumeAutoDialer();
+    if (autoDialEnabled) {
+      console.log("[DialerPage] Auto-Dialer will advance reactively via state machine");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, autoDialEnabled]);
+  }, [autoDialEnabled, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
   const handleSkip = useCallback(async () => {
     setIsEditingContact(false);
@@ -1109,14 +1104,8 @@ export default function DialerPage() {
       return;
     }
 
-    setCurrentLeadIndex((prev) => {
-      // Clamp to end of queue for Personal campaigns
-      const next = Math.min(prev + 1, leadQueue.length - 1);
-      autoDialer?.setIndex(next);
-      return next;
-    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDialer, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
+  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
     lastUsedCallerId.current = callerNumber;
@@ -1270,11 +1259,7 @@ export default function DialerPage() {
       setSelectedDisp(noAnswerDisp);
       setShowWrapUp(false); // Force close modal if open
       
-      if (autoDialer && autoDialer.isEnabled()) {
-        await autoDialer.saveDispositionAndNext(noAnswerDisp.id);
-      } else {
-        handleAutoDispose(noAnswerDisp);
-      }
+      handleAutoDispose(noAnswerDisp);
     } else {
       // No matching disposition — still advance
       console.warn('No "No Answer" disposition found, advancing without disposition');
@@ -1282,7 +1267,7 @@ export default function DialerPage() {
     }
     // Reset AMD status after brief display
     setTimeout(() => setAmdStatus('idle'), 2000);
-  }, [user?.id, dispositions, autoDialer, handleAutoDispose, handleSkip]);
+  }, [user?.id, dispositions, handleAutoDispose, handleSkip]);
 
   // ── Real-time AMD detection ──
   useEffect(() => {
@@ -1460,7 +1445,7 @@ export default function DialerPage() {
       setTimeout(checkAmd, 500);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, handleAdvance, amdEnabled, autoDialer, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, handleAdvance, amdEnabled, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -1588,45 +1573,56 @@ export default function DialerPage() {
     }
   };
 
-  // ── AutoDialer initialization ──
+  // ── Sync Telemetry and Settings (replaces AutoDialer.startSession) ──
   useEffect(() => {
-    const agentId = user?.id;
-    if (!selectedCampaignId || !agentId) return;
-    const dialer = new AutoDialer(sessionIdRef.current, selectedCampaignId, agentId, organizationId);
-    dialer.startSession().then(() => {
-      ringTimeoutRef.current = dialer.getRingTimeout();
-    });
-    setAutoDialer(dialer);
-    // Reset session-scoped stats on campaign entry
-    setSessionStats({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
-    // Eagerly register TelnyxRTC so the client is ready before the first call
-    telnyxInitialize();
-    return () => {
-      dialer.pauseAutoDialer();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, user?.id, telnyxInitialize]);
+    if (!selectedCampaignId || !organizationId) return;
 
-  // ── Sync Queue and Index ──
-  useEffect(() => {
-    if (autoDialer) {
-      // Sync the live queue from DialerPage into the auto-dialer instance
-      autoDialer.setQueue(leadQueue);
-      autoDialer.setIndex(currentLeadIndex);
-    }
-  }, [autoDialer, leadQueue, currentLeadIndex]);
+    const syncSettings = async () => {
+      // 1. Fetch Campaign Settings
+      const { data: campaignData } = await supabase
+        .from("campaigns")
+        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
+        .eq("id", selectedCampaignId)
+        .maybeSingle();
+
+      if (campaignData) {
+        setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
+        setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
+        setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
+        setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
+        setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
+      }
+
+      // 2. Fetch Global Phone Settings
+      const { data: phoneData } = await supabase
+        .from("phone_settings")
+        .select("ring_timeout, amd_enabled")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (phoneData) {
+        ringTimeoutRef.current = phoneData.ring_timeout ?? 30;
+      }
+    };
+
+    syncSettings();
+    setSessionStats({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
+    telnyxInitialize();
+
+    return () => {
+      // Cleanup
+    };
+  }, [selectedCampaignId, organizationId, telnyxInitialize]);
 
   // ── Two-Lane State Machine Hook ──
-  // Replaces the old scattered triggerAutoCall useEffect with a formalized
-  // Fast Path (timeout/AMD auto-advance) vs Deliberate Path (Save & Next) machine.
   const { machineState } = useDialerStateMachine({
-    isAutoDialEnabled: autoDialEnabled,
+    isAutoDialEnabled: autoDialEnabled && !isPaused,
     telnyxCallState,
     telnyxStatus,
     currentLead,
     hasDialedOnce,
     showWrapUp,
-    checkCallingHours: autoDialer?.checkCallingHours.bind(autoDialer),
+    checkCallingHours: (state: string) => checkCallingHours(state, callingHoursStart, callingHoursEnd),
     onCall: handleCall,
     onSkip: handleSkip,
   });
@@ -2079,8 +2075,8 @@ export default function DialerPage() {
             setCurrentLeadIndex(0);
             // Start heartbeat for the new lock
             startHeartbeat(nextLead.id, () => loadLockModeLead());
-            if (autoDialEnabled && autoDialer) {
-              autoDialer.resumeAutoDialer();
+            if (autoDialEnabled) {
+              console.log("[DialerPage] Reactive machine will handle the next call");
             }
           } else {
             setLeadQueue([]);
@@ -2122,9 +2118,8 @@ export default function DialerPage() {
           setClaimRingActive(false);
           cancelClaimTimer();
           
-          if (autoDialEnabled && autoDialer) {
-            console.log("[DialerPage] Resuming Auto-Dialer after save-and-next");
-            autoDialer.resumeAutoDialer();
+          if (autoDialEnabled) {
+            console.log("[DialerPage] Reactive machine will handle the next call after save-and-next");
           }
         }
       } else {
@@ -2645,14 +2640,7 @@ export default function DialerPage() {
               checked={autoDialEnabled}
               onCheckedChange={(checked) => {
                 setAutoDialEnabled(checked);
-                if (autoDialer) {
-                  if (checked) {
-                    autoDialer.resumeAutoDialer();
-                    setIsPaused(false);
-                  } else {
-                    autoDialer.pauseAutoDialer();
-                  }
-                }
+                if (!checked) setIsPaused(false);
               }}
             />
           </div>
@@ -2664,13 +2652,7 @@ export default function DialerPage() {
               size="sm"
               className="h-7 text-xs px-2 gap-1"
               onClick={() => {
-                if (isPaused) {
-                  autoDialer?.resumeAutoDialer();
-                  setIsPaused(false);
-                } else {
-                  autoDialer?.pauseAutoDialer();
-                  setIsPaused(true);
-                }
+                setIsPaused(!isPaused);
               }}
             >
               {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
@@ -3548,7 +3530,7 @@ export default function DialerPage() {
             <Button
               variant="outline"
               onClick={() => {
-                (autoDialer as any)?.skipToNext?.();
+                handleSkip();
                 setShowDncWarning(false);
               }}
             >
