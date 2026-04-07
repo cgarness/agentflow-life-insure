@@ -95,6 +95,7 @@ import {
   releaseAllAgentLocksBeacon,
 } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
+import { HistorySkeleton } from "@/components/dialer/DialerSkeletons";
 
 /* ─── Types ─── */
 
@@ -302,6 +303,7 @@ export default function DialerPage() {
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
+  const lastScrolledLeadIdRef = useRef<string | null>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasDialedOnce = useRef(false);
   const callWasAnswered = useRef(false);
@@ -1006,9 +1008,14 @@ export default function DialerPage() {
 
   useEffect(() => {
     if (historyEndRef.current) {
-      historyEndRef.current.scrollIntoView({ behavior: "smooth" });
+      const currentLeadId = currentLead?.id || currentLead?.lead_id;
+      // Use instant scroll if transitioning to a new lead
+      const behavior = lastScrolledLeadIdRef.current === currentLeadId ? "smooth" : "auto";
+      
+      historyEndRef.current.scrollIntoView({ behavior });
+      lastScrolledLeadIdRef.current = currentLeadId;
     }
-  }, [history]);
+  }, [history, currentLead?.id, currentLead?.lead_id]);
 
   /* --- queue lifecycle --- */
 
@@ -2870,11 +2877,7 @@ export default function DialerPage() {
 
             {/* Scrollable feed — flex-1 overflow-y-auto */}
             <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-              {loadingHistory && (
-                <div className="flex justify-center py-6">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              )}
+              {loadingHistory && <HistorySkeleton />}
               {!loadingHistory && history.length === 0 && (
                 <p className="text-muted-foreground text-sm text-center py-6">No activity yet</p>
               )}

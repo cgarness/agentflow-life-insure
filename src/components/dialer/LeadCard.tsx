@@ -1,6 +1,6 @@
 import React from "react";
-import { Users } from "lucide-react";
 import LeadCardBlurred from "./LeadCardBlurred";
+import { LeadInfoSkeleton } from "./DialerSkeletons";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,16 +96,8 @@ export default function LeadCard({
   // ── idle ──────────────────────────────────────────────────────────────────
   if (callStatus === "idle" || !lead) {
     return (
-      <div className="p-4 flex-1 flex flex-col items-center justify-center gap-3 text-center">
-        <div className="w-12 h-12 rounded-full bg-accent/30 flex items-center justify-center">
-          <Users className="w-6 h-6 text-muted-foreground opacity-40" />
-        </div>
-        <p className="text-sm text-muted-foreground font-medium">
-          Next lead loading…
-        </p>
-        <p className="text-[10px] text-muted-foreground/60 max-w-[160px]">
-          Press Call to begin or wait for auto-dial.
-        </p>
+      <div className="p-4 flex-1">
+        <LeadInfoSkeleton />
       </div>
     );
   }
