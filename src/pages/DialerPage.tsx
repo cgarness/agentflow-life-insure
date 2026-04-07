@@ -303,7 +303,6 @@ export default function DialerPage() {
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const ringTimeoutRef = useRef<number>(20);
   const hasDialedOnce = useRef(false);
   const callWasAnswered = useRef(false);
   const isAutoDispositioningRef = useRef(false);

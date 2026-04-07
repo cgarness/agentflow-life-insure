@@ -814,8 +814,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     // ── LOCK ACQUIRED ──
-    isDialingRef.current = true;
-
     try {
 
       activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
