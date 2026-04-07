@@ -230,10 +230,11 @@ export class AutoDialer {
       contact_phone: lead.phone,
     }, this.organizationId);
 
-    // Emit event for UI to initiate call via TelnyxRTC
-    window.dispatchEvent(new CustomEvent('auto-dial-call', {
-      detail: { lead, callerNumber, callId }
-    }));
+    // DEAD — no listener in DialerPage.tsx as of 2026-04-07.
+    // Auto-dial is now driven by the reactive useEffect in DialerPage that watches currentLead?.id.
+    // window.dispatchEvent(new CustomEvent('auto-dial-call', {
+    //   detail: { lead, callerNumber, callId }
+    // }));
 
     // Increment daily call count for the used number
     const usedPhone = this.phoneNumbers.find(p => p.phone_number === callerNumber);
@@ -281,9 +282,11 @@ export class AutoDialer {
 
     if (this.autoDialEnabled) {
       this.currentLeadIndex++;
-      window.dispatchEvent(new CustomEvent('auto-dial-next-lead', {
-        detail: { leadsRemaining: this.leadQueue.length - this.currentLeadIndex }
-      }));
+      // DEAD — no listener in DialerPage.tsx as of 2026-04-07.
+      // Lead advancement is now controlled exclusively by DialerPage's wrap-up phase.
+      // window.dispatchEvent(new CustomEvent('auto-dial-next-lead', {
+      //   detail: { leadsRemaining: this.leadQueue.length - this.currentLeadIndex }
+      // }));
     } else {
       console.log('[AutoDialer] Auto-dial disabled, closing lead card');
       window.dispatchEvent(new CustomEvent('auto-dial-lead-closed', {

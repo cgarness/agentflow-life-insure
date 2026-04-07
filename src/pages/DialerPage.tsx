@@ -943,7 +943,15 @@ export default function DialerPage() {
     const interval = setInterval(() => {
       const now = new Date();
       setLeadQueue(prev => {
-        const updated = sortQueue(prev as CampaignLead[], now);
+        // Guard 1: Never re-sort while a call is active or dialing — would disrupt the live lead
+        if (telnyxCallState === 'active' || telnyxCallState === 'dialing') return prev;
+        // Guard 2: Never re-sort while wrap-up modal is open — agent is mid-disposition
+        if (showWrapUp) return prev;
+        // Guard 3: Only sort leads AFTER the current index — current and prior leads must not move
+        const head = prev.slice(0, currentLeadIndex + 1);
+        const tail = prev.slice(currentLeadIndex + 1);
+        const sortedTail = sortQueue(tail as CampaignLead[], now);
+        const updated = [...head, ...sortedTail] as typeof prev;
         if (queueOrderChanged(prev as CampaignLead[], updated)) {
           autoDialer?.setQueue(updated);
           toast("Queue updated — new leads are now eligible", { duration: 2000 });
@@ -954,7 +962,7 @@ export default function DialerPage() {
     }, 60_000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, lockMode, autoDialer]);
+  }, [selectedCampaignId, lockMode, autoDialer, telnyxCallState, showWrapUp, currentLeadIndex]);
 
   const fetchHistory = useCallback(async (leadId: string) => {
     setLoadingHistory(true);
@@ -1005,31 +1013,37 @@ export default function DialerPage() {
 
   /**
    * Applies a disposition's queue behavior (retry / callback / permanent remove),
-   * re-sorts the queue, and resets the dialer head to index 0.
+   * re-sorts the queue, and advances the dialer head to the next dialable lead.
    * Called after every disposition save in both the manual and auto-dispose paths.
    */
+  const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'Closed Won'];
   const applyQueueLifecycle = useCallback((
     disposedLead: CampaignLead,
     dispositionName: string,
     callbackDueAt: string | null,
   ) => {
     const now = new Date();
-    setLeadQueue(prev => {
-      const newQueue = applyDispositionToQueue(
-        prev as CampaignLead[],
-        disposedLead,
-        dispositionName,
-        retryIntervalHours,
-        callbackDueAt,
-        now,
-      );
-      autoDialer?.setQueue(newQueue);
-      autoDialer?.setIndex(0);
-      return newQueue;
-    });
-    setCurrentLeadIndex(0);
+    // Compute new queue from the captured leadQueue closure (personal campaigns only; lock mode
+    // never calls this function). leadQueue is in deps so the closure is always current.
+    const newQueue = applyDispositionToQueue(
+      leadQueue as CampaignLead[],
+      disposedLead,
+      dispositionName,
+      retryIntervalHours,
+      callbackDueAt,
+      now,
+    );
+    // Advance to the first non-terminal lead rather than resetting to index 0
+    const nextIndex = newQueue.findIndex(
+      lead => !TERMINAL_STATUSES.includes((lead as any).status || '')
+    );
+    const safeIndex = nextIndex === -1 ? 0 : nextIndex;
+    setLeadQueue(newQueue);
+    autoDialer?.setQueue(newQueue);
+    autoDialer?.setIndex(safeIndex);
+    setCurrentLeadIndex(safeIndex);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryIntervalHours, autoDialer]);
+  }, [leadQueue, retryIntervalHours, autoDialer]);
 
   /* --- call handlers --- */
 
