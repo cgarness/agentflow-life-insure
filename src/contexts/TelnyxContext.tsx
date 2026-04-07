@@ -351,7 +351,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       callRef.current = null;
     }
 
-    // Layer 2: Secure Server-Side Hangup via Edge Function
+    // Layer 2: Secure Server-Side Hangup via Edge Function (awaited — ensures PSTN leg is terminated)
     if (callId) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -359,22 +359,24 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
           const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-          // Fire and forget — the Edge function will handle DB finalization and Telnyx hangup
-          fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${session.access_token}`,
               "apikey": SUPABASE_ANON_KEY,
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               call_id: callId,
-              call_control_id: controlId 
+              call_control_id: controlId
             }),
-          }).catch(err => console.warn("[TelnyxContext] Edge hangup fetch error:", err));
+          });
+          if (!resp.ok) {
+            console.error(`[TelnyxContext] Edge hangup returned HTTP ${resp.status} for call ${callId}. PSTN leg may still be alive.`);
+          }
         }
       } catch (err) {
-        console.warn("[TelnyxContext] Error prepping Edge hangup:", err);
+        console.error("[TelnyxContext] Edge hangup fetch failed — PSTN leg may still be alive:", err);
       }
     }
 
@@ -399,12 +401,35 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | null = null;
-    
+
     if (callState === "dialing" && ringTimeout > 0) {
       console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
-      timeoutId = setTimeout(() => {
-        if (callRef.current && (callRef.current.state === "ringing" || callRef.current.state === "trying" || callRef.current.state === "early")) {
-          console.log(`[RingTimeout] ${ringTimeout}s reached without answer. Hanging up.`);
+      timeoutId = setTimeout(async () => {
+        if (
+          callRef.current &&
+          (callRef.current.state === "ringing" ||
+            callRef.current.state === "trying" ||
+            callRef.current.state === "early")
+        ) {
+          console.log(
+            `[RingTimeout] ${ringTimeout}s reached without answer.`,
+            { callId: activeCallIdRef.current, controlId: activeCallControlIdRef.current }
+          );
+
+          // Poll up to 3s (6 × 500ms) for the call_control_id to arrive via telnyx.notification.
+          // The ID comes asynchronously and may not be present at exact timeout time.
+          if (!activeCallControlIdRef.current) {
+            console.warn("[RingTimeout] call_control_id not yet available — polling up to 3s before hanging up...");
+            let waited = 0;
+            while (!activeCallControlIdRef.current && waited < 3000) {
+              await new Promise<void>(resolve => setTimeout(resolve, 500));
+              waited += 500;
+            }
+            console.log(
+              `[RingTimeout] Poll complete (${waited}ms). controlId=${activeCallControlIdRef.current ?? "still null"}`
+            );
+          }
+
           toast.info(`Call timed out after ${ringTimeout}s without answer.`);
           hangUp();
         }
