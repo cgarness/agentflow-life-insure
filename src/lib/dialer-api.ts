@@ -25,9 +25,9 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
   const { data, error } = await supabase
     .rpc("get_enterprise_queue_leads", {
       p_campaign_id: campaignId,
-      p_org_id: organizationId || undefined,
       p_limit: limit,
-      p_offset: offset
+      p_offset: offset,
+      p_org_id: organizationId || null
     })
     .select("*, lead:leads(*)");
 

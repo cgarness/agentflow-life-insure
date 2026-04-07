@@ -46,10 +46,16 @@
 | `20260406700000` | `enterprise_waterfall_rpc.sql` | `get_enterprise_queue_leads` RPC: full DB-level filtering (Timezones, Max Attempts, Retry Intervals). |
 | `20260406800000` | `fix_enterprise_rpc_columns.sql` | Fixed column mismatch in `get_enterprise_queue_leads` RPC; ensured perfect `SETOF` alignment. |
 | `20260406900000` | `patch_enterprise_rpc_nulls.sql` | Patched RPC with `COALESCE` guards for NULL states, statuses, and call_attempts. |
+| `20260406950000` | `robust_rpc_signature.sql` | Aligned RPC signature with JS payload; cleared schema cache overloads. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] Fix Dialer Queue PostgREST Routing — RPC Signature Realignment**
+  *Migration:* `20260406950000_robust_rpc_signature.sql`
+  *Files Modified:* `src/lib/dialer-api.ts`, `ROADMAP.md`
+  *Developer Note:* Resolved the `Could not find the function ... in the schema cache` error. **Fix 1 — Signature Realignment**: Reordered SQL arguments to `(p_campaign_id, p_limit, p_offset, p_org_id)` to match the observed PostgREST preference in the error log. **Fix 2 — Strict JS Payload**: Modified `dialer-api.ts` to explicitly pass all 4 parameters, using `null` instead of `undefined` for `p_org_id`. This prevents PostgREST from falling back to a 3-argument signature during introspection. **Fix 3 — Overload Cleanup**: Added `DROP FUNCTION IF EXISTS` to the migration to ensure no stale signatures remained in the DB. Force-reloaded the PostgREST cache via `NOTIFY`. Verified with `npx tsc --noEmit`.
 
 - **2026-04-06 | [DONE] Fix Dialer Queue NULL Handling — Fresh Lead Loading Patch**
   *Migration:* `20260406900000_patch_enterprise_rpc_nulls.sql`
@@ -718,3 +724,52 @@ Previous `catch { toast.error("Failed to load leads") }` blocks were hiding the 
 2. **PostgREST Schema Reload** notified.
 3. **DialerPage.tsx** telemetry updated.
 4. **`npx tsc`** confirmed 0 regressions.
+---
+
+## 18. Context Snapshot — RPC PostgREST Routing & Signature Alignment (2026-04-06)
+
+### What Was Built
+
+A stabilization patch to the dialer API and database RPC to resolve "Function Not Found" routing errors in the production environment.
+
+### The Problem: PostgREST Introspection Drift
+
+PostgREST's schema-caching layer uses the presence and order of arguments to route RPC requests. We encountered the `Could not find function ... in schema cache` error because:
+1. **Implicit Defaults**: Passing `undefined` in JS (omitting keys) caused PostgREST to search for a 3-argument variant, even if a 4-argument variant with defaults existed.
+2. **Signature Overloads**: Frequent migrations changed argument order/counts, leaving stale function signatures in the Postgres catalog that confused the introspection engine.
+
+### The Fix: Non-Optional Signatures
+
+We transitioned the RPC from an "optional/default" signature to a **"strict/explicit"** signature:
+
+**SQL Signature:**
+```sql
+CREATE OR REPLACE FUNCTION get_enterprise_queue_leads(
+  p_campaign_id uuid,
+  p_limit int,
+  p_offset int,
+  p_org_id uuid
+)
+```
+
+**JS Payload:**
+```typescript
+.rpc("get_enterprise_queue_leads", {
+  p_campaign_id: id,
+  p_limit: 100,
+  p_offset: 0,
+  p_org_id: orgId || null  -- Explicit null, never undefined
+})
+```
+
+By passing `null` explicitly, we guarantee that the 4-argument signature is always matched, bypassing PostgREST's "closest match" heuristics which were failing due to cache staleness.
+
+### Schema Cache Management
+
+The migration now includes an explicit `DROP` and a `NOTIFY pgrst, 'reload schema'` command to force an immediate refresh across the entire cluster.
+
+### Verified State
+
+1. **Migration 20260406950000** applied.
+2. **JS Payload** updated to 4-param explicit.
+3. **`npx tsc`** zero errors.
