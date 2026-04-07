@@ -1378,10 +1378,6 @@ export default function DialerPage() {
             console.warn('[DialerPage] No "No Answer" disposition found — advancing without disposition.');
             handleAdvance();
           }
-
-          if (autoDialEnabled && autoDialer) {
-            autoDialer.resumeAutoDialer();
-          }
         } finally {
           callWasAnswered.current = false;
           isAutoDispositioningRef.current = false;
