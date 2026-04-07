@@ -106,6 +106,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const activeCallControlIdRef = useRef<string | null>(null);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
+  const isDialingRef = useRef(false);
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -389,6 +390,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Reset call-specific refs synchronously (callState stays "ended" for wrap-up)
     activeCallIdRef.current = null;
     activeCallControlIdRef.current = null;
+    isDialingRef.current = false;
 
     // Deferred cosmetic reset — gives the "ended" state time to trigger wrap-up effects
     endResetRef.current = setTimeout(() => {
@@ -756,12 +758,19 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
 
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, clientState?: string) => {
+    if (isDialingRef.current) {
+      console.warn("[TelnyxContext] makeCall blocked — dial already in progress");
+      return;
+    }
+
     if (status !== "ready") {
       const msg = status === "connecting" ? "Dialer is still connecting, please wait." : "Dialer is not connected. Check your credentials in Settings.";
       console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
       toast.error(msg);
       return;
     }
+
+    isDialingRef.current = true;
 
     // 1. Authentication Check: Force-refresh to ensure a fresh token for Edge Functions
     const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
@@ -898,6 +907,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
       setCallState("idle");
+      isDialingRef.current = false;
     }
   }, [status, defaultCallerNumber, attachRemoteAudio]);
 

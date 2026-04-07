@@ -306,6 +306,7 @@ export default function DialerPage() {
   const ringTimeoutRef = useRef<number>(20);
   const hasDialedOnce = useRef(false);
   const callWasAnswered = useRef(false);
+  const isAutoDispositioningRef = useRef(false);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
@@ -1373,14 +1374,19 @@ export default function DialerPage() {
   // Manual hang-up of an answered call ALWAYS shows the wrap-up panel.
   useEffect(() => {
     if (telnyxCallState === "ended") {
+      // Re-entrancy guard: prevent infinite loop where ended -> autoDisposition -> hangUp -> ended
+      if (isAutoDispositioningRef.current) return;
+
       // Capture state before resets
       const savedCallId = currentCallId;
       const duration = telnyxCallDuration;
       const wasAnswered = callWasAnswered.current;
-      telnyxHangUp();
 
       // ── Ring timeout / no answer path — auto-disposition silently ──
       if (!wasAnswered) {
+        if (isAutoDispositioningRef.current) return;
+        isAutoDispositioningRef.current = true;
+
         console.log("[DialerPage] Call ended without being answered — auto-dispositioning as No Answer.");
         const noAnswerDisp = dispositions.find(d =>
           d.name.toLowerCase() === 'no answer'
@@ -1388,15 +1394,20 @@ export default function DialerPage() {
           d.name.toLowerCase().includes('no answer')
         );
 
-        if (noAnswerDisp) {
-          handleAutoDispose(noAnswerDisp);
-        } else {
-          console.warn('[DialerPage] No "No Answer" disposition found — advancing without disposition.');
-          handleAdvance();
-        }
+        try {
+          if (noAnswerDisp) {
+            handleAutoDispose(noAnswerDisp);
+          } else {
+            console.warn('[DialerPage] No "No Answer" disposition found — advancing without disposition.');
+            handleAdvance();
+          }
 
-        if (autoDialEnabled && autoDialer) {
-          autoDialer.resumeAutoDialer();
+          if (autoDialEnabled && autoDialer) {
+            autoDialer.resumeAutoDialer();
+          }
+        } finally {
+          callWasAnswered.current = false;
+          isAutoDispositioningRef.current = false;
         }
         return;
       }
