@@ -99,14 +99,13 @@ const WinCelebration: React.FC = () => {
   useEffect(() => {
     if (!user?.id) return;
     supabase
-      .from("user_preferences")
-      .select("preference_value")
-      .eq("user_id", user.id)
-      .eq("preference_key", "win_sound_enabled")
-      .maybeSingle()
+      .from("profiles")
+      .select("win_sound_enabled")
+      .eq("id", user.id)
+      .single()
       .then(({ data }) => {
-        if (data?.preference_value !== undefined) {
-          setSoundEnabled(data.preference_value === true || data.preference_value === "true");
+        if (data && data.win_sound_enabled !== undefined) {
+          setSoundEnabled(data.win_sound_enabled !== false);
         }
       });
   }, [user?.id]);

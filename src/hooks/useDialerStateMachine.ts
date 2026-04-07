@@ -113,12 +113,6 @@ export function useDialerStateMachine({
   //   5. Wrap-up is NOT open
   //   6. We haven't already auto-dialed this lead
   useEffect(() => {
-    // Clear any pending timer when deps change
-    if (autoDialTimerRef.current) {
-      clearTimeout(autoDialTimerRef.current);
-      autoDialTimerRef.current = null;
-    }
-
     // ── Guard: must press Call at least once before auto-dial fires ──
     if (!hasDialedOnce.current) return;
 
@@ -130,12 +124,23 @@ export function useDialerStateMachine({
       telnyxStatus !== 'ready' ||
       showWrapUp
     ) {
+      if (autoDialTimerRef.current) {
+        clearTimeout(autoDialTimerRef.current);
+        autoDialTimerRef.current = null;
+      }
       return;
     }
 
-    // ── Guard: don't re-dial the same lead ──
     const leadId = currentLead.id || currentLead.lead_id;
+
+    // ── Guard: don't re-dial the same lead ──
     if (lastAutoDialedLeadId.current === leadId) {
+      return;
+    }
+
+    // If we already have a timer running for THIS lead, let it ride.
+    // This prevents re-renders from pushing the 2s delay infinitely.
+    if (autoDialTimerRef.current) {
       return;
     }
 
@@ -154,7 +159,6 @@ export function useDialerStateMachine({
 
     autoDialTimerRef.current = setTimeout(() => {
       // ── Double-check guards after delay ──
-      // The user may have paused, started a manual call, or opened wrap-up during the delay.
       if (
         !isAutoDialEnabled ||
         telnyxCallState !== 'idle' ||
@@ -162,22 +166,23 @@ export function useDialerStateMachine({
         showWrapUp
       ) {
         console.log('[StateMachine] Post-delay guard check failed, aborting auto-dial.');
+        autoDialTimerRef.current = null;
         return;
       }
 
       console.log(`[StateMachine] ${AUTO_DIAL_DELAY_MS}ms delay complete. Initiating call.`);
       lastAutoDialedLeadId.current = leadId;
+      autoDialTimerRef.current = null;
       onCall();
     }, AUTO_DIAL_DELAY_MS);
 
     return () => {
-      if (autoDialTimerRef.current) {
-        clearTimeout(autoDialTimerRef.current);
-        autoDialTimerRef.current = null;
-      }
+      // We explicitly DO NOT clear the timer on minor dependency changes (like showWrapUp flickering)
+      // unless we transitioning to a new lead or disabling auto-dial.
     };
   }, [
     currentLead?.id,
+    currentLead?.lead_id,
     isAutoDialEnabled,
     telnyxStatus,
     telnyxCallState,

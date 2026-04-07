@@ -323,6 +323,7 @@ export default function DialerPage() {
   const hasDialedOnce = useRef(false);
   const callWasAnswered = useRef(false);
   const isAutoDispositioningRef = useRef(false);
+  const lastProcessedCallIdRef = useRef<string | null>(null);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
@@ -1024,8 +1025,9 @@ export default function DialerPage() {
   useEffect(() => {
     if (historyEndRef.current) {
       const currentLeadId = currentLead?.id || currentLead?.lead_id;
-      // Use instant scroll if transitioning to a new lead
-      const behavior = lastScrolledLeadIdRef.current === currentLeadId ? "smooth" : "auto";
+      // Force "auto" (instant) behavior if transitioning to a new lead
+      const isNewLead = lastScrolledLeadIdRef.current !== currentLeadId;
+      const behavior = isNewLead ? "auto" : "smooth";
       
       historyEndRef.current.scrollIntoView({ behavior });
       lastScrolledLeadIdRef.current = currentLeadId;
@@ -1394,8 +1396,18 @@ export default function DialerPage() {
   // Manual hang-up of an answered call ALWAYS shows the wrap-up panel.
   useEffect(() => {
     if (telnyxCallState === "ended") {
-      // Re-entrancy guard: prevent infinite loop where ended -> autoDisposition -> hangUp -> ended
+      // Re-entrancy guard: prevent infinite loop
       if (isAutoDispositioningRef.current) return;
+      
+      // Strict process-once-per-call-id guard
+      const callIdToProcess = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId || currentCallId;
+      if (callIdToProcess && lastProcessedCallIdRef.current === callIdToProcess) {
+        return;
+      }
+      
+      if (callIdToProcess) {
+        lastProcessedCallIdRef.current = callIdToProcess;
+      }
 
       // Capture state before resets
       const savedCallId = currentCallId;

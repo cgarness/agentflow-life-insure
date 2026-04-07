@@ -216,32 +216,25 @@ const Dashboard: React.FC = () => {
     })
   );
 
-  // Load widget preferences
   useEffect(() => {
     if (!userId) return;
     const loadPrefs = async () => {
       try {
-        const { data: orderPref } = await supabase
+        const { data, error } = await supabase
           .from("user_preferences")
-          .select("preference_value")
+          .select("settings")
           .eq("user_id", userId)
-          .eq("preference_key", "dashboard_widget_order")
           .maybeSingle();
 
-        const { data: hiddenPref } = await supabase
-          .from("user_preferences")
-          .select("preference_value")
-          .eq("user_id", userId)
-          .eq("preference_key", "dashboard_hidden_widgets")
-          .maybeSingle();
+        if (error || !data?.settings) return;
 
-        if (orderPref?.preference_value) {
-          const val = orderPref.preference_value;
-          if (Array.isArray(val)) setWidgetOrder(val as string[]);
+        const settings = data.settings as Record<string, any>;
+        
+        if (Array.isArray(settings.dashboard_widget_order)) {
+          setWidgetOrder(settings.dashboard_widget_order);
         }
-          if (hiddenPref?.preference_value) {
-          const val = hiddenPref.preference_value;
-          if (Array.isArray(val)) setHiddenWidgets(val as string[]);
+        if (Array.isArray(settings.dashboard_hidden_widgets)) {
+          setHiddenWidgets(settings.dashboard_hidden_widgets);
         }
       } catch {
         // use defaults
@@ -331,21 +324,26 @@ const Dashboard: React.FC = () => {
 
   const saveLayout = async () => {
     try {
+      const { data } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      const existingSettings = (data?.settings as Record<string, any>) || {};
+      const newSettings = {
+        ...existingSettings,
+        dashboard_widget_order: widgetOrder,
+        dashboard_hidden_widgets: hiddenWidgets,
+      };
+
       await supabase.from("user_preferences").upsert(
-        [{
+        {
           user_id: userId,
-          preference_key: "dashboard_widget_order",
-          preference_value: widgetOrder as unknown as Json,
-        }],
-        { onConflict: "user_id,preference_key" }
-      );
-      await supabase.from("user_preferences").upsert(
-        [{
-          user_id: userId,
-          preference_key: "dashboard_hidden_widgets",
-          preference_value: hiddenWidgets as unknown as Json,
-        }],
-        { onConflict: "user_id,preference_key" }
+          settings: newSettings,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
       );
       toast.success("Dashboard layout saved");
       setEditMode(false);
@@ -356,16 +354,27 @@ const Dashboard: React.FC = () => {
 
   const resetLayout = async () => {
     try {
-      await supabase
+      const { data } = await supabase
         .from("user_preferences")
-        .delete()
+        .select("settings")
         .eq("user_id", userId)
-        .eq("preference_key", "dashboard_widget_order");
-      await supabase
-        .from("user_preferences")
-        .delete()
-        .eq("user_id", userId)
-        .eq("preference_key", "dashboard_hidden_widgets");
+        .maybeSingle();
+
+      if (data?.settings) {
+        const settings = { ...(data.settings as Record<string, any>) };
+        delete settings.dashboard_widget_order;
+        delete settings.dashboard_hidden_widgets;
+
+        await supabase.from("user_preferences").upsert(
+          {
+            user_id: userId,
+            settings,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+      }
+
       setWidgetOrder(DEFAULT_WIDGET_ORDER);
       setHiddenWidgets([]);
       setEditMode(false);

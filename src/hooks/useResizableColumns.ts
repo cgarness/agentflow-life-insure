@@ -25,14 +25,14 @@ export function useResizableColumns({ storageKey, defaultWidths, userId }: UseRe
       try {
         const { data, error } = await supabase
           .from("user_preferences")
-          .select("preference_value")
+          .select("settings")
           .eq("user_id", userId)
-          .eq("preference_key", storageKey)
           .maybeSingle();
 
-        if (error || !data?.preference_value) return;
+        if (error || !data?.settings) return;
 
-        const saved = data.preference_value;
+        const allSettings = data.settings as Record<string, any>;
+        const saved = allSettings[storageKey];
         if (saved && typeof saved === "object" && !Array.isArray(saved)) {
           setWidths(prev => ({ ...prev, ...saved as Record<string, number> }));
         }
@@ -48,16 +48,28 @@ export function useResizableColumns({ storageKey, defaultWidths, userId }: UseRe
   const saveWidths = useCallback(async (currentWidths: Record<string, number>) => {
     if (!userId) return;
     try {
+      // Fetch existing so we don't wipe out other settings
+      const { data } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      const existingSettings = (data?.settings as Record<string, any>) || {};
+      const newSettings = {
+        ...existingSettings,
+        [storageKey]: currentWidths
+      };
+
       await supabase
         .from("user_preferences")
         .upsert(
           {
             user_id: userId,
-            preference_key: storageKey,
-            preference_value: currentWidths,
+            settings: newSettings,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "user_id,preference_key" }
+          { onConflict: "user_id" }
         );
     } catch {
       // Fail silently
