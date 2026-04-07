@@ -1584,7 +1584,7 @@ export default function DialerPage() {
 
       // 1. Guard check: only trigger if auto-dial is enabled, dialer is ready,
       //    we have a lead, and wrap-up is NOT open (agent is dispositioning).
-      if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || telnyxStatus !== "ready" || showWrapUp) {
+      if (!autoDialEnabled || !autoDialer?.isEnabled() || !currentLead || telnyxCallState !== "idle" || !["idle","ready"].includes(telnyxStatus) || showWrapUp) {
         if (autoDialEnabled) {
           console.log("[AutoDialer] Initiation blocked:", {
             isEnabled: autoDialer?.isEnabled(),
@@ -1618,7 +1618,7 @@ export default function DialerPage() {
 
       const timer = setTimeout(async () => {
         // Double-check guards after delay to ensure user didn't pause, start a manual call, or open wrap-up
-        if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || telnyxStatus !== "ready" || showWrapUp) {
+        if (!autoDialEnabled || !autoDialer?.isEnabled() || telnyxCallState !== "idle" || !["idle","ready"].includes(telnyxStatus) || showWrapUp) {
           return;
         }
 
@@ -2081,6 +2081,9 @@ export default function DialerPage() {
             setCurrentLeadIndex(0);
             // Start heartbeat for the new lock
             startHeartbeat(nextLead.id, () => loadLockModeLead());
+            if (autoDialEnabled && autoDialer) {
+              autoDialer.resumeAutoDialer();
+            }
           } else {
             setLeadQueue([]);
             setHasMoreLeads(false);
