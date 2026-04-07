@@ -708,8 +708,9 @@ export default function DialerPage() {
         setLeadQueue(prev => [...prev, ...leads]);
         setCurrentOffset(prev => prev + BATCH_SIZE);
       }
-    } catch (err) {
-      toast.error("Failed to load leads");
+    } catch (err: any) {
+      console.error("[Dialer] Fetch Error (batch):", err);
+      toast.error("Failed to load leads: " + (err.message || "Unknown error"));
     } finally {
       setLoadingLeads(false);
     }
@@ -814,8 +815,9 @@ export default function DialerPage() {
         } else {
           setCurrentLeadIndex(0);
         }
-      } catch {
-        toast.error("Failed to load leads");
+      } catch (err: any) {
+        console.error("[Dialer] Fetch Error (resume):", err);
+        toast.error("Failed to load leads: " + (err.message || "Unknown error"));
       } finally {
         setLoadingLeads(false);
       }

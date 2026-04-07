@@ -44,10 +44,16 @@
 | `20260406500000` | `fix_campaign_leads_user_id.sql` | Hotfix: ensures `user_id` column exists on `campaign_leads` (IF NOT EXISTS + backfill from `claimed_by`); recreates `add_leads_to_campaign` without `user_id` in INSERT (column DEFAULT handles it). Resolves "column user_id does not exist" runtime error. |
 | `20260406600000` | `campaign_leads_scheduled_callback.sql` | Added `scheduled_callback_at` (TIMESTAMPTZ) to `campaign_leads` for native prioritization. |
 | `20260406700000` | `enterprise_waterfall_rpc.sql` | `get_enterprise_queue_leads` RPC: full DB-level filtering (Timezones, Max Attempts, Retry Intervals). |
+| `20260406800000` | `fix_enterprise_rpc_columns.sql` | Fixed column mismatch in `get_enterprise_queue_leads` RPC; ensured perfect `SETOF` alignment. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-06 | [DONE] Fix Dialer Queue Crash — RPC Column Alignment + Error Exposure**
+  *Migration:* `20260406800000_fix_enterprise_rpc_columns.sql`
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Resolved a critical queue loading crash. **Fix 1 — RPC Column Alignment**: The `get_enterprise_queue_leads` RPC (v1) was missing the `user_id` column in its `SELECT` statement, violating its `RETURNS SETOF public.campaign_leads` contract and causing PostgREST to fail the associated `.select("*, lead:leads(*)")` join. Fixed by recreating the RPC using `SELECT cl.*` from the base table, ensuring perfect column order and membership matching. **Fix 2 — Error Exposure**: Updated `DialerPage.tsx` catch blocks in `fetchLeadsBatch` and `loadWithResume` to un-swallow PostgREST errors. Added `console.error` and appended `err.message` to the UI toast, enabling faster diagnostics for future schema or permission issues. Verified fix with `npx tsc --noEmit`.
 
 - **2026-04-06 | [DONE] Enterprise Waterfall Queue — DB Refactor + Timezone Compliance + Auto-Dial Fix**
   *Migration:* `20260406700000_enterprise_waterfall_rpc.sql`, `20260406600000_campaign_leads_scheduled_callback.sql`
@@ -639,3 +645,37 @@ A database-first waterfall queue that handles compliance and prioritization at t
 1. **Type Regeneration**: If you run `npx supabase gen types`, ensure `scheduled_callback_at` and the RPC are preserved or re-generated into `types.ts`.
 2. **Calling Hours Edge Cases**: States with multiple timezones (e.g. `KY`, `TN`) are defaulted to the primary state timezone. If pin-point accuracy is needed, map by `cl.phone` (area code) instead of `cl.state`.
 3. **Queue Panel Sync**: The `QueuePanel` still uses `displayQueue` (memoized). Ensure `displayQueue` remains synced with the RPC results fetched via `fetchLeadsBatch`.
+---
+
+## 16. Context Snapshot — Dialer Queue Crash & Column Alignment (2026-04-06)
+
+### What Was Built
+
+A hotfix to the Enterprise Waterfall Queue that ensures the database RPC perfectly satisfies the PostgREST join requirements.
+
+### The Problem: SETOF Column Mismatch
+
+Current Supabase PostgREST behavior requires that any RPC returning `SETOF table_name` must output **every column** of that table in the **exact order** defined in the database. If columns are missing (like `user_id` in this case) or returned in a different order, PostgREST will fail to resolve relations in the `.select()` chain, resulting in a 400 Bad Request or 500 Internal Server Error.
+
+### The Fix: cl.* Dynamic Selection
+
+Instead of manually listing columns in the RPC which is brittle to schema changes, the revised RPC uses an inner JOIN to `public.campaign_leads cl` and returns `SELECT cl.*`.
+
+```sql
+  -- Revised logic ensures perfect SETOF matching
+  SELECT cl.*
+  FROM public.campaign_leads cl
+  JOIN eligible_leads l ON cl.id = l.id
+  WHERE ...
+```
+
+### UI Error Exposure
+
+Previous `catch { toast.error("Failed to load leads") }` blocks were hiding the descriptive error messages returned by Supabase (e.g., "column user_id does not exist"). These have been converted to `catch (err: any)` blocks that log to the console and display the specific message.
+
+### Verified State
+
+1. **Migration 20260406800000** applied.
+2. **PostgREST Schema Reload** notified.
+3. **DialerPage.tsx** telemetry updated.
+4. **`npx tsc`** confirmed 0 regressions.
