@@ -21,20 +21,61 @@ export async function getCampaigns(organizationId: string | null = null) {
   return data ?? [];
 }
 
-export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
-  const { data, error } = await supabase
-    .rpc("get_enterprise_queue_leads", {
-      p_campaign_id: campaignId,
-      p_limit: limit,
-      p_offset: offset,
-      p_org_id: organizationId || null
-    })
-    .select("*, lead:leads(*)");
+const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'Closed Won'];
 
-  if (error) throw new Error(error.message);
+export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
+  // Fetch campaign settings for maxAttempts and retryInterval logic
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("max_attempts, retry_interval_hours")
+    .eq("id", campaignId)
+    .maybeSingle();
+
+  // Fix 2: NULL max_attempts means "Unlimited" — never block re-queuing
+  const maxAttempts = campaign?.max_attempts ?? 9999;
+  const retryIntervalHours = campaign?.retry_interval_hours ?? 0;
+
+  // Fix 3: Query campaign_leads directly, filtering by both campaign_id and organization_id
+  let query = supabase
+    .from("campaign_leads")
+    .select("*, lead:leads(*)")
+    .eq("campaign_id", campaignId)
+    .range(offset, offset + limit - 1);
+
+  if (organizationId) {
+    query = query.eq("organization_id", organizationId);
+  }
+
+  const { data, error } = await query;
+
+  // Fix 4: Log full error object before surfacing message
+  if (error) {
+    console.error("[getCampaignLeads] Supabase error:", error);
+    throw new Error(error.message);
+  }
+
+  const now = new Date();
+
+  // Fix 1: Exclude only terminal statuses. NULL / Pending / New / Queued / unrecognized → dialable.
+  // For "Called" leads, still enforce maxAttempts + retryInterval.
+  const dialable = ((data as any[]) ?? []).filter(row => {
+    const status: string | null = row.status;
+
+    if (status && TERMINAL_STATUSES.includes(status)) return false;
+
+    if (status === 'Called') {
+      if ((row.call_attempts ?? 0) >= maxAttempts) return false;
+      if (retryIntervalHours > 0 && row.last_called_at) {
+        const hoursSince = (now.getTime() - new Date(row.last_called_at).getTime()) / 3_600_000;
+        if (hoursSince < retryIntervalHours) return false;
+      }
+    }
+
+    return true;
+  });
 
   // Flatten and map to the interface expected by the UI
-  return ((data as any[]) ?? []).map(row => {
+  return dialable.map(row => {
     const { lead, ...campaignLead } = row;
     return {
       ...(lead || {}),

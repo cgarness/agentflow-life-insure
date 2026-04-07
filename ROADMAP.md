@@ -52,6 +52,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-07 | [DONE] Fix Dialer Leads Bug — Direct Query Rewrite + Status Filter + maxAttempts Safety**
+  *Files Modified:* `src/lib/dialer-api.ts`, `ROADMAP.md`
+  *Developer Note:* Root cause confirmed: `get_enterprise_queue_leads` RPC (despite 4+ patches) continued to silently drop leads with non-Queued/Called statuses due to strict SQL `WHERE status IN ('Queued','Called')` semantics — leads with NULL, 'Pending', or 'New' status were excluded before reaching JS. Additionally, JS code defaulted `max_attempts ?? 1`, blocking all previously-called leads from re-entry when the DB value was NULL (unlimited). **Fix 1 — Status Filter**: Replaced RPC call with a direct `campaign_leads` Supabase query. Added JS `.filter()` that only excludes terminal statuses (`DNC`, `Completed`, `Removed`, `Closed Won`). NULL/Pending/New/Queued/unrecognized statuses are all treated as dialable. For `Called` leads, the `maxAttempts` + `retryInterval` check is still applied. **Fix 2 — maxAttempts NULL Safety**: Changed `campaign?.max_attempts ?? 1` to `campaign?.max_attempts ?? 9999` — NULL in DB now correctly means "Unlimited", never blocking re-queuing. **Fix 3 — organization_id Defense-in-Depth**: Applied `.eq("organization_id", organizationId)` to the `campaign_leads` query (same pattern already used on `campaigns` lookup), providing a second layer of tenant isolation in addition to RLS. **Fix 4 — Error Surfacing**: Added `console.error("[getCampaignLeads] Supabase error:", error)` before throwing, logging the full Supabase error object for faster future debugging. Zero TypeScript errors (`npx tsc --noEmit` clean).
+  *What to Test Next:* (1) Select a campaign with leads in 'New', 'Pending', or NULL status — they should now appear in the queue. (2) Select a campaign where `max_attempts` is NULL — previously-called leads should re-enter the queue. (3) Confirm leads with 'DNC' or 'Completed' status do NOT appear. (4) Confirm Called leads respect `retry_interval_hours` and are excluded until the interval has elapsed.
+
 - **2026-04-06 | [DONE] Fix Dialer Queue PostgREST Routing — RPC Signature Realignment**
   *Migration:* `20260406950000_robust_rpc_signature.sql`
   *Files Modified:* `src/lib/dialer-api.ts`, `ROADMAP.md`
