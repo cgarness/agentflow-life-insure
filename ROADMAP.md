@@ -53,6 +53,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Bugfix — Add setHistoryLeadId(null) to !currentLead branch in serialized fetch effect (DialerPage.tsx)**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* One-line patch: `setHistoryLeadId(null)` added to the `!currentLead` early-return branch so the guard state is cleared when the queue empties, preventing stale history from flashing on next lead load.
+
 - **2026-04-08 | [DONE] Fix Dialer Flickering — Serialize Fetches, historyLeadId Guard, Instant Scroll**
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* Three surgical fixes targeting Supabase auth lock contention and stale-history flash on lead advance:
