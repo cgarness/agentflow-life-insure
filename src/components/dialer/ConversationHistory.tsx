@@ -26,6 +26,7 @@ interface ConversationHistoryProps {
   onMessageChange: (text: string) => void;
   onSubjectChange: (text: string) => void;
   onCallerNumberChange: (num: string) => void;
+  historyEndRef?: React.RefObject<HTMLDivElement>;
 }
 
 function historyIcon(type: string) {
@@ -60,6 +61,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   onMessageChange,
   onSubjectChange,
   onCallerNumberChange,
+  historyEndRef,
 }) => {
   // Reverse history so newest is index 0 for flex-col-reverse anchoring
   const reversedHistory = [...history].reverse();
@@ -91,9 +93,12 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
         </div>
 
         {/* Scrollable feed — uses flex-col-reverse to anchor to bottom (chat style) */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-3 scroll-smooth">
+        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-3">
+          {/* Anchor div — first child in flex-col-reverse renders at visual bottom */}
+          <div ref={historyEndRef} />
+
           {loadingHistory && <HistorySkeleton />}
-          
+
           {!loadingHistory && history.length === 0 && (
             <p className="text-muted-foreground text-sm text-center py-6">No activity yet</p>
           )}
