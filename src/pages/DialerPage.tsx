@@ -1184,6 +1184,8 @@ export default function DialerPage() {
     setCurrentCallId(null);
     setClaimRingActive(false);
     cancelClaimTimer();
+    setIsEditingContact(false);
+    setEditForm({});
 
     if (lockMode && currentLead?.id) {
       stopHeartbeat();
@@ -1214,6 +1216,7 @@ export default function DialerPage() {
   const handleSkip = useCallback(async () => {
     setIsAdvancing(true);
     setIsEditingContact(false);
+    setEditForm({});
     setSelectedDisp(null);
     setNoteText("");
     setNoteError(false);
@@ -1357,6 +1360,8 @@ export default function DialerPage() {
     setNoteText("");
     setNoteError(false);
     setCurrentCallId(null);
+    setIsEditingContact(false);
+    setEditForm({});
     // ── Queue Lifecycle: remove disposed lead, re-sort, reset to head ──
     if (currentLead) {
       applyQueueLifecycle(currentLead as CampaignLead, disposition.name, null);
