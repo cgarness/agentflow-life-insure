@@ -57,38 +57,3 @@ export function checkCallingHours(
   
   return current >= callingHoursStart && current < callingHoursEnd;
 }
-
-export function fmtDuration(seconds: number): string {
-  if (isNaN(seconds) || seconds < 0) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-export function fmtSessionDuration(seconds: number): string {
-  if (isNaN(seconds) || seconds <= 0) return "00:00:00";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
-
-export function getStatusColorStyle(color: string) {
-  return {
-    backgroundColor: `${color}15`,
-    color: color,
-    borderColor: `${color}30`,
-  };
-}
-
-export function normalizeStatusDisplay(status: string) {
-  if (!status) return "NEW";
-  const s = status.toUpperCase();
-  if (s === "NEW" || s === "NEW LEAD") return "NEW";
-  if (s === "NO ANSWER") return "NO ANSWER";
-  if (s === "BUSY") return "BUSY";
-  if (s === "WRONG NUMBER") return "WRONG #";
-  if (s === "DISCONNECTED") return "DISC.";
-  if (s === "DNC") return "DNC";
-  return s;
-}
