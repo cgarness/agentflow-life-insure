@@ -53,6 +53,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Fix: left contact column blank after lead advance**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* `handleAdvance`, `handleSkip`, and `handleAutoDispose` did not reset `isEditingContact` or `editForm`. When advancing mid-edit, the left contact info column stayed in edit mode but `editForm` was stale/empty for the incoming lead, rendering it blank. Fix: added `setIsEditingContact(false)` and `setEditForm({})` to all three advance handlers. `autoSaveNoAnswer` inherits the fix via its `handleAdvance()` call; `handleMachineDetectedAction` inherits via `handleAutoDispose`/`handleSkip`. No `useEffect` auto-sync for `editForm` exists (intentional — `startEditing()` is the sole initializer), so the on-advance reset is sufficient.
+
 - **2026-04-08 | [DONE] Bugfix — Add setHistoryLeadId(null) to !currentLead branch in serialized fetch effect (DialerPage.tsx)**
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* One-line patch: `setHistoryLeadId(null)` added to the `!currentLead` early-return branch so the guard state is cleared when the queue empties, preventing stale history from flashing on next lead load.
