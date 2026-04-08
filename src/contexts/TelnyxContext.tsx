@@ -330,7 +330,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .from('calls')
         .update({
           status: 'completed',
-          end_at: new Date().toISOString(),
+          ended_at: new Date().toISOString(),
           duration: duration
         })
         .eq('id', callId)

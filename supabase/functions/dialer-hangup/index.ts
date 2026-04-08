@@ -65,8 +65,8 @@ Deno.serve(async (req) => {
     const { error: updateError } = await supabaseClient
       .from("calls")
       .update({
-        status: 'completed',
-        end_at: endedAt,
+        status: "completed",
+        ended_at: endedAt,
         duration: duration,
       })
       .eq("id", call_id)
@@ -74,6 +74,7 @@ Deno.serve(async (req) => {
 
     if (updateError) {
       console.error(`[dialer-hangup] Database update error for call ${call_id}:`, updateError);
+      throw new Error(`Failed to update call record: ${updateError.message}`);
     }
 
     if (!controlId) {

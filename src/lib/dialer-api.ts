@@ -6,6 +6,28 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Count outbound calls this agent placed on this campaign today (UTC calendar day). */
+export async function getTodayCallCount(agentId: string, campaignId: string): Promise<number> {
+  const now = new Date();
+  const startUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+  const endUtc = new Date(startUtc);
+  endUtc.setUTCDate(endUtc.getUTCDate() + 1);
+
+  const { count, error } = await supabase
+    .from("calls")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", agentId)
+    .eq("campaign_id", campaignId)
+    .gte("created_at", startUtc.toISOString())
+    .lt("created_at", endUtc.toISOString());
+
+  if (error) {
+    console.error("[getTodayCallCount]", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 export async function getCampaigns(organizationId: string | null = null) {
   let query = supabase
     .from("campaigns")

@@ -53,6 +53,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Hotfix — Orphan-call banner loop + Vercel build (`ended_at`, `getTodayCallCount`)**
+  *Files Modified:* `src/lib/dialer-api.ts`, `src/contexts/TelnyxContext.tsx`, `supabase/functions/dialer-hangup/index.ts`, `ROADMAP.md`
+  *Developer Note:* The `calls` table column is **`ended_at`** (see generated types). `dialer-hangup` and `finalizeCallRecord` were updating a non-existent **`end_at`** field, so Postgres rejected the update and rows stayed `ringing`/`connected`. The orphan-call detector then kept finding the same row after every hang-up / navigation. Fixed both writers to use `ended_at`; `dialer-hangup` now throws if the DB update fails so we do not return success with a stale row. Restored **`getTodayCallCount`** in `dialer-api.ts` (referenced by `DialerPage` but missing after the history refactor), which unblocked the Vite/Rollup production build on Vercel.
+
 - **2026-04-08 | [DONE] Perf — Faster, smoother dialer conversation history**
   *Files Modified:* `src/lib/dialer-api.ts`, `src/pages/DialerPage.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/components/dialer/DialerSkeletons.tsx`, `ROADMAP.md`
   *Developer Note:* `getLeadHistory` now selects only columns needed for the timeline, orders + limits at the database (80 per source), and returns the last 100 merged events (smaller payloads). Lead transition drops the 150ms debounce (0ms tick), shows **cached** history immediately when revisiting a lead in the same session, and runs history + assigned-agent profile in **parallel** via `Promise.allSettled` so profile errors do not block history. Conversation list no longer animates every row on paint; skeleton drops the 200ms delay and uses a shorter fade.
