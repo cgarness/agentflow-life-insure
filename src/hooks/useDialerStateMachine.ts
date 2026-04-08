@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
  * useDialerStateMachine — Two-Lane Auto-Dialer State Machine
@@ -56,11 +56,17 @@ export interface UseDialerStateMachineProps {
   onCall: () => void;
   /** Skip the current lead (calling hours violation, etc.) */
   onSkip: () => void;
+  /** Disable auto-dial (called when user cancels countdown) */
+  onDisableAutoDial?: () => void;
 }
 
 export interface UseDialerStateMachineReturn {
   /** Current machine state (derived, not stored — uses Telnyx state as source of truth) */
   machineState: MachineState;
+  /** True when the auto-dial countdown timer is actively running */
+  autoDialCountdownActive: boolean;
+  /** Cancel the auto-dial countdown and disable auto-dial */
+  cancelAutoDialCountdown: () => void;
 }
 
 /**
@@ -80,6 +86,7 @@ export function useDialerStateMachine({
   isAdvancing,
   onCall,
   onSkip,
+  onDisableAutoDial,
 }: UseDialerStateMachineProps): UseDialerStateMachineReturn {
 
   // ── Derive machine state from Telnyx context ──
@@ -95,6 +102,18 @@ export function useDialerStateMachine({
   // ── Guard ref to prevent double-firing within the same lead ──
   const lastAutoDialedLeadId = useRef<string | null>(null);
   const autoDialTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ── Change 2: Track countdown active state for UI animation ──
+  const [autoDialCountdownActive, setAutoDialCountdownActive] = useState(false);
+
+  const cancelAutoDialCountdown = useCallback(() => {
+    if (autoDialTimerRef.current) {
+      clearTimeout(autoDialTimerRef.current);
+      autoDialTimerRef.current = null;
+    }
+    setAutoDialCountdownActive(false);
+    onDisableAutoDial?.();
+  }, [onDisableAutoDial]);
 
   // ── Cleanup on unmount ──
   useEffect(() => {
@@ -132,6 +151,7 @@ export function useDialerStateMachine({
         console.log('[StateMachine] Auto-dial preconditions lost, clearing timer.');
         clearTimeout(autoDialTimerRef.current);
         autoDialTimerRef.current = null;
+        setAutoDialCountdownActive(false);
       }
       return;
     }
@@ -162,6 +182,7 @@ export function useDialerStateMachine({
 
     console.log(`[StateMachine] Auto-dial trigger: waiting ${AUTO_DIAL_DELAY_MS}ms before calling ${currentLead.first_name || 'lead'}...`);
 
+    setAutoDialCountdownActive(true);
     autoDialTimerRef.current = setTimeout(() => {
       // ── Double-check guards after delay ──
       if (
@@ -172,12 +193,14 @@ export function useDialerStateMachine({
       ) {
         console.log('[StateMachine] Post-delay guard check failed, aborting auto-dial.');
         autoDialTimerRef.current = null;
+        setAutoDialCountdownActive(false);
         return;
       }
 
       console.log(`[StateMachine] ${AUTO_DIAL_DELAY_MS}ms delay complete. Initiating call.`);
       lastAutoDialedLeadId.current = leadId;
       autoDialTimerRef.current = null;
+      setAutoDialCountdownActive(false);
       onCall();
     }, AUTO_DIAL_DELAY_MS);
 
@@ -201,5 +224,5 @@ export function useDialerStateMachine({
 
   // (Lead change reset removed to prevent race conditions during auto-advance)
 
-  return { machineState };
+  return { machineState, autoDialCountdownActive, cancelAutoDialCountdown };
 }

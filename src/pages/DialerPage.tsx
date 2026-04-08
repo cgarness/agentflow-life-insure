@@ -44,6 +44,7 @@ import {
   saveNote,
   saveAppointment,
   updateLeadStatus,
+  getTodayCallCount,
 } from "@/lib/dialer-api";
 import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
 import {
@@ -73,6 +74,7 @@ import {
   sortQueue,
   applyDispositionToQueue,
   queueOrderChanged,
+  getLeadTier,
   type CampaignLead,
 } from "@/lib/queue-manager";
 import { normalizeState } from "@/utils/stateUtils";
@@ -400,7 +402,7 @@ export default function DialerPage() {
 
 
   // ── Queue sort / filter / preview ──
-  type QueueSortKey = 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
+  type QueueSortKey = 'smart' | 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
   type QueuePreviewField = 'age' | 'state' | 'score' | 'source' | 'attempts' | 'status' | 'best_time' | 'health';
   interface QueueFilterState {
     status: string;
@@ -417,7 +419,7 @@ export default function DialerPage() {
   const QUEUE_PREVIEW_KEY = 'agentflow_queue_preview';
 
   const [queueSort, setQueueSort] = useState<QueueSortKey>(() => {
-    return (localStorage.getItem(QUEUE_SORT_KEY) as QueueSortKey) || 'default';
+    return (localStorage.getItem(QUEUE_SORT_KEY) as QueueSortKey) || 'smart';
   });
   const [queueFilter, setQueueFilter] = useState<QueueFilterState>(() => {
     try {
@@ -475,6 +477,19 @@ export default function DialerPage() {
       });
     return () => { cancelled = true; };
   }, [user?.id]);
+
+  // ── Change 5: Ground calls_made from live calls table on session load ──
+  useEffect(() => {
+    if (!user?.id || !selectedCampaignId) return;
+    let cancelled = false;
+    getTodayCallCount(user.id, selectedCampaignId).then((count) => {
+      if (!cancelled) {
+        setDialerStats(prev => prev ? { ...prev, calls_made: count } : prev);
+        setSessionStats(prev => ({ ...prev, calls_made: count }));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, selectedCampaignId]);
 
   // ── Session duration ticker (live-ticking from session_started_at) ──
   useEffect(() => {
@@ -832,25 +847,35 @@ export default function DialerPage() {
         setLeadQueue(sorted);
         setCurrentOffset(BATCH_SIZE);
 
-        // Check for saved queue position
+        // Check for saved queue position (with 60-minute staleness window)
         if (user?.id) {
           try {
             const { data: savedState } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
               .from('dialer_queue_state')
-              .select('current_lead_id, queue_index')
+              .select('current_lead_id, queue_index, updated_at')
               .eq('user_id', user.id)
               .eq('campaign_id', selectedCampaignId)
               .maybeSingle();
 
             if (savedState) {
-              const savedIndex = sorted.findIndex(
-                (l: any) => (l.lead_id || l.id) === savedState.current_lead_id
-              );
-              if (savedIndex >= 0) {
-                setCurrentLeadIndex(savedIndex);
-                toast.success("Resuming where you left off");
-              } else {
+              // ── Change 4: 60-minute staleness window ──
+              const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
+              const savedUpdatedAt = savedState.updated_at ? new Date(savedState.updated_at).getTime() : 0;
+              const isStale = (Date.now() - savedUpdatedAt) > STALE_THRESHOLD_MS;
+
+              if (isStale) {
                 setCurrentLeadIndex(0);
+                toast.info("Session expired — starting from the top");
+              } else {
+                const savedIndex = sorted.findIndex(
+                  (l: any) => (l.lead_id || l.id) === savedState.current_lead_id
+                );
+                if (savedIndex >= 0) {
+                  setCurrentLeadIndex(savedIndex);
+                  toast.success("Resuming where you left off");
+                } else {
+                  setCurrentLeadIndex(0);
+                }
               }
             } else {
               setCurrentLeadIndex(0);
@@ -931,6 +956,23 @@ export default function DialerPage() {
 
     // Apply sort
     switch (queueSort) {
+      case 'smart': {
+        // ── Change 7: 4-tier smart sort ──
+        const now = new Date();
+        q.sort((a, b) => {
+          const tierA = getLeadTier(a.lead as CampaignLead, now);
+          const tierB = getLeadTier(b.lead as CampaignLead, now);
+          if (tierA !== tierB) return tierA - tierB;
+          // Within Tier 4: soonest due timestamp first
+          if (tierA === 4) {
+            const tsA = a.lead.retry_eligible_at || a.lead.callback_due_at || '';
+            const tsB = b.lead.retry_eligible_at || b.lead.callback_due_at || '';
+            if (tsA && tsB) return new Date(tsA as string).getTime() - new Date(tsB as string).getTime();
+          }
+          return a.originalIndex - b.originalIndex;
+        });
+        break;
+      }
       case 'age_oldest':
         q.sort((a, b) => new Date(a.lead.created_at || 0).getTime() - new Date(b.lead.created_at || 0).getTime());
         break;
@@ -1224,6 +1266,22 @@ export default function DialerPage() {
     setClaimRingActive(false);
     cancelClaimTimer();
 
+    // ── Change 6: Persist skip to campaign_leads with retry_eligible_at ──
+    if (currentLead?.id) {
+      const skipRetryHours = retryIntervalHours > 0 ? retryIntervalHours : 24;
+      const retryAt = new Date(Date.now() + skipRetryHours * 3_600_000).toISOString();
+      supabase
+        .from('campaign_leads')
+        .update({
+          retry_eligible_at: retryAt,
+          status: 'Called',
+        } as any)
+        .eq('id', currentLead.id)
+        .then(({ error }) => {
+          if (error) console.warn('[handleSkip] Failed to persist skip:', error);
+        });
+    }
+
     if (lockMode && currentLead?.id) {
       const campaignLeadId = currentLead.id as string;
       stopHeartbeat();
@@ -1236,6 +1294,9 @@ export default function DialerPage() {
       return;
     }
 
+    // Mark skipped locally so it disappears from current session view
+    setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex ? { ...l, _skipped: true } : l));
+
     setCurrentLeadIndex((prev) => {
       const next = Math.min(prev + 1, leadQueue.length - 1);
       return next;
@@ -1243,7 +1304,7 @@ export default function DialerPage() {
     setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
+  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, retryIntervalHours, currentLeadIndex]);
 
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
     lastUsedCallerId.current = callerNumber;
@@ -1789,7 +1850,7 @@ export default function DialerPage() {
   );
 
   // ── Two-Lane State Machine Hook ──
-  const { machineState } = useDialerStateMachine({
+  const { machineState, autoDialCountdownActive, cancelAutoDialCountdown } = useDialerStateMachine({
     isAutoDialEnabled: autoDialEnabled && !isPaused,
     telnyxCallState,
     telnyxStatus,
@@ -1799,6 +1860,7 @@ export default function DialerPage() {
     checkCallingHours: memoizedCheckHours,
     onCall: handleCall,
     onSkip: handleSkip,
+    onDisableAutoDial: () => setAutoDialEnabled(false),
   });
 
 
@@ -2178,13 +2240,12 @@ export default function DialerPage() {
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
 
-        // Update local status + call_attempts
-        if (selectedDisp) {
-          setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex
-            ? { ...l, status: selectedDisp.name, call_attempts: (l.call_attempts || 0) + 1 }
+        // ── Change 8: Update local call_attempts + last_called_at + status after save ──
+        setLeadQueue(prev => prev.map((l, i) =>
+          i === currentLeadIndex
+            ? { ...l, call_attempts: (l.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || l.status }
             : l
-          ));
-        }
+        ));
       } else {
         toast.dismiss(toastId);
       }
@@ -2277,8 +2338,19 @@ export default function DialerPage() {
             ).toISOString();
           }
 
+          // ── Change 8: Update local call_attempts + last_called_at before queue lifecycle ──
+          setLeadQueue(prev => prev.map((l, i) =>
+            i === currentLeadIndex
+              ? { ...l, call_attempts: (l.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || l.status }
+              : l
+          ));
+
           if (currentLead) {
-            applyQueueLifecycle(currentLead as CampaignLead, selectedDisp?.name || '', callbackDueAt);
+            applyQueueLifecycle(
+              { ...currentLead, call_attempts: (currentLead.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || currentLead.status } as CampaignLead,
+              selectedDisp?.name || '',
+              callbackDueAt,
+            );
           }
 
           // UI wrap-up cleanup (replaces handleAdvance — queue reset is the advance)
@@ -3064,9 +3136,11 @@ export default function DialerPage() {
             PREVIEW_FIELD_LABELS,
             onClearFilters: () => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 }),
             filterSummary:
-              (queueSort !== 'default' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
+              (queueSort !== 'smart' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
                 ? `Showing ${displayQueue.length} of ${leadQueue.length} leads`
                 : "",
+            autoDialCountdownActive,
+            onCancelAutoDialCountdown: cancelAutoDialCountdown,
           }}
           availableScripts={availableScripts}
           activeScriptId={activeScriptId}

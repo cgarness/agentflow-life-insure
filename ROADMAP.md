@@ -53,6 +53,21 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Dialer Queue Hardening — 9-Change Build (Personal & Team Campaigns)**
+  *Migration:* `20260408000000_add_queue_tier_columns.sql`
+  *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/QueuePanel.tsx`, `src/lib/dialer-api.ts`, `src/hooks/useDialerStateMachine.ts`, `ROADMAP.md`
+  *Developer Note:* Comprehensive 9-change hardening pass for the dialer queue system to reach PhoneBurner/Five9 parity.
+  **Change 1 — Pin Active Lead at Position 0**: Active lead always renders as a pinned first card with a pulsing "DIALING" badge, visually separated from the remaining queue. Queue count shows "X remaining" instead of "Showing X of Y".
+  **Change 2 — Auto-Dial Countdown Animation**: When auto-dial is ON and idle on a new lead, a left-to-right CSS fill animation (primary color, 15% opacity, 3s duration via `clip-path` keyframes) sweeps across the active card during the auto-dial delay. Clicking the card during countdown cancels auto-dial instantly. Exposed `autoDialCountdownActive` and `cancelAutoDialCountdown` from `useDialerStateMachine` through to `QueuePanel`.
+  **Change 3 — Hide Past (Dialed) Leads**: Leads with `originalIndex < currentLeadIndex` are filtered out of the display queue entirely. A muted "X dialed" label appears when `currentLeadIndex > 0`. Arrow buttons on the lead card header still allow navigating back.
+  **Change 4 — Session Resume 60-Min Staleness Window**: `loadWithResume` now checks `updated_at` from `dialer_queue_state`. If older than 60 minutes, ignores the saved index and starts at `currentLeadIndex = 0` with a toast.
+  **Change 5 — Calls Made from Live DB Count**: Added `getTodayCallCount(agentId, campaignId)` to `dialer-api.ts` — runs `SELECT COUNT(*)` from `calls` table filtered by today's UTC date. On session load, this grounds `calls_made` in `dialerStats` and `sessionStats` from reality; subsequent dials still optimistically increment.
+  **Change 6 — Skip Persists to campaign_leads**: `handleSkip` now writes `retry_eligible_at = NOW() + retryIntervalHours` and `status = 'Called'` to `campaign_leads` via fire-and-forget `.update()`. Defaults to 24h if `retryIntervalHours` is 0/null. Local `_skipped` flag preserved for instant UI removal.
+  **Change 7 — 4-Tier Smart Sort**: Added `'smart'` sort case to `displayQueue` useMemo implementing the 4-tier waterfall (Callback Due → New → Retry Eligible → Pending). Set as default `queueSort` value. Added "Smart Sort" as first option in dropdown, renamed old "Default" to "Queue Order". Migration adds `callback_due_at` and `retry_eligible_at` TIMESTAMPTZ NULL columns + partial indexes to `campaign_leads`.
+  **Change 8 — Fix Stale call_attempts**: After `saveCallData()` success, both `handleSaveOnly` and `handleSaveAndNext` now update local `leadQueue` with `call_attempts + 1`, `last_called_at`, and `status`. The `handleSaveAndNext` non-lock path also passes the updated lead to `applyQueueLifecycle` so the re-sort uses fresh data.
+  **Change 9 — Always-Visible Attempt Count + Last Disposition**: Every queue card (active and remaining) now renders a fixed bottom row with "X attempt(s)" and "Last Disp: status" (if not Queued/New), styled at 9px muted. This row is independent of the two configurable `queuePreviewFields` slots.
+  Zero TypeScript errors. No new npm packages. All Supabase writes include `organization_id` where applicable. Migration file output only — not executed.
+
 - **2026-04-08 | [DONE] Fix: left contact column blank after lead advance**
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* `handleAdvance`, `handleSkip`, and `handleAutoDispose` did not reset `isEditingContact` or `editForm`. When advancing mid-edit, the left contact info column stayed in edit mode but `editForm` was stale/empty for the incoming lead, rendering it blank. Fix: added `setIsEditingContact(false)` and `setEditForm({})` to all three advance handlers. `autoSaveNoAnswer` inherits the fix via its `handleAdvance()` call; `handleMachineDetectedAction` inherits via `handleAutoDispose`/`handleSkip`. No `useEffect` auto-sync for `editForm` exists (intentional — `startEditing()` is the sole initializer), so the on-advance reset is sufficient.

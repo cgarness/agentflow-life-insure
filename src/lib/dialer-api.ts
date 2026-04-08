@@ -345,6 +345,28 @@ export async function saveAppointment(data: {
   if (actError) throw new Error(actError.message);
 }
 
+/**
+ * getTodayCallCount — Returns the number of calls made today (UTC) by this agent
+ * for a specific campaign. Used to ground the "Calls Made" stat on session load.
+ */
+export async function getTodayCallCount(agentId: string, campaignId: string): Promise<number> {
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+
+  const { count, error } = await supabase
+    .from("calls")
+    .select("*", { count: "exact", head: true })
+    .eq("agent_id", agentId)
+    .eq("campaign_id", campaignId)
+    .gte("created_at", todayStart.toISOString());
+
+  if (error) {
+    console.error("[getTodayCallCount] Error:", error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 /** Convert "2:30 PM" style time to "14:30:00" for timestamp construction */
 function convertTo24h(timeStr: string): string {
   const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
