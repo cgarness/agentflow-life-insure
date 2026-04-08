@@ -339,16 +339,22 @@ export default function DialerPage() {
   // Do NOT gate on isAdvancing — advance/skip/queue/arrow handlers bump the index while
   // isAdvancing is true; if we skip URL writes here, the contact→index effect still sees
   // the old ?contact= and snaps the index back (glitchy arrows / save & next).
+  const lastSyncedLeadIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (loadingLeads || !currentLead) return;
 
-    const leadId = currentLead.lead_id || currentLead.id;
+    const leadId = String(currentLead.lead_id || currentLead.id || "");
     const currentParam = searchParams.get("contact");
 
-    if (leadId && String(leadId) !== String(currentParam ?? "")) {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set("contact", String(leadId));
-      setSearchParams(newParams, { replace: true });
+    // Only conditionally sync if the lead ITSELF changed, to avoid fighting the browser Back button
+    if (leadId !== lastSyncedLeadIdRef.current) {
+      lastSyncedLeadIdRef.current = leadId;
+      if (leadId && leadId !== String(currentParam ?? "")) {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.set("contact", leadId);
+        setSearchParams(newParams, { replace: true });
+      }
     }
   }, [currentLead, loadingLeads, searchParams, setSearchParams]);
 
@@ -360,13 +366,21 @@ export default function DialerPage() {
   useEffect(() => {
     if (loadingLeads) return;
     if (!contactParam || showFullViewDrawer || fetchingFromUrl) return;
+
+    // Ignore URL jumps if we are in the middle of programmatic advancing/skipping.
+    // This prevents stale ?contact= URL from overwriting the queue index while transitions happen.
+    if (isAdvancingRef.current) return;
+
+    const leadId = String(currentLead?.lead_id || currentLead?.id || "");
+    if (contactParam === leadId) return;
+
     const match = leadQueue.find(
       l => String(l.lead_id ?? "") === contactParam || String(l.id ?? "") === contactParam
     );
     if (!match) return;
     const idx = leadQueue.indexOf(match);
     setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
-  }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads]);
+  }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads, currentLead]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [sessionElapsed, setSessionElapsed] = useState(0);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
