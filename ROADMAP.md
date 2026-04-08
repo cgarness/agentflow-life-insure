@@ -53,6 +53,13 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Fix Lead Advance Flicker, History Fetch Abort, and Scroll Anchoring**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/lib/dialer-api.ts`, `ROADMAP.md`
+  *Developer Note:* Three-part fix targeting dialer lead-advance UX:
+  **Fix 1 — Lead Advance Flicker (ERR_INSUFFICIENT_RESOURCES):** Replaced simultaneous independent useEffects (history, agent name, caller ID) with a single debounced orchestration effect (150ms debounce via `useRef` cleanup pattern). Added `isTransitioning` boolean state — while true, ConversationHistory renders `HistorySkeleton` and LeadCard renders its idle skeleton, eliminating flash of stale data. All fetches grouped via `Promise.allSettled` so a single failure doesn't block UI.
+  **Fix 2 — History Fetch AbortError:** Updated `getLeadHistory` in `dialer-api.ts` to throw proper `DOMException('AbortError')` instead of generic `new Error('Aborted')`. Added early-exit guard before queries fire. Updated catch block in `fetchHistory` to check both `err.name` and `err.message` — AbortError is silently swallowed, only genuine failures are logged.
+  **Fix 3 — Scroll Anchoring:** Added `historyEndRef` anchor div as first child of `flex-col-reverse` container in `ConversationHistory` (renders at visual bottom). Added `useEffect` in DialerPage that calls `scrollIntoView({ behavior: 'instant' })` via `requestAnimationFrame` whenever `history.length` changes or `currentLead` changes. Removed `scroll-smooth` class to prevent visible animation on lead advance.
+
 - **2026-04-07 | [DONE] Dialer Concurrency, Telemetry, State Machine & Bugfix Overhaul**
   *Migration:* `20260407000000_dialer_telemetry_hardening.sql`
   *Files Created:* `src/hooks/useDialerStateMachine.ts`

@@ -274,6 +274,8 @@ export default function DialerPage() {
   const [callbackTime, setCallbackTime] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const leadTransitionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const circuitBreakerRef = useRef(new CircuitBreaker({ threshold: 5, windowMs: 60000 }));
   
@@ -998,7 +1000,8 @@ export default function DialerPage() {
         setHistory(data);
       }
     } catch (err: any) {
-      if (err.message !== 'Aborted') {
+      // Ignore AbortError — only log genuine failures
+      if (err.name !== 'AbortError' && err.message !== 'Aborted') {
         console.warn("Failed to load history:", err);
       }
     } finally {
@@ -1008,40 +1011,97 @@ export default function DialerPage() {
     }
   }, [organizationId, isAdvancing]);
 
+  // ── Debounced Lead Transition: orchestrates all lead-dependent fetches ──
+  // Prevents ERR_INSUFFICIENT_RESOURCES by debouncing + serializing fetches
+  // when currentLeadIndex changes rapidly (e.g. skip-spam).
   useEffect(() => {
+    // Clear stale data immediately on lead change
     if (!currentLead) {
       setHistory([]);
-      return;
-    }
-    const controller = new AbortController();
-    fetchHistory(currentLead.lead_id || currentLead.id, controller.signal);
-    return () => controller.abort();
-  }, [currentLead, fetchHistory]);
-
-  useEffect(() => {
-    if (!currentLead?.assigned_agent_id) {
       setAssignedAgentName(null);
+      setIsTransitioning(false);
       return;
     }
+
+    // Show skeleton immediately
+    setIsTransitioning(true);
+
+    // Cancel any pending debounce from previous lead change
+    if (leadTransitionRef.current) {
+      clearTimeout(leadTransitionRef.current);
+    }
+
     const controller = new AbortController();
-    supabase
-      .from('profiles')
-      .select('first_name, last_name')
-      .eq('id', currentLead.assigned_agent_id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!controller.signal.aborted) {
-          if (data) {
-            setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
-          } else {
-            setAssignedAgentName(null);
+    const leadId = currentLead.lead_id || currentLead.id;
+    const agentId = currentLead.assigned_agent_id;
+
+    // 150ms debounce — cancels if lead changes again within window
+    leadTransitionRef.current = setTimeout(async () => {
+      const fetchHistoryTask = (async () => {
+        try {
+          const data = await getLeadHistory(leadId, organizationId, controller.signal);
+          if (!controller.signal.aborted) {
+            setHistory(data);
+          }
+        } catch (err: any) {
+          if (err.name !== 'AbortError' && err.message !== 'Aborted') {
+            console.warn("Failed to load history:", err);
           }
         }
-      });
-    return () => controller.abort();
-  }, [currentLead?.assigned_agent_id]);
+      })();
 
-  // Removed scroll-to-bottom effect in favor of CSS flex-col-reverse anchoring in ConversationHistory component
+      const fetchAgentTask = (async () => {
+        if (!agentId) {
+          setAssignedAgentName(null);
+          return;
+        }
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('first_name, last_name')
+            .eq('id', agentId)
+            .maybeSingle();
+          if (!controller.signal.aborted) {
+            if (data) {
+              setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
+            } else {
+              setAssignedAgentName(null);
+            }
+          }
+        } catch {
+          // non-critical
+        }
+      })();
+
+      await Promise.allSettled([fetchHistoryTask, fetchAgentTask]);
+
+      if (!controller.signal.aborted) {
+        setIsTransitioning(false);
+        setLoadingHistory(false);
+      }
+    }, 150);
+
+    return () => {
+      controller.abort();
+      if (leadTransitionRef.current) {
+        clearTimeout(leadTransitionRef.current);
+        leadTransitionRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLead?.id, currentLead?.lead_id, organizationId]);
+
+  // ── Scroll history to bottom on new items or lead change ──
+  const prevHistoryLenRef = useRef(0);
+  useEffect(() => {
+    if (history.length !== prevHistoryLenRef.current || !isTransitioning) {
+      prevHistoryLenRef.current = history.length;
+      // Small raf delay to let DOM paint the new items
+      requestAnimationFrame(() => {
+        historyEndRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+      });
+    }
+  }, [history.length, currentLead?.id, isTransitioning]);
 
   /* --- queue lifecycle --- */
 
@@ -2898,15 +2958,15 @@ export default function DialerPage() {
               isEditing={isEditingContact}
               editForm={editForm}
               onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
-              isAdvancing={isAdvancing}
+              isAdvancing={isAdvancing || isTransitioning}
             />
           </div>
         </div>
 
         {/* ── CENTER COLUMN (Conversation History) ── */}
         <ConversationHistory
-          history={history}
-          loadingHistory={loadingHistory}
+          history={isTransitioning ? [] : history}
+          loadingHistory={loadingHistory || isTransitioning}
           formatDateTime={formatDateTime}
           smsTab={smsTab}
           messageText={messageText}
@@ -2919,6 +2979,7 @@ export default function DialerPage() {
           onMessageChange={(text) => setMessageText(text)}
           onSubjectChange={(text) => setSubjectText(text)}
           onCallerNumberChange={setSelectedCallerNumber}
+          historyEndRef={historyEndRef}
         />
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
