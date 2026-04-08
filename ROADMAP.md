@@ -64,6 +64,14 @@
   **Fix 2 — historyLeadId Transition Guard (eliminates stale-history flash):** Added `historyLeadId` state (`useState<string | null>(null)`). Set in the `finally` block of the history fetch so it always clears regardless of success/error. In the JSX, `ConversationHistory` receives `history` only when `historyLeadId === (currentLead?.lead_id || currentLead?.id)` — otherwise an empty array is passed and `loadingHistory` is forced true, showing the skeleton. This prevents the previous lead's history from flashing while the next lead's history loads.
   **Fix 3 — Instant Scroll Anchor (already in place):** `historyEndRef` sentinel is the first child of the `flex-col-reverse` scroll container in `ConversationHistory.tsx`, anchoring to visual bottom. `scrollIntoView({ behavior: 'instant' })` fires via `requestAnimationFrame` on `history.length` or `currentLead` change. No smooth animation that could be mistaken for a render glitch.
 
+- **2026-04-07 | [DONE] Hotfix — Dialer Lead Transition Stabilization & UI Restoration**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/DialerActions.tsx`, `src/hooks/useDialerStateMachine.ts`, `ROADMAP.md`
+  *Developer Note:* Resolved critical UI "glitching" and state-thrashing during lead selection.
+  **Pillar 1 — UI Restoration**: Restored missing `Queue` and `Scripts` tabs to the `DialerActions` right-hand panel. Updated the component to conditionally render `QueuePanel` and `Script` list based on the active tab, passing through all necessary state from the parent.
+  **Pillar 2 — State Guard (Revolving Door)**: Implemented `isAdvancing` guard in `DialerPage` and `useDialerStateMachine`. Created `handleLeadSelect` to block rapid-fire state updates and prevent real-time database locks from triggering infinite re-render loops.
+  **Pillar 3 — Timer Hardening**: Updated the auto-dialer state machine to be more resilient against rapid state changes by improving timer cleanup and post-delay precondition verification.
+  **Pillar 4 — Technical Debt Roadmap**: Added a high-priority [TODO] item to decompose the 3,000+ line `DialerPage.tsx` into single-responsibility sub-components.
+
 - **2026-04-07 | [DONE] Dialer Concurrency, Telemetry, State Machine & Bugfix Overhaul**
   *Migration:* `20260407000000_dialer_telemetry_hardening.sql`
   *Files Created:* `src/hooks/useDialerStateMachine.ts`
@@ -209,6 +217,39 @@
 2.  **Follow-up Engine**: Deploy `tasks` and unified `notifications` for agent follow-ups.
 3.  **Real-Time Metrics**: Connect `dial_sessions` to custom agent leaderboards based on live telnyx connects.
 4.  **GO-LIVE**: Final production rollout for agency trial users.
+
+---
+
+## 5. Refactor & Technical Debt [TODO]
+- `[TODO]` **Break down `DialerPage.tsx`**: (High Priority) Component is currently >3,000 lines. Refactor into `src/components/dialer/` sub-modules (e.g., `DialerHeader`, `DialerLeadSection`, `DialerHistory`, `DialerModals`) to meet the <200-line standard and improve maintainability.
+
+---
+
+## 19. Context Snapshot — Lead Transition Stabilization (2026-04-07)
+
+### What Was Built
+A "revolving door" state guard system to stabilize the Dialer during lead transitions, and restoration of the missing Queue/Scripts UI panels.
+
+**Frontend layer (`src/pages/DialerPage.tsx`):**
+- `isAdvancing` — Boolean state used as a global guard for all transitionary logic.
+- `handleLeadSelect(idx)` — Debounced selection handler (500ms cooldown) that sets `isAdvancing` to `true` while the new lead's history and metadata are fetched.
+- **UI Restoration**: Updated `DialerActions` to conditionally render `QueuePanel` and `Script` lists, ensuring agents can manage their workflow without leaving the dialer view.
+
+**State Machine layer (`src/hooks/useDialerStateMachine.ts`):**
+- Added `isAdvancing` as an external guard to the auto-dial trigger.
+- **Timer Hardening**: Auto-dial timer now re-verifies `telnyxStatus` and `isAutoDialEnabled` AFTER the 3s delay but BEFORE the call fires, preventing race conditions where an agent disables auto-dial or switches leads during the countdown.
+
+### Schema & UI Decisions Made
+| Decision | Rationale |
+|---|---|
+| `QueuePanel` in `DialerActions` | Maximizes vertical space for conversation history by keeping controls in the right-hand column. |
+| 500ms `isAdvancing` cooldown | Sufficient to allow Supabase Realtime and Telnyx context to settle before accepting the next user input. |
+| Pass-through props to `DialerActions` | Maintains `DialerPage` as the single source of truth for dialer state, even if at high complexity. |
+| `[TODO]` for `DialerPage` refactor | Acknowledges the >3,000 line technical debt while prioritizing an immediate stability hotfix. |
+
+### What's Next
+- **Refactor `DialerPage.tsx`**: Must be broken down into `<DialerHeader />`, `<LeadSection />`, `<HistorySection />`, and `<ActionPanel />` to meet the <200-line standard.
+- **Persistent Filters**: Queue filters are currently transient in the UI; consider persisting them to `localStorage` or `dialer_queue_state`.
 
 ---
 

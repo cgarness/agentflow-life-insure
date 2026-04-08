@@ -1,5 +1,5 @@
 import React from "react";
-import { Phone, PhoneOff, ArrowRight, Check, X, FileText } from "lucide-react";
+import { Phone, PhoneOff, ArrowRight, FileText, ScrollText, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ClaimRing from "./ClaimRing";
 import LockTimerArc from "./LockTimerArc";
@@ -22,6 +22,9 @@ interface DialerActionsProps {
   amdStatus: 'idle' | 'detecting' | 'human' | 'machine';
   claimRingActive: boolean;
   campaignType: string;
+  campaignId: string;
+  organizationId: string | null;
+  userRole: string;
   lockMode: boolean;
   currentLead: any;
   leftTab: "dispositions" | "queue" | "scripts";
@@ -33,10 +36,11 @@ interface DialerActionsProps {
   onSkip: () => void;
   onSelectTab: (tab: "dispositions" | "queue" | "scripts") => void;
   onSelectDisposition: (disp: Disposition) => void;
-  // Queue tab props
+  
+  // ── Combined Props ──
   queuePanelProps: React.ComponentProps<typeof QueuePanel>;
-  // Scripts tab props
   availableScripts: { id: string; name: string; content: string }[];
+  activeScriptId: string | null;
   onOpenScript: (scriptId: string) => void;
 }
 
@@ -60,6 +64,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   onSelectDisposition,
   queuePanelProps,
   availableScripts,
+  activeScriptId,
   onOpenScript,
 }) => {
   return (
@@ -170,29 +175,49 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
           )}
 
           {leftTab === "queue" && (
-            <QueuePanel {...queuePanelProps} />
+            <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-2 duration-300">
+              <QueuePanel {...queuePanelProps} />
+            </div>
           )}
 
           {leftTab === "scripts" && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-right-2 duration-300">
+              <div className="flex items-center gap-2 mb-2">
+                <ScrollText className="w-4 h-4 text-primary" />
+                <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Available Scripts</span>
+              </div>
+              
               {availableScripts.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
-                  <p className="text-sm text-muted-foreground">No scripts available</p>
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <ScrollText className="w-8 h-8 text-muted-foreground/20 mb-2" />
+                  <p className="text-xs text-muted-foreground">No scripts assigned to this campaign</p>
                 </div>
               ) : (
-                availableScripts.map((script) => (
-                  <button
-                    key={script.id}
-                    onClick={() => onOpenScript(script.id)}
-                    className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors flex items-center justify-between group"
-                  >
-                    <span className="text-xs font-bold text-foreground uppercase tracking-tight">
-                      {script.name}
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-                  </button>
-                ))
+                <div className="flex flex-col gap-2">
+                  {availableScripts.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => onOpenScript(s.id)}
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-xl border text-sm transition-all text-left group",
+                        activeScriptId === s.id
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-card border-border text-foreground hover:bg-accent"
+                      )}
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-semibold line-clamp-1">{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground line-clamp-1">
+                          {s.content?.substring(0, 40)}...
+                        </span>
+                      </div>
+                      <Play className={cn(
+                        "w-4 h-4 transition-transform group-hover:scale-110",
+                        activeScriptId === s.id ? "text-primary" : "text-muted-foreground opacity-0 group-hover:opacity-100"
+                      )} />
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )}

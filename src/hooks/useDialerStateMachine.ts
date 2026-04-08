@@ -48,6 +48,8 @@ export interface UseDialerStateMachineProps {
   showWrapUp: boolean;
   /** Calling hours checker from AutoDialer instance */
   checkCallingHours?: (leadState: string) => boolean;
+  /** Whether the dialer is currently transitioning between leads */
+  isAdvancing?: boolean;
 
   // ── Callbacks ──
   /** Initiate a call to the current lead */
@@ -75,6 +77,7 @@ export function useDialerStateMachine({
   hasDialedOnce,
   showWrapUp,
   checkCallingHours,
+  isAdvancing,
   onCall,
   onSkip,
 }: UseDialerStateMachineProps): UseDialerStateMachineReturn {
@@ -122,9 +125,11 @@ export function useDialerStateMachine({
       !currentLead ||
       telnyxCallState !== 'idle' ||
       telnyxStatus !== 'ready' ||
-      showWrapUp
+      showWrapUp ||
+      isAdvancing
     ) {
       if (autoDialTimerRef.current) {
+        console.log('[StateMachine] Auto-dial preconditions lost, clearing timer.');
         clearTimeout(autoDialTimerRef.current);
         autoDialTimerRef.current = null;
       }
@@ -191,6 +196,7 @@ export function useDialerStateMachine({
     onCall,
     onSkip,
     hasDialedOnce,
+    isAdvancing,
   ]);
 
   // (Lead change reset removed to prevent race conditions during auto-advance)

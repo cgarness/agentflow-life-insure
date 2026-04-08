@@ -239,6 +239,7 @@ export default function DialerPage() {
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
   const [leftTab, setLeftTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
+
   // Call status from context
   const {
     status: telnyxStatus,
@@ -259,6 +260,21 @@ export default function DialerPage() {
     getSmartCallerId,
     amdEnabled,
   } = useTelnyx();
+
+  // ── Lead Selection Handler (with isAdvancing guard) ──
+  const handleLeadSelect = useCallback((idx: number) => {
+    if (isAdvancing) return;
+    if (idx === currentLeadIndex) return;
+
+    setIsAdvancing(true);
+    setCurrentLeadIndex(idx);
+    // Explicitly reset wrap-up if we switch leads manually
+    if (telnyxCallState === "idle" || telnyxCallState === "ended") {
+      setShowWrapUp(false);
+    }
+    // Release isAdvancing after a short delay to allow state-flicker to settle
+    setTimeout(() => setIsAdvancing(false), 500);
+  }, [isAdvancing, currentLeadIndex, telnyxCallState]);
 
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
@@ -3004,6 +3020,9 @@ export default function DialerPage() {
           amdStatus={amdStatus}
           claimRingActive={claimRingActive}
           campaignType={campaignType}
+          campaignId={selectedCampaignId || ""}
+          organizationId={organizationId}
+          userRole={profile?.role || "agent"}
           lockMode={lockMode}
           currentLead={currentLead}
           leftTab={leftTab}
@@ -3023,7 +3042,7 @@ export default function DialerPage() {
             displayQueue: displayQueue as any,
             leadQueue: leadQueue as any,
             currentLeadIndex,
-            onSelectLead: setCurrentLeadIndex,
+            onSelectLead: handleLeadSelect,
             queueSort,
             setQueueSort,
             showQueueFilters,
@@ -3045,6 +3064,7 @@ export default function DialerPage() {
                 : "",
           }}
           availableScripts={availableScripts}
+          activeScriptId={activeScriptId}
           onOpenScript={setActiveScriptId}
         />
 
