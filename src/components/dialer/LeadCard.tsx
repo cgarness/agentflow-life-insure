@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useEffect, useState } from "react";
 import LeadCardBlurred from "./LeadCardBlurred";
 import { LeadInfoSkeleton } from "./DialerSkeletons";
 
@@ -95,6 +95,22 @@ export default function LeadCard({
   onEditChange,
   isAdvancing,
 }: LeadCardProps) {
+  // Track lead ID for fade transition on lead change
+  const prevLeadId = useRef<string | null>(null);
+  const [fadeIn, setFadeIn] = useState(true);
+
+  const leadId = (lead?.id || lead?.lead_id || null) as string | null;
+
+  useEffect(() => {
+    if (leadId && prevLeadId.current && leadId !== prevLeadId.current) {
+      // New lead arrived — trigger a quick fade-in
+      setFadeIn(false);
+      const raf = requestAnimationFrame(() => setFadeIn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    prevLeadId.current = leadId;
+  }, [leadId]);
+
   // ── idle ──────────────────────────────────────────────────────────────────
   if (callStatus === "idle" || !lead || isAdvancing) {
     return (
@@ -134,7 +150,13 @@ export default function LeadCard({
   ];
 
   return (
-    <div className="p-4 flex-1 overflow-y-auto">
+    <div
+      className="p-4 flex-1 overflow-y-auto"
+      style={{
+        transition: "opacity 150ms ease-in",
+        opacity: fadeIn ? 1 : 0,
+      }}
+    >
       {/* Claimed badge */}
       {isClaimed && (
         <div

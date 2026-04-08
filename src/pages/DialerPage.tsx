@@ -333,6 +333,7 @@ export default function DialerPage() {
   const callWasAnswered = useRef(false);
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
+  const hasProcessedEndedState = useRef(false);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
@@ -1464,21 +1465,32 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [telnyxCallState, telnyxHangUp]);
 
+  // Reset the ended-state guard when call state leaves "ended"
+  useEffect(() => {
+    if (telnyxCallState !== "ended") {
+      hasProcessedEndedState.current = false;
+    }
+  }, [telnyxCallState]);
+
   // Trigger wrap-up when call ends (covers remote hangup)
   // AMD machine detection may auto-advance if auto-dial is on.
   // Ring timeout (call never answered) auto-dispositions as "No Answer" silently.
   // Manual hang-up of an answered call ALWAYS shows the wrap-up panel.
   useEffect(() => {
     if (telnyxCallState === "ended") {
+      // Process-once guard: prevent re-firing from dependency changes while still "ended"
+      if (hasProcessedEndedState.current) return;
+      hasProcessedEndedState.current = true;
+
       // Re-entrancy guard: prevent infinite loop
       if (isAutoDispositioningRef.current) return;
-      
+
       // Strict process-once-per-call-id guard
       const callIdToProcess = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId || currentCallId;
       if (callIdToProcess && lastProcessedCallIdRef.current === callIdToProcess) {
         return;
       }
-      
+
       if (callIdToProcess) {
         lastProcessedCallIdRef.current = callIdToProcess;
       }
@@ -1490,7 +1502,6 @@ export default function DialerPage() {
 
       // ── Ring timeout / no answer path — auto-disposition silently ──
       if (!wasAnswered) {
-        if (isAutoDispositioningRef.current) return;
         isAutoDispositioningRef.current = true;
 
         console.log("[DialerPage] Call ended without being answered — auto-dispositioning as No Answer.");
@@ -2952,7 +2963,6 @@ export default function DialerPage() {
 
             {/* Staged lead reveal — handled by LeadCard */}
             <LeadCard
-              key={currentLead?.id || currentLead?.lead_id || "idle"}
               lead={currentLead}
               callStatus={callStatus}
               callAttempts={currentLead?.call_attempts ?? 0}
@@ -2962,7 +2972,7 @@ export default function DialerPage() {
               isEditing={isEditingContact}
               editForm={editForm}
               onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
-              isAdvancing={isAdvancing || isTransitioning}
+              isAdvancing={isAdvancing}
             />
           </div>
         </div>
