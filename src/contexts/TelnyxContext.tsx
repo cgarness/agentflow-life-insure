@@ -197,6 +197,33 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
+  /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
+  const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
+    try {
+      const { data: { session } } = await supabase.auth.refreshSession();
+      if (!session?.access_token) return false;
+
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          call_id: callId,
+          call_control_id: callControlId,
+        }),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // ─── Mid-Call Refresh Recovery ───
   // If the agent reloads mid-call, check for orphaned active calls and surface a hang-up UI
   useEffect(() => {
@@ -234,6 +261,32 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
 
+        // Silent recovery: after refresh, WebRTC cannot restore audio — same as tapping Hang Up.
+        // Finalizes the DB row (and best-effort Telnyx) so ghost "connected" rows do not loop forever.
+        const edgeOk = await requestDialerHangup(data.id, data.telnyx_call_control_id);
+        if (edgeOk) {
+          console.log(`[TelnyxContext] Orphan row ${data.id} finalized via dialer-hangup (silent refresh recovery).`);
+          return;
+        }
+
+        const endedAt = new Date().toISOString();
+        const startedMs = data.started_at ? new Date(data.started_at).getTime() : Date.now();
+        const durationSec = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
+        const { error: clientErr } = await supabase
+          .from('calls')
+          .update({
+            status: 'completed',
+            ended_at: endedAt,
+            duration: durationSec,
+          })
+          .eq('id', data.id)
+          .eq('agent_id', profile.id);
+
+        if (!clientErr) {
+          console.log(`[TelnyxContext] Orphan row ${data.id} finalized via client update (Edge fallback).`);
+          return;
+        }
+
         console.warn(`[TelnyxContext] Orphaned active call detected: ${data.id} (status=${data.status}). Surfacing recovery UI.`);
         setOrphanCall(data as OrphanCall);
       } catch (err) {
@@ -242,40 +295,24 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     checkOrphanedCalls();
-  }, [profile?.id, organizationId]);
+  }, [profile?.id, organizationId, requestDialerHangup]);
 
   const hangUpOrphan = useCallback(async () => {
     if (!orphanCall) return;
 
     try {
-      const { data: { session } } = await supabase.auth.refreshSession();
-      if (!session?.access_token) {
-        toast.error('Session expired. Please log in again.');
-        return;
-      }
-
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          call_id: orphanCall.id,
-          call_control_id: orphanCall.telnyx_call_control_id,
-        }),
-      });
-
-      if (resp.ok) {
+      const ok = await requestDialerHangup(orphanCall.id, orphanCall.telnyx_call_control_id);
+      if (ok) {
         console.log(`[TelnyxContext] Orphaned call ${orphanCall.id} terminated successfully.`);
         toast.success('Orphaned call terminated.');
       } else {
-        console.warn(`[TelnyxContext] Orphan hangup returned HTTP ${resp.status}`);
-        toast.warning('Call may have already ended.');
+        const { data: { session } } = await supabase.auth.refreshSession();
+        if (!session?.access_token) {
+          toast.error('Session expired. Please log in again.');
+        } else {
+          console.warn(`[TelnyxContext] Orphan hangup request failed`);
+          toast.warning('Call may have already ended.');
+        }
       }
     } catch (err) {
       console.error('[TelnyxContext] Error hanging up orphan call:', err);
@@ -283,7 +320,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       setOrphanCall(null);
     }
-  }, [orphanCall]);
+  }, [orphanCall, requestDialerHangup]);
 
   const dismissOrphanCall = useCallback(() => {
     setOrphanCall(null);
@@ -311,7 +348,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   const finalizeCallRecord = useCallback(async (duration: number) => {
-    if (!activeCallIdRef.current || !organizationId) return;
+    if (!activeCallIdRef.current) return;
 
     const callId = activeCallIdRef.current;
     const leadId = activeLeadIdRef.current;
@@ -333,8 +370,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           ended_at: new Date().toISOString(),
           duration: duration
         })
-        .eq('id', callId)
-        .eq('organization_id', organizationId); // Strict RLS scoping
+        .eq('id', callId);
 
       if (error) {
         console.error("[TelnyxContext] Error finalizing call record:", error);
@@ -342,7 +378,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (err) {
       console.error("[TelnyxContext] Exception during call finalization:", err);
     }
-  }, [organizationId]);
+  }, []);
 
   const hangUp = useCallback(async () => {
     const callId = activeCallIdRef.current;

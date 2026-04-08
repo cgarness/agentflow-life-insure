@@ -62,7 +62,10 @@ Deno.serve(async (req) => {
     const startedAt = call.started_at ? new Date(call.started_at) : null;
     const duration = startedAt ? Math.round((new Date(endedAt).getTime() - startedAt.getTime()) / 1000) : 0;
 
-    const { error: updateError } = await supabaseClient
+    // Scope by id + agent only. A strict organization_id match can update **0 rows**
+    // (NULL/mismatched org on the row) while PostgREST still returns no error — leaving
+    // status stuck at connected/ringing and triggering the orphan banner forever.
+    const { data: updatedRows, error: updateError } = await supabaseClient
       .from("calls")
       .update({
         status: "completed",
@@ -70,11 +73,16 @@ Deno.serve(async (req) => {
         duration: duration,
       })
       .eq("id", call_id)
-      .eq("organization_id", call.organization_id); // Strict RLS scoping
+      .eq("agent_id", user.id)
+      .select("id");
 
     if (updateError) {
       console.error(`[dialer-hangup] Database update error for call ${call_id}:`, updateError);
       throw new Error(`Failed to update call record: ${updateError.message}`);
+    }
+    if (!updatedRows?.length) {
+      console.error(`[dialer-hangup] Update matched 0 rows for call ${call_id}`);
+      throw new Error("Call record could not be updated (no matching row).");
     }
 
     if (!controlId) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -385,6 +385,8 @@ export default function DialerPage() {
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
   const hasProcessedEndedState = useRef(false);
+  /** After applyQueueLifecycle mutates the queue, index is applied in the same paint via useLayoutEffect */
+  const pendingLifecycleIndexRef = useRef<number | null>(null);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
@@ -1249,12 +1251,19 @@ export default function DialerPage() {
           : nextIndex === -1
             ? 0
             : Math.min(nextIndex, newQueue.length - 1);
-      queueMicrotask(() => setCurrentLeadIndex(safeIndex));
+      pendingLifecycleIndexRef.current = safeIndex;
       return newQueue;
     });
 
-    setTimeout(() => setIsAdvancing(false), 300);
+    setTimeout(() => setIsAdvancing(false), 320);
   }, [retryIntervalHours]);
+
+  useLayoutEffect(() => {
+    const p = pendingLifecycleIndexRef.current;
+    if (p === null) return;
+    pendingLifecycleIndexRef.current = null;
+    setCurrentLeadIndex((cur) => (cur === p ? cur : p));
+  }, [leadQueue]);
 
   /* --- call handlers --- */
 
@@ -1914,10 +1923,10 @@ export default function DialerPage() {
     currentLead,
     hasDialedOnce,
     showWrapUp,
+    isAdvancing,
     checkCallingHours: memoizedCheckHours,
     onCall: handleCall,
     onSkip: handleSkip,
-    onDisableAutoDial: () => setAutoDialEnabled(false),
   });
 
 

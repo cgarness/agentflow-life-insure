@@ -53,6 +53,14 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Auto-dial — stable next-contact transition (state machine + queue index)**
+  *Files Modified:* `src/hooks/useDialerStateMachine.ts`, `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Auto-dial was resetting or firing with the wrong lead because `handleCall` lived in the effect dependency array (identity changes on every `dialerStats` bump), stale `setTimeout` closures read old Telnyx flags, and `isAdvancing` was never passed so timers could arm during queue/URL settling. The hook now uses refs for `onCall` / guards, keys the delay off `leadKey` only, clears or replaces pending timers when the lead changes, validates `leadKey` at fire time, and exposes `autoDialCountdownActive` + `cancelAutoDialCountdown` again. `applyQueueLifecycle` no longer uses `queueMicrotask` for `setCurrentLeadIndex` (one frame could show `leadQueue[i]` with a stale `i`); `pendingLifecycleIndexRef` + `useLayoutEffect` applies the new index before paint. `isAdvancing` clear delay set to ~320ms to cover URL/index sync.
+
+- **2026-04-08 | [DONE] Orphan banner after refresh — silent recovery + hangup DB scoping**
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `supabase/functions/dialer-hangup/index.ts`, `ROADMAP.md`
+  *Developer Note:* `dialer-hangup` no longer adds `.eq(organization_id, …)` on the `calls` update (NULL/mismatch could match **zero rows** without surfacing an error, leaving `connected` forever). Update is scoped by `id` + `agent_id`, with `.select('id')` to fail if no row changed. On orphan detection, the app now **silently** calls `dialer-hangup` then a **client RLS fallback** update before showing the orange banner — refresh self-heals ghost rows. `finalizeCallRecord` drops the redundant `organization_id` filter for the same reason.
+
 - **2026-04-08 | [DONE] Hotfix — Orphan-call banner loop + Vercel build (`ended_at`, `getTodayCallCount`)**
   *Files Modified:* `src/lib/dialer-api.ts`, `src/contexts/TelnyxContext.tsx`, `supabase/functions/dialer-hangup/index.ts`, `ROADMAP.md`
   *Developer Note:* The `calls` table column is **`ended_at`** (see generated types). `dialer-hangup` and `finalizeCallRecord` were updating a non-existent **`end_at`** field, so Postgres rejected the update and rows stayed `ringing`/`connected`. The orphan-call detector then kept finding the same row after every hang-up / navigation. Fixed both writers to use `ended_at`; `dialer-hangup` now throws if the DB update fails so we do not return success with a stale row. Restored **`getTodayCallCount`** in `dialer-api.ts` (referenced by `DialerPage` but missing after the history refactor), which unblocked the Vite/Rollup production build on Vercel.
