@@ -330,30 +330,38 @@ export default function DialerPage() {
   const [dialerStats, setDialerStats] = useState<DialerDailyStats | null>(null);
   const [sessionStats, setSessionStats] = useState({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
 
+  // Keep ?contact= aligned with whichever lead is at currentLeadIndex.
+  // Do NOT gate on isAdvancing — advance/skip/queue/arrow handlers bump the index while
+  // isAdvancing is true; if we skip URL writes here, the contact→index effect still sees
+  // the old ?contact= and snaps the index back (glitchy arrows / save & next).
   useEffect(() => {
-    if (isAdvancing || loadingLeads || !currentLead) return;
-    
+    if (loadingLeads || !currentLead) return;
+
     const leadId = currentLead.lead_id || currentLead.id;
     const currentParam = searchParams.get("contact");
-    
-    if (leadId && leadId !== currentParam) {
+
+    if (leadId && String(leadId) !== String(currentParam ?? "")) {
       const newParams = new URLSearchParams(searchParams);
-      newParams.set("contact", leadId);
+      newParams.set("contact", String(leadId));
       setSearchParams(newParams, { replace: true });
     }
-  }, [currentLead, isAdvancing, loadingLeads, searchParams, setSearchParams]);
+  }, [currentLead, loadingLeads, searchParams, setSearchParams]);
 
+  const contactParam = searchParams.get("contact");
+
+  // Deep-link / browser back: when ?contact= or queue contents change, jump to that lead.
+  // Must NOT depend on currentLeadIndex — otherwise this runs on every arrow click with a
+  // stale URL for one frame and overwrites the index before the URL effect above runs.
   useEffect(() => {
-    if (isAdvancing || loadingLeads) return;
-    const contactId = searchParams.get("contact");
-    if (contactId && !showFullViewDrawer && !fetchingFromUrl) {
-      // If already in queue, just switch to it
-      const match = leadQueue.find(l => (l.lead_id === contactId || l.id === contactId));
-      if (match && leadQueue.indexOf(match) !== currentLeadIndex) {
-        setCurrentLeadIndex(leadQueue.indexOf(match));
-      }
-    }
-  }, [searchParams, leadQueue, showFullViewDrawer, fetchingFromUrl, currentLeadIndex, isAdvancing, loadingLeads]);
+    if (loadingLeads) return;
+    if (!contactParam || showFullViewDrawer || fetchingFromUrl) return;
+    const match = leadQueue.find(
+      l => String(l.lead_id ?? "") === contactParam || String(l.id ?? "") === contactParam
+    );
+    if (!match) return;
+    const idx = leadQueue.indexOf(match);
+    setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
+  }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [sessionElapsed, setSessionElapsed] = useState(0);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
@@ -368,6 +376,8 @@ export default function DialerPage() {
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
+  /** In-session cache: instant history when revisiting a lead; invalidated on explicit refresh. */
+  const historySessionCacheRef = useRef<Map<string, HistoryItem[]>>(new Map());
   const lastScrolledLeadIdRef = useRef<string | null>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasDialedOnce = useRef(false);
@@ -1076,10 +1086,12 @@ export default function DialerPage() {
 
   const fetchHistory = useCallback(async (leadId: string, signal?: AbortSignal) => {
     if (isAdvancing) return;
+    historySessionCacheRef.current.delete(leadId);
     setLoadingHistory(true);
     try {
       const data = await getLeadHistory(leadId, organizationId, signal);
       if (!signal?.aborted) {
+        historySessionCacheRef.current.set(leadId, data);
         setHistory(data);
       }
     } catch (err: any) {
@@ -1119,44 +1131,57 @@ export default function DialerPage() {
     const leadId = currentLead.lead_id || currentLead.id;
     const agentId = currentLead.assigned_agent_id;
 
-    // 150ms debounce — cancels if lead changes again within window
-    leadTransitionRef.current = setTimeout(async () => {
-      // 1. History first (most important for agent) — sequential, not parallel
+    const cached = historySessionCacheRef.current.get(leadId);
+    if (cached) {
+      setHistory(cached);
+      setHistoryLeadId(leadId);
+      setLoadingHistory(false);
+    } else {
+      setHistory([]);
+      setHistoryLeadId(null);
       setLoadingHistory(true);
-      try {
-        const data = await getLeadHistory(leadId, organizationId, controller.signal);
-        if (!controller.signal.aborted) {
-          setHistory(data);
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError' && err.message !== 'Aborted') {
-          console.warn("Failed to load history:", err);
-          toast.error("Failed to load history");
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoadingHistory(false);
-          setHistoryLeadId(leadId); // always update so skeleton clears
-        }
-      }
+    }
+
+    // 0ms — yield one tick so rapid lead switches still batch-cancel via clearTimeout above
+    leadTransitionRef.current = setTimeout(async () => {
+      const historyPromise = getLeadHistory(leadId, organizationId, controller.signal);
+      const profilePromise = agentId
+        ? supabase
+            .from("profiles")
+            .select("first_name, last_name")
+            .eq("id", agentId)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { first_name?: string; last_name?: string } | null });
+
+      const [histOutcome, profOutcome] = await Promise.allSettled([historyPromise, profilePromise]);
 
       if (controller.signal.aborted) return;
 
-      // 2. Assigned agent name second (low priority)
-      if (agentId) {
-        try {
-          const { data } = await supabase
-            .from('profiles')
-            .select('first_name, last_name')
-            .eq('id', agentId)
-            .maybeSingle();
-          if (!controller.signal.aborted && data) {
-            setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
-          } else if (!controller.signal.aborted) {
-            setAssignedAgentName(null);
-          }
-        } catch {
-          // non-critical
+      if (histOutcome.status === "fulfilled") {
+        const data = histOutcome.value;
+        historySessionCacheRef.current.set(leadId, data);
+        setHistory(data);
+        setHistoryLeadId(leadId);
+        setLoadingHistory(false);
+      } else {
+        const err = histOutcome.reason;
+        if (err?.name !== "AbortError" && err?.message !== "Aborted") {
+          console.warn("Failed to load history:", err);
+          toast.error("Failed to load history");
+        }
+        setLoadingHistory(false);
+        setHistoryLeadId(leadId);
+      }
+
+      if (!agentId) {
+        setAssignedAgentName(null);
+      } else if (profOutcome.status === "fulfilled") {
+        const profRes = profOutcome.value as { data: { first_name?: string; last_name?: string } | null };
+        if (profRes?.data) {
+          const p = profRes.data;
+          setAssignedAgentName(`${p.first_name || ""} ${p.last_name || ""}`.trim());
+        } else {
+          setAssignedAgentName(null);
         }
       } else {
         setAssignedAgentName(null);
@@ -1165,7 +1190,7 @@ export default function DialerPage() {
       if (!controller.signal.aborted) {
         setIsTransitioning(false);
       }
-    }, 150);
+    }, 0);
 
     return () => {
       controller.abort();

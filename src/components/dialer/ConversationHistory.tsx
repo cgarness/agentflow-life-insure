@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
 
@@ -64,7 +64,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   historyEndRef,
 }) => {
   // Reverse history so newest is index 0 for flex-col-reverse anchoring
-  const reversedHistory = [...history].reverse();
+  const reversedHistory = useMemo(() => [...history].reverse(), [history]);
 
   return (
     <div className="flex-[1.5] flex flex-col overflow-hidden min-h-0 h-full">
@@ -105,7 +105,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
           {!loadingHistory &&
             reversedHistory.map((item) => (
-              <div key={item.id} className="flex items-start gap-3 animate-in fade-in duration-300">
+              <div key={item.id} className="flex items-start gap-3">
                 <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
                   {historyIcon(item.type)}
                 </div>

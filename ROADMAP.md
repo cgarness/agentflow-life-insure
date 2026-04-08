@@ -53,6 +53,14 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-08 | [DONE] Perf — Faster, smoother dialer conversation history**
+  *Files Modified:* `src/lib/dialer-api.ts`, `src/pages/DialerPage.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/components/dialer/DialerSkeletons.tsx`, `ROADMAP.md`
+  *Developer Note:* `getLeadHistory` now selects only columns needed for the timeline, orders + limits at the database (80 per source), and returns the last 100 merged events (smaller payloads). Lead transition drops the 150ms debounce (0ms tick), shows **cached** history immediately when revisiting a lead in the same session, and runs history + assigned-agent profile in **parallel** via `Promise.allSettled` so profile errors do not block history. Conversation list no longer animates every row on paint; skeleton drops the 200ms delay and uses a shorter fade.
+
+- **2026-04-08 | [DONE] Bugfix — Dialer navigation glitch (arrows, queue, save & next vs `?contact=`) (DialerPage.tsx)**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Two effects fought: (1) URL was not updated from `currentLead` while `isAdvancing` was true (advance/skip/selection), so `?contact=` stayed stale; (2) the contact→index effect listed `currentLeadIndex` in its dependency array, so it re-ran on every arrow/advance and reset the index to the **old** `?contact=` before the URL could update. Fix: always sync `?contact=` from `currentLead` whenever not `loadingLeads` (drop `isAdvancing` gate); drive contact→index only off `contactParam` + `leadQueue` and use a functional `setCurrentLeadIndex` to avoid redundant sets.
+
 - **2026-04-08 | [DONE] Bugfix — Dialer queue clicks ignored when `?contact=` in URL (DialerPage.tsx)**
   *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
   *Developer Note:* `handleLeadSelect` sets `isAdvancing` for 500ms, which blocked the effect that writes `contact` into the URL. A separate effect still read the **stale** `contact` param and called `setCurrentLeadIndex` to match it — snapping the index back to the old lead. Fix: update `?contact=` immediately inside `handleLeadSelect`, and skip the contact→index effect while `isAdvancing` or `loadingLeads`.

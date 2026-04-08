@@ -89,6 +89,10 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
   });
 }
 
+/** Per-table fetch cap; merged timeline keeps the most recent `TIMELINE_CAP` events. */
+const HISTORY_PER_SOURCE_LIMIT = 80;
+const HISTORY_TIMELINE_CAP = 100;
+
 export async function getLeadHistory(leadId: string, organizationId: string | null = null, signal?: AbortSignal) {
   // Early exit if already aborted before queries fire
   if (signal?.aborted) {
@@ -97,13 +101,17 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
 
   let callsQuery = supabase
     .from("calls")
-    .select("*")
-    .eq("contact_id", leadId);
-  
+    .select("id, created_at, started_at, disposition_name, duration")
+    .eq("contact_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_PER_SOURCE_LIMIT);
+
   let activityQuery = supabase
     .from("contact_activities")
-    .select("*")
-    .eq("contact_id", leadId);
+    .select("id, created_at, activity_type, description")
+    .eq("contact_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_PER_SOURCE_LIMIT);
 
   if (organizationId) {
     callsQuery = callsQuery.eq("organization_id", organizationId);
@@ -143,7 +151,8 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
 
   const merged = [...callItems, ...activityItems];
   merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  return merged;
+  if (merged.length <= HISTORY_TIMELINE_CAP) return merged;
+  return merged.slice(merged.length - HISTORY_TIMELINE_CAP);
 }
 
 /**
