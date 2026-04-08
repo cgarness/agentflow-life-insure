@@ -221,42 +221,6 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                   </button>
                 </div>
               </div>
-
-              {/* Next Action / Wrap Up Section */}
-              <div className={cn("transition-all duration-500", 
-                showWrapUp || selectedDisp 
-                  ? "opacity-100 translate-y-0" 
-                  : "opacity-50 translate-y-4 pointer-events-none")}>
-                <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2 block">
-                  Add Notes
-                </label>
-                <textarea
-                  className={cn(
-                    "w-full h-24 p-3 rounded-lg text-sm bg-accent/30 border resize-none focus:outline-none focus:ring-1 focus:border-border",
-                    noteError ? "border-destructive ring-destructive focus:ring-destructive focus:border-destructive" : "border-border focus:ring-primary"
-                  )}
-                  placeholder="Enter call notes..."
-                  value={noteText}
-                  onChange={(e) => onNoteChange(e.target.value)}
-                />
-
-                <div className="flex gap-2 mt-4">
-                  <button
-                    onClick={onSaveOnly}
-                    disabled={!selectedDisp}
-                    className="flex-1 bg-accent text-foreground disabled:opacity-50 border rounded-lg py-3 text-[11px] uppercase tracking-wider font-bold hover:bg-accent/80 transition-all cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={onSaveAndNext}
-                    disabled={!selectedDisp}
-                    className="flex-[2] bg-primary text-primary-foreground disabled:opacity-50 rounded-lg py-3 text-[11px] uppercase tracking-wider font-bold hover:bg-primary/90 transition-all shadow-md shadow-primary/20 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    Save & Next
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 
