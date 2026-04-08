@@ -1424,11 +1424,15 @@ export default function DialerPage() {
     setIsEditingContact(false);
     setEditForm({});
     // ── Queue Lifecycle: remove disposed lead, re-sort, reset to head ──
-    if (currentLead) {
+    if (lockMode) {
+      // Lock mode: release lock and fetch next lead — applyQueueLifecycle would
+      // keep the same locked lead in the single-lead queue, which is incorrect.
+      await handleAdvance();
+    } else if (currentLead) {
       applyQueueLifecycle(currentLead as CampaignLead, disposition.name, null);
     }
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
-  }, [currentCallId, currentLead, applyQueueLifecycle]);
+  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle]);
 
   const handleMachineDetectedAction = useCallback(async () => {
     // Prevent double-processing
@@ -2003,12 +2007,30 @@ export default function DialerPage() {
     } catch {
       /* ignore */
     }
-    // Update local queue: set status + increment call_attempts for the disposed lead
-    setLeadQueue(prev => prev.map((l, i) => i === currentLeadIndex
-      ? { ...l, status: d.name, call_attempts: (l.call_attempts || 0) + 1 }
-      : l
-    ));
-    await handleAdvance();
+    // Reset UI state
+    setShowWrapUp(false);
+    setSelectedDisp(null);
+    setNoteText("");
+    setNoteError(false);
+    setCurrentCallId(null);
+    setIsEditingContact(false);
+    setEditForm({});
+
+    if (lockMode) {
+      // Lock mode: release lock and fetch next lead via handleAdvance
+      await handleAdvance();
+    } else {
+      // Personal: re-sort queue with disposition applied (instead of simple increment)
+      // This ensures the disposed lead is moved to the correct tier and currentLeadIndex
+      // is reset to the first eligible lead — fixes "stays on same contact" bug.
+      const updatedLead: CampaignLead = {
+        ...(currentLead as CampaignLead),
+        call_attempts: (currentLead.call_attempts || 0) + 1,
+        last_called_at: new Date().toISOString(),
+        status: d.name,
+      };
+      applyQueueLifecycle(updatedLead, d.name, null);
+    }
   }
 
   const saveCallData = async () => {
@@ -3111,6 +3133,12 @@ export default function DialerPage() {
           onSkip={handleSkip}
           onSelectTab={setLeftTab}
           onSelectDisposition={handleSelectDisposition}
+          showWrapUp={showWrapUp}
+          noteText={noteText}
+          noteError={noteError}
+          onNoteChange={setNoteText}
+          onSaveAndNext={handleSaveAndNext}
+          onSaveOnly={handleSaveOnly}
           queuePanelProps={{
             campaignType,
             campaignId: selectedCampaignId!,

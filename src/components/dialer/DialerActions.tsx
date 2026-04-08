@@ -1,5 +1,5 @@
 import React from "react";
-import { Phone, PhoneOff, ArrowRight, FileText, ScrollText, Play } from "lucide-react";
+import { Phone, PhoneOff, ArrowRight, FileText, ScrollText, Play, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ClaimRing from "./ClaimRing";
 import LockTimerArc from "./LockTimerArc";
@@ -36,7 +36,13 @@ interface DialerActionsProps {
   onSkip: () => void;
   onSelectTab: (tab: "dispositions" | "queue" | "scripts") => void;
   onSelectDisposition: (disp: Disposition) => void;
-  
+  // ── Wrap-up / disposition save ──
+  showWrapUp: boolean;
+  noteText: string;
+  noteError: boolean;
+  onNoteChange: (text: string) => void;
+  onSaveAndNext: () => Promise<void>;
+  onSaveOnly: () => Promise<void>;
   // ── Combined Props ──
   queuePanelProps: React.ComponentProps<typeof QueuePanel>;
   availableScripts: { id: string; name: string; content: string }[];
@@ -62,6 +68,12 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   onSkip,
   onSelectTab,
   onSelectDisposition,
+  showWrapUp,
+  noteText,
+  noteError,
+  onNoteChange,
+  onSaveAndNext,
+  onSaveOnly,
   queuePanelProps,
   availableScripts,
   activeScriptId,
@@ -140,7 +152,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
 
         <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-muted/5">
           {leftTab === "dispositions" && (
-            <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-right-2 duration-300">
+            <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-2 duration-300">
               <div>
                 <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2 block">
                   Select Outcome
@@ -171,6 +183,47 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* ── Wrap-up: notes + save actions (shown after a connected call) ── */}
+              {showWrapUp && selectedDisp && (
+                <div className="flex flex-col gap-3 border-t pt-3">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-1 block">
+                      Notes {selectedDisp.requireNotes && <span className="text-destructive">*</span>}
+                    </label>
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => onNoteChange(e.target.value)}
+                      placeholder="Add call notes..."
+                      rows={3}
+                      className={cn(
+                        "w-full text-xs bg-accent/50 border rounded-lg px-2.5 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 resize-none",
+                        noteError ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary"
+                      )}
+                    />
+                    {noteError && (
+                      <p className="text-[10px] text-destructive mt-0.5">
+                        Notes required for this disposition
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onSaveOnly}
+                      className="flex-1 py-2 text-[10px] font-bold uppercase tracking-widest border border-border rounded-lg text-muted-foreground hover:bg-accent transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={onSaveAndNext}
+                      className="flex-[2] py-2 text-[10px] font-bold uppercase tracking-widest bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-1"
+                    >
+                      Save & Next
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
