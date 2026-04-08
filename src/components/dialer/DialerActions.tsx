@@ -1,8 +1,9 @@
 import React from "react";
-import { Phone, PhoneOff, ArrowRight, Check, X } from "lucide-react";
+import { Phone, PhoneOff, ArrowRight, Check, X, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ClaimRing from "./ClaimRing";
 import LockTimerArc from "./LockTimerArc";
+import QueuePanel from "./QueuePanel";
 
 interface Disposition {
   id: string;
@@ -32,6 +33,11 @@ interface DialerActionsProps {
   onSkip: () => void;
   onSelectTab: (tab: "dispositions" | "queue" | "scripts") => void;
   onSelectDisposition: (disp: Disposition) => void;
+  // Queue tab props
+  queuePanelProps: React.ComponentProps<typeof QueuePanel>;
+  // Scripts tab props
+  availableScripts: { id: string; name: string; content: string }[];
+  onOpenScript: (scriptId: string) => void;
 }
 
 export const DialerActions: React.FC<DialerActionsProps> = ({
@@ -52,6 +58,9 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   onSkip,
   onSelectTab,
   onSelectDisposition,
+  queuePanelProps,
+  availableScripts,
+  onOpenScript,
 }) => {
   return (
     <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
@@ -142,7 +151,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                           ? "ring-2 ring-primary border-primary bg-primary/10 text-primary"
                           : "border-border bg-card text-muted-foreground hover:bg-accent"
                       )}
-                      style={selectedDisp?.id === d.id ? {} : { 
+                      style={selectedDisp?.id === d.id ? {} : {
                         backgroundColor: d.color ? `${d.color}15` : undefined,
                         borderColor: d.color ? `${d.color}30` : undefined,
                         color: d.color ?? undefined
@@ -157,6 +166,34 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+
+          {leftTab === "queue" && (
+            <QueuePanel {...queuePanelProps} />
+          )}
+
+          {leftTab === "scripts" && (
+            <div className="flex flex-col gap-2">
+              {availableScripts.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
+                  <p className="text-sm text-muted-foreground">No scripts available</p>
+                </div>
+              ) : (
+                availableScripts.map((script) => (
+                  <button
+                    key={script.id}
+                    onClick={() => onOpenScript(script.id)}
+                    className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors flex items-center justify-between group"
+                  >
+                    <span className="text-xs font-bold text-foreground uppercase tracking-tight">
+                      {script.name}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
