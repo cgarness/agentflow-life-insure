@@ -53,12 +53,12 @@
 
 ## 3. Work Log (Recent History)
 
-- **2026-04-08 | [DONE] Fix Lead Advance Flicker, History Fetch Abort, and Scroll Anchoring**
-  *Files Modified:* `src/pages/DialerPage.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/lib/dialer-api.ts`, `ROADMAP.md`
-  *Developer Note:* Three-part fix targeting dialer lead-advance UX:
-  **Fix 1 — Lead Advance Flicker (ERR_INSUFFICIENT_RESOURCES):** Replaced simultaneous independent useEffects (history, agent name, caller ID) with a single debounced orchestration effect (150ms debounce via `useRef` cleanup pattern). Added `isTransitioning` boolean state — while true, ConversationHistory renders `HistorySkeleton` and LeadCard renders its idle skeleton, eliminating flash of stale data. All fetches grouped via `Promise.allSettled` so a single failure doesn't block UI.
-  **Fix 2 — History Fetch AbortError:** Updated `getLeadHistory` in `dialer-api.ts` to throw proper `DOMException('AbortError')` instead of generic `new Error('Aborted')`. Added early-exit guard before queries fire. Updated catch block in `fetchHistory` to check both `err.name` and `err.message` — AbortError is silently swallowed, only genuine failures are logged.
-  **Fix 3 — Scroll Anchoring:** Added `historyEndRef` anchor div as first child of `flex-col-reverse` container in `ConversationHistory` (renders at visual bottom). Added `useEffect` in DialerPage that calls `scrollIntoView({ behavior: 'instant' })` via `requestAnimationFrame` whenever `history.length` changes or `currentLead` changes. Removed `scroll-smooth` class to prevent visible animation on lead advance.
+- **2026-04-08 | [DONE] Fix Dialer Flickering — Serialize Fetches, historyLeadId Guard, Instant Scroll**
+  *Files Modified:* `src/pages/DialerPage.tsx`, `ROADMAP.md`
+  *Developer Note:* Three surgical fixes targeting Supabase auth lock contention and stale-history flash on lead advance:
+  **Fix 1 — Serialize Supabase Fetches (eliminates lock contention):** Replaced `Promise.allSettled` parallel execution in the orchestration `useEffect` with sequential `await` — history first, then agent name. Added `setLoadingHistory(true)` at the start of the history fetch so the skeleton appears immediately. On rapid lead changes, the `AbortController` cancels the in-flight history request before the profile fetch even begins, dropping simultaneous Supabase requests from 8+ to 1.
+  **Fix 2 — historyLeadId Transition Guard (eliminates stale-history flash):** Added `historyLeadId` state (`useState<string | null>(null)`). Set in the `finally` block of the history fetch so it always clears regardless of success/error. In the JSX, `ConversationHistory` receives `history` only when `historyLeadId === (currentLead?.lead_id || currentLead?.id)` — otherwise an empty array is passed and `loadingHistory` is forced true, showing the skeleton. This prevents the previous lead's history from flashing while the next lead's history loads.
+  **Fix 3 — Instant Scroll Anchor (already in place):** `historyEndRef` sentinel is the first child of the `flex-col-reverse` scroll container in `ConversationHistory.tsx`, anchoring to visual bottom. `scrollIntoView({ behavior: 'instant' })` fires via `requestAnimationFrame` on `history.length` or `currentLead` change. No smooth animation that could be mistaken for a render glitch.
 
 - **2026-04-07 | [DONE] Dialer Concurrency, Telemetry, State Machine & Bugfix Overhaul**
   *Migration:* `20260407000000_dialer_telemetry_hardening.sql`

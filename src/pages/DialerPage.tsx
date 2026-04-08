@@ -273,6 +273,7 @@ export default function DialerPage() {
   const [callbackDate, setCallbackDate] = useState<Date | undefined>(undefined);
   const [callbackTime, setCallbackTime] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyLeadId, setHistoryLeadId] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const leadTransitionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1037,47 +1038,49 @@ export default function DialerPage() {
 
     // 150ms debounce — cancels if lead changes again within window
     leadTransitionRef.current = setTimeout(async () => {
-      const fetchHistoryTask = (async () => {
-        try {
-          const data = await getLeadHistory(leadId, organizationId, controller.signal);
-          if (!controller.signal.aborted) {
-            setHistory(data);
-          }
-        } catch (err: any) {
-          if (err.name !== 'AbortError' && err.message !== 'Aborted') {
-            console.warn("Failed to load history:", err);
-          }
+      // 1. History first (most important for agent) — sequential, not parallel
+      setLoadingHistory(true);
+      try {
+        const data = await getLeadHistory(leadId, organizationId, controller.signal);
+        if (!controller.signal.aborted) {
+          setHistory(data);
         }
-      })();
+      } catch (err: any) {
+        if (err.name !== 'AbortError' && err.message !== 'Aborted') {
+          console.warn("Failed to load history:", err);
+          toast.error("Failed to load history");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingHistory(false);
+          setHistoryLeadId(leadId); // always update so skeleton clears
+        }
+      }
 
-      const fetchAgentTask = (async () => {
-        if (!agentId) {
-          setAssignedAgentName(null);
-          return;
-        }
+      if (controller.signal.aborted) return;
+
+      // 2. Assigned agent name second (low priority)
+      if (agentId) {
         try {
           const { data } = await supabase
             .from('profiles')
             .select('first_name, last_name')
             .eq('id', agentId)
             .maybeSingle();
-          if (!controller.signal.aborted) {
-            if (data) {
-              setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
-            } else {
-              setAssignedAgentName(null);
-            }
+          if (!controller.signal.aborted && data) {
+            setAssignedAgentName(`${data.first_name || ''} ${data.last_name || ''}`.trim());
+          } else if (!controller.signal.aborted) {
+            setAssignedAgentName(null);
           }
         } catch {
           // non-critical
         }
-      })();
-
-      await Promise.allSettled([fetchHistoryTask, fetchAgentTask]);
+      } else {
+        setAssignedAgentName(null);
+      }
 
       if (!controller.signal.aborted) {
         setIsTransitioning(false);
-        setLoadingHistory(false);
       }
     }, 150);
 
@@ -2965,8 +2968,8 @@ export default function DialerPage() {
 
         {/* ── CENTER COLUMN (Conversation History) ── */}
         <ConversationHistory
-          history={isTransitioning ? [] : history}
-          loadingHistory={loadingHistory || isTransitioning}
+          history={historyLeadId === (currentLead?.lead_id || currentLead?.id) ? history : []}
+          loadingHistory={loadingHistory || historyLeadId !== (currentLead?.lead_id || currentLead?.id)}
           formatDateTime={formatDateTime}
           smsTab={smsTab}
           messageText={messageText}
