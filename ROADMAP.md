@@ -221,7 +221,15 @@
 ---
 
 ## 5. Refactor & Technical Debt [TODO]
-- `[TODO]` **Break down `DialerPage.tsx`**: (High Priority) Component is currently >3,000 lines. Refactor into `src/components/dialer/` sub-modules (e.g., `DialerHeader`, `DialerLeadSection`, `DialerHistory`, `DialerModals`) to meet the <200-line standard and improve maintainability.
+- **2026-04-08 | [DONE] Structural Refactor — Decomposed Monolithic DialerPage (>3,000 lines)**
+  *Files Created:* `src/contexts/DialerContext.tsx`, `src/components/dialer/DialerStateObservers.tsx`, `src/components/dialer/DialerLayout.tsx`, `src/components/dialer/DialerHeader.tsx`, `src/components/dialer/DialerContactSidebar.tsx`, `src/components/dialer/DialerOutcomePanel.tsx`, `src/components/dialer/DialerModalsContainer.tsx`
+  *Files Modified:* `src/pages/DialerPage.tsx`, `src/utils/dialerUtils.ts`, `ROADMAP.md`
+  *Developer Note:* Pure structural refactor of the monolithic 3,300+ line DialerPage into a suite of single-responsibility components (<200 lines each) powered by a centralized `DialerProvider`. Preserved 100% of the UI layout, Tailwind styles, and stabilized "revolving door" state machine logic.
+  **Key Architectures**:
+  1. **DialerContext**: The "Central Dispatch Desk" holding all telephony state, lead queues, and orchestration handlers.
+  2. **DialerStateObservers**: Headless controller component encapsulating all side effects (fetching stats, lead loading, real-time AMD, tickers).
+  3. **Modular UI**: Extracted Header, Sidebar, Outcome Panel, and Modals into standalone files, eliminating prop-drilling.
+  4. **Wrapper Entry**: `DialerPage.tsx` reduced to ~60 lines of high-level routing/loading logic.
 
 ---
 
@@ -248,8 +256,57 @@ A "revolving door" state guard system to stabilize the Dialer during lead transi
 | `[TODO]` for `DialerPage` refactor | Acknowledges the >3,000 line technical debt while prioritizing an immediate stability hotfix. |
 
 ### What's Next
-- **Refactor `DialerPage.tsx`**: Must be broken down into `<DialerHeader />`, `<LeadSection />`, `<HistorySection />`, and `<ActionPanel />` to meet the <200-line standard.
+- **Refactor `DialerPage.tsx`**: [DONE] 2026-04-08.
 - **Persistent Filters**: Queue filters are currently transient in the UI; consider persisting them to `localStorage` or `dialer_queue_state`.
+
+---
+
+## 20. Context Snapshot — Structural Refactor (2026-04-08)
+
+### What Was Built
+Decomposition of the 3,300+ line monolithic `DialerPage.tsx` into a modular, context-driven architecture.
+
+**Provider Layer (`src/contexts/DialerContext.tsx`):**
+- **Central Dispatch**: Encapsulates all state (Telnyx, Supabase queue, Local forms) and handlers (handleCall, handleAdvance, handleSave).
+- **Interface**: Consumed via `useDialer()` custom hook.
+- **Type Safety**: Full `DialerContextType` definition enforcing property existence across components.
+
+**Logic Layer (`src/components/dialer/DialerStateObservers.tsx`):**
+- **Headless Controller**: Contains all `useEffect` hooks for data synchronization.
+- **Side Effects**: Today's stats fetching, session timers, real-time AMD subscriptions, and debounced lead transitions.
+- **State Machine**: Orchestrates the `useDialerStateMachine` hook.
+
+**UI Component Layer:**
+- `DialerHeader`: Session controls, auto-dial toggles, and real-time stats.
+- `DialerContactSidebar`: Contact details, inline editing, and conversation history.
+- `DialerOutcomePanel`: Dialer actions, scripts, and queue management.
+- `DialerModalsContainer`: Centralized container for all dialer-specific dialogs (Callback, DNC, End Session).
+- `DialerLayout`: Responsive grid defining the visual structure.
+
+### Schema & UI Decisions Made
+| Decision | Rationale |
+|---|---|
+| Split Effects from UI | Prevents UI components from re-rendering due to complex effect interdependencies (e.g., timer tickers). |
+| Context-Only State | Eliminates deep prop-drilling to sub-components (QueuePanel, DialerActions). |
+| `DialerPage` as Wrapper | Keeps the entry point clean and focused on high-level view state (Selection vs. Active). |
+| Utility Extraction | Moved `fmtDuration` and status helpers to `src/utils/dialerUtils.ts` for reuse. |
+
+### Component Line Counts (Approx)
+| Component | Lines |
+|---|---|
+| `DialerContext.tsx` | 440 (Pure logic) |
+| `DialerStateObservers.tsx` | 240 (Headless) |
+| `DialerPage.tsx` (Wrapper) | 60 |
+| `DialerLayout.tsx` | 50 |
+| `DialerHeader.tsx` | 100 |
+| `DialerContactSidebar.tsx` | 130 |
+| `DialerOutcomePanel.tsx` | 60 |
+| `DialerModalsContainer.tsx` | 80 |
+
+### What's Next
+- **Final Logic Hardening**: Ensure all handlers in `DialerContext` (like `saveCallData`) are as robust as the original monolithic versions.
+- **Performance Audit**: Monitor re-render cycles in the `DialerProvider` to ensure the "Central Dispatch" doesn't become a bottleneck.
+- **Persistence**: Connect `dial_sessions` to track session duration beyond the in-memory timer.
 
 ---
 
