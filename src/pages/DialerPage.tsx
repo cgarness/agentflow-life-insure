@@ -1019,6 +1019,7 @@ export default function DialerPage() {
     // Clear stale data immediately on lead change
     if (!currentLead) {
       setHistory([]);
+      setHistoryLeadId(null);
       setAssignedAgentName(null);
       setIsTransitioning(false);
       return;
