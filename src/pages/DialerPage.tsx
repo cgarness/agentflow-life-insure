@@ -293,6 +293,24 @@ export default function DialerPage() {
     amdEnabled,
   } = useTelnyx();
 
+  const [pendingOverrideIndex, setPendingOverrideIndex] = useState<number | null>(null);
+
+  const _executeLeadSelect = useCallback((idx: number) => {
+    const lead = leadQueue[idx];
+    const leadId = lead?.lead_id || lead?.id;
+    if (leadId) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set("contact", String(leadId));
+      setSearchParams(newParams, { replace: true });
+    }
+    setIsAdvancing(true);
+    setCurrentLeadIndex(idx);
+    if (telnyxCallState === "idle" || telnyxCallState === "ended") {
+      setShowWrapUp(false);
+    }
+    setTimeout(() => setIsAdvancing(false), 500);
+  }, [leadQueue, searchParams, setSearchParams, telnyxCallState]);
+
   // ── Lead Selection Handler (with isAdvancing guard) ──
   const handleLeadSelect = useCallback((idx: number) => {
     if (isAdvancingRef.current) return;
@@ -300,30 +318,20 @@ export default function DialerPage() {
 
     const lead = leadQueue[idx];
     if (getLeadTier(lead as CampaignLead, new Date()) === 4) {
-      toast.error("This lead is pending a retry and cannot be called yet.");
+      // Show confirmation modal for Tier 4 instead of blocking entirely
+      setPendingOverrideIndex(idx);
       if (autoDialEnabled) setAutoDialEnabled(false);
       return;
     }
 
-    const leadId = lead?.lead_id || lead?.id;
-    // Keep ?contact= in sync immediately. If we only flip isAdvancing + index, the URL-sync
-    // effect is blocked while isAdvancing — but the contact→index effect still runs and snaps
-    // the index back to the stale ?contact= lead (queue clicks appear to do nothing).
-    if (leadId) {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set("contact", String(leadId));
-      setSearchParams(newParams, { replace: true });
-    }
+    _executeLeadSelect(idx);
+  }, [currentLeadIndex, leadQueue, autoDialEnabled, _executeLeadSelect]);
 
-    setIsAdvancing(true);
-    setCurrentLeadIndex(idx);
-    // Explicitly reset wrap-up if we switch leads manually
-    if (telnyxCallState === "idle" || telnyxCallState === "ended") {
-      setShowWrapUp(false);
-    }
-    // Release isAdvancing after a short delay to allow state-flicker to settle
-    setTimeout(() => setIsAdvancing(false), 500);
-  }, [isAdvancing, currentLeadIndex, telnyxCallState, leadQueue, searchParams, setSearchParams]);
+  const confirmOverrideSelect = useCallback(() => {
+    if (pendingOverrideIndex === null) return;
+    _executeLeadSelect(pendingOverrideIndex);
+    setPendingOverrideIndex(null);
+  }, [pendingOverrideIndex, _executeLeadSelect]);
 
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
@@ -3571,6 +3579,30 @@ export default function DialerPage() {
         saving={callingSettingsSaving}
         onSave={handleSaveCallingSettings}
       />
+
+      {/* ── Early Access / Queue Override Modal ── */}
+      <Dialog open={pendingOverrideIndex !== null} onOpenChange={(open) => { if (!open) setPendingOverrideIndex(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-500">
+              <AlertTriangle className="w-5 h-5" />
+              Lead Not Ready
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              This lead is scheduled for a future retry or callback and normally shouldn't be called yet. 
+              Are you sure you want to override the schedule and call them now?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setPendingOverrideIndex(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmOverrideSelect}>
+              Call Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
