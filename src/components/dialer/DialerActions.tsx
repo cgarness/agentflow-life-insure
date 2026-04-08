@@ -37,11 +37,18 @@ interface DialerActionsProps {
   onSelectTab: (tab: "dispositions" | "queue" | "scripts") => void;
   onSelectDisposition: (disp: Disposition) => void;
   
-  // ── Combined Props ──
   queuePanelProps: React.ComponentProps<typeof QueuePanel>;
   availableScripts: { id: string; name: string; content: string }[];
   activeScriptId: string | null;
   onOpenScript: (scriptId: string) => void;
+
+  // ── Wrap Up Props ──
+  showWrapUp: boolean;
+  noteText: string;
+  noteError: boolean;
+  onNoteChange: (text: string) => void;
+  onSaveOnly: () => void;
+  onSaveAndNext: () => void;
 }
 
 export const DialerActions: React.FC<DialerActionsProps> = ({
@@ -66,6 +73,12 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   availableScripts,
   activeScriptId,
   onOpenScript,
+  showWrapUp,
+  noteText,
+  noteError,
+  onNoteChange,
+  onSaveOnly,
+  onSaveAndNext,
 }) => {
   return (
     <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
@@ -170,6 +183,78 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                       </div>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Next Action / Wrap Up Section */}
+              <div className={cn("transition-all duration-500", 
+                showWrapUp || selectedDisp 
+                  ? "opacity-100 translate-y-0" 
+                  : "opacity-50 translate-y-4 pointer-events-none")}>
+                <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2 block">
+                  Add Notes
+                </label>
+                <textarea
+                  className={cn(
+                    "w-full h-24 p-3 rounded-lg text-sm bg-accent/30 border resize-none focus:outline-none focus:ring-1 focus:border-border",
+                    noteError ? "border-destructive ring-destructive focus:ring-destructive focus:border-destructive" : "border-border focus:ring-primary"
+                  )}
+                  placeholder="Enter call notes..."
+                  value={noteText}
+                  onChange={(e) => onNoteChange(e.target.value)}
+                />
+
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={onSaveOnly}
+                    disabled={!selectedDisp}
+                    className="flex-1 bg-accent text-foreground disabled:opacity-50 border rounded-lg py-3 text-[11px] uppercase tracking-wider font-bold hover:bg-accent/80 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={onSaveAndNext}
+                    disabled={!selectedDisp}
+                    className="flex-[2] bg-primary text-primary-foreground disabled:opacity-50 rounded-lg py-3 text-[11px] uppercase tracking-wider font-bold hover:bg-primary/90 transition-all shadow-md shadow-primary/20 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Save & Next
+                  </button>
+                </div>
+              </div>
+
+              {/* Next Action / Wrap Up Section */}
+              <div className={cn("transition-all duration-500", 
+                showWrapUp || selectedDisp 
+                  ? "opacity-100 translate-y-0" 
+                  : "opacity-50 translate-y-4 pointer-events-none")}>
+                <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2 block">
+                  Add Notes
+                </label>
+                <textarea
+                  className={cn(
+                    "w-full h-24 p-3 rounded-lg text-sm bg-accent/30 border resize-none focus:outline-none focus:ring-1 focus:border-border",
+                    noteError ? "border-destructive ring-destructive focus:ring-destructive focus:border-destructive" : "border-border focus:ring-primary"
+                  )}
+                  placeholder="Enter call notes..."
+                  value={noteText}
+                  onChange={(e) => onNoteChange(e.target.value)}
+                />
+
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={onSaveOnly}
+                    disabled={!selectedDisp}
+                    className="flex-1 bg-accent text-foreground disabled:opacity-50 border rounded-lg py-3 text-[11px] uppercase tracking-wider font-bold hover:bg-accent/80 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={onSaveAndNext}
+                    disabled={!selectedDisp}
+                    className="flex-[2] bg-primary text-primary-foreground disabled:opacity-50 rounded-lg py-3 text-[11px] uppercase tracking-wider font-bold hover:bg-primary/90 transition-all shadow-md shadow-primary/20 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Save & Next
+                  </button>
                 </div>
               </div>
             </div>

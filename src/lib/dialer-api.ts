@@ -30,23 +30,42 @@ export async function getTodayCallCount(agentId: string, campaignId: string): Pr
 
 export async function getContactCallStats(contactIds: string[]) {
   if (!contactIds || contactIds.length === 0) return {};
-  const { data, error } = await (supabase as any).rpc("get_contact_call_stats", {
-    p_contact_ids: contactIds
-  });
+  
+  const { data, error } = await supabase
+    .from("calls")
+    .select("contact_id, disposition_name, created_at")
+    .in("contact_id", contactIds);
+
   if (error) {
     console.error("[getContactCallStats]", error.message);
     return {};
   }
+
   const result: Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }> = {};
-  if (data) {
+  for (const id of contactIds) {
+    result[id] = { calls_today: 0, total_calls: 0, last_disposition: null };
+  }
+
+  if (data && data.length > 0) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    
+    // Sort array so newest is last
+    data.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    
     data.forEach((row: any) => {
-      result[row.contact_id] = {
-        calls_today: row.calls_today,
-        total_calls: row.total_calls,
-        last_disposition: row.last_disposition,
-      };
+      const cid = row.contact_id;
+      if (!result[cid]) return;
+      
+      result[cid].total_calls++;
+      if (row.created_at && row.created_at.startsWith(todayStr)) {
+        result[cid].calls_today++;
+      }
+      if (row.disposition_name) {
+        result[cid].last_disposition = row.disposition_name;
+      }
     });
   }
+  
   return result;
 }
 

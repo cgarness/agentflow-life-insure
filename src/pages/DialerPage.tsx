@@ -292,47 +292,6 @@ export default function DialerPage() {
     getSmartCallerId,
     amdEnabled,
   } = useTelnyx();
-
-  const [pendingOverrideIndex, setPendingOverrideIndex] = useState<number | null>(null);
-
-  const _executeLeadSelect = useCallback((idx: number) => {
-    const lead = leadQueue[idx];
-    const leadId = lead?.lead_id || lead?.id;
-    if (leadId) {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set("contact", String(leadId));
-      setSearchParams(newParams, { replace: true });
-    }
-    setIsAdvancing(true);
-    setCurrentLeadIndex(idx);
-    if (telnyxCallState === "idle" || telnyxCallState === "ended") {
-      setShowWrapUp(false);
-    }
-    setTimeout(() => setIsAdvancing(false), 500);
-  }, [leadQueue, searchParams, setSearchParams, telnyxCallState]);
-
-  // ── Lead Selection Handler (with isAdvancing guard) ──
-  const handleLeadSelect = useCallback((idx: number) => {
-    if (isAdvancingRef.current) return;
-    if (idx === currentLeadIndex) return;
-
-    const lead = leadQueue[idx];
-    if (getLeadTier(lead as CampaignLead, new Date()) === 4) {
-      // Show confirmation modal for Tier 4 instead of blocking entirely
-      setPendingOverrideIndex(idx);
-      if (autoDialEnabled) setAutoDialEnabled(false);
-      return;
-    }
-
-    _executeLeadSelect(idx);
-  }, [currentLeadIndex, leadQueue, autoDialEnabled, _executeLeadSelect]);
-
-  const confirmOverrideSelect = useCallback(() => {
-    if (pendingOverrideIndex === null) return;
-    _executeLeadSelect(pendingOverrideIndex);
-    setPendingOverrideIndex(null);
-  }, [pendingOverrideIndex, _executeLeadSelect]);
-
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
@@ -1306,15 +1265,17 @@ export default function DialerPage() {
         callbackDueAt,
         now,
       );
-      const nextIndex = newQueue.findIndex(
+      let nextIndex = newQueue.findIndex(
         lead => !TERMINAL_STATUSES.includes((lead as any).status || '')
+             && getLeadTier(lead as CampaignLead, now) !== 4
       );
-      const safeIndex =
-        newQueue.length === 0
-          ? 0
-          : nextIndex === -1
-            ? 0
-            : Math.min(nextIndex, newQueue.length - 1);
+      
+      // If no valid leads left, flag by setting nextIndex = -1 but keep UI on current lead
+      if (nextIndex === -1) {
+        if (autoDialEnabled) setAutoDialEnabled(false);
+      }
+      
+      const safeIndex = nextIndex === -1 ? currentLeadIndex : Math.min(nextIndex, newQueue.length - 1);
       pendingLifecycleIndexRef.current = safeIndex;
       return newQueue;
     });
@@ -1338,6 +1299,46 @@ export default function DialerPage() {
     proposedNumber: string;
     previousNumber: string;
   } | null>(null);
+
+  const [pendingOverrideIndex, setPendingOverrideIndex] = useState<number | null>(null);
+
+  const _executeLeadSelect = useCallback((idx: number) => {
+    const lead = leadQueue[idx];
+    const leadId = lead?.lead_id || lead?.id;
+    if (leadId) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set("contact", String(leadId));
+      setSearchParams(newParams, { replace: true });
+    }
+    setIsAdvancing(true);
+    setCurrentLeadIndex(idx);
+    if (telnyxCallState === "idle" || telnyxCallState === "ended") {
+      setShowWrapUp(false);
+    }
+    setTimeout(() => setIsAdvancing(false), 500);
+  }, [leadQueue, searchParams, setSearchParams, telnyxCallState]);
+
+  // ── Lead Selection Handler (with isAdvancing guard) ──
+  const handleLeadSelect = useCallback((idx: number) => {
+    if (isAdvancingRef.current) return;
+    if (idx === currentLeadIndex) return;
+
+    const lead = leadQueue[idx];
+    if (getLeadTier(lead as CampaignLead, new Date()) === 4) {
+      // Show confirmation modal for Tier 4 instead of blocking entirely
+      setPendingOverrideIndex(idx);
+      if (autoDialEnabled) setAutoDialEnabled(false);
+      return;
+    }
+
+    _executeLeadSelect(idx);
+  }, [currentLeadIndex, leadQueue, autoDialEnabled, _executeLeadSelect]);
+
+  const confirmOverrideSelect = useCallback(() => {
+    if (pendingOverrideIndex === null) return;
+    _executeLeadSelect(pendingOverrideIndex);
+    setPendingOverrideIndex(null);
+  }, [pendingOverrideIndex, _executeLeadSelect]);
 
   const handleAdvance = useCallback(async () => {
     if (isAdvancingRef.current) return;
@@ -3305,12 +3306,9 @@ export default function DialerPage() {
             fetchLeadsBatch,
             leadCallStats,
             onClearFilters: () => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 }),
-            filterSummary:
-              (queueSort !== 'smart' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
+            filterSummary: (queueSort !== 'smart' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
                 ? `Showing ${displayQueue.length} of ${leadQueue.length} leads`
                 : "",
-            autoDialCountdownActive,
-            onCancelAutoDialCountdown: cancelAutoDialCountdown,
           }}
           availableScripts={availableScripts}
           activeScriptId={activeScriptId}
