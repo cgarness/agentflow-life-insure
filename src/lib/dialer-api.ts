@@ -28,6 +28,28 @@ export async function getTodayCallCount(agentId: string, campaignId: string): Pr
   return count ?? 0;
 }
 
+export async function getContactCallStats(contactIds: string[]) {
+  if (!contactIds || contactIds.length === 0) return {};
+  const { data, error } = await (supabase as any).rpc("get_contact_call_stats", {
+    p_contact_ids: contactIds
+  });
+  if (error) {
+    console.error("[getContactCallStats]", error.message);
+    return {};
+  }
+  const result: Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }> = {};
+  if (data) {
+    data.forEach((row: any) => {
+      result[row.contact_id] = {
+        calls_today: row.calls_today,
+        total_calls: row.total_calls,
+        last_disposition: row.last_disposition,
+      };
+    });
+  }
+  return result;
+}
+
 export async function getCampaigns(organizationId: string | null = null) {
   let query = supabase
     .from("campaigns")

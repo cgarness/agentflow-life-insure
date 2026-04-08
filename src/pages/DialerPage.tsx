@@ -45,6 +45,7 @@ import {
   saveAppointment,
   updateLeadStatus,
   getTodayCallCount,
+  getContactCallStats,
 } from "@/lib/dialer-api";
 import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
 import {
@@ -234,8 +235,21 @@ export default function DialerPage() {
     else setSearchParams({});
   };
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const currentLead = leadQueue[currentLeadIndex] ?? null;
+
+  // Fetch precise queue exact stats when the leadQueue changes. Limit to the queue we actually see to optimize.
+  useEffect(() => {
+    if (leadQueue.length === 0) return;
+    const fetchStats = async () => {
+      // Just fetch for the first 50 to avoid massive payload if queue is huge, or all if small
+      const idsToFetch = leadQueue.slice(0, 75).map(l => String(l.lead_id || l.id)).filter(Boolean);
+      const results = await getContactCallStats(idsToFetch);
+      setLeadCallStats(results);
+    };
+    fetchStats();
+  }, [leadQueue]);
 
   // Keep index in range (e.g. after handleAdvance with an empty queue computed index -1).
   useEffect(() => {
@@ -285,6 +299,12 @@ export default function DialerPage() {
     if (idx === currentLeadIndex) return;
 
     const lead = leadQueue[idx];
+    if (getLeadTier(lead as CampaignLead, new Date()) === 4) {
+      toast.error("This lead is pending a retry and cannot be called yet.");
+      if (autoDialEnabled) setAutoDialEnabled(false);
+      return;
+    }
+
     const leadId = lead?.lead_id || lead?.id;
     // Keep ?contact= in sync immediately. If we only flip isAdvancing + index, the URL-sync
     // effect is blocked while isAdvancing — but the contact→index effect still runs and snaps
@@ -545,40 +565,58 @@ export default function DialerPage() {
     return () => { cancelled = true; };
   }, [user?.id, selectedCampaignId]);
 
-  // ── Session duration ticker (live-ticking from session_started_at) ──
+  // ── Session duration ticker (Active time only) ──
+  useEffect(() => {
+    // Only set initial if we just loaded it
+    if (sessionElapsed === 0 && dialerStats?.session_duration_seconds) {
+      setSessionElapsed(dialerStats.session_duration_seconds);
+    }
+  }, [dialerStats?.session_duration_seconds]);
+
   useEffect(() => {
     if (sessionTimerRef.current) {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
-    if (!dialerStats?.session_started_at) {
-      setSessionElapsed(0);
-      return;
-    }
-    const startTime = new Date(dialerStats.session_started_at).getTime();
-    const tick = () => {
-      setSessionElapsed(Math.floor((Date.now() - startTime) / 1000));
-    };
-    tick(); // immediate
-    sessionTimerRef.current = setInterval(tick, 1000);
-    return () => {
-      if (sessionTimerRef.current) {
-        clearInterval(sessionTimerRef.current);
-        sessionTimerRef.current = null;
-      }
-    };
-  }, [dialerStats?.session_started_at]);
+    if (!selectedCampaignId) return; // Only tick when a campaign is selected
 
-  // ── Stop session timer when campaign is exited ──
-  useEffect(() => {
-    if (!selectedCampaignId) {
-      if (sessionTimerRef.current) {
-        clearInterval(sessionTimerRef.current);
-        sessionTimerRef.current = null;
+    let lastTick = Date.now();
+    let accumulatedDeltaMs = 0;
+
+    const tick = () => {
+      const now = Date.now();
+      const deltaMs = now - lastTick;
+      lastTick = now;
+      
+      accumulatedDeltaMs += deltaMs;
+      
+      // Update UI blindly
+      setSessionElapsed(prev => prev + 1);
+
+      // Periodically flush accumulated time to DB (every 10s or 60s, will do 30s)
+      if (accumulatedDeltaMs >= 30000) {
+        const flushSecs = Math.floor(accumulatedDeltaMs / 1000);
+        accumulatedDeltaMs -= flushSecs * 1000;
+        if (user?.id) {
+          upsertDialerStats(user.id, { session_duration_seconds: flushSecs }).catch(() => {});
+        }
       }
-      setSessionElapsed(0);
-    }
-  }, [selectedCampaignId]);
+    };
+    
+    // initial set
+    lastTick = Date.now();
+    sessionTimerRef.current = setInterval(tick, 1000);
+    
+    return () => {
+      if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
+      // Flush anything remaining
+      const flushSecs = Math.floor(accumulatedDeltaMs / 1000);
+      if (flushSecs > 0 && user?.id) {
+        upsertDialerStats(user.id, { session_duration_seconds: flushSecs }).catch(() => {});
+      }
+      accumulatedDeltaMs = 0;
+    };
+  }, [selectedCampaignId, user?.id]);
 
   /* --- queries --- */
   
@@ -1321,8 +1359,15 @@ export default function DialerPage() {
     setCurrentLeadIndex((prev) => {
       const len = leadQueue.length;
       if (len <= 0) return 0;
-      // Never use length - 1 when empty — that yields -1 and breaks navigation until refresh.
-      return Math.min(prev + 1, len - 1);
+      let nextIdx = Math.min(prev + 1, len - 1);
+      
+      // Strict Queue: Do not advance into Tier 4 (pending retry) area.
+      if (getLeadTier(leadQueue[nextIdx] as CampaignLead, new Date()) === 4) {
+        toast.info("No more dialable leads ready right now.");
+        if (autoDialEnabled) setAutoDialEnabled(false); // Disable auto dial so it doesn't loop
+        return prev; 
+      }
+      return nextIdx;
     });
 
     setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
@@ -1379,7 +1424,15 @@ export default function DialerPage() {
     setCurrentLeadIndex((prev) => {
       const len = leadQueue.length;
       if (len <= 0) return 0;
-      return Math.min(prev + 1, len - 1);
+      let nextIdx = Math.min(prev + 1, len - 1);
+      
+      // Strict Queue: Do not advance into Tier 4 (pending retry) area.
+      if (getLeadTier(leadQueue[nextIdx] as CampaignLead, new Date()) === 4) {
+        toast.info("No more dialable leads ready right now.");
+        if (autoDialEnabled) setAutoDialEnabled(false);
+        return prev;
+      }
+      return nextIdx;
     });
     setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
 
@@ -1432,7 +1485,9 @@ export default function DialerPage() {
           calls_connected: 0,
           total_talk_seconds: 0,
           policies_sold: 0,
+          amd_skipped: 0,
           session_started_at: now,
+          session_duration_seconds: 0,
           last_updated_at: now,
         };
       }
@@ -3236,16 +3291,11 @@ export default function DialerPage() {
             setQueueSort,
             showQueueFilters,
             setShowQueueFilters,
-            showQueueFieldPicker,
-            setShowQueueFieldPicker,
-            queuePreviewFields,
-            setQueuePreviewFields,
             loadingLeads,
             hasMoreLeads,
             currentOffset,
             fetchLeadsBatch,
-            renderQueuePreviewValue,
-            PREVIEW_FIELD_LABELS,
+            leadCallStats,
             onClearFilters: () => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 }),
             filterSummary:
               (queueSort !== 'smart' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)

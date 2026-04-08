@@ -7,6 +7,7 @@ import { getLeadTier, formatTimeUntil, type CampaignLead } from "@/lib/queue-man
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type QueueSortKey =
+  | "smart"
   | "default"
   | "age_oldest"
   | "attempts_fewest"
@@ -38,23 +39,33 @@ interface QueuePanelProps {
   setQueueSort: (v: QueueSortKey) => void;
   showQueueFilters: boolean;
   setShowQueueFilters: (v: boolean) => void;
-  showQueueFieldPicker: boolean;
-  setShowQueueFieldPicker: (v: boolean) => void;
-  queuePreviewFields: [QueuePreviewField, QueuePreviewField];
-  setQueuePreviewFields: (
-    fn: (
-      prev: [QueuePreviewField, QueuePreviewField]
-    ) => [QueuePreviewField, QueuePreviewField]
-  ) => void;
   loadingLeads: boolean;
   hasMoreLeads: boolean;
   currentOffset: number;
   fetchLeadsBatch: (campaignId: string, offset: number) => void;
-  renderQueuePreviewValue: (lead: Record<string, unknown>, field: string) => string;
-  PREVIEW_FIELD_LABELS: Record<string, string>;
   onClearFilters: () => void;
   filterSummary: string;
+  leadCallStats: Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>;
 }
+
+const DISPOSITION_COLORS: Record<string, string> = {
+  "New": "#3B82F6",
+  "No Answer": "#6B7280",
+  "Left Voicemail": "#14B8A6",
+  "Not Available": "#EAB308",
+  "Interested": "#22C55E",
+  "Not Interested": "#EF4444",
+  "DNC": "#EF4444",
+  "Call Back": "#6366F1",
+  "Appointment Set": "#A855F7",
+  "Wrong Number": "#F97316"
+};
+
+const getBadgeStyle = (disp: string | null) => {
+  if (!disp) return {};
+  const color = DISPOSITION_COLORS[disp] || "#6B7280";
+  return { backgroundColor: `${color}1A`, color: color, borderColor: `${color}4D` };
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -79,18 +90,13 @@ export default function QueuePanel({
   setQueueSort,
   showQueueFilters,
   setShowQueueFilters,
-  showQueueFieldPicker,
-  setShowQueueFieldPicker,
-  queuePreviewFields,
-  setQueuePreviewFields,
   loadingLeads,
   hasMoreLeads,
   currentOffset,
   fetchLeadsBatch,
-  renderQueuePreviewValue,
-  PREVIEW_FIELD_LABELS,
   onClearFilters,
   filterSummary,
+  leadCallStats,
 }: QueuePanelProps) {
   const type = campaignType.toUpperCase();
   const isLocked = type === "TEAM" || type.includes("OPEN");
@@ -134,7 +140,6 @@ export default function QueuePanel({
         <button
           onClick={() => {
             setShowQueueFilters(!showQueueFilters);
-            if (showQueueFieldPicker) setShowQueueFieldPicker(false);
           }}
           className={cn(
             "p-1 rounded transition-colors",
@@ -147,21 +152,6 @@ export default function QueuePanel({
           <ListFilter className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => {
-            setShowQueueFieldPicker(!showQueueFieldPicker);
-            if (showQueueFilters) setShowQueueFilters(false);
-          }}
-          className={cn(
-            "p-1 rounded transition-colors",
-            showQueueFieldPicker
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-accent"
-          )}
-          title="Card Fields"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-        </button>
-        <button
           onClick={() =>
             setQueueSort("default" as QueueSortKey)
           }
@@ -171,48 +161,6 @@ export default function QueuePanel({
           <SortAsc className="w-3.5 h-3.5" />
         </button>
       </div>
-
-      {/* Field picker */}
-      {showQueueFieldPicker && (
-        <div className="bg-muted/20 border border-border rounded-lg p-3 mb-1">
-          <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">
-            Card Preview Fields (pick 2)
-          </div>
-          <div className="grid grid-cols-2 gap-1">
-            {(Object.keys(PREVIEW_FIELD_LABELS) as QueuePreviewField[]).map((field) => {
-              const isSelected = queuePreviewFields.includes(field);
-              const slotIndex = queuePreviewFields.indexOf(field);
-              return (
-                <button
-                  key={field}
-                  onClick={() =>
-                    setQueuePreviewFields((prev) => {
-                      if (isSelected) {
-                        const other = prev.find((f) => f !== field) || "state";
-                        return [other, other] as [QueuePreviewField, QueuePreviewField];
-                      }
-                      return [prev[0], field] as [QueuePreviewField, QueuePreviewField];
-                    })
-                  }
-                  className={cn(
-                    "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-tight transition-all",
-                    isSelected
-                      ? "bg-primary/10 border-primary text-primary"
-                      : "bg-card border-border text-muted-foreground hover:bg-accent"
-                  )}
-                >
-                  {isSelected && (
-                    <span className="w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[8px] flex items-center justify-center font-black shrink-0">
-                      {slotIndex + 1}
-                    </span>
-                  )}
-                  {PREVIEW_FIELD_LABELS[field]}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Filter summary */}
       {filterSummary && (
@@ -245,6 +193,8 @@ export default function QueuePanel({
           const now = new Date();
           const tier = getLeadTier(lead as CampaignLead, now);
           const isPending = tier === 4 && !isCurrent && !isPast;
+          const leadIdStr = String(lead.lead_id || lead.id || "");
+          const stats = leadCallStats[leadIdStr] || { calls_today: 0, total_calls: 0, last_disposition: null };
 
           return (
             <div
@@ -278,15 +228,23 @@ export default function QueuePanel({
                 <div className="text-[10px] text-muted-foreground truncate font-medium">
                   {String(lead.phone || "")}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  {queuePreviewFields.map((field, fi) => {
-                    const val = renderQueuePreviewValue(lead, field);
-                    return val !== "—" ? (
-                      <span key={fi} className="text-[9px] text-muted-foreground/70 truncate">
-                        {val}
-                      </span>
-                    ) : null;
-                  })}
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {/* Exact Contact Stats */}
+                  <span className="text-[10px] text-muted-foreground/90 font-medium">
+                    Calls Today: <strong className="text-foreground">{stats.calls_today}</strong>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/90 font-medium">
+                    Total Calls: <strong className="text-foreground">{stats.total_calls}</strong>
+                  </span>
+                  {stats.last_disposition && (
+                    <span 
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-sm border shrink-0"
+                      style={getBadgeStyle(stats.last_disposition)}
+                    >
+                      {stats.last_disposition}
+                    </span>
+                  )}
+
                   {/* ── Tier Badges ── */}
                   {!isCurrent && !isPast && tier === 1 && (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500 shrink-0">

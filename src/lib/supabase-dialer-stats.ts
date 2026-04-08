@@ -10,6 +10,7 @@ export interface DialerDailyStats {
   policies_sold: number;
   amd_skipped: number;
   session_started_at: string | null;
+  session_duration_seconds: number;
   last_updated_at: string;
 }
 
@@ -26,6 +27,7 @@ export async function upsertDialerStats(
     policies_sold?: number;
     amd_skipped?: number;
     session_started_at?: string | null;
+    session_duration_seconds?: number;
   }
 ): Promise<void> {
   const { error } = await (supabase as any).rpc("increment_dialer_stats", { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -36,6 +38,7 @@ export async function upsertDialerStats(
     p_policies_sold: updates.policies_sold ?? 0,
     p_session_started_at: updates.session_started_at ?? null,
     p_amd_skipped: updates.amd_skipped ?? 0,
+    p_session_duration_seconds: updates.session_duration_seconds ?? 0,
   });
   if (error) {
     console.error("[upsertDialerStats] error:", error);

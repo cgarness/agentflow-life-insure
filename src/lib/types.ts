@@ -336,5 +336,6 @@ export interface DialerDailyStats {
   total_talk_seconds: number;
   policies_sold: number;
   session_started_at: string | null;
+  session_duration_seconds: number;
   last_updated_at: string;
 }

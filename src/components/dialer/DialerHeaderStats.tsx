@@ -37,7 +37,7 @@ export const DialerHeaderStats: React.FC<DialerHeaderStatsProps> = ({
   }
 
   const stats = [
-    { label: "Session Duration", value: sessionStartedAt ? fmtSessionDuration(sessionElapsed) : "—" },
+    { label: "Session Duration", value: fmtSessionDuration(sessionElapsed) },
     { label: "Calls Made", value: sessionStats.calls_made },
     { label: "Connected", value: sessionStats.calls_connected },
     { label: "Answer Rate", value: sessionStats.calls_made > 0 ? `${Math.round(sessionStats.calls_connected / sessionStats.calls_made * 100)}%` : "—" },
