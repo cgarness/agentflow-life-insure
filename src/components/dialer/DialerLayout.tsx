@@ -1,17 +1,15 @@
 import React from "react";
 import { useDialer } from "@/contexts/DialerContext";
-import { DialerHeader } from "./DialerHeader";
-import { DialerContactSidebar } from "./DialerContactSidebar";
-import { DialerOutcomePanel } from "./DialerOutcomePanel";
-import { DialerModalsContainer } from "./DialerModalsContainer";
-import { DialerStateObservers } from "./DialerStateObservers";
+import { DialerHeader } from "@/components/dialer/DialerHeader";
+import { DialerContactSidebar } from "@/components/dialer/DialerContactSidebar";
+import { DialerOutcomePanel } from "@/components/dialer/DialerOutcomePanel";
+import { DialerModalsContainer } from "@/components/dialer/DialerModalsContainer";
 
 export const DialerLayout: React.FC = () => {
   const { lockMode, campaignType } = useDialer();
 
   return (
     <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mt-4 lg:-mt-6 -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
-      <DialerStateObservers />
       
       {/* ── CAMPAIGN TYPE STRIPE ── */}
       {lockMode && (() => {
