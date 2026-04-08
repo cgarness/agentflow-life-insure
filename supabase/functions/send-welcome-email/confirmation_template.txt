@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Your Registration</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #020408; font-family: -apple-system, sans-serif; color: #F1F5F9; }
+        .container { max-width: 600px; margin: 40px auto; background: rgba(13, 25, 48, 0.4); border: 1px solid rgba(99, 155, 255, 0.2); border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
+        .header { padding: 40px; text-align: center; }
+        .logo { font-size: 32px; font-weight: 800; }
+        .logo-agent { color: #F1F5F9; }
+        .logo-flow { color: #3B82F6; }
+        .content { padding: 0 40px 40px; text-align: center; }
+        h1 { font-size: 28px; font-weight: 700; margin-bottom: 16px; color: #F1F5F9; }
+        p { font-size: 16px; color: #94A3B8; line-height: 1.6; margin-bottom: 32px; }
+        .btn { display: inline-block; padding: 16px 32px; background: linear-gradient(135deg, #1D4ED8, #3B82F6); color: #FFFFFF !important; text-decoration: none; font-weight: 700; border-radius: 12px; font-size: 16px; box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3); }
+        .footer { padding: 32px; text-align: center; border-top: 1px solid rgba(255, 255, 255, 0.05); font-size: 12px; color: #475569; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo"><span class="logo-agent">Agent</span><span class="logo-flow">Flow</span></div>
+        </div>
+        <div class="content">
+            <h1>Confirm Your Account</h1>
+            <p>You're one step away from transforming your insurance business. Please click the button below to verify your email address and activate your AgentFlow account.</p>
+            <a href="{{ .ConfirmationURL }}" class="btn">Confirm Email Address</a>
+        </div>
+        <div class="footer">
+            <p>If you didn't create an account, you can safely ignore this email.</p>
+            <p>© 2026 AgentFlow Inc. All Rights Reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

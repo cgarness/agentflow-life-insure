@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentFlow | Architecture Documentation</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Marked.js for parsing Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Mermaid.js for sequence diagrams -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+        window.mermaid = mermaid;
+    </script>
+    <style>
+        /* Custom Markdown styling */
+        .prose pre { background-color: #1f2937; padding: 1.25rem; border-radius: 0.5rem; overflow-x: auto; color: #e5e7eb; margin: 1.5rem 0; border: 1px solid #374151;}
+        .prose code { color: #60a5fa; background: #1f2937; padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-size: 0.875em;}
+        .prose a { color: #3b82f6; text-decoration: none; }
+        .prose a:hover { text-decoration: underline; }
+        .prose blockquote { border-left: 4px solid #4b5563; padding-left: 1rem; color: #9ca3af; font-style: italic; margin: 1.5rem 0;}
+        .prose h1, .prose h2, .prose h3 { color: #f3f4f6; font-weight: 700; margin-top: 2rem; margin-bottom: 1rem; letter-spacing: -0.025em;}
+        .prose h1 { font-size: 2.5rem; border-bottom: 1px solid #374151; padding-bottom: 0.75rem;}
+        .prose h2 { font-size: 1.75rem; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; margin-top: 3rem;}
+        .prose h3 { font-size: 1.25rem; color: #93c5fd;}
+        .prose p, .prose ul, .prose ol { margin-bottom: 1rem; color: #d1d5db; line-height: 1.75; }
+        .prose ul { list-style-type: none; padding-left: 0; }
+        .prose ul li { position: relative; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+        .prose ul li::before { content: "•"; position: absolute; left: 0; color: #3b82f6; font-weight: bold; }
+        /* Mermaid spacing */
+        .mermaid { margin: 2rem 0; display: flex; justify-content: center; background: #111827; padding: 1rem; border-radius: 0.5rem; border: 1px solid #374151; }
+        
+        /* Sidebar active state */
+        .nav-button.active { background-color: #1e3a8a; color: #bfdbfe; border-right: 3px solid #60a5fa; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200 flex h-screen overflow-hidden font-sans antialiased selection:bg-blue-500/30">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col shadow-xl z-10 shrink-0">
+        <div class="p-6 border-b border-gray-800">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg text-white tracking-tight">AgentFlow</h1>
+                    <p class="text-xs text-gray-400 font-medium tracking-wide uppercase">Software Manual V1.0</p>
+                </div>
+            </div>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto p-4 space-y-1">
+            <div class="text-xs font-semibold text-gray-500 tracking-wider uppercase mb-3 px-3 mt-2">Architecture Core</div>
+            
+            <button onclick="loadContent('master', this)" class="nav-button active w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                Master Architecture
+            </button>
+            <button onclick="loadContent('db', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+                Database & Data Isolation
+            </button>
+            <button onclick="loadContent('backend', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>
+                Backend & Telephony Sync
+            </button>
+
+            <div class="text-xs font-semibold text-gray-500 tracking-wider uppercase mb-3 px-3 pt-6">React UI Modules</div>
+            
+            <button onclick="loadContent('dialer', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                The Power Dialer
+            </button>
+            <button onclick="loadContent('crm', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                CRM (Leads & Clients)
+            </button>
+            <button onclick="loadContent('dashboard', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                Dashboards & Analytics
+            </button>
+            <button onclick="loadContent('settings', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Org Settings & Teams
+            </button>
+            <button onclick="loadContent('superadmin', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                Super Admin Command
+            </button>
+            
+            <div class="text-xs font-semibold text-gray-500 tracking-wider uppercase mb-3 px-3 pt-6">System Data Flows</div>
+            
+            <button onclick="loadContent('interactions', this)" class="nav-button w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-left group">
+                <svg class="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                Sequence Sync & APIs
+            </button>
+        </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto bg-gray-950 relative">
+        <div class="max-w-4xl mx-auto px-10 py-16">
+            <article id="content-container" class="prose prose-invert max-w-none">
+                <!-- Markdown renders here -->
+            </article>
+        </div>
+    </main>
+
+    <!-- INJECTED MARKDOWN DATA -->
+    
+    <script type="text/markdown" id="md-master">
+# AgentFlow: Master Software Architecture Report
+*A comprehensive technical teardown of the AgentFlow platform, designed to compete with tier-1 CRM/Dialer SaaS applications like GoHighLevel, CallTools, ReadyMode, BatchDialer, and Ringy.*
+
+---
+
+## 1. Executive Summary
+AgentFlow is built on a high-performance, real-time shared-database multi-tenant architecture utilizing PostgreSQL via Supabase and a robust React frontend. It employs a **Server-Side Event-Driven model** to achieve extreme parallel scale. By offloading telephony Call Control, Machine Detection (AMD), and queue locking natively to database layers and Edge nodes, the CRM reacts dynamically—providing users an Enterprise-grade 60FPS UI entirely stripped of typical dialer web crashes and memory leaks.
+
+## 2. Competitive Roadmap (SaaS Upgrades)
+To solidly beat BatchDialer and GoHighLevel on the front-end, AgentFlow requires these explicit next-step feature builds:
+*   **Triple-Line Auto-Dial UI**: Concurrent Outbound Legs visualization for high-speed connectivity.
+*   **Kanban Drag-n-Drop Pipeline**: Visually updating lead pipelines instead of just static lists.
+*   **Geo-Heatmap Analytics**: Showing area code density conversions across the US map.
+*   **Branched Web Scripts**: Allowing managers to build Yes/No dialogue trees natively.
+    </script>
+    
+    <script type="text/markdown" id="md-db">
+# Module: Database & Data Infrastructure 🗄️
+
+*AgentFlow is built on a high-performance, real-time shared-database multi-tenant architecture utilizing PostgreSQL via Supabase. Every data model is rigorously scoped globally by `organization_id` to ensure strict enterprise data isolation.*
+
+---
+
+### [1] Core Data Domains & Table Structures
+
+The database is divided into three primary functional domains: **Telephony & Dialer**, **CRM & Contact Management**, and **User & Organization Identity**.
+
+#### A. Multi-Tenant Identity Domain
+*   **`organizations`**: The root apex tenant identifier. Forms the foundation of our multi-tenant SaaS architecture (mimicking GoHighLevel sub-accounts).
+*   **`profiles`**: Stores extended user session data, decoupled from Supabase Auth (`auth.users`) but linked 1:1 via `id`. Utilizes an `ltree` hierarchy model (Path enumeration).
+*   **`invitations`**: Manages pending user invites securely.
+
+#### B. Telephony & Dialer Domain (The Engine)
+*   **`telnyx_settings`**: Stores encrypted infrastructure credentials, specifically the `call_control_app_id`.
+*   **`campaigns`** & **`campaign_leads`**: State machines for the Power Dialer. Uses atomic database locks (`locked_at`) to ensure high-velocity parallel dialing across users without colliding on the same lead.
+*   **`calls`**: The immutable transaction ledger for all live calls (`telnyx_call_id`, `duration`, `amd_result`).
+
+#### C. CRM & Contact Domain
+*   **`leads`**, **`clients`**, **`recruits`**: Segmented contact types structurally separating different business pipelines natively at the SQL level.
+*   **`appointments`**: High-fidelity booking system allowing Google/Outlook syncing.
+
+---
+
+### [2] Row Level Security (RLS) Posture 🛡️
+
+Our RLS strategy is paranoid-mode by default. It guarantees zero cross-tenant data spillage.
+
+**Global Rule: Structural Scoping**
+Every table evaluates dynamically against the active authenticated user token bounds strictly by `organization_id`. `Super Admin` bypass is enabled natively by a JWT custom claim `is_super_admin: true`.
+    </script>
+
+    <script type="text/markdown" id="md-backend">
+# Module: Backend & Telephony Infrastructure ⚙️
+
+*AgentFlow employs a serverless, event-driven backend utilizing Supabase Edge Functions. This design ensures horizontal scalability, zero cold-boot latency for critical operations, and secure bridging between the React frontend and third-party APIs.*
+
+---
+
+### [1] Telephony Control Engine (The Dialer Backend)
+AgentFlow uses a **Two-Legged Server-Side Call Control** model rather than legacy browser-only implementations.
+
+#### Edge Function Routing:
+*   **`dialer-start-call`**: Triggered by user. Posts to Telnyx to ring the customer first (Leg 1), attaching `premium_answering_machine_detection` constraints globally.
+*   **`telnyx-webhook` (The Brain)**: Inbound listener monitoring call state.
+    *   *If Machine/Voicemail*: Issues an immediate `.hangup()` command and advances the DB queue without waking the agent's browser.
+    *   *If Human Detected*: Executes a `.transfer()` bridge pointing to the agent's localized SIP URI (`sip:{uuid}@sip.telnyx.com`), activating their browser mic immediately.
+*   **`dialer-hangup`**: REST termination preventing browser ghost-ringing.
+
+### [2] Advanced Integration Operations
+*   **`google-calendar-*`**: Bidirectional polling ensuring exact 1:1 mappings between a CRM booked status and an external Microsoft or Google workspace.
+*   **`daily-briefing`**: AI-driven chron jobs scraping yesterday's metrics into conversational recommendations natively mapped into PostgreSQL early morning bounds.
+    </script>
+
+    <script type="text/markdown" id="md-dialer">
+# UI/UX Module Analysis: Power Dialer & Telephony 🎧
+
+*This module covers the core outbound mechanics of the SaaS offering.*
+
+---
+
+### [1] Form Structure & Architecture
+
+#### The Active Call Session HUD
+*   **Data Used**: Real-time ticker (`sessionElapsed`), appointments set, talk time totals.
+*   **Competitive Level-Up**: Add a scrolling ticker showing the organization's "Live Leaderboard" for constant gamification (CallTools style).
+
+#### The Lead Queue Sidebar
+*   **Data Used**: Pulled via `getCampaignLeads()` heavily filtered by `useMemo` states evaluating Best Timezones and Attempt counts.
+*   **Competitive Level-Up**: Implement **Dynamic Smart Queues** powered by WebSockets. If a hot lead is generated via external Zapier hook, the UI should forcibly push them to index `0` dynamically on the active dialer queue.
+
+#### Wrap-Up & Disposition Modal
+*   **Data Used**: Reads `dispositions` settings mapping specific logic behaviors (DNC triggers, mandatory notes).
+*   **Competitive Level-Up**: Introduce conditional logical dropdowns. If "Not Interested" is selected, force a sub-reason (Price, Partner, Not Needed).
+    </script>
+
+    <script type="text/markdown" id="md-crm">
+# UI/UX Module Analysis: CRM Engine (Leads, Clients) 👥
+
+*The structural anchor of AgentFlow.*
+
+---
+
+### [1] The Master Grid (`Contacts.tsx`)
+*   **Data Used**: Segmented SQL table lookups (`leads`, `clients`, `recruits`). Implements Mass-action arrays natively.
+*   **SaaS Optimization**: A clean React Table is not enough. We must introduce a **Kanban Board Pivot** mapping the SQL statuses into draggable horizontal columns representing aggregated sales pipelines, visually identifying choke points.
+
+### [2] The Context Drawer
+*   **Data Used**: Pulls the entirety of a single UUID's activity spread. Centralizes Email, SMS, and Voice histories.
+*   **SaaS Optimization**: Integrate Edge-AI sentimental scoring determining "Probability of Close" intelligently by scraping the raw transcript JSON payloads and call outputs sequentially.
+    </script>
+
+    <script type="text/markdown" id="md-dashboard">
+# UI/UX Module Analysis: Dashboard & Analytics Engine 📊
+
+*Turning raw telephony logs into actionable organizational intelligence.*
+
+---
+
+### [1] KPI & Reporting Metrics
+*   **Data Used**: Queries across `agent_scorecards` crossing `calls` tables. Time-boxing via `StartOfDay()` boundary rules per the user's localized timezone configuration natively.
+*   **SaaS Optimization**: Provide historical variance mapping. Display (+15% vs Last Week) inherently in mini SVG charts on every status card.
+
+### [2] Advanced Interactions
+*   **Leaderboard Engine**: Ranks SDRs globally evaluating raw call volumes vs appointments scheduled.
+*   **SaaS Optimization**: Geo-Heatmap overlays. Generate an SVG map of the USA natively shaded by states where conversions index higher against standard deviations dynamically mapping Area Code metrics perfectly.
+    </script>
+
+    <script type="text/markdown" id="md-settings">
+# UI/UX Module Analysis: Settings & Organization 🛠️
+
+*The customization layer for Multi-Tenant administrators.*
+
+---
+
+### [1] The Matrix Array
+*   **User Management**: Dynamic list allowing invitations. Mutates down to auth without exposing edge tables.
+*   **SaaS Optimization**: Drag and Drop visual hierarchy. Let an Organization Admin physically drag an SDR into a specific manager's "Team Bubble" generating an `ltree` relationship in PostgreSQL natively supporting override commissions transparently.
+
+### [2] Telnyx Integration
+*   **Local presence DIDs**: Syncs actively held phone lines strictly to the Org.
+*   **SaaS Optimization**: Add a native "Purchase Area Code" widget natively bypassing the need to log into the Telnyx Portal.
+    </script>
+
+    <script type="text/markdown" id="md-superadmin">
+# UI/UX Module: Super Admin Command Center 💻
+
+*The invisible architectural bypass layer utilized entirely by SaaS Operations management.*
+
+---
+
+### [1] Cross-Tenant Visibility
+*   **Data Used**: Natively queries the absolute sums of `organizations` bypassing standard `Row Level Security` via explicitly elevated `is_super_admin: true` JWT claims validated natively in `security_definer` functions.
+*   **SaaS Optimization**: Embed Stripe API controls inherently into the dashboard to terminate a sub-account's API Telephony capabilities instantly via toggle.
+
+### [2] Impersonation Engine ("View As")
+*   **Data Used**: Extracts target `profile` and aggressively mounts an `impersonatedUser` struct into the global React `AuthContext`, overriding `organizationId` boundaries locally while maintaining real user state securely.
+*   **SaaS Optimization**: Add **Read-Only Mode** to context impersonation to ensure Operations teams cannot accidentally execute massive POST hooks while debugging a customer's workspace.
+    </script>
+
+    <script type="text/markdown" id="md-interactions">
+# System Mapping & Real-Time Interaction Flow 🔄
+
+*How Frontend, Backend, and Database coordinate to execute AgentFlow's value mechanics.*
+
+AgentFlow operates on an Event-Driven, Real-Time loop using **WebSockets** and **Webhooks**.
+
+### The Two-Legged Dialer Orchestration
+
+```mermaid
+sequenceDiagram
+    participant React as Frontend (React)
+    participant Edge as Serverless Edge (dialer-start)
+    participant Database as Supabase DB
+    participant Telnyx as Telnyx (PSTN)
+    participant Webhook as Edge (Webhook)
+
+    Note over React, Edge: Agent clicks "Dial Lead"
+    React->>Edge: POST (Lead_Number)
+    Edge->>Database: Validate Tenant & Fetch API Key
+    Database-->>Edge: Returns App ID
+    Edge->>Telnyx: Initiates Call + AMD Flag
+    
+    Note over Telnyx: The PSTN Ring (Leg 1)
+    Telnyx-->>Webhook: Machine/Voicemail Detected!
+    Webhook->>Telnyx: POST /hangup (Silent terminate)
+    Webhook->>Database: UPDATE calls (duration, status)
+    Database-->>React: Realtime Hook (UI advances smoothly)
+    
+    Note over Telnyx, React: If Human is Detected
+    Webhook->>Telnyx: POST /transfer (Bridge)
+    Telnyx->>React: Bridges SIP Audio (Leg 2) directly to Headset
+```
+    </script>
+
+    <!-- App Logic -->
+    <script>
+        function loadContent(id, buttonElement) {
+            // Update active state of buttons
+            document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
+            buttonElement.classList.add('active');
+
+            // Find the markdown script element
+            const mdScript = document.getElementById(`md-${id}`);
+            if (mdScript) {
+                const markdownRaw = mdScript.textContent.trim();
+                
+                // Parse markdown to HTML
+                const htmlContent = marked.parse(markdownRaw);
+                
+                // Inject HTML into container
+                const container = document.getElementById('content-container');
+                container.innerHTML = htmlContent;
+
+                // If mermaid diagrams exist in the new content, render them
+                if (htmlContent.includes('class="language-mermaid"')) {
+                    // Marked.js renders ```mermaid as <code class="language-mermaid">
+                    // Mermaid.js expects <div class="mermaid">. We must dynamically convert them.
+                    const mermaidCodes = container.querySelectorAll('code.language-mermaid');
+                    mermaidCodes.forEach((codeBlock, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'mermaid';
+                        div.textContent = codeBlock.textContent;
+                        // Replace the parent <pre> block completely
+                        codeBlock.parentNode.replaceWith(div);
+                    });
+                    
+                    // Trigger mermaid engine
+                    if (window.mermaid) {
+                        try {
+                            window.mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+                        } catch (e) {
+                            console.error("Mermaid parsing error", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Initialize with 'master' open
+        window.addEventListener('DOMContentLoaded', () => {
+            const firstButton = document.querySelector('.nav-button.active');
+            loadContent('master', firstButton);
+        });
+    </script>
+</body>
+</html>
