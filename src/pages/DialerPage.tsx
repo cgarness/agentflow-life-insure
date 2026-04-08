@@ -247,7 +247,12 @@ export default function DialerPage() {
     });
   }, [leadQueue]);
 
-  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [isAdvancing, setIsAdvancingState] = useState(false);
+  const isAdvancingRef = useRef(false);
+  const setIsAdvancing = useCallback((val: boolean) => {
+    isAdvancingRef.current = val;
+    setIsAdvancingState(val);
+  }, []);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
@@ -276,7 +281,7 @@ export default function DialerPage() {
 
   // ── Lead Selection Handler (with isAdvancing guard) ──
   const handleLeadSelect = useCallback((idx: number) => {
-    if (isAdvancing) return;
+    if (isAdvancingRef.current) return;
     if (idx === currentLeadIndex) return;
 
     const lead = leadQueue[idx];
@@ -1087,7 +1092,7 @@ export default function DialerPage() {
   }, [selectedCampaignId, lockMode, telnyxCallState, showWrapUp, currentLeadIndex]);
 
   const fetchHistory = useCallback(async (leadId: string, signal?: AbortSignal) => {
-    if (isAdvancing) return;
+    if (isAdvancingRef.current) return;
     historySessionCacheRef.current.delete(leadId);
     setLoadingHistory(true);
     try {
@@ -1097,7 +1102,6 @@ export default function DialerPage() {
         setHistory(data);
       }
     } catch (err: any) {
-      // Ignore AbortError — only log genuine failures
       if (err.name !== 'AbortError' && err.message !== 'Aborted') {
         console.warn("Failed to load history:", err);
       }
@@ -1106,7 +1110,7 @@ export default function DialerPage() {
         setLoadingHistory(false);
       }
     }
-  }, [organizationId, isAdvancing]);
+  }, [organizationId]);
 
   // ── Debounced Lead Transition: orchestrates all lead-dependent fetches ──
   // Prevents ERR_INSUFFICIENT_RESOURCES by debouncing + serializing fetches
@@ -1276,7 +1280,7 @@ export default function DialerPage() {
   } | null>(null);
 
   const handleAdvance = useCallback(async () => {
-    if (isAdvancing) return;
+    if (isAdvancingRef.current) return;
     setIsAdvancing(true);
     setShowWrapUp(false);
     setSelectedDisp(null);
@@ -1316,6 +1320,7 @@ export default function DialerPage() {
   }, [autoDialEnabled, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
   const handleSkip = useCallback(async () => {
+    if (isAdvancingRef.current) return;
     setIsAdvancing(true);
     setIsEditingContact(false);
     setEditForm({});
@@ -1612,10 +1617,13 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [telnyxCallState, telnyxHangUp]);
 
-  // Reset the ended-state guard when call state leaves "ended"
+  // Reset the ended-state guard only when a new call begins — NOT on every non-ended state.
+  // Resetting on "idle" caused a double-fire: ended → idle (200ms reset) → ended (WebRTC destroy notification)
+  // would re-process the same call end and advance the lead twice.
   useEffect(() => {
-    if (telnyxCallState !== "ended") {
+    if (telnyxCallState === "dialing") {
       hasProcessedEndedState.current = false;
+      lastProcessedCallIdRef.current = null;
     }
   }, [telnyxCallState]);
 

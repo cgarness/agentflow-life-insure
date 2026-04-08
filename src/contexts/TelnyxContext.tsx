@@ -130,6 +130,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
 
+  // Prevents double processing of call-end state across hangUp(), telnyx.error, and telnyx.notification handlers.
+  // Reset at the start of each new call (makeCall); set when the first handler processes the end.
+  const endStateProcessedRef = useRef(false);
+
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
     if (remoteAudioRef.current) return remoteAudioRef.current;
@@ -386,6 +390,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     console.log("[TelnyxContext] Initiating dual-layer hangup.", { callId, controlId });
 
+    endStateProcessedRef.current = true;
+
     // 1. Instant UI update — triggers wrap-up phase in DialerPage
     setCallState("ended");
     
@@ -451,7 +457,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isDialingRef.current = false;
 
     // Deferred cosmetic reset — gives the "ended" state time to trigger wrap-up effects
+    if (endResetRef.current) { clearTimeout(endResetRef.current); endResetRef.current = null; }
     endResetRef.current = setTimeout(() => {
+      endResetRef.current = null;
       setCurrentCall(null);
       setCallState("idle");
       setIsMuted(false);
@@ -675,6 +683,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           (typeof errorMsg === "string" && errorMsg.includes("CALL DOES NOT EXIST"));
 
         if (isRemoteHangup) {
+          if (endStateProcessedRef.current) {
+            console.log("[TelnyxContext] telnyx.error -32002 skipped (end state already processed).");
+            callRef.current = null;
+            return;
+          }
+          endStateProcessedRef.current = true;
           console.log("Remote party ended call — normal cleanup (code -32002)");
           setCallState("ended");
           if (timerRef.current) {
@@ -690,7 +704,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           finalizeCallRecord(callDuration);
 
           // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
+          if (endResetRef.current) { clearTimeout(endResetRef.current); endResetRef.current = null; }
           endResetRef.current = setTimeout(() => {
+            endResetRef.current = null;
             setCurrentCall(null);
             setCallState("idle");
             setIsMuted(false);
@@ -715,10 +731,17 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       client.on("telnyx.notification", (notification: any) => {
         if (!notification.call) return;
         const call = notification.call;
+        const state = call.state;
+
+        // For end states already processed by hangUp() or telnyx.error, skip re-triggering
+        if ((state === "destroy" || state === "hangup") && endStateProcessedRef.current) {
+          console.log("[TelnyxContext] Notification", state, "skipped (end state already processed).");
+          callRef.current = null;
+          return;
+        }
+
         callRef.current = call;
         setCurrentCall(call);
-
-        const state = call.state;
 
         // Attach remote audio for ringback tone and active call audio
         if (state === "active" || state === "ringing" || state === "early" || state === "trying") {
@@ -735,6 +758,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
           setCallState("dialing");
         } else if (state === "destroy" || state === "hangup") {
+          endStateProcessedRef.current = true;
           setCallState("ended");
           if (timerRef.current) {
             clearInterval(timerRef.current);
@@ -752,7 +776,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           finalizeCallRecord(callDuration);
 
           // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
+          if (endResetRef.current) { clearTimeout(endResetRef.current); endResetRef.current = null; }
           endResetRef.current = setTimeout(() => {
+            endResetRef.current = null;
             setCurrentCall(null);
             setCallState("idle");
             setIsMuted(false);
@@ -788,6 +814,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       mediaStreamRef.current = null;
     }
     callRef.current = null;
+    endStateProcessedRef.current = false;
     setStatus("idle");
     setErrorMessage(null);
     setCurrentCall(null);
@@ -830,6 +857,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     isDialingRef.current = true;
+    endStateProcessedRef.current = false;
 
     // 1. Authentication Check: Force-refresh to ensure a fresh token for Edge Functions
     const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();

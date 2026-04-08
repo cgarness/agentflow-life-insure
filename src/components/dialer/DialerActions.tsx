@@ -113,7 +113,8 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
         )}
         <button
           onClick={onSkip}
-          className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80"
+          disabled={telnyxCallState === "active" || telnyxCallState === "dialing"}
+          className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ArrowRight className="w-4 h-4" />
           <span className="leading-none">Skip</span>
