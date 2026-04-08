@@ -3015,6 +3015,37 @@ export default function DialerPage() {
           onSkip={handleSkip}
           onSelectTab={setLeftTab}
           onSelectDisposition={handleSelectDisposition}
+          queuePanelProps={{
+            campaignType,
+            campaignId: selectedCampaignId!,
+            organizationId,
+            userRole: (profile as any)?.role || "Agent",
+            displayQueue: displayQueue as any,
+            leadQueue: leadQueue as any,
+            currentLeadIndex,
+            onSelectLead: setCurrentLeadIndex,
+            queueSort,
+            setQueueSort,
+            showQueueFilters,
+            setShowQueueFilters,
+            showQueueFieldPicker,
+            setShowQueueFieldPicker,
+            queuePreviewFields,
+            setQueuePreviewFields,
+            loadingLeads,
+            hasMoreLeads,
+            currentOffset,
+            fetchLeadsBatch,
+            renderQueuePreviewValue,
+            PREVIEW_FIELD_LABELS,
+            onClearFilters: () => setQueueFilter({ status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 }),
+            filterSummary:
+              (queueSort !== 'default' || queueFilter.status || queueFilter.state || queueFilter.leadSource || queueFilter.maxAttempts < 99 || queueFilter.minScore > 0 || queueFilter.maxScore < 10)
+                ? `Showing ${displayQueue.length} of ${leadQueue.length} leads`
+                : "",
+          }}
+          availableScripts={availableScripts}
+          onOpenScript={setActiveScriptId}
         />
 
         </div>
