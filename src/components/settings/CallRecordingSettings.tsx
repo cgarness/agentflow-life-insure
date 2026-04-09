@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,9 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Mic, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
-
 const CallRecordingSettings: React.FC = () => {
+  const { organizationId } = useOrganization();
+  const [phoneSettingsRowId, setPhoneSettingsRowId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [recordingEnabled, setRecordingEnabled] = useState(false);
@@ -19,16 +20,17 @@ const CallRecordingSettings: React.FC = () => {
 
   const [originals, setOriginals] = useState({ recordingEnabled: false, retentionDays: "0" });
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
+    if (!organizationId) {
+      setLoading(false);
+      setPhoneSettingsRowId(null);
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase
       .from("phone_settings")
-      .select("recording_enabled, transcription_enabled, recording_retention_days")
-      .eq("id", SINGLETON_ID)
+      .select("id, recording_enabled, transcription_enabled, recording_retention_days")
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (error) {
@@ -39,6 +41,7 @@ const CallRecordingSettings: React.FC = () => {
 
     if (data) {
       const d = data as any;
+      setPhoneSettingsRowId(d.id ?? null);
       setRecordingEnabled(!!d.recording_enabled);
       setTranscriptionEnabled(!!d.transcription_enabled);
       setRetentionDays(String(d.recording_retention_days ?? 0));
@@ -46,34 +49,64 @@ const CallRecordingSettings: React.FC = () => {
         recordingEnabled: !!d.recording_enabled,
         retentionDays: String(d.recording_retention_days ?? 0),
       });
+    } else {
+      setPhoneSettingsRowId(null);
+      setRecordingEnabled(true);
+      setTranscriptionEnabled(false);
+      setRetentionDays("0");
+      setOriginals({ recordingEnabled: true, retentionDays: "0" });
     }
     setLoading(false);
-  };
+  }, [organizationId]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   const hasChanges =
     recordingEnabled !== originals.recordingEnabled ||
     retentionDays !== originals.retentionDays;
 
   const handleSave = async () => {
+    if (!organizationId) {
+      toast.error("No organization — cannot save recording settings.");
+      return;
+    }
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("phone_settings")
-      .upsert({
-        id: SINGLETON_ID,
-        recording_enabled: recordingEnabled,
-        recording_retention_days: parseInt(retentionDays),
-        updated_at: new Date().toISOString(),
-      } as any);
+      .upsert(
+        {
+          id: phoneSettingsRowId || undefined,
+          organization_id: organizationId,
+          recording_enabled: recordingEnabled,
+          transcription_enabled: transcriptionEnabled,
+          recording_retention_days: parseInt(retentionDays, 10),
+          updated_at: new Date().toISOString(),
+        } as any,
+        { onConflict: "organization_id" }
+      )
+      .select("id")
+      .maybeSingle();
 
     setSaving(false);
     if (error) {
       toast.error("Failed to save recording settings.");
       return;
     }
+    if (data?.id) setPhoneSettingsRowId(data.id);
     setOriginals({ recordingEnabled, retentionDays });
-    toast.success("Recording settings saved");
+    toast.success("Call recording settings saved");
   };
+
+  if (!organizationId) {
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-foreground">Call Recording</h3>
+        <p className="text-sm text-muted-foreground">Link your account to an organization to manage recording settings.</p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

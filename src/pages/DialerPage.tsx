@@ -403,6 +403,9 @@ export default function DialerPage() {
   const historyEndRef = useRef<HTMLDivElement>(null);
   /** In-session cache: instant history when revisiting a lead; invalidated on explicit refresh. */
   const historySessionCacheRef = useRef<Map<string, HistoryItem[]>>(new Map());
+  /** For merging late `recording_url` updates without flashing skeleton on other leads. */
+  const currentLeadIdForHistoryRef = useRef<string | null>(null);
+  const recordingHistoryRetryTimersRef = useRef<number[]>([]);
   const lastScrolledLeadIdRef = useRef<string | null>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasDialedOnce = useRef(false);
@@ -417,6 +420,11 @@ export default function DialerPage() {
   const pendingLifecycleIndexRef = useRef<number | null>(null);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+  useEffect(() => {
+    currentLeadIdForHistoryRef.current = currentLead
+      ? String(currentLead.lead_id || currentLead.id)
+      : null;
+  }, [currentLead]);
   const { formatDate, formatDateTime } = useBranding();
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
@@ -1146,6 +1154,44 @@ export default function DialerPage() {
       }
     }
   }, [organizationId]);
+
+  /** Refetch timeline for a lead when Telnyx delivers `recording_url` after wrap-up (no isAdvancing guard). */
+  const refreshHistoryForLeadQuiet = useCallback(
+    async (leadId: string) => {
+      try {
+        const data = await getLeadHistory(leadId, organizationId);
+        historySessionCacheRef.current.set(leadId, data);
+        if (currentLeadIdForHistoryRef.current === leadId) {
+          setHistory(data);
+        }
+      } catch (e) {
+        console.warn("[DialerPage] Quiet history refresh failed:", e);
+      }
+    },
+    [organizationId]
+  );
+
+  const scheduleRecordingHistoryRefresh = useCallback(
+    (leadId: string) => {
+      recordingHistoryRetryTimersRef.current.forEach(clearTimeout);
+      recordingHistoryRetryTimersRef.current = [];
+      for (const ms of [3000, 12000, 35000]) {
+        const tid = window.setTimeout(() => {
+          void refreshHistoryForLeadQuiet(leadId);
+        }, ms);
+        recordingHistoryRetryTimersRef.current.push(tid);
+      }
+    },
+    [refreshHistoryForLeadQuiet]
+  );
+
+  useEffect(
+    () => () => {
+      recordingHistoryRetryTimersRef.current.forEach(clearTimeout);
+      recordingHistoryRetryTimersRef.current = [];
+    },
+    []
+  );
 
   // ── Debounced Lead Transition: orchestrates all lead-dependent fetches ──
   // Prevents ERR_INSUFFICIENT_RESOURCES by debouncing + serializing fetches
@@ -2290,6 +2336,10 @@ export default function DialerPage() {
             console.warn("Failed to auto-add to DNC list", e);
           }
         }
+      }
+
+      if (telnyxCallDuration > 0 && masterId) {
+        scheduleRecordingHistoryRefresh(masterId);
       }
 
       return true;

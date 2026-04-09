@@ -310,16 +310,13 @@ export async function saveCall(data: {
 
   let error;
   if (data.id) {
-    // Upsert if ID is provided
-    const { error: upsertError } = await supabase
+    const { error: updateError } = await supabase
       .from("calls")
-      .upsert({ id: data.id, ...callPayload }, { onConflict: "id" });
-    error = upsertError;
+      .update(callPayload)
+      .eq("id", data.id);
+    error = updateError;
   } else {
-    // Otherwise insert new
-    const { error: insertError } = await supabase
-      .from("calls")
-      .insert(callPayload);
+    const { error: insertError } = await supabase.from("calls").insert(callPayload);
     error = insertError;
   }
 

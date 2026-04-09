@@ -191,18 +191,34 @@ async function getTelnyxApiKey(supabase: any, organizationId?: string): Promise<
 // ─── Helper: check if recording is enabled ───
 async function isRecordingEnabled(supabase: any, organizationId?: string): Promise<boolean> {
   try {
-    let query = supabase.from('phone_settings').select('recording_enabled');
     if (organizationId) {
-      query = query.eq('organization_id', organizationId);
+      const { data, error } = await supabase
+        .from('phone_settings')
+        .select('recording_enabled')
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+      if (error) {
+        console.error(`Error checking recording status for org ${organizationId}:`, error);
+        return true;
+      }
+      if (data == null) {
+        return true;
+      }
+      return data.recording_enabled !== false;
     }
-    const { data, error } = await query.limit(1).maybeSingle();
+    const { data, error } = await supabase
+      .from('phone_settings')
+      .select('recording_enabled')
+      .limit(1)
+      .maybeSingle();
     if (error) {
-      console.error(`Error checking recording status for org ${organizationId}:`, error);
+      console.error('Error checking global recording status:', error);
+      return true;
     }
-    return data?.recording_enabled === true;
+    return data?.recording_enabled !== false;
   } catch (err) {
     console.error('EXCEPTION in isRecordingEnabled:', err);
-    return false;
+    return true;
   }
 }
 
@@ -411,7 +427,13 @@ async function handleCallHangup(supabase: any, payload: any) {
 async function handleRecordingSaved(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
   const callSessionId = payload.call_session_id;
-  const recordingUrl = payload.recording_urls?.mp3 || payload.recording_urls?.wav || null;
+  const ru = payload.recording_urls;
+  const recordingUrl =
+    (ru && typeof ru === 'object' && (ru.mp3 || ru.wav)) ||
+    (typeof ru === 'string' ? ru : null) ||
+    payload.recording_url_mp3 ||
+    payload.recording_url ||
+    null;
 
   console.log('Recording saved:', { callControlId, callSessionId, recordingUrl });
 
