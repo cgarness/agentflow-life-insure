@@ -230,7 +230,8 @@ export async function getLeadHistory(
     const raw = c as any;
     const hasRecording =
       (raw.recording_url && raw.recording_url !== '__recording_pending__') ||
-      (raw.telnyx_call_control_id && (c.duration ?? 0) > 0);
+      (raw.telnyx_call_control_id && (c.duration ?? 0) > 0) ||
+      (raw.recording_url?.startsWith('storage:'));
     return {
       id: c.id,
       type: "call" as const,

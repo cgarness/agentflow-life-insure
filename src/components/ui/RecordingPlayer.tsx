@@ -40,6 +40,31 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
     setError(null);
 
     try {
+      // First check if there's a storage-based recording
+      const { data: callRow } = await supabase
+        .from("calls")
+        .select("recording_url")
+        .eq("id", callId)
+        .maybeSingle();
+
+      const recUrl: string | null = callRow?.recording_url;
+
+      if (recUrl?.startsWith("storage:call-recordings/")) {
+        const storagePath = recUrl.replace("storage:call-recordings/", "");
+        const { data: blob, error: dlErr } = await supabase.storage
+          .from("call-recordings")
+          .download(storagePath);
+        if (dlErr || !blob) {
+          setError("Recording not available");
+          setLoading(false);
+          return;
+        }
+        setBlobUrl(URL.createObjectURL(blob));
+        setLoading(false);
+        return;
+      }
+
+      // Fallback: try the Telnyx recording-proxy for legacy calls
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         setError("Not authenticated");
@@ -62,14 +87,13 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
 
       if (!resp.ok) {
         const errBody = await resp.json().catch(() => null);
-        setError(errBody?.error || "Failed to load recording");
+        setError(errBody?.error || "No recording found");
         setLoading(false);
         return;
       }
 
       const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      setBlobUrl(url);
+      setBlobUrl(URL.createObjectURL(blob));
     } catch (e: any) {
       setError(e.message || "Network error");
     } finally {

@@ -281,7 +281,7 @@ const CallRecordingLibrary: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {c.telnyx_call_control_id ? (
+                        {(c.recording_url || c.telnyx_call_control_id) ? (
                           <RecordingPlayer callId={c.id} compact className="w-48" />
                         ) : (
                           <span className="text-muted-foreground text-xs">No recording</span>

@@ -142,6 +142,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
 
+  // Browser-side call recording (MediaRecorder)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingAudioCtxRef = useRef<AudioContext | null>(null);
+
   // Prevents double processing of call-end state across hangUp(), telnyx.error, and telnyx.notification handlers.
   // Reset at the start of each new call (makeCall); set when the first handler processes the end.
   const endStateProcessedRef = useRef(false);
@@ -363,6 +368,91 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.warn("[Automated Log] Exception saving call log:", err);
     }
   }, []);
+
+  const startBrowserRecording = useCallback((call: any) => {
+    try {
+      const remoteStream: MediaStream | undefined = call?.remoteStream;
+      const localStream: MediaStream | undefined = call?.localStream ?? mediaStreamRef.current ?? undefined;
+      if (!remoteStream) {
+        console.warn("[Recording] No remote stream available — skipping browser recording");
+        return;
+      }
+
+      const ctx = new AudioContext();
+      recordingAudioCtxRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+
+      const remoteSrc = ctx.createMediaStreamSource(remoteStream);
+      remoteSrc.connect(dest);
+
+      if (localStream && localStream.getAudioTracks().length > 0) {
+        const localSrc = ctx.createMediaStreamSource(localStream);
+        localSrc.connect(dest);
+      }
+
+      recordingChunksRef.current = [];
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(dest.stream, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordingChunksRef.current.push(e.data);
+      };
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      console.log("[Recording] Browser recording started:", mimeType);
+    } catch (err) {
+      console.warn("[Recording] Failed to start browser recording:", err);
+    }
+  }, []);
+
+  const stopBrowserRecording = useCallback((): Blob | null => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      try { recorder.stop(); } catch { /* may already be stopped */ }
+    }
+    mediaRecorderRef.current = null;
+
+    if (recordingAudioCtxRef.current) {
+      try { recordingAudioCtxRef.current.close(); } catch { /* ignore */ }
+      recordingAudioCtxRef.current = null;
+    }
+
+    const chunks = recordingChunksRef.current;
+    recordingChunksRef.current = [];
+    if (chunks.length === 0) return null;
+
+    const blob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
+    console.log("[Recording] Browser recording stopped. Size:", (blob.size / 1024).toFixed(1), "KB");
+    return blob;
+  }, []);
+
+  const uploadRecording = useCallback(async (callId: string, blob: Blob) => {
+    try {
+      const orgId = profile?.organization_id || "unknown";
+      const ext = blob.type.includes("webm") ? "webm" : "ogg";
+      const path = `${orgId}/${callId}.${ext}`;
+
+      console.log("[Recording] Uploading to storage:", path);
+      const { error: uploadErr } = await supabase.storage
+        .from("call-recordings")
+        .upload(path, blob, { contentType: blob.type, upsert: true });
+
+      if (uploadErr) {
+        console.error("[Recording] Upload failed:", uploadErr);
+        return;
+      }
+
+      await supabase
+        .from("calls")
+        .update({ recording_url: `storage:call-recordings/${path}` } as any)
+        .eq("id", callId);
+
+      console.log("[Recording] Uploaded and saved:", path);
+    } catch (err) {
+      console.error("[Recording] Upload exception:", err);
+    }
+  }, [profile?.organization_id]);
 
   const finalizeCallRecord = useCallback(async (duration: number) => {
     if (!activeCallIdRef.current) return;
@@ -922,28 +1012,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           wirePeerRemoteHangup(call);
           setCallState("active");
 
-          // WebRTC SDK calls may not trigger Call Control webhooks depending on
-          // the Telnyx Connection type. Start recording from the frontend so it
-          // works regardless of webhook configuration.
-          if (!recordingStartedRef.current && activeCallIdRef.current) {
+          // Browser-side recording — captures both local + remote audio via MediaRecorder.
+          // This works regardless of Telnyx Connection type (Credential or Call Control).
+          if (!recordingStartedRef.current) {
             recordingStartedRef.current = true;
-            console.log("[TelnyxContext] Invoking start-call-recording for call", activeCallIdRef.current, {
-              sdkControlId,
-              sdkSessionId,
-            });
-            void supabase.functions.invoke("start-call-recording", {
-              body: {
-                call_id: activeCallIdRef.current,
-                call_control_id: sdkControlId || undefined,
-                call_session_id: sdkSessionId || undefined,
-              },
-            }).then(({ data, error }) => {
-              if (error) {
-                console.warn("[TelnyxContext] start-call-recording invoke error:", error);
-              } else {
-                console.log("[TelnyxContext] start-call-recording result:", data);
-              }
-            });
+            startBrowserRecording(call);
           }
         } else if (state === "ringing" || state === "trying" || state === "early") {
           // One-legged call: our SDK initiated the call, so we're just waiting for the
@@ -956,6 +1029,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             clearInterval(timerRef.current);
             timerRef.current = null;
           }
+
+          // Stop browser recording BEFORE releasing streams
+          const recordingCallId = activeCallIdRef.current;
+          const recordingBlob = stopBrowserRecording();
+          if (recordingBlob && recordingCallId) {
+            void uploadRecording(recordingCallId, recordingBlob);
+          }
+
           if (mediaStreamRef.current) {
             mediaStreamRef.current.getTracks().forEach(track => track.stop());
             mediaStreamRef.current = null;
