@@ -171,14 +171,13 @@ Every table evaluates dynamically against the active authenticated user token bo
 ---
 
 ### [1] Telephony Control Engine (The Dialer Backend)
-AgentFlow uses a **Two-Legged Server-Side Call Control** model rather than legacy browser-only implementations.
+AgentFlow uses a **single-leg WebRTC** model: the agent's browser initiates outbound calls through the **Telnyx WebRTC SDK** (one call path from headset to prospect). Server-side call control is for **tokens, webhooks, and telemetry**—not a separate "customer leg" that gets bridged to the agent.
 
 #### Edge Function Routing:
-*   **`dialer-start-call`**: Triggered by user. Posts to Telnyx to ring the customer first (Leg 1), attaching `premium_answering_machine_detection` constraints globally.
-*   **`telnyx-webhook` (The Brain)**: Inbound listener monitoring call state.
-    *   *If Machine/Voicemail*: Issues an immediate `.hangup()` command and advances the DB queue without waking the agent's browser.
-    *   *If Human Detected*: Executes a `.transfer()` bridge pointing to the agent's localized SIP URI (`sip:{uuid}@sip.telnyx.com`), activating their browser mic immediately.
-*   **`dialer-hangup`**: REST termination preventing browser ghost-ringing.
+*   **`telnyx-token`**: Issues credentials so the browser can log in to Telnyx WebRTC safely (keys never ship to the client).
+*   **`telnyx-webhook`**: Inbound listener for Telnyx call events; keeps `calls` and related records aligned with real call state for the UI and reporting.
+*   **`dialer-hangup`**: Server-initiated hangup when the product needs to force-terminate a call from the backend.
+*   **`dialer-start-call`**: Present in the repo for reference; **not** invoked by the current single-leg dialer (outbound is started in the browser via `newCall`).
 
 ### [2] Advanced Integration Operations
 *   **`google-calendar-*`**: Bidirectional polling ensuring exact 1:1 mappings between a CRM booked status and an external Microsoft or Google workspace.
@@ -278,31 +277,22 @@ AgentFlow uses a **Two-Legged Server-Side Call Control** model rather than legac
 
 AgentFlow operates on an Event-Driven, Real-Time loop using **WebSockets** and **Webhooks**.
 
-### The Two-Legged Dialer Orchestration
+### Single-Leg WebRTC Dialer (Browser-Originated)
 
 ```mermaid
 sequenceDiagram
-    participant React as Frontend (React)
-    participant Edge as Serverless Edge (dialer-start)
+    participant React as Frontend (React + WebRTC SDK)
+    participant Edge as Edge (telnyx-token / webhooks)
     participant Database as Supabase DB
-    participant Telnyx as Telnyx (PSTN)
-    participant Webhook as Edge (Webhook)
+    participant Telnyx as Telnyx
 
-    Note over React, Edge: Agent clicks "Dial Lead"
-    React->>Edge: POST (Lead_Number)
-    Edge->>Database: Validate Tenant & Fetch API Key
-    Database-->>Edge: Returns App ID
-    Edge->>Telnyx: Initiates Call + AMD Flag
-    
-    Note over Telnyx: The PSTN Ring (Leg 1)
-    Telnyx-->>Webhook: Machine/Voicemail Detected!
-    Webhook->>Telnyx: POST /hangup (Silent terminate)
-    Webhook->>Database: UPDATE calls (duration, status)
-    Database-->>React: Realtime Hook (UI advances smoothly)
-    
-    Note over Telnyx, React: If Human is Detected
-    Webhook->>Telnyx: POST /transfer (Bridge)
-    Telnyx->>React: Bridges SIP Audio (Leg 2) directly to Headset
+    Note over React: Agent clicks "Dial Lead"
+    React->>Edge: GET telnyx-token (authenticated)
+    Edge-->>React: WebRTC login credential
+    React->>Telnyx: newCall (outbound WebRTC to PSTN)
+    Telnyx-->>Edge: Webhook (initiated / answered / hangup)
+    Edge->>Database: UPDATE calls, telemetry
+    Database-->>React: Realtime (optional)
 ```
     </script>
 

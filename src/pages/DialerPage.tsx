@@ -1637,8 +1637,8 @@ export default function DialerPage() {
 
   // ── Strict Ring Timeout Enforcement ──
   // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
-  // IMPORTANT: Telnyx two-legged flow can show "dialing" in WebRTC while the customer leg is
-  // already answered (calls.status = connected). Do not hang up in that case.
+  // IMPORTANT: WebRTC can still report "dialing" while the PSTN side is already answered
+  // (calls.status = connected). Do not hang up in that case.
   useEffect(() => {
     if (telnyxCallState !== "dialing") return;
     if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;

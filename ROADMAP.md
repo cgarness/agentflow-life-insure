@@ -53,6 +53,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Docs — VISION, agent rules, internal docs: single-leg dialer**
+  *Files Modified:* `VISION.md`, `AGENT_RULES.md`, `docs/index.html`, `src/pages/DialerPage.tsx` (ring-timeout comment)
+  *Developer Note:* Product copy and AI protocols now describe **single-leg WebRTC** (`newCall` in browser) as canonical. `AGENT_RULES` forbids reintroducing two-legged server dial + SIP bridge flows unless explicitly requested. `docs/index.html` telephony module and sequence diagram updated; stale two-legged comment in `DialerPage` removed.
+
 - **2026-04-09 | [DONE] Architecture — Switch to One-Legged WebRTC Calling (eliminate SIP transfer)**
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `supabase/functions/telnyx-webhook/index.ts`, `supabase/functions/telnyx-token/index.ts`, `ROADMAP.md`
   *Edge Functions Deployed:* `telnyx-webhook` (project `jncvvsvckxhqgqvkppmj`, `verify_jwt: false`), `telnyx-token`

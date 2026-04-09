@@ -22,7 +22,7 @@ AgentFlow is built to be the dominant operating system for insurance agencies. W
     In an agency, data is the only source of truth. Every dial, text, note, and disposition must be captured with **100% precision**. Agency leaders must have perfect, real-time visibility into their team's performance.
 
 3.  **Speed is the Competitive Moat**
-    Seconds translate to dollars. Our platform is optimized for **lightning-fast UI responses** and a "Two-Legged" dialer system that eliminates dead air, phantom rings, and latency bottlenecks.
+    Seconds translate to dollars. Our platform is optimized for **lightning-fast UI responses** and a **single-leg Telnyx WebRTC dialer**: the agent places outbound calls directly from the browser through one media path—simple, low-latency, and free of extra bridge or transfer steps that slow the floor.
 
 4.  **Premium UI is the Product**
     Enterprise software should not be painful to use. We prioritize a **stunning, high-end user experience** that agents *want* to live in. If it’s not beautiful and intuitive, it’s not AgentFlow.
