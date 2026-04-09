@@ -1004,9 +1004,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [callState]);
 
-  // UUID v4 guard — prevents non-UUID strings (e.g. "autodialer") from being
-  // passed as contact_id FK on the calls table, which causes a PG type violation.
-  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  // Standard UUID string shape (any version) — Postgres accepts v1–v5; a v4-only
+  // regex was dropping valid lead IDs so `contact_id` stayed null and history/recordings never linked.
+  const UUID_REGEX =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
 
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions): Promise<string | undefined> => {

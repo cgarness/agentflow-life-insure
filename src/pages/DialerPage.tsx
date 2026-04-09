@@ -406,6 +406,8 @@ export default function DialerPage() {
   /** For merging late `recording_url` updates without flashing skeleton on other leads. */
   const currentLeadIdForHistoryRef = useRef<string | null>(null);
   const recordingHistoryRetryTimersRef = useRef<number[]>([]);
+  /** Campaign row id for the last outbound dial — pairs with `scheduleRecordingHistoryRefresh(masterLeadId)`. */
+  const lastDialCampaignLeadIdRef = useRef<string | null>(null);
   const lastScrolledLeadIdRef = useRef<string | null>(null);
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasDialedOnce = useRef(false);
@@ -1134,12 +1136,20 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, lockMode, telnyxCallState, showWrapUp, currentLeadIndex]);
 
-  const fetchHistory = useCallback(async (leadId: string, signal?: AbortSignal) => {
+  const fetchHistory = useCallback(
+    async (
+      leadId: string,
+      opts?: { signal?: AbortSignal; campaignLeadId?: string | null }
+    ) => {
+    const signal = opts?.signal;
     if (isAdvancingRef.current) return;
     historySessionCacheRef.current.delete(leadId);
     setLoadingHistory(true);
     try {
-      const data = await getLeadHistory(leadId, organizationId, signal);
+      const data = await getLeadHistory(leadId, organizationId, {
+        signal,
+        campaignLeadId: opts?.campaignLeadId,
+      });
       if (!signal?.aborted) {
         historySessionCacheRef.current.set(leadId, data);
         setHistory(data);
@@ -1157,9 +1167,11 @@ export default function DialerPage() {
 
   /** Refetch timeline for a lead when Telnyx delivers `recording_url` after wrap-up (no isAdvancing guard). */
   const refreshHistoryForLeadQuiet = useCallback(
-    async (leadId: string) => {
+    async (leadId: string, campaignLeadId?: string | null) => {
       try {
-        const data = await getLeadHistory(leadId, organizationId);
+        const data = await getLeadHistory(leadId, organizationId, {
+          campaignLeadId,
+        });
         historySessionCacheRef.current.set(leadId, data);
         if (currentLeadIdForHistoryRef.current === leadId) {
           setHistory(data);
@@ -1173,11 +1185,12 @@ export default function DialerPage() {
 
   const scheduleRecordingHistoryRefresh = useCallback(
     (leadId: string) => {
+      const campaignLeadId = lastDialCampaignLeadIdRef.current;
       recordingHistoryRetryTimersRef.current.forEach(clearTimeout);
       recordingHistoryRetryTimersRef.current = [];
       for (const ms of [3000, 12000, 35000, 60000]) {
         const tid = window.setTimeout(() => {
-          void refreshHistoryForLeadQuiet(leadId);
+          void refreshHistoryForLeadQuiet(leadId, campaignLeadId);
         }, ms);
         recordingHistoryRetryTimersRef.current.push(tid);
       }
@@ -1231,7 +1244,10 @@ export default function DialerPage() {
 
     // 0ms — yield one tick so rapid lead switches still batch-cancel via clearTimeout above
     leadTransitionRef.current = setTimeout(async () => {
-      const historyPromise = getLeadHistory(leadId, organizationId, controller.signal);
+      const historyPromise = getLeadHistory(leadId, organizationId, {
+        signal: controller.signal,
+        campaignLeadId: currentLead.id,
+      });
       const profilePromise = agentId
         ? supabase
             .from("profiles")
@@ -1511,6 +1527,7 @@ export default function DialerPage() {
   }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, retryIntervalHours, currentLeadIndex]);
 
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
+    lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
     lastUsedCallerId.current = callerNumber;
     // Consolidated: MakeCallOptions passes all metadata to TelnyxContext.makeCall
     // where the single call record is created.
@@ -2089,6 +2106,7 @@ export default function DialerPage() {
     if (!currentLead || !user) return;
     try {
       const masterId = currentLead.lead_id || currentLead.id;
+      const campaignRowId = currentLead.id;
       await saveCall({
         id: currentCallId || undefined,
         master_lead_id: masterId,
@@ -2101,6 +2119,8 @@ export default function DialerPage() {
         outcome: d.name,
         caller_id_used: lastUsedCallerId.current || undefined,
       }, organizationId);
+      historySessionCacheRef.current.delete(masterId);
+      void refreshHistoryForLeadQuiet(masterId, campaignRowId);
     } catch {
       /* ignore */
     }
@@ -2342,6 +2362,8 @@ export default function DialerPage() {
         scheduleRecordingHistoryRefresh(masterId);
       }
 
+      historySessionCacheRef.current.delete(masterId);
+
       return true;
     } catch (e: any) {
       toast.error("Failed to save: " + e.message);
@@ -2355,7 +2377,9 @@ export default function DialerPage() {
       const success = await saveCallData();
       if (success) {
         setShouldAdvanceAfterModal(false);
-        fetchHistory(currentLead.lead_id || currentLead.id);
+        fetchHistory(currentLead.lead_id || currentLead.id, {
+          campaignLeadId: currentLead.id,
+        });
         toast.success("Call saved successfully", { id: toastId });
         if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
@@ -2905,7 +2929,13 @@ export default function DialerPage() {
               <button
                 onClick={() => {
                   setShowCallerIdWarning(false);
-                  if (pendingCall) proceedWithCall(pendingCall.leadPhone, pendingCall.proposedNumber);
+                  if (pendingCall) {
+                    proceedWithCall(
+                      pendingCall.leadPhone,
+                      pendingCall.proposedNumber,
+                      pendingCall.contactId
+                    );
+                  }
                   setPendingCall(null);
                 }}
                 className="flex-1 py-2 rounded-lg bg-warning text-warning-foreground text-sm font-medium hover:bg-warning/90"

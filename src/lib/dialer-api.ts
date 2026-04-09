@@ -156,7 +156,18 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
 const HISTORY_PER_SOURCE_LIMIT = 80;
 const HISTORY_TIMELINE_CAP = 100;
 
-export async function getLeadHistory(leadId: string, organizationId: string | null = null, signal?: AbortSignal) {
+export type GetLeadHistoryOptions = {
+  signal?: AbortSignal;
+  /** Include rows tied to this campaign_lead even if `contact_id` was null until wrap-up. */
+  campaignLeadId?: string | null;
+};
+
+export async function getLeadHistory(
+  leadId: string,
+  organizationId: string | null = null,
+  options?: GetLeadHistoryOptions
+) {
+  const { signal, campaignLeadId } = options ?? {};
   // Early exit if already aborted before queries fire
   if (signal?.aborted) {
     throw new DOMException('The operation was aborted.', 'AbortError');
@@ -164,8 +175,17 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, disposition_name, duration, recording_url")
-    .eq("contact_id", leadId)
+    .select("id, created_at, started_at, disposition_name, duration, recording_url");
+
+  if (campaignLeadId) {
+    callsQuery = callsQuery.or(
+      `contact_id.eq.${leadId},campaign_lead_id.eq.${campaignLeadId}`
+    );
+  } else {
+    callsQuery = callsQuery.eq("contact_id", leadId);
+  }
+
+  callsQuery = callsQuery
     .order("created_at", { ascending: false })
     .limit(HISTORY_PER_SOURCE_LIMIT);
 

@@ -540,7 +540,13 @@ const FloatingDialer: React.FC = () => {
               <button
                 onClick={() => {
                   setShowCallerIdWarning(false);
-                  if (pendingCall) proceedWithCall(pendingCall.leadPhone, pendingCall.proposedNumber);
+                  if (pendingCall) {
+                    proceedWithCall(
+                      pendingCall.leadPhone,
+                      pendingCall.proposedNumber,
+                      pendingCall.contactId
+                    );
+                  }
                   setPendingCall(null);
                 }}
                 className="flex-1 py-2 rounded-lg bg-warning text-warning-foreground text-sm font-medium hover:bg-warning/90"
