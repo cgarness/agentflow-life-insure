@@ -186,9 +186,21 @@ async function getTelnyxApiKey(supabase: any, organizationId?: string): Promise<
 }
 
 // ─── Helper: transfer call to an agent's SIP endpoint ───
-async function telnyxTransfer(apiKey: string, callControlId: string, sipUsername: string): Promise<void> {
+async function telnyxTransfer(
+  apiKey: string,
+  callControlId: string,
+  sipUsername: string,
+  fromE164?: string | null,
+): Promise<void> {
   const sipUri = `sip:${sipUsername}@sip.telnyx.com`;
-  console.log(`Attempting transfer to agent: [${sipUri}] for call: [${callControlId}]`);
+  const payload: Record<string, string> = { to: sipUri };
+  // Present a valid E.164 on the new SIP leg (outbound CLI from the PSTN leg).
+  if (fromE164 && typeof fromE164 === 'string' && fromE164.trim().length > 0) {
+    payload.from = fromE164.startsWith('+') ? fromE164 : `+${fromE164.replace(/\D/g, '')}`;
+  }
+  console.log(`Attempting transfer to agent: [${sipUri}] for call: [${callControlId}]`, {
+    from: payload.from ?? '(default)',
+  });
 
   try {
     const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`;
@@ -198,7 +210,7 @@ async function telnyxTransfer(apiKey: string, callControlId: string, sipUsername
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ to: sipUri }),
+      body: JSON.stringify(payload),
     });
 
     if (!resp.ok) {
@@ -423,8 +435,22 @@ async function handleHumanDetected(supabase: any, payload: any) {
     orgId = data?.organization_id;
   }
 
+  // call.answered may omit client_state; we still have telnyx_call_control_id on the row.
   if (!agentId) {
-    console.warn(`[Bridge] Cannot bridge: No agent_id found for call leg [${callControlId}].`);
+    const { data: byCtrl, error: ctrlErr } = await supabase
+      .from('calls')
+      .select('agent_id, organization_id')
+      .eq('telnyx_call_control_id', callControlId)
+      .maybeSingle();
+    if (ctrlErr) console.error('[Bridge] Fallback lookup by call_control_id failed:', ctrlErr);
+    agentId = byCtrl?.agent_id ?? null;
+    orgId = byCtrl?.organization_id ?? orgId;
+  }
+
+  if (!agentId) {
+    console.warn(
+      `[Bridge] Cannot bridge: No agent_id for [${callControlId}] (client_state + control_id lookup failed).`,
+    );
     return;
   }
 
@@ -441,7 +467,7 @@ async function handleHumanDetected(supabase: any, payload: any) {
 
   const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
   if (apiKey) {
-    await telnyxTransfer(apiKey, callControlId, profile.sip_username);
+    await telnyxTransfer(apiKey, callControlId, profile.sip_username, payload.from);
 
     try {
       const recordingEnabled = await isRecordingEnabled(supabase, orgId || undefined);

@@ -723,6 +723,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         client = new TelnyxRTC({ login: tokenData.sip_username, password: tokenData.sip_password });
       }
 
+      // Required by @telnyx/webrtc: SDK wires remote RTP to this element. Manual srcObject
+      // attachment alone is not reliable for bidirectional audio on bridged calls.
+      client.remoteElement = getRemoteAudioElement();
+
       client.on("telnyx.ready", () => {
         telnyxConnectedOrgIdRef.current = organizationId;
         setStatus("ready");
@@ -847,6 +851,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           } catch {
             /* SDK may not expose ring helpers on all builds */
           }
+          attachRemoteAudio(call);
+          const rs = call?.remoteStream;
+          if (!rs || rs.getAudioTracks().length === 0) {
+            console.warn(
+              "[TelnyxContext] Active call but no remote audio tracks yet — check transfer / firewall / mic permission."
+            );
+          }
           wirePeerRemoteHangup(call);
           setCallState("active");
         } else if (state === "ringing" || state === "trying" || state === "early") {
@@ -857,12 +868,26 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (expectingBridge && !bridgeAutoAnsweredRef.current) {
             bridgeAutoAnsweredRef.current = true;
             console.log("[TelnyxContext] Auto-answering inbound bridge call.");
-            try {
-              call.answer();
-            } catch (e) {
-              console.warn("[TelnyxContext] Auto-answer failed:", e);
-              bridgeAutoAnsweredRef.current = false;
-            }
+            void (async () => {
+              try {
+                let stream = mediaStreamRef.current;
+                const tracksOk =
+                  stream &&
+                  stream.active &&
+                  stream.getAudioTracks().some((t) => t.readyState === "live");
+                if (!tracksOk) {
+                  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                  mediaStreamRef.current = stream;
+                }
+                if (call?.options && stream) {
+                  call.options.localStream = stream;
+                }
+                await call.answer();
+              } catch (e) {
+                console.warn("[TelnyxContext] Auto-answer failed:", e);
+                bridgeAutoAnsweredRef.current = false;
+              }
+            })();
           }
           setCallState("dialing");
         } else if (state === "destroy" || state === "hangup") {
@@ -902,7 +927,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setStatus("error");
       setErrorMessage(err?.message || "Could not initialize dialer");
     }
-  }, [attachRemoteAudio, organizationId, profile?.id, finalizeCallRecord]);
+  }, [attachRemoteAudio, getRemoteAudioElement, organizationId, profile?.id, finalizeCallRecord]);
 
   const destroyClient = useCallback(() => {
     telnyxConnectedOrgIdRef.current = null;
