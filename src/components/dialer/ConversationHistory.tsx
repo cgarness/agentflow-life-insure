@@ -129,12 +129,9 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                     )}
                   </div>
                   {item.type === "call" && item.recording_url && (
-                    <audio
-                      controls
-                      className="w-full h-8 mt-1.5 rounded"
-                      src={item.recording_url}
-                      preload="none"
-                    />
+                    <audio controls className="w-full h-8 mt-1.5" preload="none">
+                      <source src={item.recording_url} type="audio/mpeg" />
+                    </audio>
                   )}
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {formatDateTime(new Date(item.created_at))}

@@ -201,7 +201,7 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
     disposition: c.disposition_name,
     disposition_color: null as string | null,
     created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
-    recording_url: (c as any).recording_url ?? null,
+    recording_url: c.recording_url ?? null,
     duration: c.duration ?? null,
   }));
 
