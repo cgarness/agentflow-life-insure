@@ -128,6 +128,8 @@ interface HistoryItem {
   disposition?: string | null;
   disposition_color?: string | null;
   created_at: string;
+  recording_url?: string | null;
+  duration?: number | null;
 }
 
 /* ─── Dialer Session ─── */

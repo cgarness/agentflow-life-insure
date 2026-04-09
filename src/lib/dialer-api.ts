@@ -164,7 +164,7 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, disposition_name, duration")
+    .select("id, created_at, started_at, disposition_name, duration, recording_url")
     .eq("contact_id", leadId)
     .order("created_at", { ascending: false })
     .limit(HISTORY_PER_SOURCE_LIMIT);
@@ -201,6 +201,8 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
     disposition: c.disposition_name,
     disposition_color: null as string | null,
     created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
+    recording_url: (c as any).recording_url ?? null,
+    duration: c.duration ?? null,
   }));
 
   const activityItems = (activityRes.data ?? []).map((a) => ({
@@ -210,6 +212,8 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
     disposition: null as string | null,
     disposition_color: null as string | null,
     created_at: a.created_at,
+    recording_url: null as string | null,
+    duration: null as number | null,
   }));
 
   const merged = [...callItems, ...activityItems];

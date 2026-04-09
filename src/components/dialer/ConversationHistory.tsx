@@ -9,6 +9,8 @@ interface HistoryItem {
   disposition?: string | null;
   disposition_color?: string | null;
   created_at: string;
+  recording_url?: string | null;
+  duration?: number | null;
 }
 
 interface ConversationHistoryProps {
@@ -126,6 +128,14 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                       </span>
                     )}
                   </div>
+                  {item.type === "call" && item.recording_url && (
+                    <audio
+                      controls
+                      className="w-full h-8 mt-1.5 rounded"
+                      src={item.recording_url}
+                      preload="none"
+                    />
+                  )}
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {formatDateTime(new Date(item.created_at))}
                   </div>
