@@ -53,6 +53,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Floating dialer — preserve WebRTC client + drag handle only on header**
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/components/layout/FloatingDialer.tsx`, `ROADMAP.md`
+  *Developer Note:* Opening the floating panel called `initializeClient()`, which always disconnected the existing Telnyx client — dropping the live call object (`callRef`) while the UI still showed in-call, so mute/hold did nothing. Init is now skipped when `client.connected` and the same `organization_id` as last `telnyx.ready` (`telnyxConnectedOrgIdRef`). Floating dialer no longer calls `destroyClient` on panel close (shared client with campaign dialer). Drag listeners moved from the full panel to the header row only; `setPointerCapture` on the header still allows dragging outside the bar.
+
 - **2026-04-09 | [DONE] Remove Answering Machine Detection (AMD)**
   *Files Modified:* `supabase/functions/telnyx-webhook/index.ts`, `supabase/config.toml`, `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/components/dialer/DialerActions.tsx`, `src/components/dialer/CampaignSettingsModal.tsx`, `src/components/settings/PhoneSettings.tsx`, `src/hooks/useDialerStateMachine.ts`, `ROADMAP.md`
   *Files Removed:* `supabase/functions/telnyx-amd-start/index.ts` (unused; AMD was started inline from webhook)

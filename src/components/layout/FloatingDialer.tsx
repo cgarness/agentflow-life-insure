@@ -97,7 +97,6 @@ const FloatingDialer: React.FC = () => {
     toggleMute: telnyxToggleMute,
     toggleHold: telnyxToggleHold,
     initializeClient: telnyxInitialize,
-    destroyClient: telnyxDestroy,
     availableNumbers,
     selectedCallerNumber,
     setSelectedCallerNumber,
@@ -203,17 +202,16 @@ const FloatingDialer: React.FC = () => {
     return () => clearInterval(timer);
   }, [onCall]);
 
-  // Open animation toggle + eager Telnyx init / teardown
+  // Open: ensure Telnyx is initialized (idempotent — will not disconnect an existing live client).
+  // Close: do NOT destroy the shared client — that was killing active calls and clearing callRef (mute/hold no-ops).
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => setIsVisible(true), 0);
       telnyxInitialize();
       return () => clearTimeout(t);
-    } else {
-      setIsVisible(false);
-      telnyxDestroy();
     }
-  }, [open, telnyxInitialize, telnyxDestroy]);
+    setIsVisible(false);
+  }, [open, telnyxInitialize]);
 
   // Fetch dispositions for post-call
   useEffect(() => {
@@ -557,24 +555,25 @@ const FloatingDialer: React.FC = () => {
       {open && (
         <div
           ref={panelRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
             transition: isDragging ? 'none' : 'opacity 150ms ease-out, transform 150ms ease-out',
             left: `${position.x}px`,
             top: `${position.y}px`,
-            cursor: isDragging ? 'grabbing' : 'default',
-            touchAction: 'none',
           }}
           className="fixed w-[320px] max-w-[calc(100vw-2rem)] h-[540px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
-          {/* Panel Header */}
-          <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0" style={{ cursor: 'grab' }}>
+          {/* Panel Header — drag handle only here so body controls receive clicks reliably */}
+          <div
+            className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0 select-none"
+            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span
                 style={{

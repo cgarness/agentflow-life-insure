@@ -125,6 +125,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [selectedCallerNumber]);
 
   const clientRef = useRef<any>(null);
+  /** Set on `telnyx.ready` so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
+  const telnyxConnectedOrgIdRef = useRef<string | null>(null);
   const callRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
@@ -619,8 +621,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    // 1. Destroy existing client if already set (handles "retry" button)
+    // 1. Re-use live client when already registered for this org (avoids dropping an active call when a second surface calls init).
     if (clientRef.current) {
+      const socketUp = (clientRef.current as { connected?: boolean }).connected === true;
+      const sameOrg = telnyxConnectedOrgIdRef.current === organizationId;
+      if (socketUp && sameOrg) {
+        console.log("[TelnyxContext] Telnyx already connected for this organization; skipping re-initialization.");
+        setStatus("ready");
+        setErrorMessage(null);
+        return;
+      }
       console.log("TelnyxRTC destroying existing client before re-initialization...");
       try {
         clientRef.current.disconnect();
@@ -628,6 +638,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         console.warn("Error during disconnect:", e);
       }
       clientRef.current = null;
+      telnyxConnectedOrgIdRef.current = null;
     }
 
     setStatus("connecting");
@@ -693,6 +704,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       client.on("telnyx.ready", () => {
+        telnyxConnectedOrgIdRef.current = organizationId;
         setStatus("ready");
         setErrorMessage(null);
         console.log("TelnyxRTC ready (eager init)");
@@ -864,6 +876,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [attachRemoteAudio, organizationId, profile?.id, finalizeCallRecord]);
 
   const destroyClient = useCallback(() => {
+    telnyxConnectedOrgIdRef.current = null;
     if (clientRef.current) {
       try { (clientRef.current as any).disconnect(); } catch {} // eslint-disable-line no-empty
       clientRef.current = null;
