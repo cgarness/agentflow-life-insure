@@ -53,6 +53,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Feature — Wire Call Recording End-to-End**
+  *Files Modified:* `supabase/functions/telnyx-webhook/index.ts`, `src/lib/dialer-api.ts`, `src/pages/DialerPage.tsx`, `src/components/dialer/ConversationHistory.tsx`, `ROADMAP.md`
+  *Edge Function Deployed:* `telnyx-webhook` v339 (project `jncvvsvckxhqgqvkppmj`, `verify_jwt: false`)
+  *Developer Note:* Wired automatic call recording end-to-end. Added `isRecordingEnabled()` helper and `telnyxRecordStart()` helper to the telnyx-webhook Edge Function. After `handleHumanDetected()` bridges the agent via `telnyxTransfer()`, the webhook now queries `phone_settings.recording_enabled` and issues `POST /v2/calls/{id}/actions/record_start` (mp3, dual channel, no beep) if enabled. Recording failure is wrapped in try/catch — never crashes the call. The existing `handleRecordingSaved()` handler already writes `recording_url` to the `calls` table (no changes needed). On the frontend, `getLeadHistory()` now fetches `recording_url` from the calls table and passes it through the `HistoryItem` interface. `ConversationHistory.tsx` renders an inline `<audio>` player (`preload="none"`) for call items with a recording URL. `CallRecordingLibrary.tsx` already had the correct `.not('recording_url', 'is', null)` filter and audio player column — no changes needed. Verified with `npx tsc --noEmit`.
+  *Context Snapshot:* Recording toggle in Settings controls `phone_settings.recording_enabled`. When a human is detected and the agent is bridged, recording starts automatically. Telnyx fires `call.recording.saved` on hangup, which writes the URL to `calls.recording_url`. The Conversation History and Recording Library both surface recordings with inline audio players. Next: test with a live call with `recording_enabled = true`.
+
 - **2026-04-09 | [DONE] Refactor — CreateCampaignModal & TagInput Extraction**
   *Files Created:* `src/components/campaigns/CreateCampaignModal.tsx`, `src/components/shared/TagInput.tsx`
   *Files Modified:* `src/pages/Campaigns.tsx`, `src/pages/CampaignDetail.tsx`, `src/components/contacts/ImportLeadsModal.tsx`, `ROADMAP.md`

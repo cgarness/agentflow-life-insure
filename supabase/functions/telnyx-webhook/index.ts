@@ -276,6 +276,49 @@ async function telnyxTransfer(apiKey: string, callControlId: string, sipUsername
   }
 }
 
+// ─── Helper: check if recording is enabled ───
+async function isRecordingEnabled(supabase: any, organizationId?: string): Promise<boolean> {
+  try {
+    let query = supabase.from('phone_settings').select('recording_enabled');
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+    const { data, error } = await query.limit(1).maybeSingle();
+    if (error) {
+      console.error(`Error checking recording status for org ${organizationId}:`, error);
+    }
+    return data?.recording_enabled === true;
+  } catch (err) {
+    console.error('EXCEPTION in isRecordingEnabled:', err);
+    return false;
+  }
+}
+
+// ─── Helper: start call recording via Telnyx REST API ───
+async function telnyxRecordStart(apiKey: string, callControlId: string): Promise<void> {
+  console.log(`Attempting record_start for call: [${callControlId}]`);
+  try {
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ format: 'mp3', channels: 'dual', play_beep: false }),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error(`Telnyx record_start failed for [${callControlId}]. Status: ${resp.status}, Payload:`, errText);
+    } else {
+      console.log(`Telnyx record_start success for [${callControlId}]`);
+    }
+  } catch (err) {
+    console.error(`EXCEPTION in telnyxRecordStart for [${callControlId}]:`, err);
+  }
+}
+
 // ─── Helper: check if AMD is enabled ───
 async function isAmdEnabled(supabase: any, organizationId?: string): Promise<boolean> {
   try {
@@ -610,6 +653,16 @@ async function handleHumanDetected(supabase: any, payload: any) {
   const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
   if (apiKey) {
     await telnyxTransfer(apiKey, callControlId, profile.sip_username);
+
+    // 4. Start recording if enabled for the org (never throw — recording failure must not crash the call)
+    try {
+      const recordingEnabled = await isRecordingEnabled(supabase, orgId || undefined);
+      if (recordingEnabled) {
+        await telnyxRecordStart(apiKey, callControlId);
+      }
+    } catch (err) {
+      console.error(`[handleHumanDetected] Recording start failed (non-fatal) for [${callControlId}]:`, err);
+    }
   } else {
     console.warn(`[AMD-Handler] Cannot bridge: No Telnyx API key found for org ${orgId}.`);
   }
