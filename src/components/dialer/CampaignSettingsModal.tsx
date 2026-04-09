@@ -8,8 +8,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-
 /* ─── Props ─── */
 
 export interface CampaignSettingsModalProps {
@@ -33,8 +31,6 @@ export interface CampaignSettingsModalProps {
   setSettingsAutoDialEnabled: (fn: (v: boolean) => boolean) => void;
   localPresenceEnabled: boolean;
   setLocalPresenceEnabled: (fn: (v: boolean) => boolean) => void;
-  amdEnabledValue: boolean;
-  setAmdEnabledValue: (v: boolean) => void;
   // Loading / saving
   loading: boolean;
   saving: boolean;
@@ -63,8 +59,6 @@ export default function CampaignSettingsModal({
   setSettingsAutoDialEnabled,
   localPresenceEnabled,
   setLocalPresenceEnabled,
-  amdEnabledValue,
-  setAmdEnabledValue,
   loading,
   saving,
   onSave,
@@ -168,17 +162,6 @@ export default function CampaignSettingsModal({
 
             {/* Toggles */}
             <div className="space-y-4 pt-2 border-t">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <label className="text-sm font-medium">Answering Machine Detection</label>
-                  <p className="text-[10px] text-muted-foreground leading-tight">Automatically hang up and skip to next lead if a voicemail is detected</p>
-                </div>
-                <Switch
-                  checked={amdEnabledValue}
-                  onCheckedChange={setAmdEnabledValue}
-                />
-              </div>
-
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Auto-Dial</span>
                 <button

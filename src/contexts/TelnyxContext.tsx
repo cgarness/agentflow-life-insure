@@ -51,7 +51,6 @@ interface TelnyxContextValue {
   isOnHold: boolean;
   defaultCallerNumber: string;
   isReady: boolean;
-  amdEnabled: boolean;
   ringTimeout: number;
   orphanCall: OrphanCall | null;
   connectionDropped: boolean;
@@ -95,7 +94,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isOnHold, setIsOnHold] = useState(false);
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
   const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
-  const [amdEnabled, setAmdEnabled] = useState(false);
   const [ringTimeout, setRingTimeout] = useState(30);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
     return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
@@ -193,16 +191,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
-  // Fetch global phone settings (AMD, Ring Timeout, etc.)
+  // Fetch global phone settings (ring timeout, etc.)
   useEffect(() => {
     if (!organizationId) return;
     supabase
       .from("phone_settings")
-      .select("amd_enabled, ring_timeout")
+      .select("ring_timeout")
       .eq("organization_id", organizationId)
       .maybeSingle()
       .then(({ data }) => {
-        setAmdEnabled(data?.amd_enabled === true);
         if (data?.ring_timeout) {
           setRingTimeout(data.ring_timeout);
         }
@@ -1136,7 +1133,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isOnHold,
         defaultCallerNumber,
         isReady,
-        amdEnabled,
         ringTimeout,
         orphanCall,
         connectionDropped,

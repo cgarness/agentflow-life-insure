@@ -127,20 +127,12 @@ Deno.serve(async (req: Request) => {
         await handleCallHangup(supabase, payload);
         break;
 
-      // Standard AMD
+      // Legacy AMD events (Telnyx connection may still emit if enabled in portal) — intentionally ignored
       case 'call.machine.detection.ended':
-        await handleAMDResult(supabase, payload);
-        break;
-
-      // Premium AMD (more granular: human_residence, human_business, machine, silence, fax_detected)
       case 'call.machine.premium.detection.ended':
-        await handlePremiumAMDResult(supabase, payload);
-        break;
-
-      // Greeting detection (often indicates machine voicemail box ready)
       case 'call.machine.greeting.ended':
       case 'call.machine.premium.greeting.ended':
-        await handleGreetingEnded(supabase, payload);
+        console.log(`[telnyx-webhook] Ignoring AMD event (feature removed): ${eventType}`);
         break;
 
       case 'call.recording.saved':
@@ -191,62 +183,6 @@ async function getTelnyxApiKey(supabase: any, organizationId?: string): Promise<
     console.error('Error fetching global Telnyx API key:', globalError);
   }
   return global?.api_key || null;
-}
-
-// ─── Helper: hangup a call via Telnyx REST API ───
-async function telnyxHangup(apiKey: string, callControlId: string): Promise<void> {
-  try {
-    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/hangup`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({}),
-    });
-    
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error(`Telnyx hangup failed for [${callControlId}]. Status: ${resp.status}, Payload:`, errText);
-    } else {
-      console.log(`Telnyx hangup success for [${callControlId}]`);
-    }
-  } catch (err) {
-    console.error(`EXCEPTION in telnyxHangup for [${callControlId}]:`, err);
-  }
-}
-
-// ─── Helper: start AMD via Telnyx REST API ───
-async function telnyxStartAmd(apiKey: string, callControlId: string): Promise<void> {
-  console.log(`Attempting AMD start for call: [${callControlId}]`);
-  const payload = {
-    total_analysis_time_millis: 15000,
-    initial_silence_millis: 3500,
-    greeting_silence_millis: 2000,
-    silence_after_greeting_millis: 1500,
-  };
-
-  try {
-    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/answering_machine_detection`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error(`Telnyx AMD start failed for [${callControlId}]. Status: ${resp.status}, Payload:`, errText, 'Request Payload:', payload);
-    } else {
-      console.log(`Telnyx AMD start success for [${callControlId}]`);
-    }
-  } catch (err) {
-    console.error(`EXCEPTION in telnyxStartAmd for [${callControlId}]:`, err, 'Request Payload:', payload);
-  }
 }
 
 // ─── Helper: transfer call to an agent's SIP endpoint ───
@@ -317,68 +253,6 @@ async function telnyxRecordStart(apiKey: string, callControlId: string): Promise
   } catch (err) {
     console.error(`EXCEPTION in telnyxRecordStart for [${callControlId}]:`, err);
   }
-}
-
-// ─── Helper: check if AMD is enabled ───
-async function isAmdEnabled(supabase: any, organizationId?: string): Promise<boolean> {
-  try {
-    let query = supabase.from('phone_settings').select('amd_enabled');
-    if (organizationId) {
-      query = query.eq('organization_id', organizationId);
-    }
-    const { data, error } = await query.limit(1).maybeSingle();
-    if (error) {
-      console.error(`Error checking AMD status for org ${organizationId}:`, error);
-    }
-    return data?.amd_enabled === true;
-  } catch (err) {
-    console.error('EXCEPTION in isAmdEnabled:', err);
-    return false;
-  }
-}
-
-// ─── Helper: get organization_id from a call record ───
-async function getCallOrgId(supabase: any, payload: any): Promise<string | null> {
-  const callSessionId = payload.call_session_id;
-  const callControlId = payload.call_control_id;
-  const decodedClientState = decodeClientState(payload.client_state);
-
-  // 1. Try to use client_state (UUID from frontend) as primary lookup
-  if (decodedClientState && decodedClientState.length === 36) {
-    console.log(`[getCallOrgId] Looking up orgId via client_state (id): ${decodedClientState}`);
-    const { data, error } = await supabase
-      .from('calls')
-      .select('organization_id')
-      .eq('id', decodedClientState)
-      .maybeSingle(); // FIX: PGRST116
-    
-    if (error) console.error(`[getCallOrgId] Error fetching orgId via id ${decodedClientState}:`, error);
-    if (data?.organization_id) return data.organization_id;
-  }
-
-  // 2. Try lookup by telnyx_call_control_id (most granular)
-  if (callControlId) {
-    const { data, error } = await supabase
-      .from('calls')
-      .select('organization_id')
-      .eq('telnyx_call_control_id', callControlId)
-      .maybeSingle(); // FIX: PGRST116
-    
-    if (error) console.error(`[getCallOrgId] Error fetching orgId via callControlId ${callControlId}:`, error);
-    if (data?.organization_id) return data.organization_id;
-  }
-
-  // 3. Fallback: Search for any record with this session ID that has an organization_id
-  console.log(`[getCallOrgId] Falling back to session ID lookup: ${callSessionId}`);
-  const { data, error } = await supabase
-    .from('calls')
-    .select('organization_id')
-    .eq('telnyx_call_id', callSessionId)
-    .not('organization_id', 'is', null)
-    .maybeSingle(); // FIX: PGRST116
-    
-  if (error) console.error(`[getCallOrgId] Error fetching orgId via session ${callSessionId}:`, error);
-  return data?.organization_id || null;
 }
 
 // Handler: call.initiated
@@ -452,22 +326,9 @@ async function handleCallAnswered(supabase: any, payload: any) {
     console.error(`Error updating call ${payload.call_control_id} to connected:`, error);
   }
 
-  // ── Trigger AMD if enabled, otherwise bridge agent immediately ──
+  // ── Bridge agent immediately on outbound answer (AMD removed) ──
   if (payload.direction === 'outbound') {
-    const orgId = await getCallOrgId(supabase, payload);
-    const amdEnabled = await isAmdEnabled(supabase, orgId || undefined);
-
-    if (amdEnabled) {
-      const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
-      if (apiKey) {
-        await telnyxStartAmd(apiKey, payload.call_control_id);
-      } else {
-        console.warn('Cannot start AMD: No Telnyx API key found for org:', orgId);
-      }
-    } else {
-      console.log('[handleCallAnswered] AMD disabled — bridging agent immediately.');
-      await handleHumanDetected(supabase, payload);
-    }
+    await handleHumanDetected(supabase, payload);
   }
 }
 
@@ -540,83 +401,13 @@ async function handleCallHangup(supabase: any, payload: any) {
   }
 }
 
-// Handler: call.machine.detection.ended (Standard AMD)
-async function handleAMDResult(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
-  const amdResult = payload.result; // 'human' | 'machine' | 'not_sure'
-
-  console.log('AMD standard result:', { callControlId, amdResult });
-
-  // Normalize: 'not_sure' → treat as 'human' (better to connect agent than skip a prospect)
-  const normalizedResult = amdResult === 'not_sure' ? 'human' : amdResult;
-
-  const { error } = await supabase
-    .from('calls')
-    .update({ amd_result: normalizedResult })
-    .eq('telnyx_call_control_id', callControlId);
-
-  if (error) {
-    console.error(`Error updating AMD result for control_id ${callControlId}:`, error);
-  }
-
-  if (normalizedResult === 'human') {
-    await handleHumanDetected(supabase, payload);
-  } else {
-    await handleMachineDetected(supabase, payload, normalizedResult);
-  }
-}
-
-// Handler: call.machine.premium.detection.ended (Premium AMD)
-async function handlePremiumAMDResult(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
-  const rawResult = payload.result;
-  // Premium results: 'human_residence' | 'human_business' | 'machine' | 'silence' | 'fax_detected' | 'not_sure'
-
-  console.log('AMD premium result:', { callControlId, rawResult });
-
-  // Normalize to simple 'human' or 'machine'
-  let normalizedResult: string;
-  if (rawResult === 'human_residence' || rawResult === 'human_business' || rawResult === 'not_sure') {
-    normalizedResult = 'human';
-  } else {
-    // machine, silence, fax_detected → all treated as "machine" (skip)
-    normalizedResult = 'machine';
-  }
-
-  const { error } = await supabase
-    .from('calls')
-    .update({ amd_result: normalizedResult })
-    .eq('telnyx_call_control_id', callControlId);
-
-  if (error) {
-    console.error(`Error updating premium AMD result for control_id ${callControlId}:`, error);
-  }
-
-  if (normalizedResult === 'human') {
-    await handleHumanDetected(supabase, payload);
-  } else {
-    await handleMachineDetected(supabase, payload, normalizedResult);
-  }
-}
-
-// Handler: call.machine.greeting.ended / call.machine.premium.greeting.ended
-async function handleGreetingEnded(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
-  console.log('AMD greeting ended (beep/machine most likely):', { callControlId });
-
-  // If the greeting ended, we almost certainly want to treat this as a machine
-  // so we can trigger the auto-hangup if that's what's configured.
-  await handleMachineDetected(supabase, payload, 'machine');
-}
-
-// ─── Shared: handle human detection (Agent Bridge) ───
+// ─── Outbound answer: bridge agent to callee (SIP transfer + optional recording) ───
 async function handleHumanDetected(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
   const decodedClientState = decodeClientState(payload.client_state);
 
-  console.log(`[AMD-Handler] HUMAN DETECTED for control_id: ${callControlId}. Initiating agent bridge.`);
+  console.log(`[Bridge] Outbound answered for control_id: ${callControlId}. Initiating agent bridge.`);
 
-  // 1. Get call record to find agent_id and organization_id
   let agentId: string | null = null;
   let orgId: string | null = null;
 
@@ -627,17 +418,16 @@ async function handleHumanDetected(supabase: any, payload: any) {
       .eq('id', decodedClientState)
       .maybeSingle();
     
-    if (error) console.error(`[AMD-Handler] Error fetching agent_id for ${decodedClientState}:`, error);
+    if (error) console.error(`[Bridge] Error fetching agent_id for ${decodedClientState}:`, error);
     agentId = data?.agent_id;
     orgId = data?.organization_id;
   }
 
   if (!agentId) {
-    console.warn(`[AMD-Handler] Cannot bridge: No agent_id found for call leg [${callControlId}].`);
+    console.warn(`[Bridge] Cannot bridge: No agent_id found for call leg [${callControlId}].`);
     return;
   }
 
-  // 2. Lookup agent's individual SIP username from profiles
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('sip_username')
@@ -645,160 +435,24 @@ async function handleHumanDetected(supabase: any, payload: any) {
     .maybeSingle();
 
   if (profileError || !profile?.sip_username) {
-    console.error(`[AMD-Handler] CRITICAL: SIP username not found for agent ${agentId}. Profile error:`, profileError);
+    console.error(`[Bridge] CRITICAL: SIP username not found for agent ${agentId}. Profile error:`, profileError);
     return;
   }
 
-  // 3. Issue Transfer Action to bridge the call to the agent
   const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
   if (apiKey) {
     await telnyxTransfer(apiKey, callControlId, profile.sip_username);
 
-    // 4. Start recording if enabled for the org (never throw — recording failure must not crash the call)
     try {
       const recordingEnabled = await isRecordingEnabled(supabase, orgId || undefined);
       if (recordingEnabled) {
         await telnyxRecordStart(apiKey, callControlId);
       }
     } catch (err) {
-      console.error(`[handleHumanDetected] Recording start failed (non-fatal) for [${callControlId}]:`, err);
+      console.error(`[Bridge] Recording start failed (non-fatal) for [${callControlId}]:`, err);
     }
   } else {
-    console.warn(`[AMD-Handler] Cannot bridge: No Telnyx API key found for org ${orgId}.`);
-  }
-}
-
-// ─── Shared: handle machine detection ───
-async function handleMachineDetected(supabase: any, payload: any, result: string) {
-  const callControlId = payload.call_control_id;
-
-  console.log(`[AMD-Handler] Processing result: ${result} for control_id: ${callControlId}`);
-  
-  if (result !== 'machine') {
-    console.log(`[AMD-Handler] Result is '${result}', no auto-action required.`);
-    return;
-  }
-
-  // Check if AMD auto-action is enabled
-  const orgId = await getCallOrgId(supabase, payload);
-  if (!orgId) {
-    console.warn(`[AMD-Handler] Cannot execute auto-action for control_id ${callControlId}: No organization_id found.`);
-    return;
-  }
-
-  const amdEnabled = await isAmdEnabled(supabase, orgId);
-  console.log(`[AMD-Handler] OrgID: ${orgId}, AMD Enabled: ${amdEnabled}`);
-
-  if (!amdEnabled) {
-    console.log('[AMD-Handler] Machine detected but AMD auto-action is disabled in settings.');
-    // We still update the call record result result.
-    const { error } = await supabase
-      .from('calls')
-      .update({ amd_result: 'machine' })
-      .eq('telnyx_call_control_id', callControlId)
-      .eq('organization_id', orgId);
-    if (error) console.error(`[AMD-Handler] Error updating amd_result to machine for ${callControlId}:`, error);
-    return;
-  }
-
-  console.log('[AMD-Handler] MACHINE DETECTED — Proceeding with auto-hangup and disposition update.');
-
-  // 1. Get call record to find campaign_lead_id
-  const { data: callRecord, error: callFetchError } = await supabase
-    .from('calls')
-    .select('id, contact_id, campaign_lead_id, organization_id')
-    .eq('telnyx_call_control_id', callControlId)
-    .eq('organization_id', orgId)
-    .maybeSingle(); // FIX: STOP THE CRASH (PGRST116)
-
-  if (callFetchError) {
-    console.error('[AMD-Handler] Error fetching call record:', callFetchError, 'for control_id:', callControlId, 'org:', orgId);
-  }
-  
-  if (!callRecord) {
-    console.error(`[AMD-Handler] CRITICAL: Call record not found during AMD action for [${callControlId}].`);
-    return;
-  }
-
-  console.log('[AMD-Handler] Call record lookup:', { 
-    found: !!callRecord, 
-    campaignLeadId: callRecord.campaign_lead_id,
-  });
-
-  // 2. Lookup "No Answer" disposition ID for this organization
-  const { data: disposition, error: dispError } = await supabase
-    .from('dispositions')
-    .select('id')
-    .eq('organization_id', orgId)
-    .ilike('name', 'No Answer')
-    .maybeSingle();
-
-  if (dispError) console.error(`[AMD-Handler] Error fetching "No Answer" disposition for org ${orgId}:`, dispError);
-
-  const dispositionId = disposition?.id || null;
-
-  // 3. Update campaign_leads if applicable
-  if (callRecord.campaign_lead_id) {
-    console.log(`[AMD-Handler] Updating campaign_lead ${callRecord.campaign_lead_id} to No Answer`);
-    const { data: lead, error: leadFetchError } = await supabase
-      .from('campaign_leads')
-      .select('call_attempts')
-      .eq('id', callRecord.campaign_lead_id)
-      .eq('organization_id', orgId)
-      .maybeSingle();
-
-    if (leadFetchError) console.error(`[AMD-Handler] Error fetching campaign_lead ${callRecord.campaign_lead_id}:`, leadFetchError);
-
-    const leadUpdateData = {
-      status: 'Called',
-      disposition: 'No Answer', // Textual disposition
-      disposition_id: dispositionId, // Linked ID
-      call_attempts: (lead?.call_attempts || 0) + 1,
-      last_called_at: new Date().toISOString(),
-    };
-
-    const { error: leadUpdateError } = await supabase
-      .from('campaign_leads')
-      .update(leadUpdateData)
-      .eq('id', callRecord.campaign_lead_id)
-      .eq('organization_id', orgId);
-    
-    if (leadUpdateError) {
-      console.error('[AMD-Handler] Error updating campaign_lead:', leadUpdateError, 'Lead ID:', callRecord.campaign_lead_id, 'Data:', leadUpdateData);
-    } else {
-      console.log(`[AMD-Handler] campaign_lead ${callRecord.campaign_lead_id} updated successfully.`);
-    }
-  }
-
-  // 4. Update call record with disposition and status
-  const callUpdateData = {
-    status: 'completed',
-    amd_result: 'machine',
-    disposition_name: 'No Answer',
-    disposition_id: dispositionId,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error: callUpdateError } = await supabase
-    .from('calls')
-    .update(callUpdateData)
-    .eq('telnyx_call_control_id', callControlId)
-    .eq('organization_id', orgId);
-
-  if (callUpdateError) {
-    console.error('[AMD-Handler] Error updating call record:', callUpdateError, 'control_id:', callControlId, 'Data:', callUpdateData);
-  } else {
-    console.log(`[AMD-Handler] call record ${callControlId} updated successfully.`);
-  }
-
-  // 5. Auto-hangup via Telnyx REST API
-  const apiKey = await getTelnyxApiKey(supabase, orgId);
-  if (apiKey) {
-    console.log(`[AMD-Handler] Initiating Telnyx REST hangup for control_id: ${callControlId}`);
-    await telnyxHangup(apiKey, callControlId);
-    console.log('[AMD-Handler] Hangup command sent.');
-  } else {
-    console.warn('[AMD-Handler] Cannot auto-hangup: No Telnyx API key found for org:', orgId);
+    console.warn(`[Bridge] Cannot bridge: No Telnyx API key found for org ${orgId}.`);
   }
 }
 

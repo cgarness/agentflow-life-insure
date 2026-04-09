@@ -19,8 +19,6 @@ interface Disposition {
 interface DialerActionsProps {
   telnyxCallState: string;
   telnyxCallDuration: number;
-  amdEnabled: boolean;
-  amdStatus: 'idle' | 'detecting' | 'human' | 'machine';
   claimRingActive: boolean;
   campaignType: string;
   campaignId: string;
@@ -67,8 +65,6 @@ interface DialerActionsProps {
 export const DialerActions: React.FC<DialerActionsProps> = ({
   telnyxCallState,
   telnyxCallDuration,
-  amdEnabled,
-  amdStatus,
   claimRingActive,
   campaignType,
   lockMode,
@@ -125,17 +121,6 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
             <PhoneOff className="w-4 h-4" />
             <span className="leading-none">Hang Up</span>
             <span className="font-mono text-[9px] opacity-80">{fmtDuration(telnyxCallDuration)}</span>
-            {amdEnabled && amdStatus !== 'idle' && (
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                amdStatus === 'detecting' ? 'bg-yellow-500/20 text-yellow-400 animate-pulse' :
-                amdStatus === 'human' ? 'bg-emerald-500/20 text-emerald-400' :
-                amdStatus === 'machine' ? 'bg-red-500/20 text-red-400' : ''
-              }`}>
-                {amdStatus === 'detecting' ? '🔍 AMD' :
-                 amdStatus === 'human' ? '👤 Human' :
-                 amdStatus === 'machine' ? '🤖 Machine' : ''}
-              </span>
-            )}
           </button>
         ) : (
           <div className="relative">

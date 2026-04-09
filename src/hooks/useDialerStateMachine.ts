@@ -20,7 +20,7 @@ export type MachineState =
   | "FAST_DISPOSE"
   | "DELIBERATE_DISPOSE";
 
-export type FastDisposeReason = "ring_timeout" | "amd_machine" | "no_answer";
+export type FastDisposeReason = "ring_timeout" | "no_answer";
 
 function useLatestRef<T>(value: T) {
   const r = useRef(value);

@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 6, 2026
+**Owner:** Chris Garness | **Last Updated:** April 9, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -19,7 +19,7 @@
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers.
-- **Features**: Smart Caller ID (Local Presence), Answering Machine Detection (AMD), Ring Timeout, and mandatory dispositions.
+- **Features**: Smart Caller ID (Local Presence), Ring Timeout, and mandatory dispositions. (Answering Machine Detection was removed — bridge on answer only.)
 - **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
@@ -52,6 +52,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-09 | [DONE] Remove Answering Machine Detection (AMD)**
+  *Files Modified:* `supabase/functions/telnyx-webhook/index.ts`, `supabase/config.toml`, `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/components/dialer/DialerActions.tsx`, `src/components/dialer/CampaignSettingsModal.tsx`, `src/components/settings/PhoneSettings.tsx`, `src/hooks/useDialerStateMachine.ts`, `ROADMAP.md`
+  *Files Removed:* `supabase/functions/telnyx-amd-start/index.ts` (unused; AMD was started inline from webhook)
+  *Developer Note:* Outbound `call.answered` now always runs `handleHumanDetected` (SIP bridge + optional recording). Telnyx `call.machine.*` webhooks are logged and ignored so stray connection-level AMD does not double-bridge or auto-hangup. Frontend: removed AMD UI, realtime `calls` subscription, ring-timeout “human confirmed” guard, and campaign/phone settings toggles. Saving calling settings sets `phone_settings.amd_enabled` to `false`. DB columns (`amd_enabled`, `calls.amd_result`, `dialer_daily_stats.amd_skipped`) left in place for history; no migration. **Deploy:** redeploy `telnyx-webhook`. **Telnyx portal:** disable AMD on the Connection/App if it was enabled there.
 
 - **2026-04-09 | [DONE] Feature — Wire Call Recording End-to-End**
   *Files Modified:* `supabase/functions/telnyx-webhook/index.ts`, `src/lib/dialer-api.ts`, `src/pages/DialerPage.tsx`, `src/components/dialer/ConversationHistory.tsx`, `ROADMAP.md`
@@ -419,7 +424,7 @@ Full campaign-type-aware dialer UI with staged lead reveal, claim ring, queue vi
 Three focused behavioral fixes applied to `src/lib/auto-dialer.ts` and `src/pages/DialerPage.tsx`. No new components, no schema migrations.
 
 **Fix 1 — Campaign Settings Enforcement:**
-- `AutoDialer` now stores `callingHoursStart`, `callingHoursEnd` (from `campaigns`), `ringTimeout`, `amdEnabled` (from `phone_settings`).
+- `AutoDialer` now stores `callingHoursStart`, `callingHoursEnd` (from `campaigns`), `ringTimeout` (from `phone_settings`). *(Historical: `amdEnabled` was removed 2026-04-09.)*
 - `checkCallingHours(state)` uses a hardcoded `STATE_TO_TZ` record (all 50 states) + `Intl.DateTimeFormat.formatToParts` to determine local time. Returns `true` if within window.
 - `getRingTimeout()` exposes the stored value; `ringTimeoutRef` in DialerPage caches it post-`startSession`.
 - `triggerAutoCall` in DialerPage calls `checkCallingHours` on the auto-dial path only. Outside hours → toast + `handleSkip()` + early return. Manual Call button is unaffected.

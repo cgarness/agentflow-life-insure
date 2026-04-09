@@ -103,7 +103,6 @@ import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSke
 import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
 import { ConversationHistory } from "@/components/dialer/ConversationHistory";
 import { DialerActions } from "@/components/dialer/DialerActions";
-import { CircuitBreaker } from "@/lib/CircuitBreaker";
 
 /* ─── Types ─── */
 
@@ -313,7 +312,6 @@ export default function DialerPage() {
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
     getSmartCallerId,
-    amdEnabled,
   } = useTelnyx();
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
@@ -332,8 +330,6 @@ export default function DialerPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const leadTransitionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
-  const circuitBreakerRef = useRef(new CircuitBreaker({ threshold: 5, windowMs: 60000 }));
   
   // Appointment/Callback state for inline scheduling
   const [aptTitle, setAptTitle] = useState("");
@@ -445,10 +441,6 @@ export default function DialerPage() {
   const [showSessionEnd, setShowSessionEnd] = useState(false);
   const [autoDialSessionStats, setAutoDialSessionStats] = useState<any>(null);
 
-  // ── AMD status ──
-  type AmdStatus = 'idle' | 'detecting' | 'human' | 'machine';
-  const [amdStatus, setAmdStatus] = useState<AmdStatus>('idle');
-
   // ── Calling Settings Modal state ──
   const [callingSettingsOpen, setCallingSettingsOpen] = useState(false);
   const [callingSettingsLoading, setCallingSettingsLoading] = useState(false);
@@ -462,8 +454,6 @@ export default function DialerPage() {
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
   const [ringTimeoutValue, setRingTimeoutValue] = useState(30);
-  const [amdEnabledValue, setAmdEnabledValue] = useState(false);
-
 
   // ── Queue sort / filter / preview ──
   type QueueSortKey = 'smart' | 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
@@ -1570,7 +1560,6 @@ export default function DialerPage() {
     telnyxHangUp();
   }, [telnyxCallDuration, telnyxHangUp, user?.id]);
 
-  // AMD auto-dispose handler
   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
     // Use currentCallId (internal UUID) which is more reliable than telnyxCurrentCall
     // since telnyxHangUp() may have already cleared the telnyx call reference
@@ -1601,93 +1590,6 @@ export default function DialerPage() {
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
   }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle]);
 
-  const handleMachineDetectedAction = useCallback(async () => {
-    // Prevent double-processing
-    setAmdStatus(prev => {
-      if (prev === 'machine') return prev;
-      return 'machine';
-    });
-
-    toast.info('🤖 Machine detected — skipping to next lead', {
-      duration: 2000,
-    });
-
-    // Increment skip stat
-    if (user?.id) {
-      upsertDialerStats(user.id, { amd_skipped: 1 }).catch(err => {
-        console.warn('Failed to increment AMD skip stat:', err);
-      });
-    }
-
-    // Find the "No Answer" disposition
-    const noAnswerDisp = dispositions.find(d =>
-      d.name.toLowerCase() === 'no answer'
-    ) || dispositions.find(d =>
-      d.name.toLowerCase().includes('no answer')
-    );
-
-    if (noAnswerDisp) {
-      console.log('[AMD] Found "No Answer" disposition, auto-advancing...');
-      setSelectedDisp(noAnswerDisp);
-      setShowWrapUp(false); // Force close modal if open
-      
-      handleAutoDispose(noAnswerDisp);
-    } else {
-      // No matching disposition — still advance
-      console.warn('No "No Answer" disposition found, advancing without disposition');
-      handleSkip(); // Reuse skip logic to advance lead
-    }
-    // Reset AMD status after brief display
-    setTimeout(() => setAmdStatus('idle'), 2000);
-  }, [user?.id, dispositions, handleAutoDispose, handleSkip]);
-
-  // ── Real-time AMD detection ──
-  useEffect(() => {
-    if (!currentCallId || !amdEnabled) return;
-
-    console.log('[Realtime] Subscribing to AMD updates for call:', currentCallId);
-    
-    const channel = supabase
-      .channel(`call-amd-${currentCallId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'calls',
-          filter: `id=eq.${currentCallId}`,
-        },
-        (payload) => {
-          const newAMD = payload.new.amd_result;
-          const oldAMD = payload.old?.amd_result;
-          const newDisp = payload.new.disposition_name;
-          
-          // Trigger skip if machine is detected OR if the server auto-disposed as "No Answer"
-          if ((newAMD === 'machine' && oldAMD !== 'machine') || (newDisp === 'No Answer')) {
-            console.log('[Realtime] Machine/Auto-No-Answer detected via DB update');
-            handleMachineDetectedAction();
-          } else if (newAMD === 'human' && oldAMD !== 'human') {
-            setAmdStatus('human');
-            setTimeout(() => setAmdStatus('idle'), 3000);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [currentCallId, amdEnabled, handleMachineDetectedAction]);
-
-  // Set AMD status to 'detecting' when a call starts and AMD is enabled
-  useEffect(() => {
-    if (amdEnabled && (telnyxCallState === 'dialing' || telnyxCallState === 'active')) {
-      setAmdStatus('detecting');
-    } else if (telnyxCallState === 'idle') {
-      setAmdStatus('idle');
-    }
-  }, [telnyxCallState, amdEnabled]);
-
   // Track whether the current call was answered (reached "active" state)
   useEffect(() => {
     if (telnyxCallState === "active") {
@@ -1696,17 +1598,13 @@ export default function DialerPage() {
   }, [telnyxCallState]);
 
   // ── Strict Ring Timeout Enforcement ──
-  // If a call has been ringing/dialing beyond the configured ring timeout and
-  // no human has been confirmed by AMD, auto-hangup to prevent phantom calls.
+  // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
   useEffect(() => {
     if (telnyxCallState !== "dialing") return;
     if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
 
     const timeoutMs = ringTimeoutRef.current * 1000;
     const timeoutId = setTimeout(() => {
-      // If AMD confirmed human, do NOT auto-hangup
-      if (amdEnabled && amdStatus === 'human') return;
-      // Only hangup if still in dialing state (not already connected or ended)
       if (telnyxCallState === "dialing") {
         console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
         toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);
@@ -1728,8 +1626,7 @@ export default function DialerPage() {
     }
   }, [telnyxCallState]);
 
-  // Trigger wrap-up when call ends (covers remote hangup)
-  // AMD machine detection may auto-advance if auto-dial is on.
+  // Trigger wrap-up when call ends (covers remote hangup).
   // Ring timeout (call never answered) auto-dispositions as "No Answer" silently.
   // Manual hang-up of an answered call ALWAYS shows the wrap-up panel.
   useEffect(() => {
@@ -1752,9 +1649,6 @@ export default function DialerPage() {
         lastProcessedCallIdRef.current = callIdToProcess;
       }
 
-      // Capture state before resets
-      const savedCallId = currentCallId;
-      const duration = telnyxCallDuration;
       const wasAnswered = callWasAnswered.current;
 
       // ── Ring timeout / no answer path — auto-disposition silently ──
@@ -1782,75 +1676,11 @@ export default function DialerPage() {
         return;
       }
 
-      // ── Answered call path — check AMD then show wrap-up ──
-      const checkAmd = async () => {
-        if (!amdEnabled) {
-          setAmdStatus('idle');
-          setShowWrapUp(true);
-          return;
-        }
-
-        const callControlId = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId;
-        if (!callControlId && !savedCallId) {
-          setAmdStatus('idle');
-          setShowWrapUp(true);
-          return;
-        }
-
-        try {
-          let callRecord = null;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            await new Promise(r => setTimeout(r, 1000));
-            const { data } = await supabase
-              .from('calls')
-              .select('amd_result')
-              .eq('id', savedCallId || currentCallId)
-              .maybeSingle();
-
-            if (data?.amd_result) {
-              callRecord = data;
-              break;
-            }
-          }
-
-          // AMD machine detection: auto-advance ONLY if auto-dial is on
-          if (callRecord?.amd_result === 'machine' && amdStatus !== 'machine' && autoDialEnabled) {
-            await handleMachineDetectedAction();
-            return;
-          }
-
-          if (callRecord?.amd_result === 'human') {
-            setAmdStatus('human');
-            setTimeout(() => setAmdStatus('idle'), 3000);
-          } else {
-            setAmdStatus('idle');
-          }
-        } catch (err) {
-          console.warn('AMD check fallback threw:', err);
-          setAmdStatus('idle');
-        }
-
-        // Always show wrap-up so agent can manually disposition
-        setShowWrapUp(true);
-      };
-
-      // ── Circuit Breaker Logic ──
-      // Record failure if call ended in < 2s and was not answered by a machine (AMD)
-      // Genuine No Answer calls that ring full duration should not trip it.
-      const isRapidFailure = !wasAnswered && duration < 2 && amdStatus !== 'machine';
-      if (isRapidFailure) {
-        const tripped = circuitBreakerRef.current.recordFailure();
-        if (tripped && autoDialEnabled) {
-          setAutoDialEnabled(false);
-          toast.error("Auto-Dialer disabled: Multiple rapid failures detected. Please check your connection.");
-          circuitBreakerRef.current.reset();
-        }
-      }
-
-      setTimeout(checkAmd, 500);
+      // ── Answered call path — show wrap-up for manual disposition ──
+      setTimeout(() => setShowWrapUp(true), 500);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, handleAdvance, amdEnabled, currentCallId, amdStatus, handleMachineDetectedAction, autoDialEnabled, telnyxCallDuration]);
+  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, handleAdvance, currentCallId]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -1898,10 +1728,9 @@ export default function DialerPage() {
       .eq("id", effectiveCampaignId)
       .maybeSingle() as unknown as Promise<any>);
 
-    // 2. Fetch Global Phone Settings (Ring Timeout + AMD)
     const fetchPhone = (supabase
       .from("phone_settings")
-      .select("ring_timeout, amd_enabled")
+      .select("ring_timeout")
       .eq("organization_id", organizationId)
       .maybeSingle() as unknown as Promise<any>);
 
@@ -1916,10 +1745,7 @@ export default function DialerPage() {
           setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
         }
-        if (phoneData) {
-          if (phoneData.ring_timeout) setRingTimeoutValue(phoneData.ring_timeout);
-          setAmdEnabledValue(phoneData.amd_enabled ?? false);
-        }
+        if (phoneData?.ring_timeout) setRingTimeoutValue(phoneData.ring_timeout);
         setCallingSettingsLoading(false);
       })
       .catch((err) => {
@@ -1950,7 +1776,7 @@ export default function DialerPage() {
       .from("phone_settings")
       .update({
         ring_timeout: ringTimeoutValue,
-        amd_enabled: amdEnabledValue,
+        amd_enabled: false,
         updated_at: new Date().toISOString()
       })
       .eq("organization_id", organizationId);
@@ -2001,7 +1827,7 @@ export default function DialerPage() {
       // 2. Fetch Global Phone Settings
       const { data: phoneData } = await supabase
         .from("phone_settings")
-        .select("ring_timeout, amd_enabled")
+        .select("ring_timeout")
         .eq("organization_id", organizationId)
         .maybeSingle();
 
@@ -2818,8 +2644,6 @@ export default function DialerPage() {
           setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
           localPresenceEnabled={localPresenceEnabled}
           setLocalPresenceEnabled={setLocalPresenceEnabled}
-          amdEnabledValue={amdEnabledValue}
-          setAmdEnabledValue={setAmdEnabledValue}
           loading={callingSettingsLoading}
           saving={callingSettingsSaving}
           onSave={handleSaveCallingSettings}
@@ -3307,8 +3131,6 @@ export default function DialerPage() {
         <DialerActions
           telnyxCallState={telnyxCallState}
           telnyxCallDuration={telnyxCallDuration}
-          amdEnabled={amdEnabled}
-          amdStatus={amdStatus}
           claimRingActive={claimRingActive}
           campaignType={campaignType}
           campaignId={selectedCampaignId || ""}
@@ -3626,8 +3448,6 @@ export default function DialerPage() {
         setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
         localPresenceEnabled={localPresenceEnabled}
         setLocalPresenceEnabled={setLocalPresenceEnabled}
-        amdEnabledValue={amdEnabledValue}
-        setAmdEnabledValue={setAmdEnabledValue}
         loading={callingSettingsLoading}
         saving={callingSettingsSaving}
         onSave={handleSaveCallingSettings}
