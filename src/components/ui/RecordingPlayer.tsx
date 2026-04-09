@@ -54,6 +54,8 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fetchedRef = useRef(false);
+  /** Mirrors `blobUrl` so download works immediately after `fetchAudio()` (state is async). */
+  const blobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -72,6 +74,7 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
 
   useEffect(() => {
     fetchedRef.current = false;
+    blobUrlRef.current = null;
     setBlobUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -82,8 +85,9 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
     setPlaying(false);
   }, [callId]);
 
-  const fetchAudio = useCallback(async () => {
-    if (fetchedRef.current || loading) return;
+  const fetchAudio = useCallback(async (): Promise<string | null> => {
+    if (blobUrlRef.current) return blobUrlRef.current;
+    if (fetchedRef.current || loading) return null;
     fetchedRef.current = true;
     setLoading(true);
     setError(null);
@@ -106,16 +110,18 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
           .download(storagePath);
         if (dlErr || !b) {
           setError("Recording not available");
+          fetchedRef.current = false;
           setLoading(false);
-          return;
+          return null;
         }
         blob = b;
       } else {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) {
           setError("Not authenticated");
+          fetchedRef.current = false;
           setLoading(false);
-          return;
+          return null;
         }
 
         const resp = await fetch(
@@ -134,8 +140,9 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
         if (!resp.ok) {
           const errBody = await resp.json().catch(() => null);
           setError(errBody?.error || "No recording found");
+          fetchedRef.current = false;
           setLoading(false);
-          return;
+          return null;
         }
         blob = await resp.blob();
       }
@@ -143,9 +150,18 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
       const decodedDur = await getDurationFromBlob(blob);
       if (decodedDur > 0) setDuration(decodedDur);
 
-      setBlobUrl(URL.createObjectURL(blob));
+      const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+      setBlobUrl(url);
+      if (audioRef.current) {
+        audioRef.current.src = url;
+        audioRef.current.load();
+      }
+      return url;
     } catch (e: any) {
       setError(e.message || "Network error");
+      fetchedRef.current = false;
+      return null;
     } finally {
       setLoading(false);
     }
@@ -159,16 +175,20 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
   }, [blobUrl]);
 
   const togglePlay = async () => {
-    if (!blobUrl) {
+    if (!blobUrlRef.current) {
       await fetchAudio();
       return;
     }
     const audio = audioRef.current;
     if (!audio) return;
+    if (!audio.src && blobUrlRef.current) {
+      audio.src = blobUrlRef.current;
+      audio.load();
+    }
     if (playing) {
       audio.pause();
     } else {
-      audio.play();
+      void audio.play();
     }
   };
 
@@ -213,13 +233,14 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
   };
 
   const handleDownload = async () => {
-    if (!blobUrl) await fetchAudio();
-    if (blobUrl) {
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = `recording-${callId}.webm`;
-      a.click();
-    }
+    const url = blobUrlRef.current ?? (await fetchAudio());
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    // Browser recordings are WebM; Telnyx proxy returns MPEG audio — browsers still accept .webm or use generic name
+    a.download = `recording-${callId}.webm`;
+    a.rel = "noopener";
+    a.click();
   };
 
   const fmt = (sec: number) => {
@@ -270,18 +291,50 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
               step={0.1}
               value={sliderValue}
               onChange={handleSeek}
-              className="flex-1 h-1 accent-primary cursor-pointer"
+              className="flex-1 h-1 min-w-[48px] accent-primary cursor-pointer"
             />
-            <span className="text-[10px] text-muted-foreground font-mono tabular-nums min-w-[72px] text-right">
+            <span className="text-[10px] text-muted-foreground font-mono tabular-nums min-w-[72px] text-right shrink-0">
               {fmt(currentTime)} / {fmt(duration)}
             </span>
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              disabled={loading}
+              className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground shrink-0"
+              title="Download recording"
+              aria-label="Download recording"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
           </>
         )}
         {blobUrl && !showScrubber && !loading && (
-          <span className="text-[10px] text-muted-foreground">Loading track…</span>
+          <div className="flex items-center gap-1 flex-1 min-w-0">
+            <span className="text-[10px] text-muted-foreground truncate">Loading track…</span>
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground shrink-0"
+              title="Download recording"
+              aria-label="Download recording"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
         {!blobUrl && !loading && !error && (
-          <span className="text-[10px] text-muted-foreground">Click to load</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">Click to load</span>
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              className="p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground shrink-0"
+              title="Download recording"
+              aria-label="Download recording"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
         {error && (
           <span className="text-[10px] text-destructive truncate max-w-[120px]">{error}</span>

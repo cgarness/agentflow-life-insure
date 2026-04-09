@@ -54,6 +54,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] RecordingPlayer — download in compact mode + reliable download after fetch**
+  *Issue:* Recording Library / timelines use `compact` mode, which had no download control (only full layout did). Download also failed when triggered before React applied `blobUrl` state. **Fix:** `blobUrlRef` mirrors the object URL; `fetchAudio` returns the URL and assigns `<audio src>` immediately; compact UI adds a download icon beside the scrubber, while duration is still loading, and next to “Click to load” (fetch + download in one action). *File:* `src/components/ui/RecordingPlayer.tsx`
+
 - **2026-04-09 | [DONE] Fix — RecordingPlayer scrubber / duration display for WebM**
   *Issue:* Browser-recorded WebM often leaves `<audio>.duration` as `Infinity`, `NaN`, or `0`, so the UI showed `0:35 / 0:00` and the range thumb did not track playback. **Fix:** Decode the blob with `AudioContext.decodeAudioData` after download to get an accurate length; sync from `seekable` on `timeupdate` / `durationchange` / `canplay` as fallback; on `ended`, snap current time to duration; `preload="metadata"`; reset state when `callId` changes; download filename `.webm`. *File:* `src/components/ui/RecordingPlayer.tsx`
 
