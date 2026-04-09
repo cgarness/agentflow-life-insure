@@ -9,6 +9,7 @@ import { DateInput } from "@/components/shared/DateInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PlayCircle, Download, Flag, X } from "lucide-react";
 import { toast } from "sonner";
+import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 
 interface CallRow {
   id: string;
@@ -280,9 +281,7 @@ const CallRecordingLibrary: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         {c.recording_url ? (
-                          <audio controls className="h-8 w-48">
-                            <source src={c.recording_url} type="audio/mpeg" />
-                          </audio>
+                          <RecordingPlayer callId={c.id} compact className="w-48" />
                         ) : (
                           <span className="text-muted-foreground text-xs">No recording</span>
                         )}

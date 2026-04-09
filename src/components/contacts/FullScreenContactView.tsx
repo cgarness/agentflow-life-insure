@@ -25,6 +25,7 @@ import { DateInput } from "@/components/shared/DateInput";
 import { calculateAge } from "@/utils/dateUtils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
+import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -833,7 +834,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                       </div>
                       {item.recording_url && (
                         <div className="ml-8 mt-2.5 pt-2.5 border-t border-border/50">
-                           <button className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium transition-colors"><Play className="w-3.5 h-3.5" /> Play Recording</button>
+                          <RecordingPlayer callId={item.id} compact />
                         </div>
                       )}
                     </div>

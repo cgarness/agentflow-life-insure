@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
+import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 
 interface HistoryItem {
   id: string;
@@ -134,12 +135,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                         <Mic className="w-3 h-3" aria-hidden />
                         <span>Call recording</span>
                       </div>
-                      <audio
-                        controls
-                        className="w-full h-8 rounded"
-                        src={item.recording_url}
-                        preload="metadata"
-                      />
+                      <RecordingPlayer callId={item.id} compact />
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground mt-0.5">
