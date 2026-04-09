@@ -90,10 +90,12 @@ const FloatingDialer: React.FC = () => {
     callState: telnyxCallState,
     callDuration: telnyxCallDuration,
     isMuted: telnyxIsMuted,
+    isOnHold: telnyxIsOnHold,
     currentCall: telnyxCurrentCall,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     toggleMute: telnyxToggleMute,
+    toggleHold: telnyxToggleHold,
     initializeClient: telnyxInitialize,
     destroyClient: telnyxDestroy,
     availableNumbers,
@@ -678,14 +680,22 @@ const FloatingDialer: React.FC = () => {
                     <p className="text-3xl font-mono text-foreground">{formatTime(telnyxCallDuration || callSeconds)}</p>
                     <div className="flex items-center gap-6">
                       <div className="flex flex-col items-center gap-1">
-                        <button onClick={telnyxToggleMute} className={`w-12 h-12 rounded-full flex items-center justify-center ${telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-accent text-foreground"}`}>
+                        <button type="button" onClick={telnyxToggleMute} className={`w-12 h-12 rounded-full flex items-center justify-center ${telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-accent text-foreground"}`}>
                           {telnyxIsMuted ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                         </button>
                         <span className="text-xs text-muted-foreground">{telnyxIsMuted ? "Unmute" : "Mute"}</span>
                       </div>
                       <div className="flex flex-col items-center gap-1">
-                        <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center"><Pause className="w-5 h-5" /></button>
-                        <span className="text-xs text-muted-foreground">Hold</span>
+                        <button
+                          type="button"
+                          onClick={telnyxToggleHold}
+                          className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                            telnyxIsOnHold ? "bg-primary/20 text-primary" : "bg-accent text-foreground"
+                          }`}
+                        >
+                          <Pause className="w-5 h-5" />
+                        </button>
+                        <span className="text-xs text-muted-foreground">{telnyxIsOnHold ? "Resume" : "Hold"}</span>
                       </div>
                       <div className="flex flex-col items-center gap-1">
                         <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center"><Voicemail className="w-5 h-5" /></button>

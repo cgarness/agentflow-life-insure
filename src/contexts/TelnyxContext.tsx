@@ -83,6 +83,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [currentCall, setCurrentCall] = useState<any>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const [callDuration, setCallDuration] = useState(0);
+  const callStateRef = useRef<CallState>(callState);
+  const callDurationRef = useRef(0);
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+  useEffect(() => {
+    callDurationRef.current = callDuration;
+  }, [callDuration]);
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
@@ -396,7 +404,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCallState("ended");
     
     // Check if we are in the middle of a dial initiation (Race Condition handling)
-    if (callState === "dialing" && !controlId && callId) {
+    if (callStateRef.current === "dialing" && !controlId && callId) {
       console.log("[TelnyxContext] Hangup requested during dialing; latching pending abort for:", callId);
       pendingAbortCallIdRef.current = callId;
     }
@@ -513,27 +521,45 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [callState, ringTimeout, hangUp]);
 
   const toggleMute = useCallback(() => {
-    if (!callRef.current) return;
+    const call = callRef.current;
+    if (!call) return;
     try {
-      if (isMuted) {
-        callRef.current.unmuteAudio();
-      } else {
-        callRef.current.muteAudio();
+      if (typeof call.toggleAudioMute === "function") {
+        call.toggleAudioMute();
+        setIsMuted(Boolean(call.isAudioMuted));
+        return;
       }
-      setIsMuted(!isMuted);
-    } catch {} // eslint-disable-line no-empty
-  }, [isMuted]);
+    } catch {
+      /* fall through */
+    }
+    setIsMuted((prevMuted) => {
+      const nextMuted = !prevMuted;
+      try {
+        if (prevMuted) call.unmuteAudio?.();
+        else call.muteAudio?.();
+      } catch {
+        const stream: MediaStream | undefined = call.localStream ?? mediaStreamRef.current ?? undefined;
+        stream?.getAudioTracks().forEach((t) => {
+          t.enabled = !nextMuted;
+        });
+      }
+      return nextMuted;
+    });
+  }, []);
 
   const toggleHold = useCallback(() => {
-    if (!callRef.current) return;
-    try {
-      if (isOnHold) {
-        callRef.current.unhold();
-      } else {
-        callRef.current.hold();
+    const call = callRef.current;
+    if (!call) return;
+    const targetHold = !isOnHold;
+    void (async () => {
+      try {
+        if (targetHold) await call.hold();
+        else await call.unhold();
+        setIsOnHold(targetHold);
+      } catch (err) {
+        console.warn("[TelnyxContext] Hold/unhold failed:", err);
       }
-      setIsOnHold(!isOnHold);
-    } catch {} // eslint-disable-line no-empty
+    })();
   }, [isOnHold]);
 
   const getSmartCallerId = useCallback(async (contactPhone: string, contactId?: string | null): Promise<string> => {
@@ -701,7 +727,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           callRef.current = null;
           
           // Immediately finalize database record
-          finalizeCallRecord(callDuration);
+          finalizeCallRecord(callDurationRef.current);
 
           // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
           if (endResetRef.current) { clearTimeout(endResetRef.current); endResetRef.current = null; }
@@ -728,6 +754,43 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setErrorMessage(msg);
       });
 
+      const wirePeerRemoteHangup = (call: any) => {
+        const pc = call?.peer?.instance as RTCPeerConnection | undefined;
+        if (!pc || call._agentflowPeerHangupWired) return;
+        call._agentflowPeerHangupWired = true;
+        pc.addEventListener("connectionstatechange", () => {
+          const s = pc.connectionState;
+          if (s !== "failed" && s !== "closed") return;
+          if (callRef.current !== call || endStateProcessedRef.current) return;
+          endStateProcessedRef.current = true;
+          setCallState("ended");
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+            mediaStreamRef.current = null;
+          }
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = null;
+          }
+          finalizeCallRecord(callDurationRef.current);
+          if (endResetRef.current) {
+            clearTimeout(endResetRef.current);
+            endResetRef.current = null;
+          }
+          endResetRef.current = setTimeout(() => {
+            endResetRef.current = null;
+            setCurrentCall(null);
+            setCallState("idle");
+            setIsMuted(false);
+            setIsOnHold(false);
+            callRef.current = null;
+          }, 200);
+        });
+      };
+
       client.on("telnyx.notification", (notification: any) => {
         if (!notification.call) return;
         const call = notification.call;
@@ -749,10 +812,17 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         if (state === "active") {
+          try {
+            call.stopRingback?.();
+            call.stopRingtone?.();
+          } catch {
+            /* SDK may not expose ring helpers on all builds */
+          }
+          wirePeerRemoteHangup(call);
           setCallState("active");
         } else if (state === "ringing" || state === "trying") {
           // AUTO-ANSWER SAFETY: Only auto-answer if we are expecting a call (dialing state)
-          if (callState === "dialing") {
+          if (callStateRef.current === "dialing") {
             console.log("[TelnyxContext] Auto-answering inbound bridge call.");
             call.answer();
           }
@@ -773,7 +843,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
 
           // Immediately finalize database record
-          finalizeCallRecord(callDuration);
+          finalizeCallRecord(callDurationRef.current);
 
           // Deferred cosmetic reset — wrap-up phase (DialerPage) controls lead advancement
           if (endResetRef.current) { clearTimeout(endResetRef.current); endResetRef.current = null; }
@@ -794,7 +864,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setStatus("error");
       setErrorMessage(err?.message || "Could not initialize dialer");
     }
-  }, [attachRemoteAudio, organizationId, profile?.id]);
+  }, [attachRemoteAudio, organizationId, profile?.id, finalizeCallRecord]);
 
   const destroyClient = useCallback(() => {
     if (clientRef.current) {
