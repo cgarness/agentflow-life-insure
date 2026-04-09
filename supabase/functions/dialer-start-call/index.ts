@@ -81,12 +81,12 @@ Deno.serve(async (req) => {
     }
 
     // 2. Prepare Telnyx REST API Call
-    // We use Premium AMD to ensure we only bridge to the agent when a human is detected.
+    // AMD is intentionally omitted — webhook bridges on call.answered; premium AMD added
+    // latency and did not match ignored call.machine.* handlers in telnyx-webhook.
     const telnyxPayload = {
       to: destination_number,
       from: caller_id,
       connection_id: settings.call_control_app_id,
-      answering_machine_detection: 'premium',
       // client_state is typically used for tracking. We'll store the call_id here.
       // Telnyx expects a string; we'll base64 encode the UUID to be safe and standard.
       client_state: btoa(call_id),
@@ -135,8 +135,9 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('[dialer-start-call] Critical Error:', error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[dialer-start-call] Critical Error:', msg);
+    return new Response(JSON.stringify({ error: msg }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
     });

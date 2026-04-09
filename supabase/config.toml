@@ -53,3 +53,6 @@ verify_jwt = false
 
 [functions.dialer-hangup]
 verify_jwt = false
+
+[functions.dialer-start-call]
+verify_jwt = true

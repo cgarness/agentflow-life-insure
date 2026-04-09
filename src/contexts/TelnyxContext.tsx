@@ -142,6 +142,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Reset at the start of each new call (makeCall); set when the first handler processes the end.
   const endStateProcessedRef = useRef(false);
 
+  /** Ensures we only auto-answer the inbound bridge leg once per outbound dial. */
+  const bridgeAutoAnsweredRef = useRef(false);
+
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
     if (remoteAudioRef.current) return remoteAudioRef.current;
@@ -488,9 +491,26 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             callRef.current.state === "early")
         ) {
           console.log(
-            `[RingTimeout] ${ringTimeout}s reached without answer.`,
+            `[RingTimeout] ${ringTimeout}s reached without agent leg active.`,
             { callId: activeCallIdRef.current, controlId: activeCallControlIdRef.current }
           );
+
+          // PSTN leg can already be "connected" in Supabase (webhook) while WebRTC is still
+          // ringing — do not tear down a live customer call.
+          const rowId = activeCallIdRef.current;
+          if (rowId) {
+            const { data: row } = await supabase
+              .from("calls")
+              .select("status")
+              .eq("id", rowId)
+              .maybeSingle();
+            if (row?.status === "connected") {
+              console.log(
+                "[RingTimeout] Skipping hangup — call row is connected (customer answered; agent audio still connecting)."
+              );
+              return;
+            }
+          }
 
           // Poll up to 3s (6 × 500ms) for the call_control_id to arrive via telnyx.notification.
           // The ID comes asynchronously and may not be present at exact timeout time.
@@ -829,11 +849,20 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
           wirePeerRemoteHangup(call);
           setCallState("active");
-        } else if (state === "ringing" || state === "trying") {
-          // AUTO-ANSWER SAFETY: Only auto-answer if we are expecting a call (dialing state)
-          if (callStateRef.current === "dialing") {
+        } else if (state === "ringing" || state === "trying" || state === "early") {
+          // Inbound bridge leg after server transfer: answer once. Use activeCallIdRef so we
+          // still answer if React state briefly lags behind Verto notifications.
+          const expectingBridge =
+            callStateRef.current === "dialing" || activeCallIdRef.current !== null;
+          if (expectingBridge && !bridgeAutoAnsweredRef.current) {
+            bridgeAutoAnsweredRef.current = true;
             console.log("[TelnyxContext] Auto-answering inbound bridge call.");
-            call.answer();
+            try {
+              call.answer();
+            } catch (e) {
+              console.warn("[TelnyxContext] Auto-answer failed:", e);
+              bridgeAutoAnsweredRef.current = false;
+            }
           }
           setCallState("dialing");
         } else if (state === "destroy" || state === "hangup") {
@@ -895,6 +924,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     callRef.current = null;
     endStateProcessedRef.current = false;
+    bridgeAutoAnsweredRef.current = false;
     setStatus("idle");
     setErrorMessage(null);
     setCurrentCall(null);
@@ -938,6 +968,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     isDialingRef.current = true;
     endStateProcessedRef.current = false;
+    bridgeAutoAnsweredRef.current = false;
 
     // 1. Authentication Check: Force-refresh to ensure a fresh token for Edge Functions
     const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();

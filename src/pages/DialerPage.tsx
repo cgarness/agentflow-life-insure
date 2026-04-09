@@ -407,6 +407,9 @@ export default function DialerPage() {
   const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasDialedOnce = useRef(false);
   const callWasAnswered = useRef(false);
+  /** Mirrors state for ring-timeout callback (avoids stale React closures). */
+  const currentCallIdRef = useRef<string | null>(null);
+  const telnyxCallStateRef = useRef<string>("idle");
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
   const hasProcessedEndedState = useRef(false);
@@ -1590,6 +1593,14 @@ export default function DialerPage() {
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
   }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle]);
 
+  // Keep refs aligned for async timers (strict ring timeout must not use stale state).
+  useEffect(() => {
+    currentCallIdRef.current = currentCallId;
+  }, [currentCallId]);
+  useEffect(() => {
+    telnyxCallStateRef.current = telnyxCallState;
+  }, [telnyxCallState]);
+
   // Track whether the current call was answered (reached "active" state)
   useEffect(() => {
     if (telnyxCallState === "active") {
@@ -1597,19 +1608,62 @@ export default function DialerPage() {
     }
   }, [telnyxCallState]);
 
+  // When webhook marks PSTN connected before WebRTC goes "active", treat as answered so
+  // we do not auto-dispose as No Answer if the agent leg drops later.
+  useEffect(() => {
+    if (!currentCallId || telnyxCallState !== "dialing") return;
+    const channel = supabase
+      .channel(`dialer-call-${currentCallId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "calls",
+          filter: `id=eq.${currentCallId}`,
+        },
+        (payload) => {
+          const next = (payload.new as { status?: string })?.status;
+          if (next === "connected") {
+            callWasAnswered.current = true;
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentCallId, telnyxCallState]);
+
   // ── Strict Ring Timeout Enforcement ──
   // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
+  // IMPORTANT: Telnyx two-legged flow can show "dialing" in WebRTC while the customer leg is
+  // already answered (calls.status = connected). Do not hang up in that case.
   useEffect(() => {
     if (telnyxCallState !== "dialing") return;
     if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
 
     const timeoutMs = ringTimeoutRef.current * 1000;
-    const timeoutId = setTimeout(() => {
-      if (telnyxCallState === "dialing") {
-        console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
-        toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);
-        telnyxHangUp();
+    const timeoutId = setTimeout(async () => {
+      const cid = currentCallIdRef.current;
+      if (cid) {
+        const { data: row, error } = await supabase
+          .from("calls")
+          .select("status")
+          .eq("id", cid)
+          .maybeSingle();
+        if (!error && row?.status === "connected") {
+          console.log(
+            "[DialerPage] Ring timeout skipped — CRM call is connected (customer answered; agent leg still joining)."
+          );
+          callWasAnswered.current = true;
+          return;
+        }
       }
+      if (telnyxCallStateRef.current !== "dialing") return;
+      console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
+      toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);
+      telnyxHangUp();
     }, timeoutMs);
 
     return () => clearTimeout(timeoutId);
