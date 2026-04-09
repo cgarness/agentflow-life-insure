@@ -91,7 +91,8 @@ const CallRecordingLibrary: React.FC = () => {
     let query = supabase
       .from("calls")
       .select("id, created_at, duration, disposition_name, recording_url, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
-      .not("recording_url", "is", null)
+      .not("telnyx_call_control_id", "is", null)
+      .gt("duration", 0)
       .order("created_at", { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 

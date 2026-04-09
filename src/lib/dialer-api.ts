@@ -175,7 +175,7 @@ export async function getLeadHistory(
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, disposition_name, duration, recording_url");
+    .select("id, created_at, started_at, disposition_name, duration, recording_url, telnyx_call_control_id");
 
   if (campaignLeadId) {
     callsQuery = callsQuery.or(
@@ -226,16 +226,22 @@ export async function getLeadHistory(
     if (row?.name) dispositionColorByName[row.name] = row.color;
   }
 
-  const callItems = (callsRes.data ?? []).map((c) => ({
-    id: c.id,
-    type: "call" as const,
-    description: `Call — ${c.disposition_name ?? "Unknown"} — ${formatDuration(c.duration ?? 0)}`,
-    disposition: c.disposition_name,
-    disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,
-    created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
-    recording_url: (c as any).recording_url ?? null,
-    duration: c.duration ?? null,
-  }));
+  const callItems = (callsRes.data ?? []).map((c) => {
+    const raw = c as any;
+    const hasRecording =
+      (raw.recording_url && raw.recording_url !== '__recording_pending__') ||
+      (raw.telnyx_call_control_id && (c.duration ?? 0) > 0);
+    return {
+      id: c.id,
+      type: "call" as const,
+      description: `Call — ${c.disposition_name ?? "Unknown"} — ${formatDuration(c.duration ?? 0)}`,
+      disposition: c.disposition_name,
+      disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,
+      created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
+      recording_url: hasRecording ? "proxy" : null,
+      duration: c.duration ?? null,
+    };
+  });
 
   const activityItems = (activityRes.data ?? []).map((a) => ({
     id: a.id,

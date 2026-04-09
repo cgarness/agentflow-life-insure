@@ -184,7 +184,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     if (!contact?.id) return;
     setConvoLoading(true);
     const [callsRes, msgsRes] = await Promise.all([
-      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, started_at, caller_id_used").eq("contact_id", contact.id).order("started_at", { ascending: true }),
+      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, caller_id_used").eq("contact_id", contact.id).order("started_at", { ascending: true }),
       supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", contact.id).order("sent_at", { ascending: true })
     ]);
     const calls = (callsRes.data || []).map(c => ({ ...c, _type: "call", _ts: new Date((c as any).started_at).getTime() }));
@@ -832,7 +832,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                          ) : <span />}
                          <p className="text-[10px] text-muted-foreground">{new Date(item.started_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
                       </div>
-                      {item.recording_url && (
+                      {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && (
                         <div className="ml-8 mt-2.5 pt-2.5 border-t border-border/50">
                           <RecordingPlayer callId={item.id} compact />
                         </div>

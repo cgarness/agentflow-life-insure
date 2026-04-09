@@ -54,6 +54,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Fix — recordings never started (webhooks don't fire for WebRTC SDK calls)**
+  *Files Created:* `supabase/functions/start-call-recording/index.ts`
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/lib/dialer-api.ts`, `src/components/settings/CallRecordingLibrary.tsx`, `src/components/contacts/FullScreenContactView.tsx`, `ROADMAP.md`
+  *Edge Function Deployed:* `start-call-recording` (project `jncvvsvckxhqgqvkppmj`, `verify_jwt: false` — function validates JWT internally)
+  *Developer Note:* **Root cause:** After switching to one-legged WebRTC SDK `newCall()`, Telnyx Call Control webhooks stopped firing — the Connection type doesn't generate events for SDK-originated calls. Without `call.answered` webhook, `record_start` never ran and `telnyx_call_control_id` stayed null. **Fix:** (1) **`start-call-recording` Edge Function** — when the SDK detects "active" state, `TelnyxContext` reads `telnyxCallControlId` from the call object and POSTs to this function, which: saves `telnyx_call_control_id` to the DB, calls Telnyx `record_start` (mp3, dual, no beep), and marks `recording_url = '__recording_pending__'`. (2) **Recording Library** filter changed from `recording_url IS NOT NULL` to `telnyx_call_control_id IS NOT NULL AND duration > 0` — catches calls where recording was started but URL hasn't arrived yet. (3) **`getLeadHistory`** and **`FullScreenContactView`** now select `telnyx_call_control_id` and use it (along with duration) to decide whether to show `RecordingPlayer`. (4) `recording-proxy` fetches audio from Telnyx API on demand using the `call_control_id`.
+
 - **2026-04-09 | [DONE] Fix — recordings unplayable (expired S3 URLs) + proxy + RecordingPlayer**
   *Files Created:* `supabase/functions/recording-proxy/index.ts`, `src/components/ui/RecordingPlayer.tsx`
   *Files Modified:* `src/components/settings/CallRecordingLibrary.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/components/contacts/FullScreenContactView.tsx`, `ROADMAP.md`

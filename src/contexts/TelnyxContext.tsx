@@ -137,6 +137,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const activeCallControlIdRef = useRef<string | null>(null);
   /** One DB sync of Telnyx IDs per outbound call (webhooks + recording depend on `calls.telnyx_call_control_id`). */
   const telnyxIdsDbSyncedRef = useRef(false);
+  /** Prevents duplicate start-call-recording invocations per call. */
+  const recordingStartedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
 
@@ -919,6 +921,26 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
           wirePeerRemoteHangup(call);
           setCallState("active");
+
+          // WebRTC SDK calls may not trigger Call Control webhooks depending on
+          // the Telnyx Connection type. Start recording from the frontend so it
+          // works regardless of webhook configuration.
+          if (!recordingStartedRef.current && sdkControlId && activeCallIdRef.current) {
+            recordingStartedRef.current = true;
+            void supabase.functions.invoke("start-call-recording", {
+              body: {
+                call_id: activeCallIdRef.current,
+                call_control_id: sdkControlId,
+                call_session_id: sdkSessionId || undefined,
+              },
+            }).then(({ data, error }) => {
+              if (error) {
+                console.warn("[TelnyxContext] start-call-recording invoke error:", error);
+              } else {
+                console.log("[TelnyxContext] start-call-recording result:", data);
+              }
+            });
+          }
         } else if (state === "ringing" || state === "trying" || state === "early") {
           // One-legged call: our SDK initiated the call, so we're just waiting for the
           // remote party to answer. No auto-answer needed — the SDK manages media natively.
@@ -1093,6 +1115,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       activeCallIdRef.current = callRecord.id;
       activeCallControlIdRef.current = null;
       telnyxIdsDbSyncedRef.current = false;
+      recordingStartedRef.current = false;
 
       // ── ONE-LEGGED CALL: WebRTC SDK dials the customer directly ──
       // Audio flows natively through the WebRTC channel — no SIP transfer or bridge needed.
