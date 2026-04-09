@@ -54,6 +54,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Fix — remove SDK call_control_id dependency, lookup via Telnyx API**
+  *Root Cause:* WebRTC SDK didn't expose `telnyxCallControlId` for credential-based connections. The frontend guard `if (sdkControlId && ...)` silently prevented `start-call-recording` from ever being invoked. The Recording Library only showed the player when `recording_url` was truthy (always null).
+  *Fix:* (1) Frontend now invokes `start-call-recording` with just `call_id` (no SDK ID needed). (2) Edge Function (v2) resolves `call_control_id` via Telnyx `GET /v2/calls?filter[connection_id]=xxx` API, matching by destination phone. (3) Recording Library shows all calls with `duration > 0`, shows `RecordingPlayer` when `telnyx_call_control_id` is set.
+  *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/components/settings/CallRecordingLibrary.tsx`, `supabase/functions/start-call-recording/index.ts`
+  *Edge Function Redeployed:* `start-call-recording` v2
+
 - **2026-04-09 | [DONE] Fix — recordings never started (webhooks don't fire for WebRTC SDK calls)**
   *Files Created:* `supabase/functions/start-call-recording/index.ts`
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/lib/dialer-api.ts`, `src/components/settings/CallRecordingLibrary.tsx`, `src/components/contacts/FullScreenContactView.tsx`, `ROADMAP.md`
