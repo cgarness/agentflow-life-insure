@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import ClaimRing from "./ClaimRing";
 import LockTimerArc from "./LockTimerArc";
 import QueuePanel from "./QueuePanel";
+import { formatTimeUntil } from "@/lib/queue-manager";
 
 interface Disposition {
   id: string;
@@ -104,6 +105,14 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   aptEndTime,
   setAptEndTime,
 }) => {
+  const now = new Date();
+  const ts = currentLead ? String(currentLead.retry_eligible_at || currentLead.callback_due_at || "") : "";
+  const tier4Label = ts && new Date(ts) > now
+    ? (currentLead?.callback_due_at
+        ? `Warning: Available for callback in ${formatTimeUntil(ts, now)}`
+        : `Warning: Available for retry in ${formatTimeUntil(ts, now)}`)
+    : null;
+
   return (
     <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
       {/* Top Actions: Hang Up / Skip / Call */}
@@ -157,6 +166,12 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
           <span className="leading-none">Skip</span>
         </button>
       </div>
+
+      {tier4Label && (
+        <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 text-center animate-in fade-in slide-in-from-top-1 duration-300">
+          <span className="text-[10px] font-bold uppercase tracking-wider">{tier4Label}</span>
+        </div>
+      )}
 
       {/* Main Controls Card */}
       <div className="bg-card border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0 min-w-0">
