@@ -181,10 +181,16 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
     activityQuery = activityQuery.eq("organization_id", organizationId);
   }
 
+  const dispositionsPromise =
+    organizationId != null && organizationId !== ""
+      ? supabase.from("dispositions").select("name, color").eq("organization_id", organizationId)
+      : Promise.resolve({ data: [] as { name: string; color: string }[] | null, error: null });
+
   // Use Promise.all but respect the signal
-  const [callsRes, activityRes] = await Promise.all([
+  const [callsRes, activityRes, dispRes] = await Promise.all([
     callsQuery,
     activityQuery,
+    dispositionsPromise,
   ]);
 
   if (signal?.aborted) {
@@ -193,13 +199,19 @@ export async function getLeadHistory(leadId: string, organizationId: string | nu
 
   if (callsRes.error) throw new Error(callsRes.error.message);
   if (activityRes.error) throw new Error(activityRes.error.message);
+  if (dispRes.error) throw new Error(dispRes.error.message);
+
+  const dispositionColorByName: Record<string, string> = {};
+  for (const row of dispRes.data ?? []) {
+    if (row?.name) dispositionColorByName[row.name] = row.color;
+  }
 
   const callItems = (callsRes.data ?? []).map((c) => ({
     id: c.id,
     type: "call" as const,
     description: `Call — ${c.disposition_name ?? "Unknown"} — ${formatDuration(c.duration ?? 0)}`,
     disposition: c.disposition_name,
-    disposition_color: null as string | null,
+    disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,
     created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
     recording_url: (c as any).recording_url ?? null,
     duration: c.duration ?? null,

@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send } from "lucide-react";
+import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
 
 interface HistoryItem {
@@ -129,12 +129,18 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                     )}
                   </div>
                   {item.type === "call" && item.recording_url && (
-                    <audio
-                      controls
-                      className="w-full h-8 mt-1.5 rounded"
-                      src={item.recording_url}
-                      preload="none"
-                    />
+                    <div className="mt-1.5 space-y-1">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <Mic className="w-3 h-3" aria-hidden />
+                        <span>Call recording</span>
+                      </div>
+                      <audio
+                        controls
+                        className="w-full h-8 rounded"
+                        src={item.recording_url}
+                        preload="metadata"
+                      />
+                    </div>
                   )}
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {formatDateTime(new Date(item.created_at))}

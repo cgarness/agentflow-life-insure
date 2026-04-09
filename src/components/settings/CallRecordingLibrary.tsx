@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ const formatDuration = (sec: number | null) => {
 };
 
 const CallRecordingLibrary: React.FC = () => {
+  const { organizationId, isSuperAdmin } = useOrganization();
   const [loading, setLoading] = useState(true);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
@@ -57,17 +59,33 @@ const CallRecordingLibrary: React.FC = () => {
   const [dateTo, setDateTo] = useState("");
 
   const fetchOptions = useCallback(async () => {
+    let dispQuery = supabase.from("dispositions").select("id, name, color").order("sort_order");
+    if (organizationId) {
+      dispQuery = dispQuery.eq("organization_id", organizationId);
+    } else if (!isSuperAdmin) {
+      setAgents([]);
+      setDispositions([]);
+      return;
+    }
+
     const [aRes, dRes] = await Promise.all([
       supabase.from("profiles").select("id, first_name, last_name"),
-      supabase.from("dispositions").select("id, name, color").order("sort_order"),
+      dispQuery,
     ]);
     setAgents(
       (aRes.data || []).map((a: any) => ({ id: a.id, full_name: `${a.first_name} ${a.last_name}`.trim() }))
     );
     setDispositions((dRes.data || []) as DispOption[]);
-  }, []);
+  }, [organizationId, isSuperAdmin]);
 
   const fetchCalls = useCallback(async () => {
+    if (!organizationId && !isSuperAdmin) {
+      setCalls([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     let query = supabase
       .from("calls")
@@ -75,6 +93,10 @@ const CallRecordingLibrary: React.FC = () => {
       .not("recording_url", "is", null)
       .order("created_at", { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    if (organizationId) {
+      query = query.eq("organization_id", organizationId);
+    }
 
     if (search.trim()) {
       query = query.ilike("contact_name", `%${search.trim()}%`);
@@ -102,7 +124,7 @@ const CallRecordingLibrary: React.FC = () => {
     setCalls((data || []) as any);
     setTotal(count || 0);
     setLoading(false);
-  }, [page, search, agentFilter, dispFilter, dateFrom, dateTo, dispositions]);
+  }, [page, search, agentFilter, dispFilter, dateFrom, dateTo, dispositions, organizationId, isSuperAdmin]);
 
   useEffect(() => {
     fetchOptions();
@@ -146,6 +168,17 @@ const CallRecordingLibrary: React.FC = () => {
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  if (!organizationId && !isSuperAdmin) {
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-foreground">Recording Library</h3>
+        <div className="bg-accent/50 rounded-xl p-8 text-center text-sm text-muted-foreground">
+          Your account is not linked to an organization. Recordings cannot be loaded.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
