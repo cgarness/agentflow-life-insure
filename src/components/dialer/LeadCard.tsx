@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import LeadCardBlurred from "./LeadCardBlurred";
 import { LeadInfoSkeleton } from "./DialerSkeletons";
+import { formatTimeUntil } from "@/lib/queue-manager";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -149,6 +150,14 @@ export default function LeadCard({
     { label: "Source", key: "source" },
   ];
 
+  const now = new Date();
+  const ts = String(lead.retry_eligible_at || lead.callback_due_at || "");
+  const tier4Label = ts && new Date(ts) > now
+    ? (lead.callback_due_at
+        ? `Warning: Available for callback in ${formatTimeUntil(ts, now)}`
+        : `Warning: Available for retry in ${formatTimeUntil(ts, now)}`)
+    : null;
+
   return (
     <div
       className="p-4 flex-1 overflow-y-auto"
@@ -157,6 +166,12 @@ export default function LeadCard({
         opacity: fadeIn ? 1 : 0,
       }}
     >
+      {tier4Label && (
+        <div className="flex flex-col mb-4 p-3 rounded bg-amber-500/10 border border-amber-500/20 text-amber-500">
+          <span className="text-xs font-bold uppercase tracking-wider">{tier4Label}</span>
+        </div>
+      )}
+
       {/* Claimed badge */}
       {isClaimed && (
         <div

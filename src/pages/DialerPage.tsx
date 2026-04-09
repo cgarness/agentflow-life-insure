@@ -76,6 +76,7 @@ import {
   applyDispositionToQueue,
   queueOrderChanged,
   getLeadTier,
+  formatTimeUntil,
   type CampaignLead,
 } from "@/lib/queue-manager";
 import { normalizeState } from "@/utils/stateUtils";
@@ -268,6 +269,26 @@ export default function DialerPage() {
     setIsAdvancingState(val);
   }, []);
   const [loadingLeads, setLoadingLeads] = useState(false);
+
+  const isQueueExhausted = useMemo(() => {
+    return !loadingLeads && !currentLead && !!selectedCampaignId;
+  }, [loadingLeads, currentLead, selectedCampaignId]);
+
+  const nextAvailableTime = useMemo(() => {
+    if (!isQueueExhausted) return null;
+    const now = new Date();
+    let earliest: Date | null = null;
+    leadQueue.forEach((lead) => {
+      const ts = lead.retry_eligible_at || lead.callback_due_at;
+      if (ts) {
+        const d = new Date(ts);
+        if (d > now) {
+          if (!earliest || d < earliest) earliest = d;
+        }
+      }
+    });
+    return earliest;
+  }, [isQueueExhausted, leadQueue]);
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
   const [leftTab, setLeftTab] = useState<"dispositions" | "queue" | "scripts">("dispositions");
@@ -3085,9 +3106,26 @@ export default function DialerPage() {
 
 
       {/* ── COLUMNS ── */}
-      <div className="flex flex-1 overflow-hidden p-3 gap-3">
-        {/* ── NEW LEFT COLUMN (Contact Info) ── */}
-        <div className="w-72 shrink-0 flex flex-col overflow-hidden">
+      {isQueueExhausted ? (
+        <div className="flex flex-1 items-center justify-center p-8 flex-col text-center bg-card/30 m-3 rounded-xl border border-dashed border-border/50">
+          <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+            <Users className="w-8 h-8 text-muted-foreground/50" />
+          </div>
+          <h3 className="text-xl font-bold text-foreground mb-2">No Available Contacts In Queue.</h3>
+          {nextAvailableTime ? (
+            <p className="text-sm font-semibold text-primary max-w-sm text-balance">
+              Next Available Contact Is In {formatTimeUntil(nextAvailableTime.toISOString(), new Date())}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground max-w-sm text-balance">
+              Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden p-3 gap-3">
+            {/* ── NEW LEFT COLUMN (Contact Info) ── */}
+            <div className="w-72 shrink-0 flex flex-col overflow-hidden">
           <div className="bg-card border rounded-xl flex flex-col overflow-hidden h-full">
             {/* Header section — shrink-0 */}
             <div className="p-3 border-b flex flex-col gap-2 bg-card shrink-0">
@@ -3314,9 +3352,8 @@ export default function DialerPage() {
           activeScriptId={activeScriptId}
           onOpenScript={setActiveScriptId}
         />
-
-        </div>
       </div>
+      )}
 
       <AnimatePresence>
         {activeScriptId && (
@@ -3601,6 +3638,7 @@ export default function DialerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </>
   );
 }

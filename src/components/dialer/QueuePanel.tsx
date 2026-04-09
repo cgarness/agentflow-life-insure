@@ -256,18 +256,20 @@ export default function QueuePanel({
                       Ready
                     </span>
                   )}
-                  {!isCurrent && !isPast && tier === 4 && (() => {
+                  {(!isCurrent) && (() => {
                     const ts = String(lead.retry_eligible_at || lead.callback_due_at || "");
-                    const label = ts
-                      ? (lead.callback_due_at
-                          ? `Callback in ${formatTimeUntil(ts, now)}`
-                          : `Retry in ${formatTimeUntil(ts, now)}`)
-                      : null;
-                    return label ? (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+                    const isFuture = ts && new Date(ts) > now;
+                    if (!isFuture) return null;
+                    
+                    const label = lead.callback_due_at
+                      ? `Callback in ${formatTimeUntil(ts, now)}`
+                      : `Retry in ${formatTimeUntil(ts, now)}`;
+                      
+                    return (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground shrink-0">
                         {label}
                       </span>
-                    ) : null;
+                    );
                   })()}
                 </div>
               </div>
