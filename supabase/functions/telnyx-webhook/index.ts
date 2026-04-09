@@ -15,6 +15,48 @@ function decodeClientState(rawClientState: string | null): string | null {
   }
 }
 
+/** Our `calls.id` is a UUID passed via WebRTC `clientState` (often base64). */
+function isLikelyCallsRowId(s: string | null): boolean {
+  return !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+function decodeCallsRowIdFromPayload(payload: any): string | null {
+  const raw = payload?.client_state;
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    const decoded = decodeClientState(raw);
+    if (decoded && isLikelyCallsRowId(decoded)) return decoded;
+    if (isLikelyCallsRowId(raw)) return raw;
+  }
+  return null;
+}
+
+/** Telnyx varies: recording_urls vs public_recording_urls; mp3/wav keys; nested objects. */
+function extractRecordingDownloadUrl(payload: any): string | null {
+  const tryObj = (o: unknown): string | null => {
+    if (!o || typeof o !== 'object') return null;
+    for (const v of Object.values(o as Record<string, unknown>)) {
+      if (typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'))) return v;
+    }
+    return null;
+  };
+  const direct =
+    payload?.recording_urls?.mp3 ||
+    payload?.recording_urls?.wav ||
+    payload?.public_recording_urls?.mp3 ||
+    payload?.public_recording_urls?.wav ||
+    (typeof payload?.recording_urls === 'string' ? payload.recording_urls : null) ||
+    payload?.recording_url_mp3 ||
+    payload?.recording_url ||
+    null;
+  if (typeof direct === 'string' && direct.startsWith('http')) return direct;
+  const fromNested =
+    tryObj(payload?.recording_urls) ||
+    tryObj(payload?.public_recording_urls) ||
+    tryObj(payload?.recording_files);
+  return fromNested;
+}
+
 // ─── Helper: Verify Telnyx Ed25519 webhook signature ───
 async function verifyTelnyxSignature(req: Request, rawBody: string): Promise<boolean> {
   const telnyxPublicKey = Deno.env.get('TELNYX_PUBLIC_KEY');
@@ -140,7 +182,11 @@ Deno.serve(async (req: Request) => {
         break;
 
       default:
-        console.log('Unhandled event type:', eventType);
+        if (typeof eventType === 'string' && eventType.includes('recording')) {
+          console.log(`[telnyx-webhook] Unhandled recording-related event: ${eventType}`);
+        } else {
+          console.log('Unhandled event type:', eventType);
+        }
     }
 
     return new Response(JSON.stringify({ received: true }), {
@@ -318,15 +364,45 @@ async function handleCallInitiated(supabase: any, payload: any) {
 async function handleCallAnswered(supabase: any, payload: any) {
   console.log('Call answered:', payload.call_control_id, { direction: payload.direction });
 
-  const { data: updatedRow, error } = await supabase
+  let updatedRow: { id: string; organization_id: string | null } | null = null;
+
+  const { data: byControlId, error } = await supabase
     .from('calls')
-    .update({ status: 'connected' })
+    .update({ status: 'connected', updated_at: new Date().toISOString() })
     .eq('telnyx_call_control_id', payload.call_control_id)
     .select('id, organization_id')
     .maybeSingle();
 
   if (error) {
     console.error(`Error updating call ${payload.call_control_id} to connected:`, error);
+  }
+  if (byControlId) updatedRow = byControlId;
+
+  // WebRTC: call.initiated may arrive late or omit client_state; row may exist without telnyx_call_control_id yet.
+  if (!updatedRow) {
+    const rowId = decodeCallsRowIdFromPayload(payload);
+    if (rowId) {
+      const linkPatch: Record<string, unknown> = {
+        status: 'connected',
+        telnyx_call_control_id: payload.call_control_id,
+        updated_at: new Date().toISOString(),
+      };
+      if (payload.call_session_id) linkPatch.telnyx_call_id = payload.call_session_id;
+
+      const { data: linked, error: linkErr } = await supabase
+        .from('calls')
+        .update(linkPatch)
+        .eq('id', rowId)
+        .select('id, organization_id')
+        .maybeSingle();
+
+      if (linkErr) {
+        console.error(`[call.answered] client_state link failed for row ${rowId}:`, linkErr);
+      } else if (linked) {
+        console.log(`[call.answered] Linked call_control_id to row ${rowId} via client_state`);
+        updatedRow = linked;
+      }
+    }
   }
 
   if (!updatedRow) {
@@ -364,29 +440,47 @@ async function handleCallHangup(supabase: any, payload: any) {
     status,
   });
 
-  const { error } = await supabase
-    .from('calls')
-    .update({
-      status,
-      duration,
-      hangup_details: hangupCause,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('telnyx_call_control_id', payload.call_control_id);
+  const hangPatch = {
+    status,
+    duration,
+    hangup_details: hangupCause,
+    updated_at: new Date().toISOString(),
+  };
 
-  if (error) {
-    console.error(`Error updating call ${payload.call_control_id} on hangup:`, error);
+  const { data: hangByControl, error: hangErr } = await supabase
+    .from('calls')
+    .update(hangPatch)
+    .eq('telnyx_call_control_id', payload.call_control_id)
+    .select('contact_id, duration, disposition_name, direction, caller_id_used, organization_id, agent_id')
+    .maybeSingle();
+
+  if (hangErr) {
+    console.error(`Error updating call ${payload.call_control_id} on hangup:`, hangErr);
   }
 
-  // Look up the call record to get contact_id, duration, disposition_name
-  const { data: callRecord, error: fetchError } = await supabase
-    .from('calls')
-    .select('contact_id, duration, disposition_name, direction, caller_id_used, organization_id, agent_id')
-    .eq('telnyx_call_control_id', payload.call_control_id)
-    .maybeSingle(); // FIX: STOP THE CRASH (PGRST116)
+  let callRecord = hangByControl;
 
-  if (fetchError) {
-    console.warn(`Error searching for call record for activity log: ${payload.call_control_id}`, fetchError);
+  if (!callRecord) {
+    const rowId = decodeCallsRowIdFromPayload(payload);
+    if (rowId) {
+      const linkHang = {
+        ...hangPatch,
+        telnyx_call_control_id: payload.call_control_id,
+        ...(payload.call_session_id ? { telnyx_call_id: payload.call_session_id } : {}),
+      };
+      const { data: linkedHang, error: lhErr } = await supabase
+        .from('calls')
+        .update(linkHang)
+        .eq('id', rowId)
+        .select('contact_id, duration, disposition_name, direction, caller_id_used, organization_id, agent_id')
+        .maybeSingle();
+      if (lhErr) {
+        console.error(`[handleCallHangup] client_state hangup link failed for ${rowId}:`, lhErr);
+      } else {
+        callRecord = linkedHang;
+        if (linkedHang) console.log(`[handleCallHangup] Applied hangup via client_state row ${rowId}`);
+      }
+    }
   }
 
   if (!callRecord) {
@@ -427,17 +521,14 @@ async function handleCallHangup(supabase: any, payload: any) {
 async function handleRecordingSaved(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
   const callSessionId = payload.call_session_id;
-  const ru = payload.recording_urls;
-  const recordingUrl =
-    (ru && typeof ru === 'object' && (ru.mp3 || ru.wav)) ||
-    (typeof ru === 'string' ? ru : null) ||
-    payload.recording_url_mp3 ||
-    payload.recording_url ||
-    null;
+  const recordingUrl = extractRecordingDownloadUrl(payload);
 
-  console.log('Recording saved:', { callControlId, callSessionId, recordingUrl });
+  console.log('Recording saved:', { callControlId, callSessionId, recordingUrl: recordingUrl ?? null });
 
-  if (!recordingUrl) return;
+  if (!recordingUrl) {
+    console.warn('[handleRecordingSaved] No downloadable recording URL in payload keys:', Object.keys(payload || {}));
+    return;
+  }
 
   const patch = { recording_url: recordingUrl, updated_at: new Date().toISOString() };
 
@@ -456,7 +547,21 @@ async function handleRecordingSaved(supabase: any, payload: any) {
     }
   }
 
-  // Fallback: some Telnyx legs correlate by session id (stored in telnyx_call_id on call.initiated)
+  const rowId = decodeCallsRowIdFromPayload(payload);
+  if (rowId) {
+    const { data: byRow, error: errRow } = await supabase
+      .from('calls')
+      .update(patch)
+      .eq('id', rowId)
+      .select('id')
+      .maybeSingle();
+    if (errRow) {
+      console.error(`Error saving recording URL for calls.id ${rowId}:`, errRow);
+    } else if (byRow?.id) {
+      return;
+    }
+  }
+
   if (callSessionId) {
     const { error: errSession } = await supabase
       .from('calls')
@@ -466,7 +571,7 @@ async function handleRecordingSaved(supabase: any, payload: any) {
     if (errSession) {
       console.error(`Error saving recording URL for session_id ${callSessionId}:`, errSession);
     }
-  } else if (!callControlId) {
-    console.warn('[handleRecordingSaved] No call_control_id or call_session_id on payload; cannot attach recording.');
+  } else if (!callControlId && !rowId) {
+    console.warn('[handleRecordingSaved] No call_control_id, client_state row id, or call_session_id; cannot attach recording.');
   }
 }

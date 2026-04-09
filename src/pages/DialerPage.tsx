@@ -1175,7 +1175,7 @@ export default function DialerPage() {
     (leadId: string) => {
       recordingHistoryRetryTimersRef.current.forEach(clearTimeout);
       recordingHistoryRetryTimersRef.current = [];
-      for (const ms of [3000, 12000, 35000]) {
+      for (const ms of [3000, 12000, 35000, 60000]) {
         const tid = window.setTimeout(() => {
           void refreshHistoryForLeadQuiet(leadId);
         }, ms);

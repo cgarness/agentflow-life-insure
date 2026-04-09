@@ -135,6 +135,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const activeCallIdRef = useRef<string | null>(null);
   const activeCallControlIdRef = useRef<string | null>(null);
+  /** One DB sync of Telnyx IDs per outbound call (webhooks + recording depend on `calls.telnyx_call_control_id`). */
+  const telnyxIdsDbSyncedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
 
@@ -843,11 +845,42 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           attachRemoteAudio(call);
         }
 
-        // Extract call_control_id from the SDK call object when available
-        const sdkControlId = call?.telnyxCallControlId || call?.options?.telnyxCallControlId;
+        // Extract Telnyx IDs from the SDK (webhooks may lag; recording + hangup need DB linkage).
+        let sdkControlId: string | null =
+          call?.telnyxCallControlId || call?.options?.telnyxCallControlId || null;
+        let sdkSessionId: string | null = null;
+        try {
+          const ids = call?.telnyxIDs as { telnyxCallControlId?: string; telnyxSessionId?: string } | undefined;
+          if (ids?.telnyxCallControlId) sdkControlId = ids.telnyxCallControlId;
+          if (ids?.telnyxSessionId) sdkSessionId = ids.telnyxSessionId;
+        } catch {
+          /* telnyxIDs getter — ignore */
+        }
         if (sdkControlId && !activeCallControlIdRef.current) {
           activeCallControlIdRef.current = sdkControlId;
           console.log("[TelnyxContext] Captured call_control_id from SDK:", sdkControlId);
+        }
+
+        const rowId = activeCallIdRef.current;
+        if (rowId && sdkControlId && !telnyxIdsDbSyncedRef.current) {
+          telnyxIdsDbSyncedRef.current = true;
+          const patch: Record<string, string> = {
+            telnyx_call_control_id: sdkControlId,
+            updated_at: new Date().toISOString(),
+          };
+          if (sdkSessionId) patch.telnyx_call_id = sdkSessionId;
+          void supabase
+            .from("calls")
+            .update(patch as any)
+            .eq("id", rowId)
+            .then(({ error: syncErr }) => {
+              if (syncErr) {
+                telnyxIdsDbSyncedRef.current = false;
+                console.warn("[TelnyxContext] Failed to sync Telnyx IDs to calls row:", syncErr.message);
+              } else {
+                console.log("[TelnyxContext] Synced Telnyx call IDs to DB for row", rowId);
+              }
+            });
         }
 
         if (state === "active") {
@@ -1057,6 +1090,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!callRecord) throw new Error("Failed to create call record: no data returned");
 
       activeCallIdRef.current = callRecord.id;
+      activeCallControlIdRef.current = null;
+      telnyxIdsDbSyncedRef.current = false;
 
       // ── ONE-LEGGED CALL: WebRTC SDK dials the customer directly ──
       // Audio flows natively through the WebRTC channel — no SIP transfer or bridge needed.
