@@ -129,7 +129,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                     )}
                   </div>
                   {item.type === "call" && item.recording_url && (
-                    <audio controls className="w-full h-8 mt-1.5" preload="none">
+                    <audio controls className="w-full h-8 mt-1.5">
                       <source src={item.recording_url} type="audio/mpeg" />
                     </audio>
                   )}
