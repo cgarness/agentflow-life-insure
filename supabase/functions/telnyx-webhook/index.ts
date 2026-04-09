@@ -365,7 +365,7 @@ async function handleCallHangup(supabase: any, payload: any) {
   // Look up the call record to get contact_id, duration, disposition_name
   const { data: callRecord, error: fetchError } = await supabase
     .from('calls')
-    .select('contact_id, duration, disposition_name, direction, caller_id_used')
+    .select('contact_id, duration, disposition_name, direction, caller_id_used, organization_id, agent_id')
     .eq('telnyx_call_control_id', payload.call_control_id)
     .maybeSingle(); // FIX: STOP THE CRASH (PGRST116)
 
@@ -390,9 +390,11 @@ async function handleCallHangup(supabase: any, payload: any) {
     const activityData = {
       contact_id: callRecord.contact_id,
       contact_type: 'lead',
-      type: 'call',
+      activity_type: 'call',
       description: `${directionLabel} call — ${durationFormatted}${dispositionLabel}`,
-      created_at: new Date().toISOString()
+      organization_id: callRecord.organization_id ?? null,
+      agent_id: callRecord.agent_id ?? null,
+      created_at: new Date().toISOString(),
     };
 
     const { error: activityError } = await supabase.from('contact_activities').insert(activityData);
@@ -408,18 +410,41 @@ async function handleCallHangup(supabase: any, payload: any) {
 // Handler: call.recording.saved
 async function handleRecordingSaved(supabase: any, payload: any) {
   const callControlId = payload.call_control_id;
+  const callSessionId = payload.call_session_id;
   const recordingUrl = payload.recording_urls?.mp3 || payload.recording_urls?.wav || null;
 
-  console.log('Recording saved:', { callControlId, recordingUrl });
+  console.log('Recording saved:', { callControlId, callSessionId, recordingUrl });
 
-  if (recordingUrl) {
-    const { error } = await supabase
+  if (!recordingUrl) return;
+
+  const patch = { recording_url: recordingUrl, updated_at: new Date().toISOString() };
+
+  if (callControlId) {
+    const { data: byControl, error: errControl } = await supabase
       .from('calls')
-      .update({ recording_url: recordingUrl })
-      .eq('telnyx_call_control_id', callControlId);
+      .update(patch)
+      .eq('telnyx_call_control_id', callControlId)
+      .select('id')
+      .maybeSingle();
 
-    if (error) {
-      console.error(`Error saving recording URL for control_id ${callControlId}:`, error);
+    if (errControl) {
+      console.error(`Error saving recording URL for control_id ${callControlId}:`, errControl);
+    } else if (byControl?.id) {
+      return;
     }
+  }
+
+  // Fallback: some Telnyx legs correlate by session id (stored in telnyx_call_id on call.initiated)
+  if (callSessionId) {
+    const { error: errSession } = await supabase
+      .from('calls')
+      .update(patch)
+      .eq('telnyx_call_id', callSessionId);
+
+    if (errSession) {
+      console.error(`Error saving recording URL for session_id ${callSessionId}:`, errSession);
+    }
+  } else if (!callControlId) {
+    console.warn('[handleRecordingSaved] No call_control_id or call_session_id on payload; cannot attach recording.');
   }
 }

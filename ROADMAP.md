@@ -48,10 +48,15 @@
 | `20260406900000` | `patch_enterprise_rpc_nulls.sql` | Patched RPC with `COALESCE` guards for NULL states, statuses, and call_attempts. |
 | `20260406950000` | `robust_rpc_signature.sql` | Aligned RPC signature with JS payload; cleared schema cache overloads. |
 | `20260407000000` | `dialer_telemetry_hardening.sql` | `get_org_id()` graceful fallback to profiles table; re-applied `get_enterprise_queue_leads` with `SET search_path`; PostgREST cache reload. |
+| `20260409120000` | `hierarchical_calls_rls.sql` | Replaced strict owner-only `calls` RLS with Admin (org) + Team Leader (downline via `is_ancestor_of`) + Agent (own); backfill `contact_activities.organization_id` from `leads`. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-09 | [DONE] Call recordings — hierarchy, library scope, webhook hardening, UI**
+  *Files Modified:* `supabase/migrations/20260409120000_hierarchical_calls_rls.sql`, `supabase/functions/telnyx-webhook/index.ts`, `src/components/settings/CallRecordingLibrary.tsx`, `src/lib/dialer-api.ts`, `src/components/dialer/ConversationHistory.tsx`, `ROADMAP.md`
+  *Developer Note:* **`calls` RLS** matched the leads model so managers/admins see downline recordings in Conversation History and can update coaching flags; agents still see only their own calls. **Recording Library** filters `calls` and `dispositions` by current `organization_id` (via `useOrganization`); super-admins without an org still use RLS-only scope. **`telnyx-webhook`:** `call.recording.saved` tries `telnyx_call_control_id` first, then falls back to `telnyx_call_id` = `call_session_id`; hangup activity rows now use `activity_type` (was invalid `type`), plus `organization_id` and `agent_id` for org-scoped history. **`getLeadHistory`** loads disposition colors for call badges; **Conversation History** labels the inline player as “Call recording” and uses `preload="metadata"`. **Apply** the new migration on Supabase and **redeploy** `telnyx-webhook`.
 
 - **2026-04-09 | [DONE] Docs — VISION, agent rules, internal docs: single-leg dialer**
   *Files Modified:* `VISION.md`, `AGENT_RULES.md`, `docs/index.html`, `src/pages/DialerPage.tsx` (ring-timeout comment)
