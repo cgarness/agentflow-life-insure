@@ -3163,11 +3163,13 @@ export default function DialerPage() {
                     <button 
                       onClick={() => {
                         if (currentLeadIndex > 0) {
+                          setIsAdvancing(true);
                           setCurrentLeadIndex(i => i - 1);
                           setShowWrapUp(false);
                           setSelectedDisp(null);
                           setNoteText("");
                           setNoteError(false);
+                          setTimeout(() => setIsAdvancing(false), 100);
                         }
                       }}
                       disabled={currentLeadIndex === 0}
@@ -3179,11 +3181,13 @@ export default function DialerPage() {
                     <button 
                       onClick={() => {
                         if (currentLeadIndex < leadQueue.length - 1) {
+                          setIsAdvancing(true);
                           setCurrentLeadIndex(i => i + 1);
                           setShowWrapUp(false);
                           setSelectedDisp(null);
                           setNoteText("");
                           setNoteError(false);
+                          setTimeout(() => setIsAdvancing(false), 100);
                         }
                       }}
                       disabled={currentLeadIndex >= leadQueue.length - 1}
@@ -3325,6 +3329,18 @@ export default function DialerPage() {
           onNoteChange={setNoteText}
           onSaveAndNext={handleSaveAndNext}
           onSaveOnly={handleSaveOnly}
+          callbackDate={callbackDate}
+          setCallbackDate={setCallbackDate}
+          callbackTime={callbackTime}
+          setCallbackTime={setCallbackTime}
+          aptTitle={aptTitle}
+          setAptTitle={setAptTitle}
+          aptDate={aptDate}
+          setAptDate={setAptDate}
+          aptStartTime={aptStartTime}
+          setAptStartTime={setAptStartTime}
+          aptEndTime={aptEndTime}
+          setAptEndTime={setAptEndTime}
           queuePanelProps={{
             campaignType,
             campaignId: selectedCampaignId!,

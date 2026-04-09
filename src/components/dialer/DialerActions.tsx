@@ -49,6 +49,18 @@ interface DialerActionsProps {
   onNoteChange: (text: string) => void;
   onSaveOnly: () => void;
   onSaveAndNext: () => void;
+  callbackDate?: Date;
+  setCallbackDate?: (d: Date | undefined) => void;
+  callbackTime?: string;
+  setCallbackTime?: (t: string) => void;
+  aptTitle?: string;
+  setAptTitle?: (v: string) => void;
+  aptDate?: string;
+  setAptDate?: (v: string) => void;
+  aptStartTime?: string;
+  setAptStartTime?: (v: string) => void;
+  aptEndTime?: string;
+  setAptEndTime?: (v: string) => void;
 }
 
 export const DialerActions: React.FC<DialerActionsProps> = ({
@@ -79,6 +91,18 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   onNoteChange,
   onSaveOnly,
   onSaveAndNext,
+  callbackDate,
+  setCallbackDate,
+  callbackTime,
+  setCallbackTime,
+  aptTitle,
+  setAptTitle,
+  aptDate,
+  setAptDate,
+  aptStartTime,
+  setAptStartTime,
+  aptEndTime,
+  setAptEndTime,
 }) => {
   return (
     <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
@@ -203,6 +227,63 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                   value={noteText}
                   onChange={(e) => onNoteChange(e.target.value)}
                 />
+
+                {selectedDisp?.callbackScheduler && (
+                  <div className="mt-4 flex flex-col gap-2">
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground block">
+                      Schedule Callback
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input 
+                        type="date" 
+                        value={callbackDate ? callbackDate.toISOString().split('T')[0] : ""}
+                        onChange={(e) => setCallbackDate?.(e.target.value ? new Date(e.target.value + 'T12:00:00') : undefined)}
+                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      />
+                      <input 
+                        type="time" 
+                        value={callbackTime || ""}
+                        onChange={(e) => setCallbackTime?.(e.target.value)}
+                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {selectedDisp?.appointmentScheduler && (
+                  <div className="mt-4 flex flex-col gap-2">
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground block">
+                      Schedule Appointment
+                    </label>
+                    <input 
+                      type="text"
+                      placeholder="Appointment Title"
+                      value={aptTitle || ""}
+                      onChange={(e) => setAptTitle?.(e.target.value)}
+                      className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                    />
+                    <input 
+                      type="date" 
+                      value={aptDate || ""}
+                      onChange={(e) => setAptDate?.(e.target.value)}
+                      className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input 
+                        type="time" 
+                        value={aptStartTime || ""}
+                        onChange={(e) => setAptStartTime?.(e.target.value)}
+                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      />
+                      <input 
+                        type="time" 
+                        value={aptEndTime || ""}
+                        onChange={(e) => setAptEndTime?.(e.target.value)}
+                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex gap-2 mt-4">
                   <button
