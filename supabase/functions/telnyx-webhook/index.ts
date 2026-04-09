@@ -185,44 +185,8 @@ async function getTelnyxApiKey(supabase: any, organizationId?: string): Promise<
   return global?.api_key || null;
 }
 
-// ─── Helper: transfer call to an agent's SIP endpoint ───
-async function telnyxTransfer(
-  apiKey: string,
-  callControlId: string,
-  sipUsername: string,
-  fromE164?: string | null,
-): Promise<void> {
-  const sipUri = `sip:${sipUsername}@sip.telnyx.com`;
-  const payload: Record<string, string> = { to: sipUri };
-  // Present a valid E.164 on the new SIP leg (outbound CLI from the PSTN leg).
-  if (fromE164 && typeof fromE164 === 'string' && fromE164.trim().length > 0) {
-    payload.from = fromE164.startsWith('+') ? fromE164 : `+${fromE164.replace(/\D/g, '')}`;
-  }
-  console.log(`Attempting transfer to agent: [${sipUri}] for call: [${callControlId}]`, {
-    from: payload.from ?? '(default)',
-  });
-
-  try {
-    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error(`Telnyx transfer failed for [${callControlId}]. Status: ${resp.status}, Payload:`, errText);
-    } else {
-      console.log(`Telnyx transfer success for [${callControlId}] to [${sipUri}]`);
-    }
-  } catch (err) {
-    console.error(`EXCEPTION in telnyxTransfer for [${callControlId}]:`, err);
-  }
-}
+// telnyxTransfer removed — one-legged WebRTC calling means the agent's SDK IS the call.
+// No SIP transfer needed; audio flows natively through the WebRTC channel.
 
 // ─── Helper: check if recording is enabled ───
 async function isRecordingEnabled(supabase: any, organizationId?: string): Promise<boolean> {
@@ -333,29 +297,39 @@ async function handleCallInitiated(supabase: any, payload: any) {
 }
 
 // Handler: call.answered
+// With one-legged WebRTC calling, the agent's SDK is the call itself — no transfer needed.
+// We just update the DB status and optionally start recording.
 async function handleCallAnswered(supabase: any, payload: any) {
   console.log('Call answered:', payload.call_control_id, { direction: payload.direction });
 
-  // Only update calls rows that we originally created (have this control_id).
-  // Transfer legs create new control_ids that may not be in our calls table.
   const { data: updatedRow, error } = await supabase
     .from('calls')
     .update({ status: 'connected' })
     .eq('telnyx_call_control_id', payload.call_control_id)
-    .select('id, agent_id, organization_id')
+    .select('id, organization_id')
     .maybeSingle();
 
   if (error) {
     console.error(`Error updating call ${payload.call_control_id} to connected:`, error);
   }
 
-  // Only bridge on the ORIGINAL outbound leg (the PSTN call to the customer).
-  // Transfer legs (agent bridge) won't have a matching row in our calls table,
-  // so updatedRow will be null — this naturally prevents double-bridging.
-  if (payload.direction === 'outbound' && updatedRow) {
-    await handleHumanDetected(supabase, payload);
-  } else if (!updatedRow) {
-    console.log(`[call.answered] No matching calls row for control_id ${payload.call_control_id} — likely a transfer/bridge leg. Skipping bridge.`);
+  if (!updatedRow) {
+    console.log(`[call.answered] No matching calls row for control_id ${payload.call_control_id}. Skipping.`);
+    return;
+  }
+
+  // Start recording if enabled for this organization
+  try {
+    const orgId = updatedRow.organization_id;
+    const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
+    if (apiKey) {
+      const recordingEnabled = await isRecordingEnabled(supabase, orgId || undefined);
+      if (recordingEnabled) {
+        await telnyxRecordStart(apiKey, payload.call_control_id);
+      }
+    }
+  } catch (err) {
+    console.error(`[call.answered] Recording start failed (non-fatal) for [${payload.call_control_id}]:`, err);
   }
 }
 
@@ -428,74 +402,8 @@ async function handleCallHangup(supabase: any, payload: any) {
   }
 }
 
-// ─── Outbound answer: bridge agent to callee (SIP transfer + optional recording) ───
-async function handleHumanDetected(supabase: any, payload: any) {
-  const callControlId = payload.call_control_id;
-  const decodedClientState = decodeClientState(payload.client_state);
-
-  console.log(`[Bridge] Outbound answered for control_id: ${callControlId}. Initiating agent bridge.`);
-
-  let agentId: string | null = null;
-  let orgId: string | null = null;
-
-  if (decodedClientState && decodedClientState.length === 36) {
-    const { data, error } = await supabase
-      .from('calls')
-      .select('agent_id, organization_id')
-      .eq('id', decodedClientState)
-      .maybeSingle();
-    
-    if (error) console.error(`[Bridge] Error fetching agent_id for ${decodedClientState}:`, error);
-    agentId = data?.agent_id;
-    orgId = data?.organization_id;
-  }
-
-  // call.answered may omit client_state; we still have telnyx_call_control_id on the row.
-  if (!agentId) {
-    const { data: byCtrl, error: ctrlErr } = await supabase
-      .from('calls')
-      .select('agent_id, organization_id')
-      .eq('telnyx_call_control_id', callControlId)
-      .maybeSingle();
-    if (ctrlErr) console.error('[Bridge] Fallback lookup by call_control_id failed:', ctrlErr);
-    agentId = byCtrl?.agent_id ?? null;
-    orgId = byCtrl?.organization_id ?? orgId;
-  }
-
-  if (!agentId) {
-    console.warn(
-      `[Bridge] Cannot bridge: No agent_id for [${callControlId}] (client_state + control_id lookup failed).`,
-    );
-    return;
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('sip_username')
-    .eq('id', agentId)
-    .maybeSingle();
-
-  if (profileError || !profile?.sip_username) {
-    console.error(`[Bridge] CRITICAL: SIP username not found for agent ${agentId}. Profile error:`, profileError);
-    return;
-  }
-
-  const apiKey = await getTelnyxApiKey(supabase, orgId || undefined);
-  if (apiKey) {
-    await telnyxTransfer(apiKey, callControlId, profile.sip_username, payload.from);
-
-    try {
-      const recordingEnabled = await isRecordingEnabled(supabase, orgId || undefined);
-      if (recordingEnabled) {
-        await telnyxRecordStart(apiKey, callControlId);
-      }
-    } catch (err) {
-      console.error(`[Bridge] Recording start failed (non-fatal) for [${callControlId}]:`, err);
-    }
-  } else {
-    console.warn(`[Bridge] Cannot bridge: No Telnyx API key found for org ${orgId}.`);
-  }
-}
+// handleHumanDetected removed — one-legged WebRTC calling eliminates the need for
+// server-side agent bridging. Recording is now started directly in handleCallAnswered.
 
 // Handler: call.recording.saved
 async function handleRecordingSaved(supabase: any, payload: any) {

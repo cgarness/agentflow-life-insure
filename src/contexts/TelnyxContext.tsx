@@ -142,8 +142,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Reset at the start of each new call (makeCall); set when the first handler processes the end.
   const endStateProcessedRef = useRef(false);
 
-  /** Ensures we only auto-answer the inbound bridge leg once per outbound dial. */
-  const bridgeAutoAnsweredRef = useRef(false);
+  // bridgeAutoAnsweredRef removed — one-legged calling has no inbound bridge leg.
 
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
@@ -844,6 +843,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           attachRemoteAudio(call);
         }
 
+        // Extract call_control_id from the SDK call object when available
+        const sdkControlId = call?.telnyxCallControlId || call?.options?.telnyxCallControlId;
+        if (sdkControlId && !activeCallControlIdRef.current) {
+          activeCallControlIdRef.current = sdkControlId;
+          console.log("[TelnyxContext] Captured call_control_id from SDK:", sdkControlId);
+        }
+
         if (state === "active") {
           try {
             call.stopRingback?.();
@@ -870,11 +876,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
           if (remoteTracks.length === 0) {
             console.warn(
-              "[TelnyxContext] Active call but no remote audio tracks — check SIP transfer URI / firewall / SRTP."
+              "[TelnyxContext] Active call but no remote audio tracks — check Connection config / firewall / SRTP."
             );
           }
 
-          // Ensure the remote audio element is playing
           if (remoteAudioRef.current?.srcObject && remoteAudioRef.current.paused) {
             remoteAudioRef.current.play().catch(() => {});
           }
@@ -882,38 +887,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           wirePeerRemoteHangup(call);
           setCallState("active");
         } else if (state === "ringing" || state === "trying" || state === "early") {
-          // Inbound bridge leg after server transfer: answer once. Use activeCallIdRef so we
-          // still answer if React state briefly lags behind Verto notifications.
-          const expectingBridge =
-            callStateRef.current === "dialing" || activeCallIdRef.current !== null;
-          if (expectingBridge && !bridgeAutoAnsweredRef.current) {
-            bridgeAutoAnsweredRef.current = true;
-            console.log("[TelnyxContext] Auto-answering inbound bridge call.");
-            void (async () => {
-              try {
-                let stream = mediaStreamRef.current;
-                const tracksOk =
-                  stream &&
-                  stream.active &&
-                  stream.getAudioTracks().some((t) => t.readyState === "live");
-                if (!tracksOk) {
-                  console.log("[TelnyxContext] Refreshing mic — tracks dead or missing.");
-                  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                  mediaStreamRef.current = stream;
-                }
-                // Set localStream both on call.options AND pass to answer() so the
-                // SDK uses the agent's mic regardless of which code path it takes.
-                if (call?.options && stream) {
-                  call.options.localStream = stream;
-                }
-                await call.answer({ localStream: stream });
-                console.log("[TelnyxContext] Bridge call answered with localStream.");
-              } catch (e) {
-                console.warn("[TelnyxContext] Auto-answer failed:", e);
-                bridgeAutoAnsweredRef.current = false;
-              }
-            })();
-          }
+          // One-legged call: our SDK initiated the call, so we're just waiting for the
+          // remote party to answer. No auto-answer needed — the SDK manages media natively.
           setCallState("dialing");
         } else if (state === "destroy" || state === "hangup") {
           endStateProcessedRef.current = true;
@@ -974,7 +949,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     callRef.current = null;
     endStateProcessedRef.current = false;
-    bridgeAutoAnsweredRef.current = false;
     setStatus("idle");
     setErrorMessage(null);
     setCurrentCall(null);
@@ -1018,9 +992,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     isDialingRef.current = true;
     endStateProcessedRef.current = false;
-    bridgeAutoAnsweredRef.current = false;
 
-    // 1. Authentication Check: Force-refresh to ensure a fresh token for Edge Functions
+    // 1. Authentication Check
     const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
     if (!session?.access_token || sessionError) {
       console.warn("[TelnyxContext] Call blocked: No active auth session.", sessionError);
@@ -1061,8 +1034,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // ── SINGLE CALL RECORD CREATION ──
-      // This is the ONLY place in the codebase where a call record is created for outbound dials.
-      // All callers (DialerPage, FloatingDialer) pass metadata via MakeCallOptions.
       const { data: callRecord, error: callError } = await (supabase as any)
         .from('calls')
         .insert({
@@ -1085,79 +1056,31 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
       if (!callRecord) throw new Error("Failed to create call record: no data returned");
 
-      // Track this call record ID so we can finalize it on hangup
       activeCallIdRef.current = callRecord.id;
 
-      // 2. Invoke the Edge Function to start the Two-Legged Call.
-      // Using direct fetch() — supabase.functions.invoke() fails silently in this project.
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-      const dialResponse = await fetch(`${SUPABASE_URL}/functions/v1/dialer-start-call`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-          "apikey": SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          destination_number: toE164(destinationNumber),
-          caller_id: toE164(callerNumber || defaultCallerNumber || ""),
-          agent_id: profile.id,
-          call_id: callRecord.id,
-          organization_id: organizationId,
-        }),
+      // ── ONE-LEGGED CALL: WebRTC SDK dials the customer directly ──
+      // Audio flows natively through the WebRTC channel — no SIP transfer or bridge needed.
+      // The SDK sends a SIP INVITE through the registered Connection; Telnyx routes to PSTN.
+      // Webhooks (call.initiated, call.answered, call.hangup) fire on the Connection's
+      // Call Control Application and link back to our DB record via client_state.
+      console.log("[TelnyxContext] Initiating one-legged WebRTC call:", {
+        to: toE164(destinationNumber),
+        from: toE164(callerIdUsed),
+        callId: callRecord.id,
       });
 
-      if (!dialResponse.ok) {
-        const errorBody = await dialResponse.text().catch(() => "(no body)");
-        console.warn(
-          `[TelnyxContext] dialer-start-call returned HTTP ${dialResponse.status} — treating as WARNING. Body: ${errorBody}`
-        );
+      const call = (clientRef.current as any).newCall({
+        destinationNumber: toE164(destinationNumber),
+        callerNumber: toE164(callerIdUsed),
+        callerName: opts?.contactName || "",
+        clientState: btoa(callRecord.id),
+        audio: true,
+        localStream: mediaStreamRef.current,
+      });
 
-        // The WebRTC audio session is the source of truth for whether a call is active.
-        // If telnyx.notification has already fired and set callRef.current, the call is live
-        // on Telnyx's side — do NOT abort, do NOT show an error toast, do NOT hang up.
-        if (callRef.current) {
-          console.warn("[TelnyxContext] WebRTC session is already active; ignoring dialer-start-call error and continuing call flow.");
-        } else {
-          // No WebRTC session established — the call genuinely did not start. Fatal.
-          throw new Error(`Call initiation failed (HTTP ${dialResponse.status}): ${errorBody}`);
-        }
-      } else {
-        const dialData = await dialResponse.json().catch(() => ({}));
-        const controlId = dialData?.call_control_id;
-        console.log("[TelnyxContext] Server-side call initiated successfully:", controlId);
-        activeCallControlIdRef.current = controlId;
+      callRef.current = call;
+      setCurrentCall(call);
 
-        // RACE CONDITION CHECK: If the user hung up while we were waiting for the ID, kill it now.
-        if (pendingAbortCallIdRef.current === callRecord.id) {
-          console.warn("[TelnyxContext] Pending abort detected for this call. Terminating immediately.");
-          pendingAbortCallIdRef.current = null;
-          
-          if (controlId) {
-            // Trigger the Edge hangup logic
-            const { data: { session: currentSession } } = await supabase.auth.refreshSession();
-            if (currentSession?.access_token) {
-              fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${currentSession.access_token}`,
-                  "apikey": SUPABASE_ANON_KEY,
-                },
-                body: JSON.stringify({
-                  call_id: callRecord.id,
-                  call_control_id: controlId
-                }),
-              }).catch(err => console.warn("[TelnyxContext] Pending abort hangup failed:", err));
-            }
-          }
-        }
-      }
-
-      // Note: We don't have a 'call' object yet at this point. We will receive it via
-      // 'telnyx.notification' when the server bridges the call back to the agent.
       return callRecord.id;
     } catch (err: any) {
       console.error("Failed to start call:", err);
