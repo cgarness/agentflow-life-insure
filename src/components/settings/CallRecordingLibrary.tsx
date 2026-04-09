@@ -17,6 +17,7 @@ interface CallRow {
   duration: number | null;
   disposition_name: string | null;
   recording_url: string | null;
+  telnyx_call_control_id: string | null;
   contact_name: string | null;
   contact_phone: string | null;
   agent_id: string | null;
@@ -90,8 +91,7 @@ const CallRecordingLibrary: React.FC = () => {
     setLoading(true);
     let query = supabase
       .from("calls")
-      .select("id, created_at, duration, disposition_name, recording_url, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
-      .not("telnyx_call_control_id", "is", null)
+      .select("id, created_at, duration, disposition_name, recording_url, telnyx_call_control_id, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
       .gt("duration", 0)
       .order("created_at", { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -281,7 +281,7 @@ const CallRecordingLibrary: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {c.recording_url ? (
+                        {c.telnyx_call_control_id ? (
                           <RecordingPlayer callId={c.id} compact className="w-48" />
                         ) : (
                           <span className="text-muted-foreground text-xs">No recording</span>
@@ -296,15 +296,6 @@ const CallRecordingLibrary: React.FC = () => {
                           >
                             <Flag className="w-4 h-4" fill={c.flagged_for_coaching ? "currentColor" : "none"} />
                           </button>
-                          {c.recording_url && (
-                            <button
-                              onClick={() => window.open(c.recording_url!, "_blank")}
-                              className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"
-                              title="Download"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>

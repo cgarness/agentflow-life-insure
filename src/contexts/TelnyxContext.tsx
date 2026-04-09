@@ -925,12 +925,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // WebRTC SDK calls may not trigger Call Control webhooks depending on
           // the Telnyx Connection type. Start recording from the frontend so it
           // works regardless of webhook configuration.
-          if (!recordingStartedRef.current && sdkControlId && activeCallIdRef.current) {
+          if (!recordingStartedRef.current && activeCallIdRef.current) {
             recordingStartedRef.current = true;
+            console.log("[TelnyxContext] Invoking start-call-recording for call", activeCallIdRef.current, {
+              sdkControlId,
+              sdkSessionId,
+            });
             void supabase.functions.invoke("start-call-recording", {
               body: {
                 call_id: activeCallIdRef.current,
-                call_control_id: sdkControlId,
+                call_control_id: sdkControlId || undefined,
                 call_session_id: sdkSessionId || undefined,
               },
             }).then(({ data, error }) => {
