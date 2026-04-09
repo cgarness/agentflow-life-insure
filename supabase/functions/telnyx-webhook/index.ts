@@ -315,32 +315,47 @@ async function handleCallInitiated(supabase: any, payload: any) {
       if (error) console.error(`Error inserting call record for ${decodedClientState}:`, error, 'Data:', callData);
     }
   } else {
-    // No UUID provided — insert a new record
-    console.log('No valid client_state UUID provided, inserting new record');
-    const { error } = await supabase.from('calls').insert({
-      ...callData,
-      created_at: new Date().toISOString(),
-    });
-    if (error) console.error('Error creating new call record:', error, 'Data:', callData);
+    // No UUID provided — this is likely a transfer/bridge leg created by our webhook.
+    // Only insert if it looks like a genuine inbound or manually-initiated call.
+    // Transfer legs from telnyxTransfer() don't carry client_state, so we skip
+    // inserting orphan records that would pollute the calls table.
+    if (payload.direction === 'inbound') {
+      console.log('Inbound call without client_state UUID — inserting new record');
+      const { error } = await supabase.from('calls').insert({
+        ...callData,
+        created_at: new Date().toISOString(),
+      });
+      if (error) console.error('Error creating new call record:', error, 'Data:', callData);
+    } else {
+      console.log(`[call.initiated] Outbound call without client_state — likely a transfer leg. Skipping record creation. control_id: ${payload.call_control_id}`);
+    }
   }
 }
 
 // Handler: call.answered
 async function handleCallAnswered(supabase: any, payload: any) {
-  console.log('Call answered:', payload.call_control_id);
+  console.log('Call answered:', payload.call_control_id, { direction: payload.direction });
 
-  const { error } = await supabase
+  // Only update calls rows that we originally created (have this control_id).
+  // Transfer legs create new control_ids that may not be in our calls table.
+  const { data: updatedRow, error } = await supabase
     .from('calls')
     .update({ status: 'connected' })
-    .eq('telnyx_call_control_id', payload.call_control_id);
+    .eq('telnyx_call_control_id', payload.call_control_id)
+    .select('id, agent_id, organization_id')
+    .maybeSingle();
 
   if (error) {
     console.error(`Error updating call ${payload.call_control_id} to connected:`, error);
   }
 
-  // ── Bridge agent immediately on outbound answer (AMD removed) ──
-  if (payload.direction === 'outbound') {
+  // Only bridge on the ORIGINAL outbound leg (the PSTN call to the customer).
+  // Transfer legs (agent bridge) won't have a matching row in our calls table,
+  // so updatedRow will be null — this naturally prevents double-bridging.
+  if (payload.direction === 'outbound' && updatedRow) {
     await handleHumanDetected(supabase, payload);
+  } else if (!updatedRow) {
+    console.log(`[call.answered] No matching calls row for control_id ${payload.call_control_id} — likely a transfer/bridge leg. Skipping bridge.`);
   }
 }
 

@@ -852,12 +852,33 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             /* SDK may not expose ring helpers on all builds */
           }
           attachRemoteAudio(call);
+
           const rs = call?.remoteStream;
-          if (!rs || rs.getAudioTracks().length === 0) {
+          const remoteTracks = rs?.getAudioTracks() ?? [];
+          const ls = call?.localStream ?? mediaStreamRef.current;
+          const localTracks = ls?.getAudioTracks() ?? [];
+
+          console.log("[TelnyxContext] Call active — audio diagnostics:", {
+            remoteStream: !!rs,
+            remoteTracks: remoteTracks.length,
+            remoteTrackStates: remoteTracks.map((t: MediaStreamTrack) => `${t.label}:${t.readyState}:enabled=${t.enabled}`),
+            localStream: !!ls,
+            localTracks: localTracks.length,
+            localTrackStates: localTracks.map((t: MediaStreamTrack) => `${t.label}:${t.readyState}:enabled=${t.enabled}`),
+            remoteElementSrc: !!remoteAudioRef.current?.srcObject,
+          });
+
+          if (remoteTracks.length === 0) {
             console.warn(
-              "[TelnyxContext] Active call but no remote audio tracks yet — check transfer / firewall / mic permission."
+              "[TelnyxContext] Active call but no remote audio tracks — check SIP transfer URI / firewall / SRTP."
             );
           }
+
+          // Ensure the remote audio element is playing
+          if (remoteAudioRef.current?.srcObject && remoteAudioRef.current.paused) {
+            remoteAudioRef.current.play().catch(() => {});
+          }
+
           wirePeerRemoteHangup(call);
           setCallState("active");
         } else if (state === "ringing" || state === "trying" || state === "early") {
@@ -876,13 +897,17 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   stream.active &&
                   stream.getAudioTracks().some((t) => t.readyState === "live");
                 if (!tracksOk) {
+                  console.log("[TelnyxContext] Refreshing mic — tracks dead or missing.");
                   stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                   mediaStreamRef.current = stream;
                 }
+                // Set localStream both on call.options AND pass to answer() so the
+                // SDK uses the agent's mic regardless of which code path it takes.
                 if (call?.options && stream) {
                   call.options.localStream = stream;
                 }
-                await call.answer();
+                await call.answer({ localStream: stream });
+                console.log("[TelnyxContext] Bridge call answered with localStream.");
               } catch (e) {
                 console.warn("[TelnyxContext] Auto-answer failed:", e);
                 bridgeAutoAnsweredRef.current = false;

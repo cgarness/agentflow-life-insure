@@ -71,23 +71,18 @@ Deno.serve(async (req) => {
     if (!apiKey) throw new Error("No API key configured.");
     if (!connectionId) throw new Error("No Connection ID configured.");
 
-    // Generate a sip_username for this agent if needed
-    let sipUsername = profile.sip_username;
-    if (!sipUsername) {
-      sipUsername = `agent_${user.id.substring(0, 8)}`;
-      console.log(`[telnyx-token] Auto-generating sip_username: ${sipUsername}`);
-      await supabaseClient
-        .from("profiles")
-        .update({ sip_username: sipUsername })
-        .eq("id", user.id);
-    }
+    // Derive a stable credential name from user ID (used for Telnyx lookup only).
+    // profile.sip_username will be overwritten with the real Telnyx-assigned sip_username
+    // (e.g., "gencredXXXXX") so that webhook transfers reach the registered WebRTC client.
+    const credentialName = `agent_${user.id.substring(0, 8)}`;
 
     // --- Resolve or create a Telephony Credential for this agent ---
     let credId: string | null = null;
+    let credSipUsername: string | null = null;
 
     // Step A: List existing credentials on this connection
     const listUrl = `https://api.telnyx.com/v2/telephony_credentials?filter[connection_id]=${connectionId}&page[size]=250`;
-    console.log(`[telnyx-token] Listing credentials for connection: ${connectionId}`);
+    console.log(`[telnyx-token] Listing credentials for connection: ${connectionId} (looking for name=${credentialName})`);
     
     const listRes = await fetch(listUrl, {
       method: "GET",
@@ -97,21 +92,19 @@ Deno.serve(async (req) => {
     if (!listRes.ok) {
       const errBody = await listRes.text();
       console.error(`[telnyx-token] List credentials failed (${listRes.status}): ${errBody}`);
-      
-      // If listing fails, try creating directly
-      console.log(`[telnyx-token] Falling back to direct credential creation`);
     } else {
       const listData = await listRes.json();
-      const existing = listData.data?.find((c: any) => c.name === sipUsername);
+      const existing = listData.data?.find((c: any) => c.name === credentialName);
       if (existing) {
         credId = existing.id;
-        console.log(`[telnyx-token] Found existing credential: ${credId}`);
+        credSipUsername = existing.sip_username || null;
+        console.log(`[telnyx-token] Found existing credential: ${credId}, sip_username: ${credSipUsername}`);
       }
     }
 
     // Step B: Create credential if not found
     if (!credId) {
-      console.log(`[telnyx-token] Creating new credential for: ${sipUsername}`);
+      console.log(`[telnyx-token] Creating new credential for: ${credentialName}`);
       const createRes = await fetch("https://api.telnyx.com/v2/telephony_credentials", {
         method: "POST",
         headers: {
@@ -120,7 +113,7 @@ Deno.serve(async (req) => {
         },
         body: JSON.stringify({ 
           connection_id: connectionId,
-          name: sipUsername,
+          name: credentialName,
         }),
       });
       
@@ -128,8 +121,14 @@ Deno.serve(async (req) => {
         const errBody = await createRes.text();
         console.error(`[telnyx-token] Create credential failed (${createRes.status}): ${errBody}`);
         
-        // Final fallback: return SIP credentials for credential-based auth
+        // Final fallback: return org-wide SIP credentials for credential-based auth
         console.log("[telnyx-token] Falling back to SIP credential auth");
+        if (finalSettings.sip_username) {
+          await supabaseClient
+            .from("profiles")
+            .update({ sip_username: finalSettings.sip_username })
+            .eq("id", user.id);
+        }
         return new Response(
           JSON.stringify({
             sip_username: finalSettings.sip_username,
@@ -143,7 +142,20 @@ Deno.serve(async (req) => {
       
       const createData = await createRes.json();
       credId = createData.data.id;
-      console.log(`[telnyx-token] Created credential: ${credId}`);
+      credSipUsername = createData.data.sip_username || null;
+      console.log(`[telnyx-token] Created credential: ${credId}, sip_username: ${credSipUsername}`);
+    }
+
+    // Step B2: Persist the Telnyx-assigned sip_username to the agent's profile.
+    // The telnyx-webhook reads profiles.sip_username when transferring the call to
+    // the agent's WebRTC client — it MUST be the real Telnyx sip_username (e.g.,
+    // "gencredXXXXX"), NOT the friendly credential name (e.g., "agent_abc12345").
+    if (credSipUsername && credSipUsername !== profile.sip_username) {
+      console.log(`[telnyx-token] Updating profile.sip_username: ${profile.sip_username} → ${credSipUsername}`);
+      await supabaseClient
+        .from("profiles")
+        .update({ sip_username: credSipUsername })
+        .eq("id", user.id);
     }
 
     // Step C: Generate WebRTC token for this credential
@@ -162,6 +174,12 @@ Deno.serve(async (req) => {
       
       // Fallback to SIP credentials
       console.log("[telnyx-token] Falling back to SIP credential auth");
+      if (finalSettings.sip_username) {
+        await supabaseClient
+          .from("profiles")
+          .update({ sip_username: finalSettings.sip_username })
+          .eq("id", user.id);
+      }
       return new Response(
         JSON.stringify({
           sip_username: finalSettings.sip_username,
@@ -182,7 +200,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         token: token.trim(),
-        sip_username: sipUsername,
+        sip_username: credSipUsername || credentialName,
         connection_id: connectionId,
         auth_method: "token",
       }),
