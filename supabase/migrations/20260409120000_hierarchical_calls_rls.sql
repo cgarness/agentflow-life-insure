@@ -56,7 +56,7 @@ WITH CHECK (
 UPDATE public.contact_activities ca
 SET organization_id = l.organization_id
 FROM public.leads l
-WHERE ca.contact_id = l.id::text
+WHERE ca.contact_id = l.id
   AND ca.organization_id IS NULL
   AND l.organization_id IS NOT NULL;
 
