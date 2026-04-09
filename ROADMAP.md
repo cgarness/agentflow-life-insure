@@ -53,6 +53,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Refactor — CreateCampaignModal & TagInput Extraction**
+  *Files Created:* `src/components/campaigns/CreateCampaignModal.tsx`, `src/components/shared/TagInput.tsx`
+  *Files Modified:* `src/pages/Campaigns.tsx`, `src/pages/CampaignDetail.tsx`, `src/components/contacts/ImportLeadsModal.tsx`, `ROADMAP.md`
+  *Developer Note:* Refactored the monolithic `CreateCampaignModal` in `Campaigns.tsx` into a standalone, Zod-validated component. Streamlined the "Personal" campaign creation workflow by auto-assigning the current user and hiding redundant agent selection UI, replaced by a badge. Successfully extracted the inline `TagInput` component into a shared utility, reducing code duplication across `Campaigns.tsx`, `CampaignDetail.tsx`, and `ImportLeadsModal.tsx`. Fixed type errors in `CampaignDetail.tsx` related to missing Supabase RPC definitions for `add_leads_to_campaign`. Used Zod for form validation to ensure data integrity. Total code reduction in `Campaigns.tsx` and `CampaignDetail.tsx` is over 300 lines. Verified with `npx tsc --noEmit`.
+
 - **2026-04-08 | [DONE] Fix Dialer Flickering — End-State Double-Fire + isAdvancing Ref Guard**
   *Files Modified:* `src/contexts/TelnyxContext.tsx`, `src/pages/DialerPage.tsx`, `src/components/dialer/DialerActions.tsx`, `ROADMAP.md`
   *Developer Note:* Dialer was flickering between leads on hangup and skip because the call-ended effect fired twice per call end. Root cause: TelnyxContext's `hangUp()` sets `callState("ended")`, then 200ms later resets to `"idle"` via a deferred timeout. When the WebRTC `"destroy"` notification arrived afterward and set `"ended"` again, `hasProcessedEndedState` had already been reset on the `"idle"` transition — so the call-ended effect processed the same hangup a second time, causing a double advance (lead A → B → C flicker).

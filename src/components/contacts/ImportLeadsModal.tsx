@@ -4,6 +4,7 @@ import {
   FileText, Loader2, CheckCircle2, Download, RefreshCw, Plus, Megaphone, Settings, Users,
 } from "lucide-react";
 import { Lead, LeadStatus, CustomField, PipelineStage, LeadSource } from "@/lib/types";
+import { TagInput } from "@/components/shared/TagInput";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
@@ -198,7 +199,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
   const [selectedSource, setSelectedSource] = useState<string>("");
   const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState("");
 
   // Step 4-5
   const [importProgress, setImportProgress] = useState(0);
@@ -214,7 +214,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setNewCampaignType("Personal"); setNewCampaignDesc(""); 
     setImportStatus(pipelineStages.find(s => s.isDefault)?.name || "New");
     setSelectedSource("");
-    setTags([]); setTagInput("");
+    setTags([]);
   };
 
   // ---- Fetch Settings ----
@@ -423,16 +423,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const addTag = (tag: string) => {
     const t = tag.trim();
     if (t && !tags.includes(t)) setTags(prev => [...prev, t]);
-    setTagInput("");
-  };
-
-  const removeTag = (tag: string) => setTags(prev => prev.filter(t => t !== tag));
-
-  const handleTagKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.key === "Enter" || e.key === ",") && tagInput.trim()) {
-      e.preventDefault();
-      addTag(tagInput);
-    }
   };
 
   // ---- Filtered campaigns ----
@@ -941,23 +931,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             {/* Tags */}
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">Add tags to all imported leads</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {tags.map(tag => (
-                  <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted rounded-md text-foreground text-xs">
-                    {tag}
-                    <button onClick={() => removeTag(tag)} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <input
-                value={tagInput}
-                onChange={e => setTagInput(e.target.value)}
-                onKeyDown={handleTagKeyDown}
-                className="w-full max-w-xs h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                placeholder="Type a tag and press Enter..."
-              />
+              <TagInput tags={tags} onChange={setTags} max={10} />
             </div>
           </div>
         </div>

@@ -17,6 +17,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TagInput } from "@/components/shared/TagInput";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -176,40 +177,7 @@ function autoMapHeaders(headers: string[]): Record<number, string> {
   return map;
 }
 
-// ---- Tag Input Component ----
-const TagInput: React.FC<{
-  tags: string[];
-  onChange: (tags: string[]) => void;
-  max?: number;
-}> = ({ tags, onChange, max = 10 }) => {
-  const [input, setInput] = useState("");
-  const addTag = (val: string) => {
-    const tag = val.trim();
-    if (!tag || tags.includes(tag) || tags.length >= max) return;
-    onChange([...tags, tag]);
-    setInput("");
-  };
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(input); }
-  };
-  return (
-    <div>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {tags.map(tag => (
-          <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs text-foreground">
-            {tag}
-            <button onClick={() => onChange(tags.filter(t => t !== tag))} className="text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
-          </span>
-        ))}
-      </div>
-      {tags.length < max && (
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} onBlur={() => { if (input.trim()) addTag(input); }}
-          placeholder="Type a tag and press Enter..." className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-      )}
-      <p className="text-xs text-muted-foreground mt-1">{tags.length}/{max} tags</p>
-    </div>
-  );
-};
+
 
 // ---- Delete Confirm Dialog ----
 const ConfirmDialog: React.FC<{
@@ -280,13 +248,13 @@ const AddLeadsModal: React.FC<{
     if (toAdd.length === 0) return;
     setAdding(true);
     const leadIds = toAdd.map(l => l.id);
-    const { data, error } = await supabase.rpc("add_leads_to_campaign", {
+    const { data, error } = await (supabase.rpc as any)("add_leads_to_campaign", {
       p_campaign_id: campaignId,
       p_lead_ids: leadIds,
     });
     if (error) { toast.error("Failed to add leads: " + error.message, { duration: 3000, position: "bottom-right" }); }
     else {
-      const result = data as { added: number; skipped: number; skipped_ids: string[] };
+      const result = data as unknown as { added: number; skipped: number; skipped_ids: string[] };
       if (result.skipped > 0) {
         toast.success(`${result.added} leads added, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
       } else {
@@ -458,14 +426,14 @@ const ImportCSVModal: React.FC<{
       // 2. Insert into campaign_leads via ownership-validated RPC
       if (processedLeads.length > 0) {
         const leadIds = processedLeads.map(l => l.lead_id).filter(Boolean) as string[];
-        const { data, error } = await supabase.rpc("add_leads_to_campaign", {
+        const { data, error } = await (supabase.rpc as any)("add_leads_to_campaign", {
           p_campaign_id: campaignId,
           p_lead_ids: leadIds,
         });
         if (error) {
           toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
         } else {
-          const result = data as { added: number; skipped: number; skipped_ids: string[] };
+          const result = data as unknown as { added: number; skipped: number; skipped_ids: string[] };
           if (result.skipped > 0) {
             toast.success(`${result.added} leads imported, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
           } else {
