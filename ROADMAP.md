@@ -54,6 +54,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Fix — RecordingPlayer scrubber / duration display for WebM**
+  *Issue:* Browser-recorded WebM often leaves `<audio>.duration` as `Infinity`, `NaN`, or `0`, so the UI showed `0:35 / 0:00` and the range thumb did not track playback. **Fix:** Decode the blob with `AudioContext.decodeAudioData` after download to get an accurate length; sync from `seekable` on `timeupdate` / `durationchange` / `canplay` as fallback; on `ended`, snap current time to duration; `preload="metadata"`; reset state when `callId` changes; download filename `.webm`. *File:* `src/components/ui/RecordingPlayer.tsx`
+
 - **2026-04-09 | [DONE] Fix — remove SDK call_control_id dependency, lookup via Telnyx API**
   *Root Cause:* WebRTC SDK didn't expose `telnyxCallControlId` for credential-based connections. The frontend guard `if (sdkControlId && ...)` silently prevented `start-call-recording` from ever being invoked. The Recording Library only showed the player when `recording_url` was truthy (always null).
   *Fix:* (1) Frontend now invokes `start-call-recording` with just `call_id` (no SDK ID needed). (2) Edge Function (v2) resolves `call_control_id` via Telnyx `GET /v2/calls?filter[connection_id]=xxx` API, matching by destination phone. (3) Recording Library shows all calls with `duration > 0`, shows `RecordingPlayer` when `telnyx_call_control_id` is set.
