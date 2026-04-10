@@ -966,18 +966,28 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           : "bg-card border border-border text-foreground rounded-tl-sm"
                       }`}>
                         <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20 text-white" : "bg-primary/10 text-primary"}`}>
-                                <Phone className="w-2.5 h-2.5" />
-                              </div>
-                              <span className="font-semibold">{isOutbound ? "Outbound" : "Inbound"} Call — {item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : 'No Answer'}</span>
-                            </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold shrink-0">
+                              {isOutbound ? "Call" : "Inbound Call"}
+                            </span>
+                            
+                            {item.disposition_name && (
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
+                              } shadow-sm`}>
+                                {item.disposition_name}
+                              </span>
+                            )}
+
+                            <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
+                              {item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
+                            </span>
+
                             {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && (
                               <button 
-                                onClick={() => toggleRecording(item.id)}
-                                className={`p-1 rounded-full transition-colors ${
-                                  isOutbound ? "hover:bg-white/20 text-white" : "hover:bg-black/10 text-primary"
+                                onClick={(e) => { e.stopPropagation(); toggleRecording(item.id); }}
+                                className={`p-1 rounded-full transition-all ml-auto ${
+                                  isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
                                 }`}
                                 title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
                               >
@@ -985,26 +995,20 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                               </button>
                             )}
                           </div>
-                          
-                          {item.disposition_name && (
-                            <div className="flex">
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                                isOutbound ? "bg-white/20 text-white" : "bg-accent text-foreground"
-                              }`}>
-                                {item.disposition_name}
-                              </span>
-                            </div>
-                          )}
                         </div>
 
                         {/* Integrated Recording Player */}
                         {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && expandedRecordings[item.id] && (
-                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/20" : "border-border/50"} animate-in fade-in slide-in-from-top-1 duration-200`}>
-                            <div className={`flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest mb-2 ${isOutbound ? "text-white/70" : "text-muted-foreground"}`}>
-                              <Mic className="w-2.5 h-2.5" aria-hidden />
-                              <span>Recording</span>
+                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
+                            <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
+                                <Mic className="w-3 h-3 text-current" aria-hidden />
+                              </div>
+                              <span>Call Recording</span>
                             </div>
-                            <RecordingPlayer callId={item.id} compact />
+                            <div className={`rounded-xl p-3 ${isOutbound ? "bg-white/10" : "bg-accent/50"} border ${isOutbound ? "border-white/20" : "border-border/50"}`}>
+                              <RecordingPlayer callId={item.id} compact />
+                            </div>
                           </div>
                         )}
                       </div>

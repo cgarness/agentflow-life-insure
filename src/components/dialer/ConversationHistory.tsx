@@ -136,28 +136,17 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                             : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
                         }`}
                       >
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="leading-tight font-medium">{item.description}</span>
-                            {item.type === "call" && item.recording_url && (
-                              <button 
-                                onClick={() => toggleRecording(item.id)}
-                                className={`p-1 rounded-full transition-colors ${
-                                  isOutbound ? "hover:bg-white/20 text-white" : "hover:bg-black/10 text-primary"
-                                }`}
-                                title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
-                              >
-                                <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
-                              </button>
-                            )}
-                          </div>
-                          
-                          {item.type === "call" && item.disposition && (
-                            <div className="flex justify-start">
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="leading-tight font-semibold shrink-0">
+                              {item.direction === "inbound" ? "Inbound Call" : "Call"}
+                            </span>
+                            
+                            {item.type === "call" && item.disposition && (
                               <span
-                                className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
                                   isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
-                                }`}
+                                } shadow-sm`}
                                 style={!isOutbound && item.disposition_color ? {
                                   backgroundColor: `${item.disposition_color}22`,
                                   color: item.disposition_color
@@ -165,18 +154,38 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                               >
                                 {item.disposition}
                               </span>
-                            </div>
-                          )}
+                            )}
+
+                            <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
+                              {item.duration ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
+                            </span>
+
+                            {item.type === "call" && item.recording_url && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); toggleRecording(item.id); }}
+                                className={`p-1 rounded-full transition-all ml-auto ${
+                                  isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
+                                }`}
+                                title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                              >
+                                <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Integrated Recording Player */}
                         {item.type === "call" && item.recording_url && expandedRecordings[item.id] && (
-                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/20" : "border-black/10"} animate-in fade-in slide-in-from-top-1 duration-200`}>
-                            <div className={`flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest mb-2 ${isOutbound ? "text-white/70" : "text-muted-foreground"}`}>
-                              <Mic className="w-2.5 h-2.5" aria-hidden />
-                              <span>Recording</span>
+                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
+                            <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
+                                <Mic className="w-3 h-3 text-current" aria-hidden />
+                              </div>
+                              <span>Call Recording</span>
                             </div>
-                            <RecordingPlayer callId={item.id} compact />
+                            <div className={`rounded-xl p-3 ${isOutbound ? "bg-white/10" : "bg-accent/50"} border ${isOutbound ? "border-white/20" : "border-border/50"}`}>
+                              <RecordingPlayer callId={item.id} compact />
+                            </div>
                           </div>
                         )}
                       </div>
