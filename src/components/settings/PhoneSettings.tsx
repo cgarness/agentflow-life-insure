@@ -351,14 +351,25 @@ const PhoneSettings: React.FC = () => {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success("Number purchased successfully!");
+      toast.success(
+        data?.duplicate
+          ? "Number is already in your list."
+          : "Number purchased successfully!"
+      );
+      if (data?.warning) toast.info(data.warning);
       setPurchaseOpen(false);
       resetPurchaseModal();
-      await fetchData();
     } catch (e: any) {
-      toast.error(`Purchase failed — ${e.message}`);
+      toast.error(`Purchase failed — ${e.message ?? "Unknown error"}`);
+      setPurchasing(false);
+      return;
     }
     setPurchasing(false);
+    try {
+      await fetchData();
+    } catch {
+      toast.warning("Could not refresh the list automatically. Reload the page if your number does not appear.");
+    }
   };
 
   const resetPurchaseModal = () => {

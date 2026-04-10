@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 9, 2026
+**Owner:** Chris Garness | **Last Updated:** April 10, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -53,6 +53,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-10 | [DONE] Settings — Telnyx number purchase false “failure” toast**
+  *Cause:* (1) `handlePurchase` treated any error after a successful Edge response as “Purchase failed,” including refresh issues, and bundled `fetchData()` into the same `try/catch`. (2) `telnyx-buy-number` used E.164 as a fallback Telnyx resource id, so voice `PATCH` often failed after the order had already succeeded; voice errors aborted the whole flow. (3) Duplicate DB rows surfaced as a hard database error after a successful Telnyx buy. *Fix:* Poll `GET /number_orders/{id}` and list-by-E.164 for a real resource id; never `PATCH` with `+1…`; voice/SMS `PATCH` failures are warnings, not fatal; org-scoped default-number count; duplicate key for same org returns success with `duplicate: true`; UI splits purchase vs refresh and shows `toast.info` for server `warning`. *Files:* `supabase/functions/telnyx-buy-number/index.ts`, `src/components/settings/PhoneSettings.tsx`
 
 - **2026-04-09 | [DONE] Fix — dialer campaign picker empty**
   *Cause:* (1) Selecting `dial_delay_seconds` on the campaign list query fails if that column is not migrated yet → no rows. (2) Client-side filter hid all non–Open-Pool campaigns for users not in `assigned_agent_ids` / not `created_by`, so **Admin / Manager / Team Leader** saw campaigns on the Campaigns page (RLS) but not on the dialer. *Fix:* Drop `dial_delay_seconds` from the list `select`; load delay in a separate small query when a campaign is selected (default 2s if missing/error). Elevated roles see every campaign the API returns; agents keep pool + assignment rules. Toast on fetch error. *File:* `src/pages/DialerPage.tsx`

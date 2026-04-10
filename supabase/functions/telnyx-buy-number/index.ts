@@ -6,7 +6,9 @@ const corsHeaders = {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
+/** Telnyx phone-number resource IDs are never E.164; never PATCH using +1… */
+const isTelnyxPhoneNumberResourceId = (id: string | undefined, e164: string): id is string =>
+    !!id && id !== e164 && !id.startsWith("+");
 
 // Helper for making Telnyx API calls
 const telnyxApiCall = async (method: string, endpoint: string, apiKey: string, body?: any) => {
@@ -67,7 +69,7 @@ Deno.serve(async (req) => {
             .from("profiles")
             .select("organization_id")
             .eq("id", user.id)
-            .single();
+            .maybeSingle();
 
         if (profileError || !profile?.organization_id) {
             throw new Error("User has no associated organization");
@@ -123,55 +125,96 @@ Deno.serve(async (req) => {
             phone_numbers: [{ phone_number: normalizedNumber }]
         });
         
-        console.log(`[Step 1] Order created: ${orderResponse.data.id}. Status: ${orderResponse.data.status}`);
+        const orderId = orderResponse.data?.id as string | undefined;
+        console.log(`[Step 1] Order created: ${orderId}. Status: ${orderResponse.data.status}`);
         
-        // 2. Extract or Fetch the Phone Number UUID
-        let telnyxPhoneNumberId = orderResponse.data?.phone_numbers?.[0]?.id;
-        
-        if (!telnyxPhoneNumberId) {
-            console.log("[Step 2] ID not in immediate response, entering retry loop...");
-            for (let i = 0; i < 5; i++) {
-                const waitTime = (i + 1) * 2000;
-                await new Promise(resolve => setTimeout(resolve, waitTime));
+        // 2. Resolve Telnyx phone_number resource id (never use E.164 in PATCH URLs)
+        let telnyxPhoneNumberId: string | undefined = orderResponse.data?.phone_numbers?.[0]?.id;
+
+        if (!isTelnyxPhoneNumberResourceId(telnyxPhoneNumberId, normalizedNumber) && orderId) {
+            console.log("[Step 2] Polling number_order for phone resource id...");
+            for (let i = 0; i < 15; i++) {
+                if (i > 0) await new Promise((r) => setTimeout(r, 2000));
+                let orderStatus: { data?: { status?: string; phone_numbers?: { id?: string }[] } };
                 try {
-                    const phoneListResponse = await telnyxApiCall("GET", `/phone_numbers?filter[phone_number]=${encodeURIComponent(normalizedNumber)}`, apiKey);
-                    if (phoneListResponse.data?.[0]?.id) {
-                        telnyxPhoneNumberId = phoneListResponse.data[0].id;
-                        console.log(`[Step 2] Found ID: ${telnyxPhoneNumberId}`);
-                        break;
-                    }
+                    orderStatus = await telnyxApiCall("GET", `/number_orders/${orderId}`, apiKey);
                 } catch (err) {
-                    console.warn(`[Step 2] Retry ${i + 1} failed:`, err.message);
+                    console.warn(
+                        `[Step 2] Order poll attempt ${i + 1} failed:`,
+                        err instanceof Error ? err.message : err,
+                    );
+                    continue;
+                }
+                const st = orderStatus.data?.status;
+                if (st === "failure" || st === "cancelled") {
+                    throw new Error("Telnyx reported this number order did not complete.");
+                }
+                const fromOrder = orderStatus.data?.phone_numbers?.[0]?.id;
+                if (isTelnyxPhoneNumberResourceId(fromOrder, normalizedNumber)) {
+                    telnyxPhoneNumberId = fromOrder;
+                    console.log(`[Step 2] Order poll: found ID ${telnyxPhoneNumberId}`);
+                    break;
                 }
             }
         }
 
-        if (!telnyxPhoneNumberId) {
-            console.warn("[Step 2] Using normalized number as fallback ID.");
-            telnyxPhoneNumberId = normalizedNumber;
+        if (!isTelnyxPhoneNumberResourceId(telnyxPhoneNumberId, normalizedNumber)) {
+            console.log("[Step 2] Listing phone_numbers by E.164...");
+            for (let i = 0; i < 8; i++) {
+                if (i > 0) await new Promise((r) => setTimeout(r, 2500));
+                try {
+                    const phoneListResponse = await telnyxApiCall(
+                        "GET",
+                        `/phone_numbers?filter[phone_number]=${encodeURIComponent(normalizedNumber)}`,
+                        apiKey,
+                    );
+                    const fromList = phoneListResponse.data?.[0]?.id;
+                    if (isTelnyxPhoneNumberResourceId(fromList, normalizedNumber)) {
+                        telnyxPhoneNumberId = fromList;
+                        console.log(`[Step 2] List poll: found ID ${telnyxPhoneNumberId}`);
+                        break;
+                    }
+                } catch (err) {
+                    console.warn(`[Step 2] List retry ${i + 1} failed:`, err instanceof Error ? err.message : err);
+                }
+            }
         }
 
-        // 3. Link Phone Number to Existing TeXML Application
-        console.log(`[Step 3] Linking to Master voice app: ${VOICE_APP_ID}...`);
-        try {
-            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
-                connection_id: VOICE_APP_ID
-            });
-            console.log("[Step 3] Voice link successful.");
-        } catch (err) {
-            console.error("[Step 3] Voice link failed:", err);
-            throw new Error(`Failed to configure voice: ${err.message}`);
+        const warnings: string[] = [];
+
+        if (!isTelnyxPhoneNumberResourceId(telnyxPhoneNumberId, normalizedNumber)) {
+            console.warn("[Step 2] No Telnyx resource id yet; skipping voice/SMS PATCH (order may still be provisioning).");
+            warnings.push(
+                "Number ordered in Telnyx. If calling or SMS does not work yet, wait a minute and use Sync from Telnyx.",
+            );
         }
 
-        // 4. Assign to Existing Messaging Profile
-        console.log(`[Step 4] Assigning to Master Messaging Profile: ${MESSAGING_PROFILE_ID}...`);
-        try {
-            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
-                messaging_profile_id: MESSAGING_PROFILE_ID
-            });
-            console.log("[Step 4] Messaging link successful.");
-        } catch (err) {
-            console.warn("[Step 4] Messaging assignment failed (continuing):", err);
+        // 3. Link Phone Number to Existing TeXML Application (non-fatal — purchase already committed)
+        if (isTelnyxPhoneNumberResourceId(telnyxPhoneNumberId, normalizedNumber)) {
+            console.log(`[Step 3] Linking to Master voice app: ${VOICE_APP_ID}...`);
+            try {
+                await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
+                    connection_id: VOICE_APP_ID,
+                });
+                console.log("[Step 3] Voice link successful.");
+            } catch (err) {
+                console.error("[Step 3] Voice link failed:", err);
+                warnings.push(
+                    `Voice routing was not applied automatically (${err instanceof Error ? err.message : "Telnyx error"}). Try Sync from Telnyx or contact support.`,
+                );
+            }
+
+            // 4. Assign to Existing Messaging Profile
+            console.log(`[Step 4] Assigning to Master Messaging Profile: ${MESSAGING_PROFILE_ID}...`);
+            try {
+                await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
+                    messaging_profile_id: MESSAGING_PROFILE_ID,
+                });
+                console.log("[Step 4] Messaging link successful.");
+            } catch (err) {
+                console.warn("[Step 4] Messaging assignment failed (continuing):", err);
+                warnings.push("SMS profile was not applied automatically; try Sync from Telnyx.");
+            }
         }
 
         // 5. Store in CRM
@@ -181,7 +224,8 @@ Deno.serve(async (req) => {
         const { count: existingCount } = await supabaseClient
             .from("phone_numbers")
             .select("id", { count: "exact", head: true })
-            .eq("status", "active");
+            .eq("status", "active")
+            .eq("organization_id", organizationId);
 
         const isFirstNumber = (existingCount ?? 0) === 0;
 
@@ -199,13 +243,39 @@ Deno.serve(async (req) => {
                 created_at: new Date().toISOString(),
             }]);
 
-        if (dbError) throw new Error(`Database error: ${dbError.message}`);
+        if (dbError) {
+            const pgCode = (dbError as { code?: string }).code;
+            if (pgCode === "23505") {
+                const { data: existingRow } = await supabaseClient
+                    .from("phone_numbers")
+                    .select("id, organization_id")
+                    .eq("phone_number", normalizedNumber)
+                    .maybeSingle();
+                if (existingRow?.organization_id === organizationId) {
+                    return new Response(
+                        JSON.stringify({
+                            success: true,
+                            phone_number: normalizedNumber,
+                            telnyx_id: telnyxPhoneNumberId ?? null,
+                            duplicate: true,
+                            ...(warnings.length ? { warning: warnings.join(" ") } : {}),
+                        }),
+                        {
+                            status: 200,
+                            headers: { ...corsHeaders, "Content-Type": "application/json" },
+                        },
+                    );
+                }
+            }
+            throw new Error(`Database error: ${dbError.message}`);
+        }
 
         return new Response(
             JSON.stringify({
                 success: true,
                 phone_number: normalizedNumber,
-                telnyx_id: telnyxPhoneNumberId,
+                telnyx_id: telnyxPhoneNumberId ?? null,
+                ...(warnings.length ? { warning: warnings.join(" ") } : {}),
             }),
             {
                 status: 200,
