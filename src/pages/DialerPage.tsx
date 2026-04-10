@@ -92,12 +92,7 @@ import ClaimRing from "@/components/dialer/ClaimRing";
 import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
-import {
-  fetchNextQueuedLead,
-  buildFiltersFromQueueState,
-  releaseAllAgentLocks,
-  releaseAllAgentLocksBeacon,
-} from "@/lib/dialer-queue";
+import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
 import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSkeletons";
 import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
@@ -443,6 +438,8 @@ export default function DialerPage() {
   // ── Auto-Dial state ──
   // ── Auto-Dial settings and telemetry (replaces AutoDialer class) ──
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
+  /** Auto-dial pause after each new lead (ms); synced from `campaigns.dial_delay_seconds`. */
+  const [dialDelayMs, setDialDelayMs] = useState(2000);
   const ringTimeoutRef = useRef<number>(30); // local default, updated via DB
   const [isPaused, setIsPaused] = useState(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
@@ -709,7 +706,7 @@ export default function DialerPage() {
       setCampaignsLoading(true);
       const { data, error } = await supabase
         .from('campaigns')
-        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, created_by')
+        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, dial_delay_seconds, local_presence_enabled, assigned_agent_ids, created_by')
         .eq('organization_id', organizationId)
         .in('status', ['Active', 'Paused', 'Draft'])
         .order('name', { ascending: true });
@@ -831,7 +828,7 @@ export default function DialerPage() {
       return false;
     } finally {
       setLoadingLeads(false);
-      setTimeout(() => setIsAdvancing(false), 300);
+      setTimeout(() => setIsAdvancing(false), 100);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId, selectedCampaign, getNextLead, startHeartbeat]);
@@ -994,13 +991,20 @@ export default function DialerPage() {
     return () => { hasDialedOnce.current = false; };
   }, [selectedCampaignId]);
 
-  // ── Sync autoDialEnabled from campaign settings on selection ──
+  // ── Sync auto-dial prefs from campaign list row (refined when syncSettings runs) ──
   useEffect(() => {
     if (!selectedCampaign) return;
     const campaignAutoDialValue = selectedCampaign.auto_dial_enabled;
     // Only sync if the campaign has an explicit setting (not null/undefined)
     if (campaignAutoDialValue != null) {
       setAutoDialEnabled(campaignAutoDialValue);
+    }
+    const d = (selectedCampaign as { dial_delay_seconds?: number | null }).dial_delay_seconds;
+    if (d != null && d !== undefined) {
+      const sec = Number(d);
+      if (!Number.isNaN(sec) && sec >= 0) {
+        setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(sec * 1000))));
+      }
     }
   }, [selectedCampaignId, selectedCampaign]);
 
@@ -1358,7 +1362,7 @@ export default function DialerPage() {
       return newQueue;
     });
 
-    setTimeout(() => setIsAdvancing(false), 320);
+    setTimeout(() => setIsAdvancing(false), 100);
   }, [retryIntervalHours]);
 
   useLayoutEffect(() => {
@@ -1929,7 +1933,7 @@ export default function DialerPage() {
       // 1. Fetch Campaign Settings
       const { data: campaignData } = await supabase
         .from("campaigns")
-        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
+        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, dial_delay_seconds, local_presence_enabled")
         .eq("id", selectedCampaignId)
         .maybeSingle();
 
@@ -1939,6 +1943,12 @@ export default function DialerPage() {
         setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
         setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
+        const sec = Number(campaignData.dial_delay_seconds);
+        if (!Number.isNaN(sec) && sec >= 0) {
+          setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(sec * 1000))));
+        } else {
+          setDialDelayMs(2000);
+        }
       }
 
       // 2. Fetch Global Phone Settings
@@ -1976,6 +1986,7 @@ export default function DialerPage() {
     hasDialedOnce,
     showWrapUp,
     isAdvancing,
+    dialDelayMs,
     checkCallingHours: memoizedCheckHours,
     onCall: handleCall,
     onSkip: handleSkip,
@@ -2032,10 +2043,11 @@ export default function DialerPage() {
   useEffect(() => {
     const handleUnload = () => {
       // Bulk-release all locks for this campaign via beacon (survives page unload)
-      if (lockMode && selectedCampaignId) {
+        if (lockMode && selectedCampaignId) {
         const sbUrl = import.meta.env.VITE_SUPABASE_URL as string;
         const token = accessTokenRef.current || (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
-        releaseAllAgentLocksBeacon(selectedCampaignId, sbUrl, token);
+        const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        releaseAllAgentLocksBeacon(selectedCampaignId, sbUrl, token, anon);
       }
       stopHeartbeat();
       cancelClaimTimer();
@@ -2415,54 +2427,18 @@ export default function DialerPage() {
         }
 
         if (lockMode) {
-          // Team/Open: release current lock, then fetch next via 90s-TTL RPC
+          // Team/Open: same path as skip/advance — get_next_queue_lead + enrich + heartbeat
           setShowWrapUp(false);
           setSelectedDisp(null);
           setNoteText("");
           setNoteError(false);
           setCurrentCallId(null);
           stopHeartbeat();
-          // Release the lock on the current lead
           if (currentLead?.id) {
             await releaseLock(currentLead.id as string);
           }
-          // Fetch next lead using campaign-type-aware helper
-          const filters = buildFiltersFromQueueState(queueFilter);
-          const nextLead = await fetchNextQueuedLead(
-            campaignType,
-            selectedCampaignId!,
-            organizationId || "",
-            user?.id || "",
-            filters,
-          );
-          if (nextLead) {
-            // Enrich with full leads table data
-            const { data: fullRow } = await supabase
-              .from("campaign_leads")
-              .select("*, lead:leads(*)")
-              .eq("id", nextLead.id)
-              .maybeSingle();
-            let merged: any = nextLead;
-            if (fullRow) {
-              const { lead: leadData, ...campaignLead } = fullRow as any;
-              merged = {
-                ...(leadData || {}),
-                ...campaignLead,
-                state: campaignLead.state || leadData?.state || "",
-                id: campaignLead.id,
-                lead_id: leadData?.id || campaignLead.lead_id,
-              };
-            }
-            setLeadQueue([merged]);
-            setCurrentLeadIndex(0);
-            // Start heartbeat for the new lock
-            startHeartbeat(nextLead.id, () => loadLockModeLead());
-            if (autoDialEnabled) {
-              console.log("[DialerPage] Reactive machine will handle the next call");
-            }
-          } else {
-            setLeadQueue([]);
-            setHasMoreLeads(false);
+          const loaded = await loadLockModeLead(campaignType);
+          if (!loaded) {
             toast("Queue empty — no more leads available");
           }
         } else {

@@ -3,7 +3,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 /**
  * useDialerStateMachine — Two-Lane Auto-Dialer State Machine
  *
- * Auto-dial waits AUTO_DIAL_DELAY_MS then calls onCall. Callbacks and guards use refs so
+ * Auto-dial waits dialDelayMs then calls onCall. Callbacks and guards use refs so
  * dependency churn (handleCall identity from dialerStats, etc.) does not reset the timer
  * or leave stale timeouts firing for the wrong lead.
  */
@@ -38,6 +38,8 @@ export interface UseDialerStateMachineProps {
   checkCallingHours?: (leadState: string) => boolean;
   /** Blocks arming auto-dial while queue/index/URL are settling */
   isAdvancing?: boolean;
+  /** Pause before auto-dial fires (from campaign `dial_delay_seconds`, clamped in the hook). */
+  dialDelayMs?: number;
   onCall: () => void;
   onSkip: () => void;
 }
@@ -48,7 +50,9 @@ export interface UseDialerStateMachineReturn {
   cancelAutoDialCountdown: () => void;
 }
 
-const AUTO_DIAL_DELAY_MS = 3000;
+const DEFAULT_DIAL_DELAY_MS = 2000;
+const MIN_DIAL_DELAY_MS = 500;
+const MAX_DIAL_DELAY_MS = 10_000;
 
 export function useDialerStateMachine({
   isAutoDialEnabled,
@@ -59,9 +63,14 @@ export function useDialerStateMachine({
   showWrapUp,
   checkCallingHours,
   isAdvancing = false,
+  dialDelayMs: dialDelayMsProp,
   onCall,
   onSkip,
 }: UseDialerStateMachineProps): UseDialerStateMachineReturn {
+  const dialDelayMs = Math.min(
+    MAX_DIAL_DELAY_MS,
+    Math.max(MIN_DIAL_DELAY_MS, dialDelayMsProp ?? DEFAULT_DIAL_DELAY_MS),
+  );
   const machineState: MachineState = (() => {
     if (showWrapUp) return "WRAP_UP";
     if (telnyxCallState === "active") return "CONNECTED";
@@ -186,7 +195,7 @@ export function useDialerStateMachine({
 
       lastAutoDialedLeadId.current = fireKey;
       onCallRef.current();
-    }, AUTO_DIAL_DELAY_MS);
+    }, dialDelayMs);
   }, [
     leadKey,
     isAutoDialEnabled,
@@ -194,6 +203,7 @@ export function useDialerStateMachine({
     telnyxStatus,
     showWrapUp,
     isAdvancing,
+    dialDelayMs,
     clearAutoDialTimer,
   ]);
 

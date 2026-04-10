@@ -144,12 +144,14 @@ export function releaseAllAgentLocksBeacon(
   campaignId: string,
   supabaseUrl: string,
   accessToken: string,
+  anonKey?: string,
 ): void {
   const url = `${supabaseUrl}/rest/v1/rpc/release_all_agent_locks`;
   const body = JSON.stringify({ p_campaign_id: campaignId });
+  const apiKey = anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    apikey: accessToken,
+    apikey: apiKey,
     Authorization: `Bearer ${accessToken}`,
   };
 

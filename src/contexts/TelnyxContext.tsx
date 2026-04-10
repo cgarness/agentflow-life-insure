@@ -145,6 +145,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const recordingStartedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
+  /** Skip repeat `calls` lookups for the same contact during auto-dial (invalidated when numbers change). */
+  const callerIdByContactRef = useRef<Map<string, string>>(new Map());
 
   // Browser-side call recording (MediaRecorder)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -207,6 +209,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       });
   }, [organizationId, profile?.id]);
+
+  useEffect(() => {
+    callerIdByContactRef.current.clear();
+  }, [availableNumbers, selectedCallerNumber]);
 
   // Fetch global phone settings (ring timeout, etc.)
   useEffect(() => {
@@ -682,8 +688,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // 1. Manual Override always wins
     if (selectedCallerNumber) return selectedCallerNumber;
 
-    // 2. Check Contact History
+    // 2. Check Contact History (session cache avoids a DB round trip per auto-dial on the same contact)
     if (contactId) {
+      const cached = callerIdByContactRef.current.get(contactId);
+      if (cached) {
+        const ownedCached = availableNumbers.find(
+          (n) => n.phone_number === cached && n.spam_status !== "Flagged",
+        );
+        if (ownedCached) return cached;
+        callerIdByContactRef.current.delete(contactId);
+      }
       try {
         const { data } = await supabase
           .from('calls')
@@ -698,6 +712,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Verify we still own this number and it's not flagged
           const owned = availableNumbers.find(n => n.phone_number === data.caller_id_used);
           if (owned && owned.spam_status !== 'Flagged') {
+            callerIdByContactRef.current.set(contactId, data.caller_id_used);
             return data.caller_id_used;
           }
         }
@@ -1175,9 +1190,27 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     endStateProcessedRef.current = false;
 
-    const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
-    if (!session?.access_token || sessionError) {
-      console.warn("[TelnyxContext] Call blocked: No active auth session.", sessionError);
+    const { data: { session: existing }, error: getErr } = await supabase.auth.getSession();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp = existing?.expires_at;
+    const stale =
+      getErr ||
+      !existing?.access_token ||
+      (typeof exp === "number" && exp - nowSec < 120);
+
+    let session = existing;
+    if (stale) {
+      const { data: { session: refreshed }, error: refreshErr } = await supabase.auth.refreshSession();
+      if (!refreshed?.access_token || refreshErr) {
+        console.warn("[TelnyxContext] Call blocked: No active auth session.", refreshErr || getErr);
+        toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
+        return undefined;
+      }
+      session = refreshed;
+    }
+
+    if (!session?.access_token) {
+      console.warn("[TelnyxContext] Call blocked: No active session after refresh check.");
       toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
       return undefined;
     }
