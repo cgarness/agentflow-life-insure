@@ -52,17 +52,49 @@ const AgentProfile: React.FC = () => {
   const licensedStates = useMemo(() => {
     const raw = profile?.licensed_states;
     if (!Array.isArray(raw)) return [];
-    return (raw as string[]).map((code, i) => ({
-      code,
-      state: STATE_NAMES[code] || code,
-      accent: ACCENT_COLORS[i % ACCENT_COLORS.length],
-    }));
+    
+    return (raw as any[]).map((item, i) => {
+      // Handle new object structure: { state, licenseNumber }
+      if (typeof item === 'object' && item !== null && 'state' in item) {
+        const stateName = item.state;
+        // Try to find code if it's stored as full name
+        const code = Object.entries(STATE_NAMES).find(([k, v]) => v === stateName)?.[0] || stateName;
+        return {
+          code,
+          state: stateName,
+          licenseNumber: item.licenseNumber,
+          accent: ACCENT_COLORS[i % ACCENT_COLORS.length],
+        };
+      }
+      // Handle legacy string structure: "AL"
+      const code = String(item);
+      return {
+        code,
+        state: STATE_NAMES[code] || code,
+        licenseNumber: null,
+        accent: ACCENT_COLORS[i % ACCENT_COLORS.length],
+      };
+    });
   }, [profile?.licensed_states]);
 
   const carriers = useMemo(() => {
     const raw = profile?.carriers;
     if (!Array.isArray(raw)) return [];
-    return raw as string[];
+    
+    return (raw as any[]).map(item => {
+      // Handle new object structure: { carrier, writingNumber }
+      if (typeof item === 'object' && item !== null && 'carrier' in item) {
+        return {
+          name: item.carrier,
+          writingNumber: item.writingNumber
+        };
+      }
+      // Handle legacy string structure
+      return {
+        name: String(item),
+        writingNumber: null
+      };
+    });
   }, [profile?.carriers]);
 
   const userId = user?.id;
@@ -185,16 +217,20 @@ const AgentProfile: React.FC = () => {
           </div>
         </section>
 
-        {/* Carriers */}
         {carriers.length > 0 && (
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-foreground">Appointed Carriers</h2>
             <div className="flex flex-wrap gap-2">
               {carriers.map((c, i) => (
-                <span key={i} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground shadow-sm">
-                  <Building2 className="h-3.5 w-3.5 text-primary" />
-                  {c}
-                </span>
+                <div key={i} className="inline-flex flex-col gap-1 rounded-lg border border-border bg-card p-3 shadow-sm min-w-[140px]">
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <Building2 className="h-3.5 w-3.5 text-primary" />
+                    {c.name}
+                  </div>
+                  {c.writingNumber && (
+                    <p className="text-[10px] text-muted-foreground font-mono">ID: {c.writingNumber}</p>
+                  )}
+                </div>
               ))}
             </div>
           </section>
@@ -233,6 +269,9 @@ const AgentProfile: React.FC = () => {
 
                   <div className="relative mt-4 flex items-center justify-between">
                     <span className="rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">{license.code}</span>
+                    {license.licenseNumber && (
+                      <span className="text-[10px] text-muted-foreground font-mono">#{license.licenseNumber}</span>
+                    )}
                   </div>
                 </article>
               ))}
