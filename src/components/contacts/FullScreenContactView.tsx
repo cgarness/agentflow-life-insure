@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
@@ -179,75 +179,187 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const [emailSubject, setEmailSubject] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+  const latestContactIdRef = useRef<string | null>(null);
+  latestContactIdRef.current = contact?.id ?? null;
 
-  const loadConversations = async () => {
+  // Sync form + clear per-contact UI before paint when switching contact or type (avoids wrong lead's notes/fields flashing).
+  useLayoutEffect(() => {
     if (!contact?.id) return;
+    setEditForm({ ...contact });
+    setLocalStatus(contact.status || contact.policyType || "New");
+    setLocalNotes([]);
+    setActivities([]);
+    setCampaigns([]);
+    setConvoItems([]);
     setConvoLoading(true);
-    const [callsRes, msgsRes] = await Promise.all([
-      supabase.from("calls").select("id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, caller_id_used").eq("contact_id", contact.id).order("started_at", { ascending: true }),
-      supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", contact.id).order("sent_at", { ascending: true })
-    ]);
-    const calls = (callsRes.data || []).map(c => ({ ...c, _type: "call", _ts: new Date((c as any).started_at).getTime() }));
-    const msgs = (msgsRes.data || []).map(m => ({ ...m, _type: "sms", _ts: new Date((m as any).sent_at).getTime() }));
-    setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
-    setConvoLoading(false);
-  };
+    setPipelineStages([]);
+  }, [contact?.id, type]);
+
+  // Same contact refreshed from parent (e.g. after save + list refetch). Compare snapshot so Dialer/Calendar inline `contact` objects do not re-sync every parent render.
+  const prevContactSnapshotRef = useRef<string>("");
+  useEffect(() => {
+    if (!contact?.id) return;
+    if (editMode || hasUnsavedChanges) return;
+    let snap = "";
+    try {
+      snap = JSON.stringify(contact);
+    } catch {
+      snap = contact.id;
+    }
+    if (prevContactSnapshotRef.current === snap) return;
+    prevContactSnapshotRef.current = snap;
+    setEditForm({ ...contact });
+    setLocalStatus(contact.status || contact.policyType || "New");
+  }, [contact, editMode, hasUnsavedChanges]);
 
   useEffect(() => {
-    async function loadData() {
-      if (!contact) return;
-      setEditForm({ ...contact });
-      setLocalStatus(contact.status || contact.policyType || "New");
+    if (!contact?.id) return;
+    const myId = contact.id;
+    const myType = type;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && latestContactIdRef.current === myId;
 
-      const [fetchedNotes, fetchedActivities] = await Promise.all([
-        notesSupabaseApi.getByContact(contact.id),
-        activitiesSupabaseApi.getByContact(contact.id)
+    async function loadData() {
+      const pipelineP =
+        myType === "lead" || myType === "recruit"
+          ? myType === "recruit"
+            ? pipelineSupabaseApi.getRecruitStages()
+            : pipelineSupabaseApi.getLeadStages()
+          : Promise.resolve([] as PipelineStage[]);
+
+      const settingsP = (async () => {
+        try {
+          const [sources, healths, fields] = await Promise.all([
+            leadSourcesSupabaseApi.getAll(),
+            healthStatusesSupabaseApi.getAll(),
+            customFieldsSupabaseApi.getAll(),
+          ]);
+          let settings: Record<string, unknown> | null = null;
+          if (organizationId) {
+            const { data } = await (supabase as any)
+              .from("contact_management_settings")
+              .select("*")
+              .eq("organization_id", organizationId)
+              .maybeSingle();
+            settings = data;
+          }
+          return { sources, healths, fields, settings };
+        } catch (err) {
+          console.error("Error fetching dynamic settings:", err);
+          return { sources: [] as LeadSource[], healths: [] as HealthStatus[], fields: [] as CustomField[], settings: null };
+        }
+      })();
+
+      const campaignP =
+        myType === "lead"
+          ? supabase
+              .from("campaign_leads")
+              .select("campaign_id, campaigns(id, name, type, status)")
+              .eq("lead_id", myId)
+          : Promise.resolve({ data: null });
+
+      const phoneP = organizationId
+        ? supabase
+            .from("phone_numbers")
+            .select("phone_number, friendly_name, is_default")
+            .or(`organization_id.eq.${organizationId},organization_id.is.null`)
+            .in("status", ["active", "Active"])
+        : Promise.resolve({ data: null });
+
+      const profilesP = supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
+
+      const lastCallP = supabase
+        .from("calls")
+        .select("caller_id_used")
+        .eq("contact_id", myId)
+        .not("caller_id_used", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const convoP = Promise.all([
+        supabase
+          .from("calls")
+          .select(
+            "id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, caller_id_used"
+          )
+          .eq("contact_id", myId)
+          .order("started_at", { ascending: true }),
+        supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", myId).order("sent_at", { ascending: true }),
       ]);
+
+      const notesActsP = Promise.all([notesSupabaseApi.getByContact(myId), activitiesSupabaseApi.getByContact(myId)]);
+
+      const [
+        [fetchedNotes, fetchedActivities],
+        fetchedStages,
+        settingsPack,
+        campaignRes,
+        phoneRes,
+        profilesRes,
+        lastCallRes,
+        [callsRes, msgsRes],
+      ] = await Promise.all([notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP, convoP]);
+
+      if (!isCurrent()) return;
+
       setLocalNotes(fetchedNotes);
       setActivities(fetchedActivities);
 
-      if (type === "lead" || type === "recruit") {
-        const fetchedStages = type === "recruit" ? await pipelineSupabaseApi.getRecruitStages() : await pipelineSupabaseApi.getLeadStages();
+      if (myType === "lead" || myType === "recruit") {
         setPipelineStages(fetchedStages);
       }
 
-      try {
-        const [sources, healths, fields] = await Promise.all([
-          leadSourcesSupabaseApi.getAll(),
-          healthStatusesSupabaseApi.getAll(),
-          customFieldsSupabaseApi.getAll()
-        ]);
-        if (sources.length > 0) setLeadSources(sources.map(s => s.name));
-        if (healths.length > 0) setHealthStatuses(healths.map(h => h.name));
-        const relevantFields = fields.filter(f => f.active && f.appliesTo.includes(type === 'lead' ? 'Leads' : type === 'client' ? 'Clients' : 'Recruits'));
-        setCustomFields(relevantFields);
-
-        const { data: settings } = await (supabase as any).from("contact_management_settings").select("*").eq("organization_id", organizationId).maybeSingle();
-        if (settings) {
-          if (type === "lead") setFieldOrder(settings.field_order_lead || []);
-          else if (type === "client") setFieldOrder(settings.field_order_client || []);
-          else if (type === "recruit") setFieldOrder(settings.field_order_recruit || []);
-        }
-      } catch (err) { console.error("Error fetching dynamic settings:", err); }
-
-      if (type === "lead") {
-        const { data: campaignLinks } = await supabase.from("campaign_leads").select("campaign_id, campaigns(id, name, type, status)").eq("lead_id", contact.id);
-        if (campaignLinks) setCampaigns(campaignLinks.map((cl: any) => cl.campaigns).filter(Boolean));
+      const { sources, healths, fields, settings } = settingsPack;
+      if (sources.length > 0) setLeadSources(sources.map((s) => s.name));
+      if (healths.length > 0) setHealthStatuses(healths.map((h) => h.name));
+      const relevantFields = fields.filter(
+        (f) => f.active && f.appliesTo.includes(myType === "lead" ? "Leads" : myType === "client" ? "Clients" : "Recruits")
+      );
+      setCustomFields(relevantFields);
+      if (settings) {
+        if (myType === "lead") setFieldOrder((settings as any).field_order_lead || []);
+        else if (myType === "client") setFieldOrder((settings as any).field_order_client || []);
+        else if (myType === "recruit") setFieldOrder((settings as any).field_order_recruit || []);
       }
 
-      const { data: phoneData } = await supabase.from("phone_numbers").select("phone_number, friendly_name, is_default").or(`organization_id.eq.${organizationId},organization_id.is.null`).in("status", ["active", "Active"]);
-      if (phoneData) {
-        setAvailableNumbers(phoneData.map(p => ({ 
-          number: p.phone_number, 
-          label: p.friendly_name ? `${p.friendly_name} - ${formatPhoneNumber(p.phone_number)}` : formatPhoneNumber(p.phone_number) 
-        })));
-        const { data: lastCall } = await supabase.from("calls").select("caller_id_used").eq("contact_id", contact.id).not("caller_id_used", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (myType === "lead" && campaignRes.data) {
+        setCampaigns(campaignRes.data.map((cl: any) => cl.campaigns).filter(Boolean));
+      } else if (myType !== "lead") {
+        setCampaigns([]);
+      }
+
+      const phoneData = phoneRes.data;
+      if (phoneData?.length) {
+        setAvailableNumbers(
+          phoneData.map((p) => ({
+            number: p.phone_number,
+            label: p.friendly_name ? `${p.friendly_name} - ${formatPhoneNumber(p.phone_number)}` : formatPhoneNumber(p.phone_number),
+          }))
+        );
+        const lastCall = lastCallRes.data;
         if (lastCall?.caller_id_used) setFromNumber(lastCall.caller_id_used);
-        else setFromNumber(phoneData.find(p => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
+        else setFromNumber(phoneData.find((p) => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
       }
 
-      const { data: profileData } = await supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
-      if (profileData) setAgents(profileData.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" })));
+      if (profilesRes.data) {
+        setAgents(profilesRes.data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" })));
+      }
+
+      const calls = (callsRes.data || []).map((c) => ({
+        ...c,
+        _type: "call",
+        _ts: new Date((c as any).started_at).getTime(),
+      }));
+      const msgs = (msgsRes.data || []).map((m) => ({
+        ...m,
+        _type: "sms",
+        _ts: new Date((m as any).sent_at).getTime(),
+      }));
+      setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
+      setConvoLoading(false);
+
+      if (!isCurrent()) return;
 
       setEditMode(false);
       setHasChanges(false);
@@ -259,10 +371,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       setStatusDropdownOpen(false);
       setShowAppt(false);
       setEmailSubject("");
-      loadConversations();
     }
+
     loadData();
-  }, [contact, type]);
+    return () => {
+      cancelled = true;
+    };
+  }, [contact?.id, type, organizationId]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) setStatusDropdownOpen(false); };

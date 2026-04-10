@@ -3428,6 +3428,7 @@ export default function DialerPage() {
 
       {showFullViewDrawer && currentLead && (
         <FullScreenContactView
+          key={currentLead.lead_id || currentLead.id}
           contact={mapDialerLeadToContactLead(currentLead)}
           type="lead"
           onClose={() => setShowFullViewDrawer(false)}

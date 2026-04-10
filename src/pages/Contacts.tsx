@@ -307,6 +307,27 @@ const Contacts: React.FC = () => {
       setRecruits(recruitData);
       setAgents(agentData);
       setSourceStats(stats);
+
+      setSelectedLead((prev) => {
+        if (!prev) return null;
+        const next = leadData.find((l) => l.id === prev.id);
+        return next ?? prev;
+      });
+      setSelectedClient((prev) => {
+        if (!prev) return null;
+        const next = clientData.find((c) => c.id === prev.id);
+        return next ?? prev;
+      });
+      setSelectedRecruit((prev) => {
+        if (!prev) return null;
+        const next = recruitData.find((r) => r.id === prev.id);
+        return next ?? prev;
+      });
+      setSelectedAgent((prev) => {
+        if (!prev) return null;
+        const next = agentData.find((u) => u.id === prev.id);
+        return next ?? prev;
+      });
       console.log(`fetchData: Load complete. Leads: ${leadData.length}, Clients: ${clientData.length}, Recruits: ${recruitData.length}`);
     } catch (err: any) {
       console.error("fetchData: Failed to load contacts data:", err);
@@ -1694,6 +1715,7 @@ const Contacts: React.FC = () => {
       <AddRecruitModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} />
       {selectedLead && (
         <FullScreenContactView 
+          key={selectedLead.id}
           contact={selectedLead} 
           type="lead" 
           onClose={closeContact} 
@@ -1704,6 +1726,7 @@ const Contacts: React.FC = () => {
       )}
       {selectedClient && (
         <FullScreenContactView 
+          key={selectedClient.id}
           contact={selectedClient} 
           type="client" 
           onClose={closeContact} 
@@ -1716,6 +1739,7 @@ const Contacts: React.FC = () => {
       )}
       {selectedRecruit && (
         <FullScreenContactView 
+          key={selectedRecruit.id}
           contact={selectedRecruit} 
           type="recruit" 
           onClose={closeContact} 

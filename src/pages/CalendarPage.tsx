@@ -703,6 +703,7 @@ const CalendarPage: React.FC = () => {
 
       {contactModalLead && (
         <FullScreenContactView
+          key={contactModalLead.id}
           contact={contactModalLead}
           type="lead"
           onClose={() => setContactModalLead(null)}
