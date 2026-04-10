@@ -104,8 +104,11 @@ Deno.serve(async (req) => {
             const regionInfo = n.region_information || [];
             
             // Robustly find locality (city) and administrative_area (state) from region_information
-            const locality = regionInfo.find((r: any) => r.region_type === "locality")?.region_name || n.locality || null;
-            const region = regionInfo.find((r: any) => r.region_type === "administrative_area" || r.region_type === "state")?.region_name || n.region || null;
+            // Telnyx uses various labels like 'location', 'rate_center', or 'locality' for cities
+            const locality = regionInfo.find((r: any) => ["location", "rate_center", "locality"].includes(r.region_type))?.region_name || n.locality || null;
+            
+            // Telnyx uses 'state' or 'administrative_area' for regions
+            const region = regionInfo.find((r: any) => ["state", "administrative_area"].includes(r.region_type))?.region_name || n.region || null;
             
             return {
                 phone_number: n.phone_number,
