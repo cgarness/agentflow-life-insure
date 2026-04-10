@@ -100,16 +100,22 @@ Deno.serve(async (req) => {
         const { data: rawNumbers } = await searchResponse.json();
 
         // Map to include locality and region for display
-        const numbers = (rawNumbers || []).map((n: any) => ({
-            phone_number: n.phone_number,
-            locality: n.locality || null,
-            region: n.region_information?.[0]?.region_name || n.region || null,
-            region_code: n.region_information?.[0]?.region_type === "state"
-                ? n.region_information?.[0]?.region_name
-                : n.region || null,
-            features: n.features,
-            monthly_cost: n.cost_information?.monthly_cost || n.monthly_cost || null,
-        }));
+        const numbers = (rawNumbers || []).map((n: any) => {
+            const regionInfo = n.region_information || [];
+            
+            // Robustly find locality (city) and administrative_area (state) from region_information
+            const locality = regionInfo.find((r: any) => r.region_type === "locality")?.region_name || n.locality || null;
+            const region = regionInfo.find((r: any) => r.region_type === "administrative_area" || r.region_type === "state")?.region_name || n.region || null;
+            
+            return {
+                phone_number: n.phone_number,
+                locality: locality,
+                region: region,
+                region_code: region,
+                features: n.features,
+                monthly_cost: n.cost_information?.monthly_cost || n.monthly_cost || null,
+            };
+        });
 
         return new Response(
             JSON.stringify({ numbers }),

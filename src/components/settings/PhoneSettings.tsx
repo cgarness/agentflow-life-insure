@@ -812,23 +812,27 @@ const PhoneSettings: React.FC = () => {
                   <p className="text-xs text-muted-foreground">{searchResults.length} numbers found</p>
                   <div className="max-h-64 overflow-y-auto space-y-1">
                     {searchResults.map((r: any) => {
-                      const locationParts = [r.locality, r.region_code || r.region].filter(Boolean);
+                      // Ensure we don't duplicate city if it's the same as state (unlikely but possible)
+                      const locality = r.locality;
+                      const region = r.region_code || r.region;
+                      const locationParts = [locality, region].filter((v, i, a) => v && a.indexOf(v) === i);
                       const locationLabel = locationParts.length > 0 ? locationParts.join(", ") : null;
+                      
                       return (
-                        <label key={r.phone_number} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${selectedNumber === r.phone_number ? "border-primary bg-primary/5" : "border-border hover:bg-accent/30"}`}>
+                        <label key={r.phone_number} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${selectedNumber === r.phone_number ? "border-primary bg-primary/10" : "border-border hover:bg-accent/50"}`}>
                           <div className="flex items-center gap-3">
-                            <input type="radio" name="purchase-number" checked={selectedNumber === r.phone_number} onChange={() => setSelectedNumber(r.phone_number)} className="accent-primary" />
+                            <input type="radio" name="purchase-number" checked={selectedNumber === r.phone_number} onChange={() => setSelectedNumber(r.phone_number)} className="accent-primary h-4 w-4" />
                             <div className="flex flex-col">
-                              <span className="font-mono text-sm font-medium">{formatPhone(r.phone_number)}</span>
+                              <span className="font-mono text-base font-semibold text-foreground tracking-tight">{formatPhone(r.phone_number)}</span>
                               {locationLabel && (
-                                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                  <MapPin className="w-3 h-3" />
+                                <span className="text-xs text-primary font-medium flex items-center gap-1.5 mt-0.5">
+                                  <MapPin className="w-3.5 h-3.5" />
                                   {locationLabel}
                                 </span>
                               )}
                             </div>
                           </div>
-                          <span className="text-xs font-semibold text-primary">$3.00/mo</span>
+                          <span className="text-xs font-bold text-foreground bg-accent px-2 py-1 rounded">$3.00/mo</span>
                         </label>
                       );
                     })}
