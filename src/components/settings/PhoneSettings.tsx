@@ -447,11 +447,12 @@ const PhoneSettings: React.FC = () => {
               <div className="relative">
                 <Input
                   type={showApiKey ? "text" : "password"}
+                  name="telnyx_api_key_field"
                   value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
                   placeholder="KEY..."
                   className="pr-10 font-mono text-sm"
-                  autoComplete="new-password"
+                  autoComplete="one-time-code"
                 />
                 <button onClick={() => setShowApiKey(!showApiKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -468,18 +469,19 @@ const PhoneSettings: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">SIP Username</label>
-              <Input value={sipUsername} onChange={e => setSipUsername(e.target.value)} placeholder="SIP Username" className="font-mono text-sm" autoComplete="off" />
+              <Input name="telnyx_sip_user_field" value={sipUsername} onChange={e => setSipUsername(e.target.value)} placeholder="SIP Username" className="font-mono text-sm" autoComplete="off" />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">SIP Password</label>
               <div className="relative">
                 <Input
                   type={showSipPass ? "text" : "password"}
+                  name="telnyx_sip_pass_field"
                   value={sipPassword}
                   onChange={e => setSipPassword(e.target.value)}
                   placeholder="SIP Password"
                   className="pr-10 font-mono text-sm"
-                  autoComplete="new-password"
+                  autoComplete="one-time-code"
                 />
                 <button onClick={() => setShowSipPass(!showSipPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showSipPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -489,10 +491,10 @@ const PhoneSettings: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <Button onClick={handleSave} disabled={saving || !hasChanges}>
+            <Button type="button" onClick={handleSave} disabled={saving || !hasChanges}>
               {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : "Save Credentials"}
             </Button>
-            <Button variant="outline" onClick={handleTest} disabled={testing || !apiKey}>
+            <Button type="button" variant="outline" onClick={handleTest} disabled={testing || !apiKey}>
               {testing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Test Connection
             </Button>
@@ -796,7 +798,7 @@ const PhoneSettings: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <Button className="w-full" onClick={handleSearchNumbers} disabled={searching}>
+              <Button type="button" className="w-full" onClick={handleSearchNumbers} disabled={searching}>
                 {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
                 Search Available Numbers
               </Button>
