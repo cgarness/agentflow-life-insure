@@ -29,6 +29,44 @@ import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 
 type ContactType = "lead" | "client" | "recruit";
 
+/** Stable grid order so the left column does not flash from “legacy” layout → saved order when settings load. */
+function getDefaultFieldOrder(t: ContactType): string[] {
+  if (t === "lead") {
+    return [
+      "firstName",
+      "lastName",
+      "phone",
+      "email",
+      "state",
+      "leadSource",
+      "leadScore",
+      "age",
+      "dateOfBirth",
+      "spouseInfo",
+      "assignedAgentId",
+      "notes",
+    ];
+  }
+  if (t === "client") {
+    return [
+      "firstName",
+      "lastName",
+      "phone",
+      "email",
+      "policyType",
+      "carrier",
+      "state",
+      "policyNumber",
+      "premiumAmount",
+      "faceAmount",
+      "issueDate",
+      "assignedAgentId",
+      "notes",
+    ];
+  }
+  return ["firstName", "lastName", "phone", "email", "status", "state", "assignedAgentId", "notes"];
+}
+
 const US_STATES = [
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
   "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
@@ -161,9 +199,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const [leadSources, setLeadSources] = useState<string[]>(initialLeadSources);
   const [healthStatuses, setHealthStatuses] = useState<string[]>(initialHealthStatuses);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
-  const [fieldOrder, setFieldOrder] = useState<string[]>([]);
+  const [fieldOrder, setFieldOrder] = useState<string[]>(() => getDefaultFieldOrder(type));
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+  /** False until org roster fetch finishes — avoids flashing raw UUIDs for agent ids. */
+  const [rosterLoaded, setRosterLoaded] = useState(false);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
   const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
@@ -193,6 +233,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     setConvoItems([]);
     setConvoLoading(true);
     setPipelineStages([]);
+    setFieldOrder(getDefaultFieldOrder(type));
+    setRosterLoaded(false);
   }, [contact?.id, type]);
 
   // Same contact refreshed from parent (e.g. after save + list refetch). Compare snapshot so Dialer/Calendar inline `contact` objects do not re-sync every parent render.
@@ -216,10 +258,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     if (!contact?.id) return;
     const myId = contact.id;
     const myType = type;
+    const assignedAgentIdForContact = (contact.assignedAgentId as string | undefined)?.trim() ?? "";
     let cancelled = false;
     const isCurrent = () => !cancelled && latestContactIdRef.current === myId;
 
     async function loadData() {
+      const assignedRowP =
+        assignedAgentIdForContact && assignedAgentIdForContact !== profile?.id
+          ? supabase.from("profiles").select("id, first_name, last_name").eq("id", assignedAgentIdForContact).maybeSingle()
+          : Promise.resolve({ data: null });
+
       const pipelineP =
         myType === "lead" || myType === "recruit"
           ? myType === "recruit"
@@ -277,20 +325,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         .limit(1)
         .maybeSingle();
 
-      const convoP = Promise.all([
-        supabase
-          .from("calls")
-          .select(
-            "id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, caller_id_used"
-          )
-          .eq("contact_id", myId)
-          .order("started_at", { ascending: true }),
-        supabase.from("messages").select("id, direction, body, sent_at, from_number").eq("lead_id", myId).order("sent_at", { ascending: true }),
-      ]);
-
       const notesActsP = Promise.all([notesSupabaseApi.getByContact(myId), activitiesSupabaseApi.getByContact(myId)]);
 
       const [
+        assignedRowRes,
         [fetchedNotes, fetchedActivities],
         fetchedStages,
         settingsPack,
@@ -298,8 +336,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         phoneRes,
         profilesRes,
         lastCallRes,
-        [callsRes, msgsRes],
-      ] = await Promise.all([notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP, convoP]);
+      ] = await Promise.all([assignedRowP, notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP]);
 
       if (!isCurrent()) return;
 
@@ -318,9 +355,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       );
       setCustomFields(relevantFields);
       if (settings) {
-        if (myType === "lead") setFieldOrder((settings as any).field_order_lead || []);
-        else if (myType === "client") setFieldOrder((settings as any).field_order_client || []);
-        else if (myType === "recruit") setFieldOrder((settings as any).field_order_recruit || []);
+        const raw =
+          myType === "lead"
+            ? (settings as any).field_order_lead
+            : myType === "client"
+              ? (settings as any).field_order_client
+              : (settings as any).field_order_recruit;
+        setFieldOrder(Array.isArray(raw) && raw.length > 0 ? raw : getDefaultFieldOrder(myType));
+      } else {
+        setFieldOrder(getDefaultFieldOrder(myType));
       }
 
       if (myType === "lead" && campaignRes.data) {
@@ -342,20 +385,57 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         else setFromNumber(phoneData.find((p) => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
       }
 
-      if (profilesRes.data) {
-        setAgents(profilesRes.data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" })));
+      let agentRows = (profilesRes.data || []).map((p: any) => ({
+        id: p.id,
+        firstName: p.first_name || "",
+        lastName: p.last_name || "",
+      }));
+      const ar = assignedRowRes.data as { id: string; first_name: string | null; last_name: string | null } | null;
+      if (ar?.id && !agentRows.some((x) => x.id === ar.id)) {
+        agentRows = [
+          { id: ar.id, firstName: ar.first_name || "", lastName: ar.last_name || "" },
+          ...agentRows,
+        ];
       }
+      setAgents(agentRows);
+      setRosterLoaded(true);
 
-      const calls = (callsRes.data || []).map((c) => ({
-        ...c,
-        _type: "call",
-        _ts: new Date((c as any).started_at).getTime(),
-      }));
-      const msgs = (msgsRes.data || []).map((m) => ({
-        ...m,
-        _type: "sms",
-        _ts: new Date((m as any).sent_at).getTime(),
-      }));
+      if (!isCurrent()) return;
+
+      // Conversation timeline (calls + SMS) can be heavy — load after the rest so the left column and activity are not blocked.
+      const [callsRes, msgsRes] = await Promise.all([
+        supabase
+          .from("calls")
+          .select(
+            "id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, caller_id_used"
+          )
+          .eq("contact_id", myId)
+          .order("started_at", { ascending: false })
+          .limit(300),
+        supabase
+          .from("messages")
+          .select("id, direction, body, sent_at, from_number")
+          .eq("lead_id", myId)
+          .order("sent_at", { ascending: false })
+          .limit(300),
+      ]);
+
+      if (!isCurrent()) return;
+
+      const calls = (callsRes.data || [])
+        .map((c) => ({
+          ...c,
+          _type: "call",
+          _ts: new Date((c as any).started_at).getTime(),
+        }))
+        .reverse();
+      const msgs = (msgsRes.data || [])
+        .map((m) => ({
+          ...m,
+          _type: "sms",
+          _ts: new Date((m as any).sent_at).getTime(),
+        }))
+        .reverse();
       setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
       setConvoLoading(false);
 
@@ -377,7 +457,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     return () => {
       cancelled = true;
     };
-  }, [contact?.id, type, organizationId]);
+  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) setStatusDropdownOpen(false); };
@@ -390,7 +470,22 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   if (!contact) return null;
 
   const filteredConvos = convoFilter === "All" ? convoItems : convoItems.filter(i => i._type === convoFilter.toLowerCase());
-  const getAgentDisplayName = (agentId: string) => { const a = agents.find(ag => ag.id === agentId); return a ? `${a.firstName} ${a.lastName}` : agentId; };
+  const getAgentDisplayName = (agentId: string) => {
+    if (!agentId?.trim()) return "";
+    const id = agentId.trim();
+    if (id === profile?.id) {
+      const n = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim();
+      if (n) return n;
+    }
+    const a = agents.find((ag) => ag.id === id);
+    if (a) {
+      const n = `${a.firstName} ${a.lastName}`.trim();
+      if (n) return n;
+    }
+    const looksUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (looksUuid) return rosterLoaded ? "Unavailable" : "Loading…";
+    return id;
+  };
   const getStatusColor = (status: string) => { const stage = pipelineStages.find(s => s.name === status); return stage ? stage.color : fallbackStatusStyles[status] || "#6B7280"; };
 
   const handleStatusChange = async (newStatus: string) => {
@@ -704,9 +799,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
             
               <div className="space-y-4">
-                {/* Dynamic Unified Field Layout */}
-                {fieldOrder.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                {/* Default field order matches the old static grid so the left column does not re-layout when settings arrive. */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                     {fieldOrder.map(fieldId => {
                       if (fieldId.startsWith('custom:')) {
                         const fieldName = fieldId.replace('custom:', '');
@@ -774,112 +868,22 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         </div>
                       );
                     })}
-                  </div>
-                ) : (
-                  // Fallback to legacy hardcoded layout if no order is found
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      {renderField("First Name", "firstName")}
-                      {renderField("Last Name", "lastName")}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      {renderField("Phone", "phone", "text")}
-                      {renderField("Email", "email", "email")}
-                    </div>
-                    
-                    {type === "lead" && (
-                      <>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("State", "state", "select", US_STATES)}
-                          {renderField("Source", "leadSource", "select", leadSources)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("Score", "leadScore", "number")}
-                          {renderField("Age", "age", "number")}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("DOB", "dateOfBirth", "date")}
-                          <div />
-                        </div>
-                        {renderField("Spouse Info", "spouseInfo")}
-                      </>
-                    )}
-                    
-                    {type === "client" && (
-                      <>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("Policy Type", "policyType", "select", policyTypes)}
-                          {renderField("Carrier", "carrier")}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("State", "state", "select", US_STATES)}
-                          {renderField("Policy #", "policyNumber")}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("Premium", "premiumAmount")}
-                          {renderField("Face Amount", "faceAmount")}
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {renderField("Issue Date", "issueDate", "date")}
-                          <div />
-                        </div>
-                      </>
-                    )}
-                    
-                    {type === "recruit" && (
-                      <div className="grid grid-cols-2 gap-4">
-                         {renderField("Status", "status", "select", recruitStatuses)}
-                         {renderField("State", "state", "select", US_STATES)}
-                      </div>
-                    )}
+                </div>
 
-                    {/* JSONB Custom Fields fallback */}
-                    {Object.keys(editForm?.customFields || {}).length > 0 && (
-                      <div className="pt-4 border-t border-border/30 mt-4 px-1">
-                        <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                           <div className="w-1 h-3 bg-primary rounded-full" /> Additional Data
-                        </h4>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                          {Object.keys(editForm.customFields).map(key => (
-                            <div key={`jsonb-fallback-${key}`}>
-                              {renderField(key, `customFields.${key}`)}
-                            </div>
-                          ))}
+                {customFields.some((f) => !fieldOrder.includes(`custom:${f.name}`)) && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4 pt-2">
+                    {customFields
+                      .filter((f) => !fieldOrder.includes(`custom:${f.name}`))
+                      .map((field) => (
+                        <div key={field.id}>
+                          {renderField(
+                            field.name,
+                            `customFields.${field.name}`,
+                            field.type === "Dropdown" ? "select" : (field.type.toLowerCase() as any),
+                            field.dropdownOptions
+                          )}
                         </div>
-                      </div>
-                    )}
-
-                    {customFields.length > 0 && (
-                      <div className="grid grid-cols-2 gap-4">
-                        {customFields.map(field => (
-                          <div key={field.id}>
-                            {renderField(
-                              field.name,
-                              `customFields.${field.name}`,
-                              field.type === 'Dropdown' ? 'select' : field.type.toLowerCase() as any,
-                              field.dropdownOptions
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    <div className="bg-muted/50 rounded-lg px-3 py-2">
-                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Assigned Agent</label>
-                      {editMode ? (
-                        <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
-                          <option value="">—</option>
-                          {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
-                        </select>
-                      ) : (
-                        <div className="mt-1 flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
-                          <CopyField value={getAgentDisplayName(contact.assignedAgentId)} />
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div>{renderField("System Notes", "notes", "textarea")}</div>
+                      ))}
                   </div>
                 )}
               </div>
