@@ -8,18 +8,6 @@ const corsHeaders = {
 
 const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 
-// Helper for generating secure passwords
-const generatePassword = (length = 16) => {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
-    let password = "";
-    const randomValues = new Uint32Array(length);
-    crypto.getRandomValues(randomValues);
-    for (let i = 0; i < length; i++) {
-        password += chars[randomValues[i] % chars.length];
-    }
-    return password;
-};
-
 // Helper for making Telnyx API calls
 const telnyxApiCall = async (method: string, endpoint: string, apiKey: string, body?: any) => {
     const url = `https://api.telnyx.com/v2${endpoint}`;
@@ -40,6 +28,13 @@ const telnyxApiCall = async (method: string, endpoint: string, apiKey: string, b
     }
 
     return response.json();
+};
+
+// Helper for extracting area code
+const extractAreaCode = (num: string) => {
+    const cleaned = num.replace(/\D/g, "");
+    const digits = cleaned.startsWith("1") && cleaned.length === 11 ? cleaned.slice(1) : cleaned;
+    return digits.slice(0, 3);
 };
 
 Deno.serve(async (req) => {
@@ -113,20 +108,16 @@ Deno.serve(async (req) => {
         } else if (normalizedNumber.length === 11 && normalizedNumber.startsWith("1")) {
             normalizedNumber = `+${normalizedNumber}`;
         } else if (!normalizedNumber.startsWith("+")) {
-            // Default to + for other formats, but primarily focusing on US/E.164
             normalizedNumber = `+${normalizedNumber}`;
         }
 
         console.log(`[Provisioning] Normalized number: ${normalizedNumber}`);
 
-        const webhookUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/telnyx-webhook`;
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const appName = `AgentFlow CRM ${timestamp}`;
+        // Master IDs for CRM assignment
+        const VOICE_APP_ID = "2911194903079814357"; // "AgentFlow Call Control"
+        const MESSAGING_PROFILE_ID = "40019cd5-f007-4511-93c2-216916e1da07"; // "AgentFlow"
 
-        const VOICE_APP_ID = "2911194903079814357";
-        const MESSAGING_PROFILE_ID = "40019cd5-f007-4511-93c2-216916e1da07";
-
-        // 2. Purchase the Phone Number
+        // 1. Purchase the Phone Number
         console.log(`[Step 1] Purchasing number: ${normalizedNumber}...`);
         const orderResponse = await telnyxApiCall("POST", "/number_orders", apiKey, {
             phone_numbers: [{ phone_number: normalizedNumber }]
@@ -134,96 +125,59 @@ Deno.serve(async (req) => {
         
         console.log(`[Step 1] Order created: ${orderResponse.data.id}. Status: ${orderResponse.data.status}`);
         
-        // 3. Extract or Fetch the Phone Number UUID
+        // 2. Extract or Fetch the Phone Number UUID
         let telnyxPhoneNumberId = orderResponse.data?.phone_numbers?.[0]?.id;
         
         if (!telnyxPhoneNumberId) {
-            console.log("[Step 1.5] ID not in immediate response, entering retry loop...");
-            
-            // Retry loop to find the ID in owned numbers
+            console.log("[Step 2] ID not in immediate response, entering retry loop...");
             for (let i = 0; i < 5; i++) {
                 const waitTime = (i + 1) * 2000;
-                console.log(`[Step 1.5] Retry ${i + 1}: Waiting ${waitTime}ms...`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
-                
                 try {
                     const phoneListResponse = await telnyxApiCall("GET", `/phone_numbers?filter[phone_number]=${encodeURIComponent(normalizedNumber)}`, apiKey);
                     if (phoneListResponse.data?.[0]?.id) {
                         telnyxPhoneNumberId = phoneListResponse.data[0].id;
-                        console.log(`[Step 1.5] Found ID after ${i + 1} retries: ${telnyxPhoneNumberId}`);
+                        console.log(`[Step 2] Found ID: ${telnyxPhoneNumberId}`);
                         break;
                     }
                 } catch (err) {
-                    console.warn(`[Step 1.5] Filter query failed on retry ${i + 1}:`, err.message);
+                    console.warn(`[Step 2] Retry ${i + 1} failed:`, err.message);
                 }
             }
         }
 
-        // Final fallback to normalized number (deprecated behavior in Telnyx but might work on some accounts)
         if (!telnyxPhoneNumberId) {
-            console.warn("[Step 1.5] Failed to find UUID, falling back to E.164 string path.");
+            console.warn("[Step 2] Using normalized number as fallback ID.");
             telnyxPhoneNumberId = normalizedNumber;
         }
 
-        // 4. Create Outbound Voice Profile
-        console.log(`[Step 2] Creating Outbound Profile: ${appName}...`);
-        const profileResponse = await telnyxApiCall("POST", "/outbound_voice_profiles", apiKey, {
-            name: appName,
-            max_destination_rate: "0.05",
-            billing_group_id: null,
-            concurrent_call_limit: 10,
-        });
-        const profileId = profileResponse.data.id;
-
-        // 5. Create TeXML Application
-        console.log(`[Step 3] Creating TeXML App: ${appName}...`);
-        const appResponse = await telnyxApiCall("POST", "/texml_applications", apiKey, {
-            application_name: appName,
-            voice_url: webhookUrl,
-            voice_method: "POST",
-            voice_fallback_url: webhookUrl,
-            status_callback: webhookUrl,
-            status_callback_method: "POST",
-            outbound_voice_profile_id: profileId,
-        });
-        const appId = appResponse.data.id;
-
-        // 6. Create SIP Credentials
-        const sipUsername = `crm_${crypto.randomUUID().split("-")[0]}`;
-        const sipPassword = generatePassword(16);
-
-        console.log(`[Step 4] Creating SIP Credentials: ${sipUsername}...`);
-        const credentialConnectionParams = {
-            connection_name: `${appName} Credentials`,
-            user_name: sipUsername,
-            password: sipPassword,
-            outbound: {
-                outbound_voice_profile_id: profileId
-            }
-        };
-
-        try {
-            await telnyxApiCall("POST", "/credential_connections", apiKey, credentialConnectionParams);
-        } catch (err) {
-            console.error("[Step 4] Failed to create SIP connection:", err);
-            // Non-critical, continue
-        }
-
-        // 7. Link Phone Number to TeXML Application
-        console.log(`[Step 5] Linking Phone Number ${telnyxPhoneNumberId} to App ${appId}...`);
+        // 3. Link Phone Number to Existing TeXML Application
+        console.log(`[Step 3] Linking to Master voice app: ${VOICE_APP_ID}...`);
         try {
             await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
-                connection_id: appId
+                connection_id: VOICE_APP_ID
             });
-            console.log("[Step 5] Link successful.");
+            console.log("[Step 3] Voice link successful.");
         } catch (err) {
-            console.error("[Step 5] Link failed:", err);
-            // If it's a 404, we might still be hitting inventory lag
-            throw new Error(`Failed to link number to voice app after purchase. Step 5 failed: ${err.message}`);
+            console.error("[Step 3] Voice link failed:", err);
+            throw new Error(`Failed to configure voice: ${err.message}`);
         }
 
-        // 8. Store in CRM
-        console.log(`[Step 6] Saving to CRM database (Assigned To: ${reqData.assigned_to || 'unassigned'})...`);
+        // 4. Assign to Existing Messaging Profile
+        console.log(`[Step 4] Assigning to Master Messaging Profile: ${MESSAGING_PROFILE_ID}...`);
+        try {
+            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
+                messaging_profile_id: MESSAGING_PROFILE_ID
+            });
+            console.log("[Step 4] Messaging link successful.");
+        } catch (err) {
+            console.warn("[Step 4] Messaging assignment failed (continuing):", err);
+        }
+
+        // 5. Store in CRM
+        const areaCode = extractAreaCode(normalizedNumber);
+        console.log(`[Step 5] Saving to CRM DB (Area: ${areaCode}, Assigned: ${reqData.assigned_to || 'unassigned'})...`);
+        
         const { count: existingCount } = await supabaseClient
             .from("phone_numbers")
             .select("id", { count: "exact", head: true })
@@ -240,40 +194,18 @@ Deno.serve(async (req) => {
                 is_default: isFirstNumber,
                 organization_id: organizationId,
                 assigned_to: reqData.assigned_to || null,
+                area_code: areaCode,
+                spam_status: "Unknown",
                 created_at: new Date().toISOString(),
             }]);
 
-        if (dbError) console.error("[Step 6] CRM DB Error:", dbError);
-
-        await supabaseClient
-            .from("phone_settings")
-            .upsert({
-                organization_id: organizationId,
-                application_sid: appId,
-                account_sid: sipUsername,
-                auth_token: sipPassword,
-                updated_at: new Date().toISOString()
-            }, { onConflict: "organization_id" });
-
-        const warnings: string[] = [];
-
-        // 9. Assign to Messaging Profile
-        console.log(`[Step 7] Assigning to Messaging Profile...`);
-        try {
-            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
-                messaging_profile_id: MESSAGING_PROFILE_ID
-            });
-            console.log("[Step 7] Messaging link successful.");
-        } catch (err) {
-            console.error("[Step 7] Messaging assignment failed:", err);
-            warnings.push("Messaging profile assignment failed — please assign manually in Telnyx portal");
-        }
+        if (dbError) throw new Error(`Database error: ${dbError.message}`);
 
         return new Response(
             JSON.stringify({
                 success: true,
                 phone_number: normalizedNumber,
-                warnings,
+                telnyx_id: telnyxPhoneNumberId,
             }),
             {
                 status: 200,
