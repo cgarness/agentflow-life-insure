@@ -117,10 +117,18 @@ Deno.serve(async (req) => {
 
         // 2. Purchase the Phone Number
         console.log(`Purchasing number: ${normalizedNumber}...`);
-        const orderResponse = await telnyxApiCall("POST", "/phone_numbers", apiKey, {
-            phone_number: normalizedNumber
+        const orderResponse = await telnyxApiCall("POST", "/number_orders", apiKey, {
+            phone_numbers: [{ phone_number: normalizedNumber }]
         });
-        const telnyxPhoneNumberId = orderResponse.data.id;
+        
+        console.log("Number order created:", orderResponse.data.id);
+        
+        // Wait a brief moment to ensure the number is provisioned and available
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Find the actual phone number ID in Telnyx
+        const phoneListResponse = await telnyxApiCall("GET", `/phone_numbers?filter[phone_number]=${encodeURIComponent(normalizedNumber)}`, apiKey);
+        const telnyxPhoneNumberId = phoneListResponse.data?.[0]?.id || encodeURIComponent(normalizedNumber);
 
         // 3. Create Outbound Voice Profile
         console.log(`Creating Outbound Profile: ${appName}...`);
@@ -216,18 +224,7 @@ Deno.serve(async (req) => {
 
         const warnings: string[] = [];
 
-        // 8. Assign to Voice API Application
-        console.log(`Assigning number to Voice API Application...`);
-        try {
-            await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
-                connection_id: VOICE_APP_ID
-            });
-        } catch (err) {
-            console.error("Voice app assignment failed:", err);
-            warnings.push("Voice app assignment failed — please assign manually in Telnyx portal");
-        }
-
-        // 9. Assign to Messaging Profile
+        // 8. Assign to Messaging Profile
         console.log(`Assigning number to Messaging Profile...`);
         try {
             await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
