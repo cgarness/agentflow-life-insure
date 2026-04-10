@@ -7,6 +7,7 @@ interface HistoryItem {
   id: string;
   type: string;
   description: string;
+  direction?: "inbound" | "outbound" | null;
   disposition?: string | null;
   disposition_color?: string | null;
   created_at: string;
@@ -107,43 +108,71 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
           )}
 
           {!loadingHistory &&
-            reversedHistory.map((item) => (
-              <div key={item.id} className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
-                  {historyIcon(item.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm text-foreground">{item.description}</span>
-                    {item.type === "call" && item.disposition && (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded-full font-medium"
-                        style={{
-                          backgroundColor: item.disposition_color
-                            ? `${item.disposition_color}33`
-                            : undefined,
-                          color: item.disposition_color ?? undefined,
-                        }}
-                      >
-                        {item.disposition}
-                      </span>
-                    )}
-                  </div>
-                  {item.type === "call" && item.recording_url && (
-                    <div className="mt-1.5 space-y-1">
-                      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <Mic className="w-3 h-3" aria-hidden />
-                        <span>Call recording</span>
-                      </div>
-                      <RecordingPlayer callId={item.id} compact />
+            reversedHistory.map((item) => {
+              const isOutbound = item.direction !== "inbound";
+              
+              return (
+                <div 
+                  key={item.id} 
+                  className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
+                >
+                  <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                    {/* Minimalist Icon Indicator */}
+                    <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>
+                      {historyIcon(item.type)}
                     </div>
-                  )}
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {formatDateTime(new Date(item.created_at))}
+
+                    <div className="flex flex-col">
+                      <div 
+                        className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all ${
+                          isOutbound 
+                            ? "bg-[#007AFF] text-white rounded-tr-sm" 
+                            : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-1">
+                          <span className="leading-tight font-medium">{item.description}</span>
+                          
+                          {item.type === "call" && item.disposition && (
+                            <div className="flex justify-start">
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                  isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
+                                }`}
+                                style={!isOutbound && item.disposition_color ? {
+                                  backgroundColor: `${item.disposition_color}22`,
+                                  color: item.disposition_color
+                                } : undefined}
+                              >
+                                {item.disposition}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Call Recording Player - if exists */}
+                      {item.type === "call" && item.recording_url && (
+                        <div className={`mt-1.5 w-[240px] max-w-full ${isOutbound ? "self-end" : "self-start"}`}>
+                          <div className="bg-accent/50 rounded-xl p-2 border border-border/50">
+                            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 px-1">
+                              <Mic className="w-2.5 h-2.5" aria-hidden />
+                              <span>Recording</span>
+                            </div>
+                            <RecordingPlayer callId={item.id} compact />
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Timestamp */}
+                      <div className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${isOutbound ? "justify-end" : "justify-start"}`}>
+                        {formatDateTime(new Date(item.created_at))}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
       </div>
 

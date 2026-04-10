@@ -175,7 +175,7 @@ export async function getLeadHistory(
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, disposition_name, duration, recording_url, telnyx_call_control_id");
+    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, telnyx_call_control_id");
 
   if (campaignLeadId) {
     callsQuery = callsQuery.or(
@@ -236,6 +236,7 @@ export async function getLeadHistory(
       id: c.id,
       type: "call" as const,
       description: `Call — ${c.disposition_name ?? "Unknown"} — ${formatDuration(c.duration ?? 0)}`,
+      direction: c.direction ?? "outbound",
       disposition: c.disposition_name,
       disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,
       created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
@@ -248,6 +249,7 @@ export async function getLeadHistory(
     id: a.id,
     type: a.activity_type,
     description: a.description,
+    direction: "outbound" as const, // Activities are typically agent-created
     disposition: null as string | null,
     disposition_color: null as string | null,
     created_at: a.created_at,
