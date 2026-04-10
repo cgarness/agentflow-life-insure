@@ -8,10 +8,11 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import {
-  Eye, EyeOff, Lock, Loader2, Upload, User,
+  Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Shield, Trash2, Plus,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
+import { Badge } from "@/components/ui/badge";
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -352,14 +353,9 @@ const MyProfile: React.FC = () => {
   const showGoals = user.role === "Agent" || user.role === "Team Leader";
 
   return (
-    <div className="space-y-2">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-foreground">My Profile</h2>
-        <p className="text-sm text-muted-foreground">Manage your personal account settings</p>
-      </div>
-
+    <div className="space-y-6">
       {/* CARD 1 — Profile Info */}
-      <Card className="bg-card border-border rounded-lg mb-6">
+      <Card className="bg-card border-border rounded-xl mb-6">
         <CardHeader><CardTitle className="text-base">Profile Information</CardTitle></CardHeader>
         <CardContent className="space-y-6">
           {/* Avatar */}
@@ -451,72 +447,175 @@ const MyProfile: React.FC = () => {
               </select>
             </div>
 
-            <div className="md:col-span-2 border border-border rounded-md p-4 space-y-3">
-              <label className="text-sm font-medium text-foreground block">Licensed States</label>
-              <div className="flex flex-col md:flex-row gap-2">
-                <select
-                  value={stateToAdd}
-                  onChange={(e) => setStateToAdd(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">Select a state</option>
-                  {US_STATES.filter((state) => !licensedStates.some((item) => item.state === state)).map((state) => (
-                    <option key={state} value={state}>{state}</option>
-                  ))}
-                </select>
-                <Button type="button" variant="outline" className="md:w-auto" onClick={addLicensedState} disabled={!stateToAdd}>Add State</Button>
-              </div>
+          </div>
 
-              {licensedStates.map(({ state, licenseNumber }) => (
-                <div key={state} className="space-y-1.5 p-3 border border-border/50 rounded-lg bg-accent/10">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-foreground block">{state} License Number</label>
-                    <button type="button" onClick={() => removeLicensedState(state)} className="text-xs text-destructive hover:underline">Remove</button>
-                  </div>
+          <div className="flex justify-end pt-4">
+            <Button onClick={handleSaveProfile} disabled={profileSaving} className="px-6 rounded-lg transition-all hover:scale-[1.02]">
+              {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Profile Information"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* CARD 1.1 — Licensed States */}
+      <Card className="bg-card border-border rounded-xl">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Globe className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Licensed States</CardTitle>
+              <p className="text-xs text-muted-foreground">Manage the states where you are licensed to sell</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex flex-col md:flex-row gap-3 items-end bg-accent/30 p-4 rounded-xl border border-border/50">
+            <div className="flex-1 w-full space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Add New State</label>
+              <select
+                value={stateToAdd}
+                onChange={(e) => setStateToAdd(e.target.value)}
+                className="w-full h-11 px-4 rounded-lg border border-input bg-background/50 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+              >
+                <option value="">Select a state</option>
+                {US_STATES.filter((state) => !licensedStates.some((item) => item.state === state)).map((state) => (
+                  <option key={state} value={state}>{state}</option>
+                ))}
+              </select>
+            </div>
+            <Button 
+              type="button" 
+              onClick={addLicensedState} 
+              disabled={!stateToAdd}
+              className="h-11 px-6 rounded-lg font-medium transition-all hover:shadow-lg active:scale-95"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Add State
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {licensedStates.map(({ state, licenseNumber }) => (
+              <div key={state} className="group relative p-4 rounded-xl border border-border bg-card hover:border-primary/50 hover:shadow-md transition-all duration-300">
+                <div className="flex items-center justify-between mb-3">
+                  <Badge variant="secondary" className="font-semibold px-2.5 py-0.5 rounded-md bg-primary/5 text-primary border-primary/10">
+                    {state}
+                  </Badge>
+                  <button 
+                    type="button" 
+                    onClick={() => removeLicensedState(state)} 
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    title="Remove State"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">License Number</label>
                   <Input
                     value={licenseNumber}
                     onChange={(e) => updateStateLicenseNumber(state, e.target.value)}
-                    placeholder={`Enter ${state} license number`}
+                    placeholder="Enter license #"
+                    className="h-9 text-sm bg-accent/50 border-0 focus-visible:ring-1 focus-visible:ring-primary rounded-md"
                   />
                 </div>
-              ))}
-            </div>
-
-            <div className="md:col-span-2 border border-border rounded-md p-4 space-y-3">
-              <label className="text-sm font-medium text-foreground block">Carriers</label>
-              <div className="flex flex-col md:flex-row gap-2">
-                <select
-                  value={carrierToAdd}
-                  onChange={(e) => setCarrierToAdd(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">Select a carrier</option>
-                  {CARRIERS.filter((carrier) => !selectedCarriers.some((item) => item.carrier === carrier)).map((carrier) => (
-                    <option key={carrier} value={carrier}>{carrier}</option>
-                  ))}
-                </select>
-                <Button type="button" variant="outline" className="md:w-auto" onClick={addCarrier} disabled={!carrierToAdd}>Add Carrier</Button>
               </div>
+            ))}
+            {licensedStates.length === 0 && (
+              <div className="md:col-span-2 lg:col-span-3 py-12 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl bg-accent/5">
+                <Globe className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                <p className="text-sm text-muted-foreground">No states added yet</p>
+              </div>
+            )}
+          </div>
 
-              {selectedCarriers.map(({ carrier, writingNumber }) => (
-                <div key={carrier} className="space-y-1.5 p-3 border border-border/50 rounded-lg bg-accent/10">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-foreground block">{carrier} Agent Writing Number</label>
-                    <button type="button" onClick={() => removeCarrier(carrier)} className="text-xs text-destructive hover:underline">Remove</button>
-                  </div>
+          <div className="flex justify-end pt-2 border-t border-border/50">
+            <Button onClick={handleSaveProfile} disabled={profileSaving} variant="outline" className="px-6 rounded-lg transition-all hover:bg-primary/5">
+              {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Licenses"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* CARD 1.2 — Carriers */}
+      <Card className="bg-card border-border rounded-xl">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Shield className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Insurance Carriers</CardTitle>
+              <p className="text-xs text-muted-foreground">Configure your writing numbers for each carrier</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex flex-col md:flex-row gap-3 items-end bg-accent/30 p-4 rounded-xl border border-border/50">
+            <div className="flex-1 w-full space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Select Carrier</label>
+              <select
+                value={carrierToAdd}
+                onChange={(e) => setCarrierToAdd(e.target.value)}
+                className="w-full h-11 px-4 rounded-lg border border-input bg-background/50 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+              >
+                <option value="">Select a carrier</option>
+                {CARRIERS.filter((carrier) => !selectedCarriers.some((item) => item.carrier === carrier)).map((carrier) => (
+                  <option key={carrier} value={carrier}>{carrier}</option>
+                ))}
+              </select>
+            </div>
+            <Button 
+              type="button" 
+              onClick={addCarrier} 
+              disabled={!carrierToAdd}
+              className="h-11 px-6 rounded-lg font-medium transition-all hover:shadow-lg active:scale-95"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Add Carrier
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {selectedCarriers.map(({ carrier, writingNumber }) => (
+              <div key={carrier} className="group relative p-4 rounded-xl border border-border bg-card hover:border-primary/50 hover:shadow-md transition-all duration-300">
+                <div className="flex items-center justify-between mb-3">
+                  <Badge variant="outline" className="font-semibold px-2.5 py-0.5 rounded-md border-primary/20 text-primary bg-primary/5">
+                    {carrier}
+                  </Badge>
+                  <button 
+                    type="button" 
+                    onClick={() => removeCarrier(carrier)} 
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    title="Remove Carrier"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Writing Number</label>
                   <Input
                     value={writingNumber}
                     onChange={(e) => updateCarrierWritingNumber(carrier, e.target.value)}
-                    placeholder={`Enter ${carrier} writing number`}
+                    placeholder="Enter writing #"
+                    className="h-9 text-sm bg-accent/50 border-0 focus-visible:ring-1 focus-visible:ring-primary rounded-md"
                   />
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
+            {selectedCarriers.length === 0 && (
+              <div className="md:col-span-2 lg:col-span-3 py-12 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl bg-accent/5">
+                <Shield className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                <p className="text-sm text-muted-foreground">No carriers configured</p>
+              </div>
+            )}
           </div>
 
-          <Button onClick={handleSaveProfile} disabled={profileSaving} className="px-6">
-            {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Changes"}
-          </Button>
+          <div className="flex justify-end pt-2 border-t border-border/50">
+            <Button onClick={handleSaveProfile} disabled={profileSaving} variant="outline" className="px-6 rounded-lg transition-all hover:bg-primary/5">
+              {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Carriers"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
