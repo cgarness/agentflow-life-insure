@@ -54,6 +54,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-10 | [DONE] Phone settings — bulk AgentFlow routing on Telnyx (API)**
+  *What:* `telnyx-sync-numbers` can `PATCH` every number on the account to **AgentFlow Call Control** + **AgentFlow** messaging profile (same IDs as `telnyx-buy-number`). Optional body `apply_agentflow_routing` runs during CRM sync; `routing_only: true` updates Telnyx only (no DB upsert). UI: checkbox on sync + **Apply AgentFlow on Telnyx** button. *Files:* `supabase/functions/telnyx-sync-numbers/index.ts`, `src/components/settings/PhoneSettings.tsx`
+
 - **2026-04-10 | [DONE] Settings — Telnyx number purchase false “failure” toast**
   *Cause:* (1) `handlePurchase` treated any error after a successful Edge response as “Purchase failed,” including refresh issues, and bundled `fetchData()` into the same `try/catch`. (2) `telnyx-buy-number` used E.164 as a fallback Telnyx resource id, so voice `PATCH` often failed after the order had already succeeded; voice errors aborted the whole flow. (3) Duplicate DB rows surfaced as a hard database error after a successful Telnyx buy. *Fix:* Poll `GET /number_orders/{id}` and list-by-E.164 for a real resource id; never `PATCH` with `+1…`; voice/SMS `PATCH` failures are warnings, not fatal; org-scoped default-number count; duplicate key for same org returns success with `duplicate: true`; UI splits purchase vs refresh and shows `toast.info` for server `warning`. *Files:* `supabase/functions/telnyx-buy-number/index.ts`, `src/components/settings/PhoneSettings.tsx`
 

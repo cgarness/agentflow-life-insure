@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Phone, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Plus, ShoppingCart,
@@ -101,6 +103,8 @@ const PhoneSettings: React.FC = () => {
 
   // Sync from Telnyx
   const [syncing, setSyncing] = useState(false);
+  const [applyAgentflowRoutingOnSync, setApplyAgentflowRoutingOnSync] = useState(false);
+  const [applyingTelnyxRouting, setApplyingTelnyxRouting] = useState(false);
 
   // Confirm dialogs
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
@@ -401,19 +405,58 @@ const PhoneSettings: React.FC = () => {
     toast.success(enabled ? "Local Presence enabled" : "Local Presence disabled");
   };
 
-  // Sync numbers from Telnyx
+  const formatRoutingToast = (r: { updated: number; skipped: number; failed: number }) => {
+    const parts = [`${r.updated} updated`, `${r.skipped} already set`];
+    if (r.failed > 0) parts.push(`${r.failed} failed`);
+    return parts.join(", ");
+  };
+
+  // Sync numbers from Telnyx (optional: PATCH AgentFlow Call Control + SMS profile on each number)
   const handleSyncFromTelnyx = async () => {
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("telnyx-sync-numbers");
+      const { data, error } = await supabase.functions.invoke("telnyx-sync-numbers", {
+        body: { apply_agentflow_routing: applyAgentflowRoutingOnSync },
+      });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success(`Sync complete — ${data.synced} new number${data.synced !== 1 ? "s" : ""} added`);
-      await fetchData();
+      let msg = `Sync complete — ${data.synced} number${data.synced !== 1 ? "s" : ""} in CRM`;
+      if (data.routing) {
+        msg += `. Telnyx routing: ${formatRoutingToast(data.routing)}`;
+      }
+      toast.success(msg);
+      try {
+        await fetchData();
+      } catch {
+        toast.warning("Reload the page if the list looks out of date.");
+      }
     } catch (e: any) {
-      toast.error("Sync failed — check your Telnyx API key");
+      toast.error(e?.message ? `Sync failed — ${e.message}` : "Sync failed — check your Telnyx API key");
     }
     setSyncing(false);
+  };
+
+  /** Telnyx API only — applies AgentFlow Call Control + messaging profile to every number on the account */
+  const handleApplyAgentflowOnTelnyx = async () => {
+    setApplyingTelnyxRouting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("telnyx-sync-numbers", {
+        body: { routing_only: true },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (data?.routing) {
+        toast.success(`Telnyx routing — ${formatRoutingToast(data.routing)}`);
+        if (data.routing.failed > 0) {
+          toast.warning("Some numbers could not be updated. Check the Telnyx portal or API key permissions.");
+        }
+      } else {
+        toast.success("Telnyx routing check complete.");
+      }
+    } catch (e: any) {
+      toast.error(e?.message ? `Routing failed — ${e.message}` : "Routing failed — check your Telnyx API key");
+    }
+    setApplyingTelnyxRouting(false);
   };
 
   const uniqueAreaCodes = [...new Set(activeNumbers.map(n => n.area_code).filter(Boolean))] as string[];
@@ -530,14 +573,18 @@ const PhoneSettings: React.FC = () => {
       {/* PART 2: Phone Numbers */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <CardTitle className="flex items-center gap-2">
-              Phone Numbers
-              <Badge variant="secondary" className="text-xs">{activeNumbers.length} active</Badge>
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleSyncFromTelnyx} disabled={syncing}>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="flex items-center gap-2">
+                Phone Numbers
+                <Badge variant="secondary" className="text-xs">{activeNumbers.length} active</Badge>
+              </CardTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleSyncFromTelnyx} disabled={syncing || applyingTelnyxRouting}>
                 {syncing ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Syncing...</> : <><RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Sync from Telnyx</>}
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleApplyAgentflowOnTelnyx} disabled={syncing || applyingTelnyxRouting}>
+                {applyingTelnyxRouting ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Applying...</> : <><Radio className="w-3.5 h-3.5 mr-1.5" /> Apply AgentFlow on Telnyx</>}
               </Button>
               <Button variant="outline" size="sm" onClick={handleBulkSpamCheck} disabled={bulkChecking || activeNumbers.length === 0}>
                 {bulkChecking ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> {bulkProgress}%</> : <><RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Bulk Spam Check</>}
@@ -548,6 +595,18 @@ const PhoneSettings: React.FC = () => {
               <Button size="sm" onClick={() => { resetPurchaseModal(); setPurchaseOpen(true); }}>
                 <ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Purchase Number
               </Button>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+              <Checkbox
+                id="apply-agentflow-routing-on-sync"
+                checked={applyAgentflowRoutingOnSync}
+                onCheckedChange={(c) => setApplyAgentflowRoutingOnSync(c === true)}
+                className="mt-0.5"
+              />
+              <Label htmlFor="apply-agentflow-routing-on-sync" className="text-xs font-normal leading-snug cursor-pointer text-muted-foreground">
+                When syncing, also point every number on this Telnyx account to <span className="text-foreground font-medium">AgentFlow Call Control</span> and the <span className="text-foreground font-medium">AgentFlow</span> SMS profile (fixes &quot;Required for calls&quot; / &quot;Required for SMS&quot; in Telnyx).
+              </Label>
             </div>
           </div>
         </CardHeader>

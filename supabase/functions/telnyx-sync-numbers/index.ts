@@ -9,6 +9,10 @@ const corsHeaders = {
 
 const TELNYX_SETTINGS_ID = "00000000-0000-0000-0000-000000000001";
 
+/** Same targets as telnyx-buy-number — AgentFlow Call Control + AgentFlow SMS profile */
+const AGENTFLOW_CALL_CONTROL_ID = "2911194903079814357";
+const AGENTFLOW_MESSAGING_PROFILE_ID = "40019cd5-f007-4511-93c2-216916e1da07";
+
 const extractAreaCode = (num: string) => {
   const cleaned = num.replace(/\D/g, "");
   const digits =
@@ -16,6 +20,23 @@ const extractAreaCode = (num: string) => {
       ? cleaned.slice(1)
       : cleaned;
   return digits.slice(0, 3);
+};
+
+type TelnyxPhoneRow = {
+  id: string;
+  phone_number: string;
+  connection_id: unknown;
+  messaging_profile_id: unknown;
+};
+
+const normRelationId = (v: unknown): string | null => {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && v !== null && "id" in v) {
+    const id = (v as { id?: unknown }).id;
+    return typeof id === "string" ? id : null;
+  }
+  return null;
 };
 
 Deno.serve(async (req) => {
@@ -30,25 +51,34 @@ Deno.serve(async (req) => {
   }
 
   try {
+    let routingOnly = false;
+    let applyAgentflowRouting = false;
+    try {
+      const body = await req.json();
+      routingOnly = !!body?.routing_only;
+      applyAgentflowRouting = !!body?.apply_agentflow_routing || routingOnly;
+    } catch {
+      // Empty body from older clients
+    }
+
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // 1. Read Telnyx API key from telnyx_settings
-    // Get the user from the auth header
-    const authHeader = req.headers.get('Authorization');
+    const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("No authorization header");
-    
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
     if (userError || !user) throw new Error("Invalid user token");
 
-    // Get the user's organization_id from their profile
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
       .select("organization_id")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
 
     if (profileError || !profile?.organization_id) {
       throw new Error("User has no associated organization");
@@ -56,7 +86,6 @@ Deno.serve(async (req) => {
 
     const organizationId = profile.organization_id;
 
-    // Fetch settings for this organization
     const { data: settings, error: fetchError } = await supabaseClient
       .from("telnyx_settings")
       .select("api_key")
@@ -65,7 +94,6 @@ Deno.serve(async (req) => {
 
     if (fetchError) throw new Error(`DB error: ${fetchError.message}`);
 
-    // Fallback to global settings if no organization-specific settings exist
     let finalSettings = settings;
     if (!finalSettings?.api_key) {
       const { data: globalSettings } = await supabaseClient
@@ -90,8 +118,7 @@ Deno.serve(async (req) => {
 
     const apiKey = finalSettings.api_key;
 
-    // 2. Fetch all phone numbers from Telnyx with pagination
-    const allTelnyxNumbers: string[] = [];
+    const telnyxRecords: TelnyxPhoneRow[] = [];
     let currentPage = 1;
     let totalPages = 1;
 
@@ -120,8 +147,13 @@ Deno.serve(async (req) => {
       const json = await res.json();
       const records = json.data || [];
       for (const record of records) {
-        if (record.phone_number) {
-          allTelnyxNumbers.push(record.phone_number);
+        if (record.id && record.phone_number) {
+          telnyxRecords.push({
+            id: record.id,
+            phone_number: record.phone_number,
+            connection_id: record.connection_id,
+            messaging_profile_id: record.messaging_profile_id,
+          });
         }
       }
 
@@ -129,20 +161,55 @@ Deno.serve(async (req) => {
       currentPage++;
     }
 
-    // 3. Check existing numbers in Supabase
-    const { data: existingRows, error: existErr } = await supabaseClient
-      .from("phone_numbers")
-      .select("phone_number");
+    const allTelnyxNumbers = telnyxRecords.map((r) => r.phone_number);
 
-    if (existErr) throw new Error(`DB error: ${existErr.message}`);
+    let routing_updated = 0;
+    let routing_skipped = 0;
+    let routing_failed = 0;
 
-    const existingSet = new Set(
-      (existingRows || []).map((r: { phone_number: string }) => r.phone_number)
-    );
+    if (applyAgentflowRouting && telnyxRecords.length > 0) {
+      for (const r of telnyxRecords) {
+        const curConn = normRelationId(r.connection_id);
+        const curMsg = normRelationId(r.messaging_profile_id);
+        const needsPatch =
+          curConn !== AGENTFLOW_CALL_CONTROL_ID ||
+          curMsg !== AGENTFLOW_MESSAGING_PROFILE_ID;
+        if (!needsPatch) {
+          routing_skipped++;
+          continue;
+        }
+        const patchRes = await fetch(
+          `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(r.id)}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              connection_id: AGENTFLOW_CALL_CONTROL_ID,
+              messaging_profile_id: AGENTFLOW_MESSAGING_PROFILE_ID,
+            }),
+          }
+        );
+        if (patchRes.ok) {
+          routing_updated++;
+        } else {
+          routing_failed++;
+          const errText = await patchRes.text();
+          console.error(
+            `[telnyx-sync-numbers] PATCH failed for ${r.phone_number}:`,
+            errText
+          );
+        }
+      }
+    }
 
-    // 4. Upsert all numbers to ensure organization_id is set
     let synced = 0;
-    if (allTelnyxNumbers.length > 0) {
+    let skipped = 0;
+
+    if (!routingOnly && allTelnyxNumbers.length > 0) {
       const rows = allTelnyxNumbers.map((phone_number) => ({
         phone_number,
         status: "active",
@@ -158,15 +225,22 @@ Deno.serve(async (req) => {
 
       if (upsertErr) throw new Error(`Sync error: ${upsertErr.message}`);
       synced = allTelnyxNumbers.length;
+      skipped = allTelnyxNumbers.length - synced;
     }
-
-    const skipped = allTelnyxNumbers.length - synced;
 
     return new Response(
       JSON.stringify({
         synced,
         skipped,
         total: allTelnyxNumbers.length,
+        routing_only: routingOnly,
+        routing: applyAgentflowRouting
+          ? {
+              updated: routing_updated,
+              skipped: routing_skipped,
+              failed: routing_failed,
+            }
+          : null,
       }),
       {
         status: 200,
