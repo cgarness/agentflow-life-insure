@@ -81,7 +81,6 @@ const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", 
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
 
-// Hardcoded fallbacks - will be matched against settings
 const fallbackStatusStyles: Record<string, string> = {
   New: "#3B82F6",
   Contacted: "#CA8A04",
@@ -97,6 +96,11 @@ const fallbackStatusStyles: Record<string, string> = {
   Active: "#16A34A",
   "Appointment Set": "#9333EA",
   "APPPINTMENT SET": "#9333EA",
+  "Call Back": "#CA8A04",
+  "No Answer": "#6B7280",
+  "Left Voicemail": "#6B7280",
+  "Not Available": "#6B7280",
+  DNC: "#DC2626",
 };
 
 const normalizeStatusDisplay = (status: string) => {
@@ -137,17 +141,17 @@ const formatName = (name: string) => {
 };
 
 const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
-  if (!value && value !== 0) return <span className="text-muted-foreground italic">—</span>;
+  if (!value && value !== 0) return <span className="text-muted-foreground italic text-xs">—</span>;
   const display = String(value);
-  if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic">—</span>;
+  if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic text-xs">—</span>;
   return (
     <div className="flex items-center justify-between group w-full min-w-0">
-      <span className="text-foreground font-semibold truncate mr-2" title={display}>{display}</span>
+      <span className="text-foreground font-medium text-xs leading-snug break-all mr-1" title={display}>{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
       >
-        <Clipboard className="w-3.5 h-3.5" />
+        <Clipboard className="w-3 h-3" />
       </button>
     </div>
   );
@@ -202,7 +206,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
   const [fieldOrder, setFieldOrder] = useState<string[]>(() => getDefaultFieldOrder(type));
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
-  /** False until org roster fetch finishes — avoids flashing raw UUIDs for agent ids. */
   const [rosterLoaded, setRosterLoaded] = useState(false);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
@@ -400,6 +403,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
       setAgents(agentRows);
       setRosterLoaded(true);
 
+      setEditMode(false);
+      setHasChanges(false);
+      setHasUnsavedChanges(false);
+      setErrors({});
+      setNewNote("");
+      setNoteError("");
+      setPinNewNote(false);
+      setStatusDropdownOpen(false);
+      setShowAppt(false);
+      setEmailSubject("");
+
       if (!isCurrent()) return;
 
       // Conversation timeline (calls + SMS) can be heavy — load after the rest so the left column and activity are not blocked.
@@ -438,19 +452,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
         .reverse();
       setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
       setConvoLoading(false);
-
-      if (!isCurrent()) return;
-
-      setEditMode(false);
-      setHasChanges(false);
-      setHasUnsavedChanges(false);
-      setErrors({});
-      setNewNote("");
-      setNoteError("");
-      setPinNewNote(false);
-      setStatusDropdownOpen(false);
-      setShowAppt(false);
-      setEmailSubject("");
     }
 
     loadData();
@@ -486,7 +487,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     if (looksUuid) return rosterLoaded ? "Unavailable" : "Loading…";
     return id;
   };
-  const getStatusColor = (status: string) => { const stage = pipelineStages.find(s => s.name === status); return stage ? stage.color : fallbackStatusStyles[status] || "#6B7280"; };
+  const getStatusColor = (status: string) => {
+    if (!status) return "#6B7280";
+    const stage = pipelineStages.find(s => s.name === status);
+    if (stage?.color) return stage.color;
+    const normalized = status.replace(/AP+PINTMENT/i, "Appointment");
+    return fallbackStatusStyles[status] || fallbackStatusStyles[normalized] || "#6B7280";
+  };
 
   const handleStatusChange = async (newStatus: string) => {
     setStatusDropdownOpen(false);
@@ -584,7 +591,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
     } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { setMessageSending(false); }
   };
 
-  const inputCls = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
+  const inputCls = "w-full h-8 px-2.5 rounded-md bg-background text-xs text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
   const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
     let val: any;
@@ -597,7 +604,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
 
     return (
       <div className="min-w-0 flex flex-col">
-        <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-0.5">{label}</label>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">{label}</label>
         {editMode ? (
           <>
             {fieldType === "select" ? (
@@ -606,7 +613,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 {options?.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : fieldType === "textarea" ? (
-              <textarea value={val} onChange={e => handleChange(e.target.value)} rows={3} className={`${inputCls} min-h-[72px] py-2`} />
+              <textarea value={val} onChange={e => handleChange(e.target.value)} rows={2} className={`${inputCls} min-h-[56px] py-1.5 h-auto`} />
             ) : fieldType === "date" ? (
               <DateInput value={val} onChange={handleChange} />
             ) : key === "phone" ? (
@@ -619,14 +626,18 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             ) : (
               <input type={fieldType} value={val} onChange={e => handleChange(fieldType === "number" ? Number(e.target.value) : e.target.value)} className={inputCls} />
             )}
-            {errors[key] && <p className="text-xs text-red-500 mt-0.5">{errors[key]}</p>}
+            {errors[key] && <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>}
           </>
         ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : fieldType === "date" ? formatDate(val) : val} /> )}
       </div>
     );
   };
 
-  const availableStatuses = pipelineStages.map(s => s.name);
+  const availableStatuses = pipelineStages.length > 0
+    ? pipelineStages.map(s => s.name)
+    : type === "recruit"
+      ? recruitStatuses
+      : allStatuses as string[];
 
   return (
     <div className={cn(
@@ -791,16 +802,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
           </div>
           
-          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {editMode && hasUnsavedChanges && (
               <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> <span>You have unsaved changes.</span>
               </div>
             )}
             
-              <div className="space-y-4">
-                {/* Default field order matches the old static grid so the left column does not re-layout when settings arrive. */}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-3">
                     {fieldOrder.map(fieldId => {
                       if (fieldId.startsWith('custom:')) {
                         const fieldName = fieldId.replace('custom:', '');
@@ -839,16 +849,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                         case 'status': return type === "recruit" ? renderField("Status", "status", "select", recruitStatuses) : null;
                         case 'assignedAgentId': 
                           return (
-                            <div key="assignedAgentId" className="bg-muted/50 rounded-lg px-3 py-2 col-span-2">
-                              <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-0.5">Assigned Agent</label>
+                            <div key="assignedAgentId" className="bg-muted/40 rounded-md px-2.5 py-2 col-span-2">
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">Assigned Agent</label>
                               {editMode ? (
                                 <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
                                   <option value="">—</option>
                                   {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
                                 </select>
                               ) : (
-                                <div className="mt-1 flex items-center gap-2">
-                                  <span className={`w-2 h-2 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${contact.assignedAgentId ? 'bg-green-500' : 'bg-gray-400'}`} />
                                   <CopyField value={getAgentDisplayName(contact.assignedAgentId)} />
                                 </div>
                               )}
@@ -871,7 +881,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 </div>
 
                 {customFields.some((f) => !fieldOrder.includes(`custom:${f.name}`)) && (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-4 pt-2">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-3 pt-1">
                     {customFields
                       .filter((f) => !fieldOrder.includes(`custom:${f.name}`))
                       .map((field) => (
@@ -888,9 +898,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                 )}
               </div>
               
-              <div className="mt-auto pt-4 border-t border-border">
-                <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-sm text-destructive hover:underline">
-                  <Trash2 className="w-3.5 h-3.5" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
+              <div className="mt-auto pt-3 border-t border-border">
+                <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
+                  <Trash2 className="w-3 h-3" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
                 </button>
               </div>
           </div>
@@ -1072,9 +1082,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Recent Timeline</p>
                  <div className="space-y-2 pb-4">
                    {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
-                     <div key={a.id} className="border-l-2 border-primary/30 pl-3 py-2 hover:bg-muted/50 rounded-r-md transition-colors">
-                       <p className="text-[13px] text-foreground leading-snug">{a.description}</p>
-                       <p className="text-xs text-muted-foreground mt-1">{timeAgo(a.createdAt)} • {a.agentName}</p>
+                     <div key={a.id} className="border-l-2 border-primary/30 pl-3 py-1.5 hover:bg-muted/50 rounded-r-md transition-colors">
+                       <p className="text-xs text-foreground leading-snug">{a.description}</p>
+                       <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(a.createdAt)} • {a.agentName}</p>
                      </div>
                    ))}
                    {activities.length === 0 && (
