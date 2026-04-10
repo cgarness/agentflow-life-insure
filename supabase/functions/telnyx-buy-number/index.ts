@@ -48,7 +48,8 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { phone_number, api_key: directApiKey } = await req.json();
+        const reqData = await req.json();
+        const { phone_number, api_key: directApiKey } = reqData;
 
         if (!phone_number) {
             throw new Error("Phone number is required");
@@ -222,7 +223,7 @@ Deno.serve(async (req) => {
         }
 
         // 8. Store in CRM
-        console.log(`[Step 6] Saving to CRM database...`);
+        console.log(`[Step 6] Saving to CRM database (Assigned To: ${reqData.assigned_to || 'unassigned'})...`);
         const { count: existingCount } = await supabaseClient
             .from("phone_numbers")
             .select("id", { count: "exact", head: true })
@@ -238,6 +239,7 @@ Deno.serve(async (req) => {
                 status: "active",
                 is_default: isFirstNumber,
                 organization_id: organizationId,
+                assigned_to: reqData.assigned_to || null,
                 created_at: new Date().toISOString(),
             }]);
 

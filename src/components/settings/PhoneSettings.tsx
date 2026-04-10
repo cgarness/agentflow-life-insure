@@ -97,6 +97,7 @@ const PhoneSettings: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [purchaseStep, setPurchaseStep] = useState<1 | 2>(1);
+  const [selectedAssignmentAgent, setSelectedAssignmentAgent] = useState<string>("unassigned");
 
   // Sync from Telnyx
   const [syncing, setSyncing] = useState(false);
@@ -341,7 +342,13 @@ const PhoneSettings: React.FC = () => {
     if (!selectedNumber) return;
     setPurchasing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("telnyx-buy-number", { body: { phone_number: selectedNumber, api_key: apiKey } });
+      const { data, error } = await supabase.functions.invoke("telnyx-buy-number", { 
+        body: { 
+          phone_number: selectedNumber, 
+          api_key: apiKey,
+          assigned_to: selectedAssignmentAgent === "unassigned" ? null : selectedAssignmentAgent
+        } 
+      });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       toast.success("Number purchased successfully!");
@@ -362,6 +369,7 @@ const PhoneSettings: React.FC = () => {
     setSearchPatternType("contains");
     setSearchResults([]);
     setSelectedNumber(null);
+    setSelectedAssignmentAgent("unassigned");
     setPurchaseStep(1);
   };
 
@@ -838,19 +846,45 @@ const PhoneSettings: React.FC = () => {
                         </label>
                       );
                     })}
-                  </div>
-                  <div className="flex justify-between">
-                    <Button variant="outline" size="sm" onClick={() => { setPurchaseStep(1); setSearchResults([]); setSelectedNumber(null); }}>Back</Button>
-                    <Button onClick={handlePurchase} disabled={!selectedNumber || purchasing}>
-                      {purchasing ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Purchasing...</> : "Purchase Selected"}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+                    </div>
+
+                    <div className="bg-accent/30 p-4 rounded-xl border border-border/50 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Radio className="w-4 h-4 text-primary" />
+                        Initial Assignment
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">Assign this number to:</label>
+                        <Select
+                          value={selectedAssignmentAgent}
+                          onValueChange={setSelectedAssignmentAgent}
+                        >
+                          <SelectTrigger className="w-full bg-background">
+                            <SelectValue placeholder="Unassigned" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">Unassigned (Keep in pool)</SelectItem>
+                            {agents.map(a => (
+                              <SelectItem key={a.id} value={a.id}>{a.first_name} {a.last_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground italic">You can change this later in the numbers table.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between pt-2">
+                      <Button variant="outline" size="sm" onClick={() => { setPurchaseStep(1); setSearchResults([]); setSelectedNumber(null); }}>Back</Button>
+                      <Button onClick={handlePurchase} disabled={!selectedNumber || purchasing} className="px-8">
+                        {purchasing ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Provisioning...</> : "Confirm Purchase"}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
       {/* Release Confirm */}
       <AlertDialog open={!!releaseConfirm} onOpenChange={() => setReleaseConfirm(null)}>
