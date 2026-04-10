@@ -166,7 +166,18 @@ interface FullScreenContactViewProps {
   onConvert?: (contact: any) => void;
 }
 
-const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, type, onClose, onUpdate, onDelete, onConvert }) => {
+const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
+  contact,
+  type,
+  onClose,
+  onUpdate,
+  onDelete,
+  onConvert,
+}) => {
+  const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
+  const toggleRecording = (id: string) => {
+    setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
+  };
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
@@ -942,45 +953,75 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
             )}
             
             {!convoLoading && filteredConvos.map(item => {
+              const isOutbound = item.direction === "outbound";
+              const timestamp = new Date(item._ts).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+
               if (item._type === "call") {
                 return (
-                  <div key={item.id} className="flex justify-center my-2">
-                    <div className="bg-card border border-border rounded-2xl px-5 py-3 text-sm shadow-sm max-w-[85%]">
-                      <div className="flex items-center justify-between gap-6 mb-1">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${item.direction === 'inbound' ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                             <Phone className="w-3 h-3" />
+                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"} w-full`}>
+                    <div className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} max-w-[85%]`}>
+                      <div className={`px-4 py-2.5 rounded-2xl text-[13px] shadow-sm relative transition-all ${
+                        isOutbound 
+                          ? "bg-[#007AFF] text-white rounded-tr-sm" 
+                          : "bg-card border border-border text-foreground rounded-tl-sm"
+                      }`}>
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20 text-white" : "bg-primary/10 text-primary"}`}>
+                                <Phone className="w-2.5 h-2.5" />
+                              </div>
+                              <span className="font-semibold">{isOutbound ? "Outbound" : "Inbound"} Call — {item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : 'No Answer'}</span>
+                            </div>
+                            {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && (
+                              <button 
+                                onClick={() => toggleRecording(item.id)}
+                                className={`p-1 rounded-full transition-colors ${
+                                  isOutbound ? "hover:bg-white/20 text-white" : "hover:bg-black/10 text-primary"
+                                }`}
+                                title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                              >
+                                <Play className={`w-3 h-3 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                              </button>
+                            )}
                           </div>
-                          <span className="font-medium text-foreground text-[13px]">{item.direction === "outbound" ? "Outbound Call" : "Inbound Call"}</span>
+                          
+                          {item.disposition_name && (
+                            <div className="flex">
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                isOutbound ? "bg-white/20 text-white" : "bg-accent text-foreground"
+                              }`}>
+                                {item.disposition_name}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <span className="text-[11px] text-muted-foreground font-medium">{item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : 'No Answer'}</span>
+
+                        {/* Integrated Recording Player */}
+                        {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && expandedRecordings[item.id] && (
+                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/20" : "border-border/50"} animate-in fade-in slide-in-from-top-1 duration-200`}>
+                            <div className={`flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest mb-2 ${isOutbound ? "text-white/70" : "text-muted-foreground"}`}>
+                              <Mic className="w-2.5 h-2.5" aria-hidden />
+                              <span>Recording</span>
+                            </div>
+                            <RecordingPlayer callId={item.id} compact />
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center justify-between ml-8">
-                         {item.disposition_name ? (
-                           <span className="text-[11px] bg-accent text-foreground px-2 py-0.5 rounded-md">{item.disposition_name}</span>
-                         ) : <span />}
-                         <p className="text-[10px] text-muted-foreground">{new Date(item.started_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
-                      </div>
-                      {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && (
-                        <div className="ml-8 mt-2.5 pt-2.5 border-t border-border/50">
-                          <RecordingPlayer callId={item.id} compact />
-                        </div>
-                      )}
+                      <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
                     </div>
                   </div>
                 );
               }
               
-              const isOutbound = item.direction === "outbound";
-              
               if (item._type === "sms") {
                 return (
                   <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
                     <div className={`flex flex-col max-w-[75%] ${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${isOutbound ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-card border border-border text-foreground rounded-bl-sm"}`}>
+                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${isOutbound ? "bg-[#007AFF] text-white rounded-tr-sm" : "bg-card border border-border text-foreground rounded-tl-sm"}`}>
                          <p>{item.body}</p>
                        </div>
-                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{new Date(item.sent_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
+                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
                     </div>
                   </div>
                 );
@@ -997,7 +1038,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({ contact, 
                          </div>
                          <p>{item.body}</p>
                        </div>
-                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{new Date(item.sent_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
+                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
                     </div>
                   </div>
                 );

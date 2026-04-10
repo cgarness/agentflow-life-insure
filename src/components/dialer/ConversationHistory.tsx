@@ -1,5 +1,5 @@
-import React, { useMemo } from "react";
-import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic, Play } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 
@@ -67,6 +67,12 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   onCallerNumberChange,
   historyEndRef,
 }) => {
+  const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
+
+  const toggleRecording = (id: string) => {
+    setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   // Reverse history so newest is index 0 for flex-col-reverse anchoring
   const reversedHistory = useMemo(() => [...history].reverse(), [history]);
 
@@ -124,14 +130,27 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
                     <div className="flex flex-col">
                       <div 
-                        className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all ${
+                        className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
                           isOutbound 
                             ? "bg-[#007AFF] text-white rounded-tr-sm" 
                             : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
                         }`}
                       >
                         <div className="flex flex-col gap-1">
-                          <span className="leading-tight font-medium">{item.description}</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="leading-tight font-medium">{item.description}</span>
+                            {item.type === "call" && item.recording_url && (
+                              <button 
+                                onClick={() => toggleRecording(item.id)}
+                                className={`p-1 rounded-full transition-colors ${
+                                  isOutbound ? "hover:bg-white/20 text-white" : "hover:bg-black/10 text-primary"
+                                }`}
+                                title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                              >
+                                <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                              </button>
+                            )}
+                          </div>
                           
                           {item.type === "call" && item.disposition && (
                             <div className="flex justify-start">
@@ -149,20 +168,18 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                             </div>
                           )}
                         </div>
-                      </div>
 
-                      {/* Call Recording Player - if exists */}
-                      {item.type === "call" && item.recording_url && (
-                        <div className={`mt-1.5 w-[240px] max-w-full ${isOutbound ? "self-end" : "self-start"}`}>
-                          <div className="bg-accent/50 rounded-xl p-2 border border-border/50">
-                            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 px-1">
+                        {/* Integrated Recording Player */}
+                        {item.type === "call" && item.recording_url && expandedRecordings[item.id] && (
+                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/20" : "border-black/10"} animate-in fade-in slide-in-from-top-1 duration-200`}>
+                            <div className={`flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest mb-2 ${isOutbound ? "text-white/70" : "text-muted-foreground"}`}>
                               <Mic className="w-2.5 h-2.5" aria-hidden />
                               <span>Recording</span>
                             </div>
                             <RecordingPlayer callId={item.id} compact />
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                       
                       {/* Timestamp */}
                       <div className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${isOutbound ? "justify-end" : "justify-start"}`}>

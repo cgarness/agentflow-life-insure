@@ -235,7 +235,7 @@ export async function getLeadHistory(
     return {
       id: c.id,
       type: "call" as const,
-      description: `Call — ${c.disposition_name ?? "Unknown"} — ${formatDuration(c.duration ?? 0)}`,
+      description: `${c.direction === "inbound" ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}`,
       direction: c.direction ?? "outbound",
       disposition: c.disposition_name,
       disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,
