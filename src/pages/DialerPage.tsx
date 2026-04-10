@@ -704,28 +704,46 @@ export default function DialerPage() {
     const fetchCampaigns = async () => {
       if (!organizationId) return;
       setCampaignsLoading(true);
+      // Note: omit `dial_delay_seconds` here so older DBs without that column still load the list;
+      // delay is loaded when a campaign is selected (sync effect + optional follow-up query).
       const { data, error } = await supabase
         .from('campaigns')
-        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, dial_delay_seconds, local_presence_enabled, assigned_agent_ids, created_by')
+        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, created_by')
         .eq('organization_id', organizationId)
         .in('status', ['Active', 'Paused', 'Draft'])
         .order('name', { ascending: true });
-      if (!error && data) {
-        // Enforce persona/hierarchy: POOL campaigns are open to all; PERSONAL and TEAM
-        // campaigns are only visible to the agent who created them or who is in assigned_agent_ids.
+      if (error) {
+        console.error('[Dialer] campaigns fetch:', error);
+        toast.error('Could not load campaigns. Check your connection or ask an admin to verify database migrations.');
+        setCampaigns([]);
+        setCampaignsLoading(false);
+        return;
+      }
+      if (data) {
         const userId = user?.id;
-        const visible = data.filter((c: any) => {
-          const t = (c.type || '').toUpperCase();
-          if (t.includes('POOL')) return true;
-          const ids: string[] = Array.isArray(c.assigned_agent_ids) ? c.assigned_agent_ids : [];
-          return c.created_by === userId || ids.includes(userId ?? '');
-        });
+        const roleLower = (profile?.role || '').toLowerCase().trim();
+        const seesAllDialerCampaigns =
+          Boolean(profile?.is_super_admin) ||
+          roleLower === 'admin' ||
+          roleLower === 'manager' ||
+          roleLower === 'team leader' ||
+          roleLower === 'team lead' ||
+          roleLower === 'team_leader';
+        // Agents: POOL is open; PERSONAL/TEAM need creator or assignment. Elevated roles: match RLS (all rows returned).
+        const visible = seesAllDialerCampaigns
+          ? data
+          : data.filter((c: any) => {
+              const t = (c.type || '').toUpperCase();
+              if (t.includes('POOL')) return true;
+              const ids: string[] = Array.isArray(c.assigned_agent_ids) ? c.assigned_agent_ids : [];
+              return c.created_by === userId || ids.includes(userId ?? '');
+            });
         setCampaigns(visible);
       }
       setCampaignsLoading(false);
     };
     fetchCampaigns();
-  }, [organizationId, user?.id]);
+  }, [organizationId, user?.id, profile?.role, profile?.is_super_admin]);
 
   useEffect(() => {
     setDispositions(dispositionsData);
@@ -1930,10 +1948,10 @@ export default function DialerPage() {
     if (!selectedCampaignId || !organizationId) return;
 
     const syncSettings = async () => {
-      // 1. Fetch Campaign Settings
+      // 1. Fetch Campaign Settings (omit dial_delay_seconds so missing column does not null the whole row)
       const { data: campaignData } = await supabase
         .from("campaigns")
-        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, dial_delay_seconds, local_presence_enabled")
+        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
         .eq("id", selectedCampaignId)
         .maybeSingle();
 
@@ -1943,12 +1961,22 @@ export default function DialerPage() {
         setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
         setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
-        const sec = Number(campaignData.dial_delay_seconds);
-        if (!Number.isNaN(sec) && sec >= 0) {
-          setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(sec * 1000))));
+      }
+
+      const { data: delayRow, error: delayErr } = await supabase
+        .from("campaigns")
+        .select("dial_delay_seconds")
+        .eq("id", selectedCampaignId)
+        .maybeSingle();
+      if (!delayErr && delayRow) {
+        const raw = (delayRow as { dial_delay_seconds?: number | null }).dial_delay_seconds;
+        if (typeof raw === "number" && !Number.isNaN(raw) && raw >= 0) {
+          setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(raw * 1000))));
         } else {
           setDialDelayMs(2000);
         }
+      } else {
+        setDialDelayMs(2000);
       }
 
       // 2. Fetch Global Phone Settings

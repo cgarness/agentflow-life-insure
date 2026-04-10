@@ -54,6 +54,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Fix — dialer campaign picker empty**
+  *Cause:* (1) Selecting `dial_delay_seconds` on the campaign list query fails if that column is not migrated yet → no rows. (2) Client-side filter hid all non–Open-Pool campaigns for users not in `assigned_agent_ids` / not `created_by`, so **Admin / Manager / Team Leader** saw campaigns on the Campaigns page (RLS) but not on the dialer. *Fix:* Drop `dial_delay_seconds` from the list `select`; load delay in a separate small query when a campaign is selected (default 2s if missing/error). Elevated roles see every campaign the API returns; agents keep pool + assignment rules. Toast on fetch error. *File:* `src/pages/DialerPage.tsx`
+
 - **2026-04-09 | [DONE] Dialer speed + auto-dial — campaign delay, auth, locks, caller ID cache**
   *What changed:* (1) **`useDialerStateMachine`** uses **`campaigns.dial_delay_seconds`** (clamped 0.5–10s) instead of a fixed 3s wait. (2) **`TelnyxContext.makeCall`** calls **`getSession()`** and only **`refreshSession()`** when the JWT expires within ~2 minutes — removes a full auth round trip on most dials. (3) **Smart caller ID** caches last `caller_id_used` per contact in-memory for the session (cleared when org numbers or manual caller ID changes). (4) **Lock-mode “Save & next”** now uses **`loadLockModeLead`** (same **`get_next_queue_lead`** + enrich path as skip/advance) instead of **`fetch_and_lock_next_lead`** + different UI filters — consistent queue behavior. (5) **`isAdvancing`** cooldown shortened (100ms after lifecycle / lock load). (6) **`releaseAllAgentLocksBeacon`** sends **anon key** in `apikey` and **JWT** in `Authorization` (PostgREST-correct). *Files:* `src/hooks/useDialerStateMachine.ts`, `src/pages/DialerPage.tsx`, `src/contexts/TelnyxContext.tsx`, `src/lib/dialer-queue.ts`
 
