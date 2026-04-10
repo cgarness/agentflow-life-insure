@@ -123,12 +123,19 @@ Deno.serve(async (req) => {
         
         console.log("Number order created:", orderResponse.data.id);
         
-        // Wait a brief moment to ensure the number is provisioned and available
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Extract the actual phone number UUID from the order response
+        let telnyxPhoneNumberId = orderResponse.data?.phone_numbers?.[0]?.id;
+        
+        if (!telnyxPhoneNumberId) {
+            console.log("ID not in order response, searching...");
+            // Wait a brief moment to ensure the number is provisioned and available
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Find the actual phone number ID in Telnyx
+            const phoneListResponse = await telnyxApiCall("GET", `/phone_numbers?filter[phone_number]=${encodeURIComponent(normalizedNumber)}`, apiKey);
+            telnyxPhoneNumberId = phoneListResponse.data?.[0]?.id || normalizedNumber;
+        }
 
-        // Find the actual phone number ID in Telnyx
-        const phoneListResponse = await telnyxApiCall("GET", `/phone_numbers?filter[phone_number]=${encodeURIComponent(normalizedNumber)}`, apiKey);
-        const telnyxPhoneNumberId = phoneListResponse.data?.[0]?.id || encodeURIComponent(normalizedNumber);
+        console.log(`Using Telnyx Phone Number ID: ${telnyxPhoneNumberId}`);
 
         // 3. Create Outbound Voice Profile
         console.log(`Creating Outbound Profile: ${appName}...`);
@@ -181,7 +188,7 @@ Deno.serve(async (req) => {
 
         // 6. Update the Phone Number to use our new application
         console.log(`Linking Phone Number to TeXML App...`);
-        await telnyxApiCall("PATCH", `/phone_numbers/${encodeURIComponent(normalizedNumber)}`, apiKey, {
+        await telnyxApiCall("PATCH", `/phone_numbers/${telnyxPhoneNumberId}`, apiKey, {
             connection_id: appId
         });
 
