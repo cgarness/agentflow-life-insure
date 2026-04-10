@@ -54,6 +54,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-09 | [DONE] Floating dialer — Telnyx readiness gate + faster warm-up**
+  *Issue:* Opening the floating dialer and dialing immediately sometimes failed until refresh — WebRTC/SIP was not fully registered even when the UI looked usable; `makeCall` could also leave the in-call UI active when the SDK never started (`onCall` set without a call id), and `isDialingRef` was set before session/mic checks (stuck lock + silent `!clientRef` exit).
+  *Fix:* (1) **`telnyxSipReadyRef`** — set only on `telnyx.ready`, cleared on disconnect/error/init teardown; `makeCall` requires this ref plus `clientRef` and only then acquires the dialing lock. (2) **Reuse shortcut** requires `telnyxSipReadyRef` (not only `client.connected`) so half-open sockets re-run full init. (3) **`initializeInFlightRef`** avoids overlapping inits from eager warm-up + panel open. (4) **Eager `initializeClient`** when `profile` + `organization_id` exist so Telnyx connects in the background before the user opens the floater. (5) **FloatingDialer** disables Call buttons until `isReady`, shows “Starting phone…” / “Wait for Ready” copy, and **`proceedWithCall`** only enters in-call UI when `makeCall` returns an id.
+  *Files:* `src/contexts/TelnyxContext.tsx`, `src/components/layout/FloatingDialer.tsx`
+
 - **2026-04-09 | [DONE] RecordingPlayer — download in compact mode + reliable download after fetch**
   *Issue:* Recording Library / timelines use `compact` mode, which had no download control (only full layout did). Download also failed when triggered before React applied `blobUrl` state. **Fix:** `blobUrlRef` mirrors the object URL; `fetchAudio` returns the URL and assigns `<audio src>` immediately; compact UI adds a download icon beside the scrubber, while duration is still loading, and next to “Click to load” (fetch + download in one action). *File:* `src/components/ui/RecordingPlayer.tsx`
 

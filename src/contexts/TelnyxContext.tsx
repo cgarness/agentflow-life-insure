@@ -125,6 +125,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [selectedCallerNumber]);
 
   const clientRef = useRef<any>(null);
+  /** True only after `telnyx.ready` for the current client — avoids placing calls when React status is stale or socket is half-open. */
+  const telnyxSipReadyRef = useRef(false);
+  /** Prevents overlapping initializeClient runs (eager app load + floating dialer open). */
+  const initializeInFlightRef = useRef(false);
   /** Set on `telnyx.ready` so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
   const telnyxConnectedOrgIdRef = useRef<string | null>(null);
   const callRef = useRef<any>(null);
@@ -738,13 +742,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (clientRef.current) {
       const socketUp = (clientRef.current as { connected?: boolean }).connected === true;
       const sameOrg = telnyxConnectedOrgIdRef.current === organizationId;
-      if (socketUp && sameOrg) {
+      if (socketUp && sameOrg && telnyxSipReadyRef.current) {
         console.log("[TelnyxContext] Telnyx already connected for this organization; skipping re-initialization.");
         setStatus("ready");
         setErrorMessage(null);
         return;
       }
       console.log("TelnyxRTC destroying existing client before re-initialization...");
+      telnyxSipReadyRef.current = false;
       try {
         clientRef.current.disconnect();
       } catch (e) {
@@ -754,6 +759,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       telnyxConnectedOrgIdRef.current = null;
     }
 
+    if (initializeInFlightRef.current) {
+      console.log("[TelnyxContext] initializeClient skipped — connection setup already in progress.");
+      return;
+    }
+    initializeInFlightRef.current = true;
     setStatus("connecting");
     setErrorMessage(null);
 
@@ -822,6 +832,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       client.on("telnyx.ready", () => {
         telnyxConnectedOrgIdRef.current = organizationId;
+        telnyxSipReadyRef.current = true;
         setStatus("ready");
         setErrorMessage(null);
         console.log("TelnyxRTC ready (eager init)");
@@ -868,6 +879,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         console.error('TelnyxRTC full error:', JSON.stringify(error, null, 2));
+        telnyxSipReadyRef.current = false;
         setStatus('error');
 
         // Login Incorrect: credentials are invalid or expired
@@ -1064,13 +1076,23 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clientRef.current = client;
       client.connect();
     } catch (err: any) {
+      telnyxSipReadyRef.current = false;
       setStatus("error");
       setErrorMessage(err?.message || "Could not initialize dialer");
+    } finally {
+      initializeInFlightRef.current = false;
     }
   }, [attachRemoteAudio, getRemoteAudioElement, organizationId, profile?.id, finalizeCallRecord]);
 
+  // Start WebRTC registration in the background as soon as we have org context (floating dialer no longer pays full cold-start cost).
+  useEffect(() => {
+    if (!profile || !organizationId) return;
+    void initializeClient();
+  }, [profile?.id, organizationId, initializeClient]);
+
   const destroyClient = useCallback(() => {
     telnyxConnectedOrgIdRef.current = null;
+    telnyxSipReadyRef.current = false;
     if (clientRef.current) {
       try { (clientRef.current as any).disconnect(); } catch {} // eslint-disable-line no-empty
       clientRef.current = null;
@@ -1118,23 +1140,41 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
 
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions): Promise<string | undefined> => {
-    // ── EXECUTION LOCK: prevent concurrent/rapid-fire invocations ──
     if (isDialingRef.current) {
       console.warn("[TelnyxContext] makeCall blocked — already dialing (execution lock).");
+      toast.error("A call is already starting. Please wait.");
+      return undefined;
+    }
+
+    // Authoritative gate: SIP registration complete (avoids races where UI shows Ready too early).
+    if (!telnyxSipReadyRef.current) {
+      const msg =
+        status === "connecting"
+          ? "Phone is still connecting. Wait until the dialer shows Ready."
+          : "Phone is not connected yet. Wait a few seconds or tap retry in the dialer header.";
+      console.warn("[TelnyxContext] makeCall blocked — SIP not registered. Status:", status);
+      toast.error(msg);
+      return undefined;
+    }
+
+    if (!clientRef.current) {
+      console.warn("[TelnyxContext] makeCall blocked — no client instance.");
+      toast.error("Phone connection is not available. Open the dialer to reconnect.");
       return undefined;
     }
 
     if (status !== "ready") {
-      const msg = status === "connecting" ? "Dialer is still connecting, please wait." : "Dialer is not connected. Check your credentials in Settings.";
+      const msg =
+        status === "connecting"
+          ? "Phone is still connecting, please wait."
+          : "Dialer is not connected. Check your credentials in Settings.";
       console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
       toast.error(msg);
       return undefined;
     }
 
-    isDialingRef.current = true;
     endStateProcessedRef.current = false;
 
-    // 1. Authentication Check
     const { data: { session }, error: sessionError } = await supabase.auth.refreshSession();
     if (!session?.access_token || sessionError) {
       console.warn("[TelnyxContext] Call blocked: No active auth session.", sessionError);
@@ -1144,25 +1184,28 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const orgIdClaim = session.user.app_metadata?.organization_id;
     if (!orgIdClaim) {
-       toast.error("Security Block: No Valid Organization Token.");
-       return undefined;
+      toast.error("Security Block: No Valid Organization Token.");
+      return undefined;
     }
 
-    if (!clientRef.current) return undefined;
+    if (!profile?.id) {
+      toast.error("Your profile is still loading. Try again in a moment.");
+      return undefined;
+    }
 
-    // Request microphone permission before placing the call
     try {
       mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       console.error("Microphone permission denied:", err);
       setStatus("error");
       setErrorMessage("Microphone access is required to make calls. Please allow microphone access in your browser and try again.");
+      toast.error("Microphone access is required to place calls.");
       return undefined;
     }
 
-    // ── LOCK ACQUIRED ──
-    try {
+    isDialingRef.current = true;
 
+    try {
       activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
       setCallState("dialing");
       setIsMuted(false);
@@ -1230,11 +1273,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
       setCallState("idle");
+      isDialingRef.current = false;
       return undefined;
-    } finally {
-      // Initiation phase complete. The execution lock isDialingRef.current 
-      // remains true if the call started, and is released via useEffect when it ends.
     }
+    // isDialingRef stays true until the call ends (released in useEffect on idle/ended).
   }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id]);
 
 

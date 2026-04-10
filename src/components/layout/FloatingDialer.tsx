@@ -91,12 +91,12 @@ const FloatingDialer: React.FC = () => {
     callDuration: telnyxCallDuration,
     isMuted: telnyxIsMuted,
     isOnHold: telnyxIsOnHold,
-    currentCall: telnyxCurrentCall,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     toggleMute: telnyxToggleMute,
     toggleHold: telnyxToggleHold,
     initializeClient: telnyxInitialize,
+    isReady: telnyxIsReady,
     availableNumbers,
     selectedCallerNumber,
     setSelectedCallerNumber,
@@ -118,9 +118,6 @@ const FloatingDialer: React.FC = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedContact, setSelectedContact] = useState<ContactResult | null>(null);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // --- Dialer error state ---
-  const [dialerError, setDialerError] = useState<string | null>(null);
 
   // --- Open animation ---
   const [isVisible, setIsVisible] = useState(false);
@@ -362,8 +359,8 @@ const FloatingDialer: React.FC = () => {
   };
 
   const proceedWithCall = async (destinationNumber: string, callerNumber: string, contactId?: string | null) => {
+    if (!telnyxIsReady) return;
     lastUsedCallerId.current = callerNumber;
-    // Use MakeCallOptions for consolidated single-point call creation in TelnyxContext
     const opts: MakeCallOptions = {
       contactId: contactId || selectedContact?.id || null,
       contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : null,
@@ -371,7 +368,8 @@ const FloatingDialer: React.FC = () => {
       contactType: selectedContact?.type || null,
     };
     const callId = await telnyxMakeCall(destinationNumber, callerNumber || undefined, opts);
-    setCurrentCallId(callId || null);
+    if (!callId) return;
+    setCurrentCallId(callId);
     setOnCall(true);
     setCallSeconds(0);
   };
@@ -506,10 +504,13 @@ const FloatingDialer: React.FC = () => {
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
   const statusDotColor =
-    telnyxStatus === 'ready' ? '#22c55e' : 
+    telnyxStatus === 'ready' ? '#22c55e' :
     telnyxStatus === 'connecting' ? '#eab308' :
     telnyxStatus === 'error' ? '#ef4444' : '#94a3b8';
   const shouldPulse = telnyxStatus === 'ready' || telnyxStatus === 'connecting';
+
+  /** Outbound calls are blocked until Telnyx SIP registration completes (matches TelnyxContext.makeCall gates). */
+  const canPlaceCall = telnyxIsReady && telnyxStatus !== 'error';
 
   return (
     <>
@@ -538,10 +539,12 @@ const FloatingDialer: React.FC = () => {
                 Cancel
               </button>
               <button
+                disabled={!canPlaceCall}
+                title={!canPlaceCall ? "Wait until the dialer shows Ready" : undefined}
                 onClick={() => {
                   setShowCallerIdWarning(false);
                   if (pendingCall) {
-                    proceedWithCall(
+                    void proceedWithCall(
                       pendingCall.leadPhone,
                       pendingCall.proposedNumber,
                       pendingCall.contactId
@@ -549,7 +552,7 @@ const FloatingDialer: React.FC = () => {
                   }
                   setPendingCall(null);
                 }}
-                className="flex-1 py-2 rounded-lg bg-warning text-warning-foreground text-sm font-medium hover:bg-warning/90"
+                className="flex-1 py-2 rounded-lg bg-warning text-warning-foreground text-sm font-medium hover:bg-warning/90 disabled:opacity-50 disabled:pointer-events-none"
               >
                 Call Anyway
               </button>
@@ -594,6 +597,7 @@ const FloatingDialer: React.FC = () => {
               />
               <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
               {telnyxStatus === 'connecting' && <span className="text-[10px] text-muted-foreground">Connecting…</span>}
+              {telnyxStatus === 'idle' && open && <span className="text-[10px] text-muted-foreground">Starting phone…</span>}
               {telnyxStatus === 'ready' && <span className="text-[10px] text-muted-foreground">Ready</span>}
               {telnyxStatus === 'error' && (
                 <div className="flex flex-col">
@@ -761,6 +765,11 @@ const FloatingDialer: React.FC = () => {
 
                 {!onCall && !showDisposition && (
                   <div className="space-y-4">
+                    {!canPlaceCall && telnyxStatus !== 'error' && (
+                      <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/40 px-3 py-2">
+                        Wait for <span className="font-medium text-foreground">Ready</span> in the header before placing a call.
+                      </p>
+                    )}
                     <div className="p-3 bg-accent/40 rounded-lg border border-border transition-colors hover:border-primary/50">
                       <div className="flex flex-col flex-1">
                         <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight mb-1">Calling From</span>
@@ -819,7 +828,15 @@ const FloatingDialer: React.FC = () => {
                           <p className="font-semibold text-sm">{selectedContact.first_name} {selectedContact.last_name}</p>
                           <p className="text-xs font-medium text-primary">{selectedContact.phone}</p>
                         </div>
-                        <button onClick={handleCallFromContact} className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-semibold flex items-center gap-1.5"><Phone className="w-4 h-4" /> Call</button>
+                        <button
+                          type="button"
+                          disabled={!canPlaceCall}
+                          title={!canPlaceCall ? "Wait until the dialer shows Ready" : undefined}
+                          onClick={() => void handleCallFromContact()}
+                          className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                        >
+                          <Phone className="w-4 h-4" /> Call
+                        </button>
                       </div>
                     )}
 
@@ -842,7 +859,13 @@ const FloatingDialer: React.FC = () => {
                         ))}
                       </div>
                       {dialedNumber.length >= 10 && (
-                        <button onClick={handleCallFromKeypad} className="w-full py-2.5 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          disabled={!canPlaceCall}
+                          title={!canPlaceCall ? "Wait until the dialer shows Ready" : undefined}
+                          onClick={() => void handleCallFromKeypad()}
+                          className="w-full py-2.5 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                        >
                           <Phone className="w-4 h-4" /> Call
                         </button>
                       )}
