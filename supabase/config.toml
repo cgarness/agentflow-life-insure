@@ -58,3 +58,7 @@ verify_jwt = false
 # must be false — otherwise Supabase returns 401 Invalid JWT before the handler runs.
 [functions.dialer-start-call]
 verify_jwt = false
+
+# Custom JWT validation inside the function.
+[functions.inbound-route]
+verify_jwt = false
