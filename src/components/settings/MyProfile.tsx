@@ -13,6 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { Badge } from "@/components/ui/badge";
+import CallForwardingSettings from "./CallForwardingSettings";
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -716,6 +717,9 @@ const MyProfile: React.FC = () => {
           </Button>
         </CardContent>
       </Card>
+
+      {/* CARD 3.5 — Call Handling (Inbound + Forwarding) */}
+      <CallForwardingSettings />
 
       {/* CARD 4 — Agent Goals */}
       {showGoals && (
