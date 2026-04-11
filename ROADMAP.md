@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 10, 2026
+**Owner:** Chris Garness | **Last Updated:** April 11, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -18,9 +18,9 @@
 - **Next Up**: Execute **SaaS Core Migration Block** to create `organizations` (multi-tenancy root), `tasks`, and `dial_sessions`.
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
-- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers.
-- **Features**: Smart Caller ID (Local Presence), Ring Timeout, and mandatory dispositions. (Answering Machine Detection was removed — bridge on answer only.)
-- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time.
+- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound calling system** (Phases 1–8, April 2026) provides server-side Telnyx Call Control routing: org lookup → lead match → contacts-only gate → assigned-agent transfer / PSTN forward / personal voicemail / simultaneous-ring fork → org voicemail fallback.
+- **Features**: Smart Caller ID (Local Presence), Ring Timeout, and mandatory dispositions. (AMD removed — bridge on answer only.) Inbound adds: business hours window, after-hours SMS, per-org voicemail greeting upload, presence heartbeat (`profiles.last_seen_at`), agent-level inbound toggle + call forwarding, voicemail inbox with recording-proxy.
+- **Next Up**: E2E test the inbound fork path end-to-end against real Telnyx numbers; optimize campaign refresh logic; integrate `dial_sessions`.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
 - **State**: Entirely missing billing and SaaS partitioning layer.
@@ -49,10 +49,24 @@
 | `20260406950000` | `robust_rpc_signature.sql` | Aligned RPC signature with JS payload; cleared schema cache overloads. |
 | `20260407000000` | `dialer_telemetry_hardening.sql` | `get_org_id()` graceful fallback to profiles table; re-applied `get_enterprise_queue_leads` with `SET search_path`; PostgREST cache reload. |
 | `20260409120000` | `hierarchical_calls_rls.sql` | Replaced strict owner-only `calls` RLS with Admin (org) + Team Leader / `Team Lead` (downline via `is_ancestor_of`) + Agent (own); backfill `contact_activities.organization_id` from `leads` (`contact_id` = `leads.id`, UUID). **Production:** also recorded as `20260409205652_hierarchical_calls_rls` on project `jncvvsvckxhqgqvkppmj`. |
+| `20260410120000` | `inbound_calling_system.sql` | **Phase 1 of inbound calling system.** Added `inbound_routing_settings` (per-org: `contacts_only`, `voicemail_greeting_url`, `ring_timeout_seconds`, after-hours SMS, business hours); `voicemails` (org-scoped inbox with `recording_url`, `duration_seconds`, `listened_at`); `inbound_fork_legs` (simultaneous-ring state machine: `dialing → answered/cancelled/failed/completed`); profiles columns (`sip_username`, `inbound_enabled`, `call_forwarding_enabled`, `call_forwarding_number`, `last_seen_at`); storage bucket `voicemail-assets` with org-folder RLS via `(storage.foldername(name))[1] = public.get_org_id()::text`. RLS throughout uses `public.get_org_id()` helper. |
 
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-11 | [DONE] Inbound calling system — Phases 1–8 (full stack)**
+  *Scope:* End-to-end inbound PSTN routing on Telnyx Call Control v2 with org multi-tenancy, presence-driven simultaneous-ring fork, voicemail inbox, and agent-level call forwarding. Outbound one-legged WebRTC dialer is **untouched** — inbound traffic is handled by a disjoint branch of the webhook.
+  *Routing priority:* (1) `phone_numbers.to` → `organization_id`; (2) `leads.phone` → lead; (3) `contacts_only` gate → org voicemail if unknown; (4) assigned agent online (`last_seen_at` ≤ 5 min, `inbound_enabled = true`, `sip_username` set) → direct `transfer` to `sip:{sip_username}@sip.telnyx.com`; (5) assigned agent offline + forwarding → PSTN `transfer`; (6) assigned agent offline + no forwarding → personal voicemail; (7) no assigned lead → fork to all online org agents (`/v2/calls` with `client_state: fork:<parent_call_id>`, first-answered `bridge` + sibling `hangup`); (8) zero online agents → org voicemail. Voicemail flow: insert `voicemails` row → `answer` → optional `playback_start` → on `call.playback.ended` → `record_start` → on `call.recording.saved` match by `telnyx_call_control_id`.
+  *Phase 1 — DB:* `supabase/migrations/20260410120000_inbound_calling_system.sql` (see §2). `get_org_id()` used for all RLS; `voicemail-assets` bucket RLS keys on first folder segment being the caller's org.
+  *Phase 2 — Webhook routing:* extended `supabase/functions/telnyx-webhook/index.ts` (42KB, 1180 lines) with `handleInboundCall`, `startVoicemailFlow`, `handleInboundPlaybackEnded`, `tryHandleForkLegAnswered` (bridge + kill siblings + start recording), `tryHandleForkLegHangup` (mark failed + fall back to org voicemail when all legs exhausted), and a full Telnyx helper surface (`telnyxPost`/`Answer`/`TransferToSip`/`TransferToPstn`/`Dial`/`Bridge`/`Hangup`/`PlaybackStart`/`RecordVoicemail`). Added `call.playback.ended` case to the main switch. Constants: `ONLINE_WINDOW_SECONDS=300`, `FORK_RING_TIMEOUT_MS=25000`, `VOICEMAIL_MAX_LENGTH_SEC=120`. Fork-leg recognition in `handleCallInitiated` via `client_state` prefix `fork:`. `handleRecordingSaved` now matches `voicemails` by `telnyx_call_control_id` before falling through to the `calls` table.
+  *Phase 3 — Read API:* `supabase/functions/inbound-route/index.ts` (JWT-validated read endpoint returning `{settings, online_agent_count, unread_voicemail_count, unread_personal_count, unread_org_count}`).
+  *Phase 4 — Inbound UI banner:* `src/components/calling/InboundCallBanner.tsx` (realtime on `calls` for `direction=inbound, status=ringing`, accept/decline actions via `telnyx-call-control`).
+  *Phase 5 — Presence heartbeat:* `src/hooks/useInboundPresence.ts` — 60s `last_seen_at` upsert on `profiles` while tab is visible + `inbound_enabled` aware.
+  *Phase 6 — Voicemail inbox:* `src/components/voicemail/VoicemailInbox.tsx` + `src/pages/VoicemailPage.tsx`. Plays via `supabase/functions/recording-proxy` (org-scoped, accepts `{voicemail_id}` or `{call_id}`, resolves control id, fetches from Telnyx Recordings API with fallback to public download URL).
+  *Phase 7 — Settings UI (refactor):* split the old monolithic `InboundCallRouting.tsx` (292 lines) into a thin orchestrator + per-feature cards under `src/components/settings/inbound/`: `types.ts`, `BusinessHoursCard.tsx`, `RoutingModeCard.tsx`, `ContactsOnlyCard.tsx`, `VoicemailSettingsCard.tsx` (upload greeting to `voicemail-assets` + play/pause preview + ring-timeout slider 10–60s), `AutoCreateLeadCard.tsx`, `AfterHoursSmsCard.tsx` (preserved from pre-inbound behavior). All cards take `{settings, onChange}` props; saves are org-scoped via `.eq("organization_id", settings.organization_id)` (no more `ROUTING_ID` singleton). New `src/components/settings/CallForwardingSettings.tsx` (profile-level card for `inbound_enabled`, `call_forwarding_enabled`, `call_forwarding_number` with E.164 normalization) wired into `MyProfile.tsx` between Preferences and Goals.
+  *Phase 8 — Deploy + docs:* deployed `inbound-route` (v1) and `recording-proxy` (v3) via MCP. **`telnyx-webhook` deploy pending** — the local file in `d4a3bbe` is the authoritative copy; the currently-deployed version (346) is pre-Phase-2. See `docs/INBOUND_CALLING_ARCHITECTURE.md` for routing diagram, Telnyx API quirks, and E2E test priorities.
+  *Files:* `supabase/migrations/20260410120000_inbound_calling_system.sql`, `supabase/functions/telnyx-webhook/index.ts`, `supabase/functions/inbound-route/index.ts`, `supabase/functions/recording-proxy/index.ts`, `src/components/calling/InboundCallBanner.tsx`, `src/hooks/useInboundPresence.ts`, `src/components/voicemail/VoicemailInbox.tsx`, `src/pages/VoicemailPage.tsx`, `src/components/settings/InboundCallRouting.tsx`, `src/components/settings/inbound/*`, `src/components/settings/CallForwardingSettings.tsx`, `src/components/settings/MyProfile.tsx`, `docs/INBOUND_CALLING_ARCHITECTURE.md`.
 
 - **2026-04-10 | [DONE] Phone settings — bulk AgentFlow routing on Telnyx (API)**
   *What:* `telnyx-sync-numbers` can `PATCH` every number on the account to **AgentFlow Call Control** + **AgentFlow** messaging profile (same IDs as `telnyx-buy-number`). Optional body `apply_agentflow_routing` runs during CRM sync; `routing_only: true` updates Telnyx only (no DB upsert). UI: checkbox on sync + **Apply AgentFlow on Telnyx** button. *Files:* `supabase/functions/telnyx-sync-numbers/index.ts`, `src/components/settings/PhoneSettings.tsx`
