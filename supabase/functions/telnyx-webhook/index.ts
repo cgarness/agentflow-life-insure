@@ -181,6 +181,10 @@ Deno.serve(async (req: Request) => {
         await handleRecordingSaved(supabase, payload);
         break;
 
+      case 'call.playback.ended':
+        await handleInboundPlaybackEnded(supabase, payload);
+        break;
+
       default:
         if (typeof eventType === 'string' && eventType.includes('recording')) {
           console.log(`[telnyx-webhook] Unhandled recording-related event: ${eventType}`);
@@ -341,17 +345,18 @@ async function handleCallInitiated(supabase: any, payload: any) {
       if (error) console.error(`Error inserting call record for ${decodedClientState}:`, error, 'Data:', callData);
     }
   } else {
-    // No UUID provided — this is likely a transfer/bridge leg created by our webhook.
-    // Only insert if it looks like a genuine inbound or manually-initiated call.
-    // Transfer legs from telnyxTransfer() don't carry client_state, so we skip
-    // inserting orphan records that would pollute the calls table.
+    // No UUID provided.
+    // Inbound PSTN calls never carry a client_state — hand off to the inbound router.
     if (payload.direction === 'inbound') {
-      console.log('Inbound call without client_state UUID — inserting new record');
-      const { error } = await supabase.from('calls').insert({
-        ...callData,
-        created_at: new Date().toISOString(),
-      });
-      if (error) console.error('Error creating new call record:', error, 'Data:', callData);
+      // Is this a fork leg we originated? Those use client_state "fork:<parent_call_id>"
+      // and are handled by the fork-leg handlers in call.answered / call.hangup.
+      const rawCs = typeof payload.client_state === 'string' ? decodeClientState(payload.client_state) : null;
+      if (rawCs && rawCs.startsWith('fork:')) {
+        console.log(`[call.initiated] Fork leg initiated: ${payload.call_control_id} (${rawCs})`);
+        return;
+      }
+      console.log(`[call.initiated] Inbound PSTN call to ${payload.to} from ${payload.from} — routing`);
+      await handleInboundCall(supabase, payload);
     } else {
       console.log(`[call.initiated] Outbound call without client_state — likely a transfer leg. Skipping record creation. control_id: ${payload.call_control_id}`);
     }
@@ -363,6 +368,10 @@ async function handleCallInitiated(supabase: any, payload: any) {
 // We just update the DB status and optionally start recording.
 async function handleCallAnswered(supabase: any, payload: any) {
   console.log('Call answered:', payload.call_control_id, { direction: payload.direction });
+
+  // ─── Inbound fork-leg winner: bridge to parent, kill siblings ───
+  const winnerForkLeg = await tryHandleForkLegAnswered(supabase, payload);
+  if (winnerForkLeg) return;
 
   let updatedRow: { id: string; organization_id: string | null } | null = null;
 
@@ -439,6 +448,10 @@ async function handleCallHangup(supabase: any, payload: any) {
     duration,
     status,
   });
+
+  // ─── Inbound fork-leg losing/failing: mark dead, fall back to voicemail if all legs failed ───
+  const wasForkLeg = await tryHandleForkLegHangup(supabase, payload);
+  if (wasForkLeg) return;
 
   const hangPatch = {
     status,
@@ -530,6 +543,30 @@ async function handleRecordingSaved(supabase: any, payload: any) {
     return;
   }
 
+  // ─── Voicemail first: if this recording belongs to a voicemails row, patch it and return ───
+  if (callControlId) {
+    const durationSeconds = payload?.recording_duration_millis
+      ? Math.round(Number(payload.recording_duration_millis) / 1000)
+      : (payload?.duration_millis ? Math.round(Number(payload.duration_millis) / 1000) : null);
+
+    const { data: vm, error: vmErr } = await supabase
+      .from('voicemails')
+      .update({
+        recording_url: recordingUrl,
+        ...(durationSeconds != null ? { duration_seconds: durationSeconds } : {}),
+      })
+      .eq('telnyx_call_control_id', callControlId)
+      .select('id')
+      .maybeSingle();
+
+    if (vmErr) {
+      console.error(`[handleRecordingSaved] voicemails patch error for ${callControlId}:`, vmErr);
+    } else if (vm?.id) {
+      console.log(`[handleRecordingSaved] Voicemail ${vm.id} updated with recording`);
+      return;
+    }
+  }
+
   const patch = { recording_url: recordingUrl, updated_at: new Date().toISOString() };
 
   if (callControlId) {
@@ -574,4 +611,570 @@ async function handleRecordingSaved(supabase: any, payload: any) {
   } else if (!callControlId && !rowId) {
     console.warn('[handleRecordingSaved] No call_control_id, client_state row id, or call_session_id; cannot attach recording.');
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//   INBOUND CALLING SYSTEM — Server-side Call Control routing
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Architecture: inbound PSTN calls arrive on Telnyx numbers routed to our
+// Call Control Application. This webhook answers/transfers/forks to agent
+// WebRTC SIP URIs (sip:{profile.sip_username}@sip.telnyx.com). Outbound
+// one-legged WebRTC is unaffected — it bypasses this entire section.
+//
+// Routing priority (matches InboundCallRouting spec):
+//   1. Match called number → organization_id (phone_numbers)
+//   2. Match caller number → lead (leads, same org)
+//   3. Apply contacts_only gate → org voicemail if unknown
+//   4. Assigned agent online → single direct transfer
+//   5. Assigned agent offline + forwarding on → PSTN forward
+//   6. Assigned agent offline + no forwarding → personal voicemail
+//   7. No assigned / no lead match → fork to all online agents (race)
+//   8. Zero online agents anywhere → org voicemail
+//
+// Fork implementation: answer parent, originate N outbound legs via POST
+// /v2/calls, tag each leg with client_state "fork:<parent_calls_id>", on
+// first fork leg answered → bridge to parent + hang up siblings.
+// ════════════════════════════════════════════════════════════════════════════
+
+const ONLINE_WINDOW_SECONDS = 300;       // 5 min presence window
+const FORK_RING_TIMEOUT_MS = 25000;      // per-fork ring timeout (Telnyx)
+const VOICEMAIL_MAX_LENGTH_SEC = 120;    // 2-min voicemail cap
+const TELNYX_V2 = 'https://api.telnyx.com/v2';
+
+// ─── Telnyx Call Control helpers (v2) ───
+
+async function telnyxPost(apiKey: string, path: string, body: any): Promise<any | null> {
+  try {
+    const resp = await fetch(`${TELNYX_V2}${path}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error(`[telnyxPost] ${path} → ${resp.status}: ${errText}`);
+      return null;
+    }
+    return await resp.json().catch(() => ({}));
+  } catch (err) {
+    console.error(`[telnyxPost] EXCEPTION on ${path}:`, err);
+    return null;
+  }
+}
+
+async function telnyxAnswer(apiKey: string, controlId: string): Promise<boolean> {
+  const r = await telnyxPost(apiKey, `/calls/${controlId}/actions/answer`, {});
+  return r != null;
+}
+
+async function telnyxTransferToSip(
+  apiKey: string,
+  controlId: string,
+  sipUri: string,
+  timeoutSecs: number,
+): Promise<boolean> {
+  const r = await telnyxPost(apiKey, `/calls/${controlId}/actions/transfer`, {
+    to: sipUri,
+    timeout_secs: timeoutSecs,
+  });
+  return r != null;
+}
+
+async function telnyxTransferToPstn(
+  apiKey: string,
+  controlId: string,
+  pstnE164: string,
+  fromE164: string,
+  timeoutSecs: number,
+): Promise<boolean> {
+  const r = await telnyxPost(apiKey, `/calls/${controlId}/actions/transfer`, {
+    to: pstnE164,
+    from: fromE164,
+    timeout_secs: timeoutSecs,
+  });
+  return r != null;
+}
+
+async function telnyxDial(
+  apiKey: string,
+  connectionId: string,
+  to: string,
+  from: string,
+  clientState: string,
+  timeoutSecs: number,
+): Promise<string | null> {
+  const r = await telnyxPost(apiKey, '/calls', {
+    connection_id: connectionId,
+    to,
+    from,
+    client_state: btoa(clientState),
+    timeout_secs: timeoutSecs,
+  });
+  return r?.data?.call_control_id ?? null;
+}
+
+async function telnyxBridge(apiKey: string, legA: string, legB: string): Promise<boolean> {
+  const r = await telnyxPost(apiKey, `/calls/${legA}/actions/bridge`, { call_control_id: legB });
+  return r != null;
+}
+
+async function telnyxHangup(apiKey: string, controlId: string): Promise<void> {
+  await telnyxPost(apiKey, `/calls/${controlId}/actions/hangup`, {});
+}
+
+async function telnyxPlaybackStart(apiKey: string, controlId: string, audioUrl: string): Promise<boolean> {
+  const r = await telnyxPost(apiKey, `/calls/${controlId}/actions/playback_start`, {
+    audio_url: audioUrl,
+  });
+  return r != null;
+}
+
+async function telnyxRecordVoicemail(apiKey: string, controlId: string): Promise<boolean> {
+  const r = await telnyxPost(apiKey, `/calls/${controlId}/actions/record_start`, {
+    format: 'mp3',
+    channels: 'single',
+    play_beep: true,
+    max_length: VOICEMAIL_MAX_LENGTH_SEC,
+  });
+  return r != null;
+}
+
+// ─── Telnyx connection id lookup (for fork dial) ───
+
+async function getTelnyxConnectionId(supabase: any, organizationId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('telnyx_settings')
+    .select('connection_id')
+    .eq('organization_id', organizationId)
+    .maybeSingle();
+  if (error) {
+    console.error(`[getTelnyxConnectionId] org ${organizationId}:`, error);
+  }
+  if (data?.connection_id) return data.connection_id;
+  const { data: global } = await supabase
+    .from('telnyx_settings')
+    .select('connection_id')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .maybeSingle();
+  return global?.connection_id ?? null;
+}
+
+// ─── Presence: list online agents for an org ───
+
+async function getOnlineAgents(
+  supabase: any,
+  organizationId: string,
+): Promise<Array<{ id: string; sip_username: string | null; call_forwarding_enabled: boolean; call_forwarding_number: string | null }>> {
+  const cutoff = new Date(Date.now() - ONLINE_WINDOW_SECONDS * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, sip_username, call_forwarding_enabled, call_forwarding_number, inbound_enabled, last_seen_at')
+    .eq('organization_id', organizationId)
+    .eq('inbound_enabled', true)
+    .gt('last_seen_at', cutoff);
+  if (error) {
+    console.error(`[getOnlineAgents] org ${organizationId}:`, error);
+    return [];
+  }
+  return (data || []).filter((p: any) => !!p.sip_username);
+}
+
+// ─── Main inbound router ───
+
+async function handleInboundCall(supabase: any, payload: any) {
+  const to = payload.to;
+  const from = payload.from;
+  const parentControlId = payload.call_control_id;
+
+  // 1. Organization lookup
+  const { data: phoneRow, error: phoneErr } = await supabase
+    .from('phone_numbers')
+    .select('organization_id, assigned_to')
+    .eq('phone_number', to)
+    .maybeSingle();
+  if (phoneErr) console.error('[handleInboundCall] phone_numbers lookup:', phoneErr);
+  const organizationId: string | null = phoneRow?.organization_id ?? null;
+
+  if (!organizationId) {
+    console.warn(`[handleInboundCall] No org found for ${to}; inserting bare record and aborting routing`);
+    await supabase.from('calls').insert({
+      direction: 'inbound',
+      caller_id_used: from,
+      status: 'ringing',
+      telnyx_call_control_id: parentControlId,
+      telnyx_call_id: payload.call_session_id,
+      created_at: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // 2. Lead lookup by caller number
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id, assigned_agent_id, first_name, last_name')
+    .eq('phone', from)
+    .eq('organization_id', organizationId)
+    .maybeSingle();
+
+  // 3. Inbound routing settings
+  const { data: settings } = await supabase
+    .from('inbound_routing_settings')
+    .select('contacts_only, voicemail_greeting_url, ring_timeout_seconds')
+    .eq('organization_id', organizationId)
+    .maybeSingle();
+
+  const ringTimeout = settings?.ring_timeout_seconds ?? 30;
+
+  // 4. Create parent calls row (always — tracks the inbound leg end-to-end)
+  const { data: callRow, error: callErr } = await supabase
+    .from('calls')
+    .insert({
+      direction: 'inbound',
+      caller_id_used: from,
+      status: 'ringing',
+      telnyx_call_control_id: parentControlId,
+      telnyx_call_id: payload.call_session_id,
+      contact_id: lead?.id ?? null,
+      organization_id: organizationId,
+      agent_id: lead?.assigned_agent_id ?? null,
+      started_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .maybeSingle();
+  if (callErr) {
+    console.error('[handleInboundCall] calls insert failed:', callErr);
+    return;
+  }
+  const parentCallId = callRow?.id;
+  if (!parentCallId) return;
+
+  const apiKey = await getTelnyxApiKey(supabase, organizationId);
+  if (!apiKey) {
+    console.error(`[handleInboundCall] no Telnyx API key for org ${organizationId}`);
+    return;
+  }
+
+  // 5. Contacts-only gate
+  if (settings?.contacts_only && !lead) {
+    console.log(`[handleInboundCall] contacts_only=true and unknown caller — sending to org voicemail`);
+    await startVoicemailFlow(supabase, apiKey, parentControlId, parentCallId, {
+      organizationId,
+      agentId: null,
+      contactId: null,
+      callerNumber: from,
+      greetingUrl: settings?.voicemail_greeting_url ?? null,
+    });
+    return;
+  }
+
+  // 6. Assigned-agent routing
+  if (lead?.assigned_agent_id) {
+    const { data: agent } = await supabase
+      .from('profiles')
+      .select('id, sip_username, last_seen_at, call_forwarding_enabled, call_forwarding_number, inbound_enabled')
+      .eq('id', lead.assigned_agent_id)
+      .maybeSingle();
+
+    const agentOnline = agent
+      && agent.inbound_enabled !== false
+      && agent.last_seen_at
+      && (Date.now() - new Date(agent.last_seen_at).getTime()) < ONLINE_WINDOW_SECONDS * 1000;
+
+    if (agentOnline && agent?.sip_username) {
+      console.log(`[handleInboundCall] direct transfer → agent ${agent.id}`);
+      await telnyxTransferToSip(apiKey, parentControlId, `sip:${agent.sip_username}@sip.telnyx.com`, ringTimeout);
+      return;
+    }
+
+    if (agent?.call_forwarding_enabled && agent.call_forwarding_number) {
+      console.log(`[handleInboundCall] agent offline — forwarding to ${agent.call_forwarding_number}`);
+      await telnyxTransferToPstn(apiKey, parentControlId, agent.call_forwarding_number, to, ringTimeout);
+      return;
+    }
+
+    console.log(`[handleInboundCall] agent offline — personal voicemail for ${lead.assigned_agent_id}`);
+    await startVoicemailFlow(supabase, apiKey, parentControlId, parentCallId, {
+      organizationId,
+      agentId: lead.assigned_agent_id,
+      contactId: lead.id,
+      callerNumber: from,
+      greetingUrl: settings?.voicemail_greeting_url ?? null,
+    });
+    return;
+  }
+
+  // 7. Fork to all online agents
+  const agents = await getOnlineAgents(supabase, organizationId);
+  if (agents.length === 0) {
+    console.log('[handleInboundCall] no online agents — org voicemail');
+    await startVoicemailFlow(supabase, apiKey, parentControlId, parentCallId, {
+      organizationId,
+      agentId: null,
+      contactId: lead?.id ?? null,
+      callerNumber: from,
+      greetingUrl: settings?.voicemail_greeting_url ?? null,
+    });
+    return;
+  }
+
+  if (agents.length === 1) {
+    const a = agents[0];
+    console.log(`[handleInboundCall] single online agent → direct transfer ${a.id}`);
+    await telnyxTransferToSip(apiKey, parentControlId, `sip:${a.sip_username}@sip.telnyx.com`, ringTimeout);
+    return;
+  }
+
+  // Simultaneous fork
+  const connectionId = await getTelnyxConnectionId(supabase, organizationId);
+  if (!connectionId) {
+    console.error('[handleInboundCall] no Telnyx connection_id — falling back to single transfer');
+    await telnyxTransferToSip(apiKey, parentControlId, `sip:${agents[0].sip_username}@sip.telnyx.com`, ringTimeout);
+    return;
+  }
+
+  console.log(`[handleInboundCall] forking to ${agents.length} agents`);
+  await telnyxAnswer(apiKey, parentControlId);
+
+  for (const a of agents) {
+    const clientState = `fork:${parentCallId}`;
+    const legId = await telnyxDial(
+      apiKey,
+      connectionId,
+      `sip:${a.sip_username}@sip.telnyx.com`,
+      to,
+      clientState,
+      Math.min(ringTimeout, Math.floor(FORK_RING_TIMEOUT_MS / 1000)),
+    );
+    if (!legId) {
+      console.warn(`[handleInboundCall] fork dial failed for agent ${a.id}`);
+      continue;
+    }
+    await supabase.from('inbound_fork_legs').insert({
+      parent_call_id: parentCallId,
+      parent_control_id: parentControlId,
+      leg_control_id: legId,
+      agent_id: a.id,
+      organization_id: organizationId,
+      status: 'dialing',
+    });
+  }
+}
+
+// ─── Voicemail flow: playback greeting (optional) → record → insert row ───
+
+interface VoicemailParams {
+  organizationId: string;
+  agentId: string | null;
+  contactId: string | null;
+  callerNumber: string;
+  greetingUrl: string | null;
+}
+
+async function startVoicemailFlow(
+  supabase: any,
+  apiKey: string,
+  parentControlId: string,
+  parentCallId: string,
+  params: VoicemailParams,
+) {
+  // Insert voicemails row immediately so handleRecordingSaved can match by control_id.
+  const { error: vmInsertErr } = await supabase.from('voicemails').insert({
+    organization_id: params.organizationId,
+    agent_id: params.agentId,
+    contact_id: params.contactId,
+    caller_number: params.callerNumber,
+    telnyx_call_control_id: parentControlId,
+  });
+  if (vmInsertErr) {
+    console.error('[startVoicemailFlow] voicemails insert error:', vmInsertErr);
+  }
+
+  // Mark the parent calls row as routed to voicemail.
+  await supabase
+    .from('calls')
+    .update({ status: 'voicemail', updated_at: new Date().toISOString() })
+    .eq('id', parentCallId);
+
+  // Answer the call so we can interact with it (playback/record).
+  await telnyxAnswer(apiKey, parentControlId);
+
+  if (params.greetingUrl) {
+    // playback_start → wait for call.playback.ended → record_start
+    const ok = await telnyxPlaybackStart(apiKey, parentControlId, params.greetingUrl);
+    if (ok) return;
+    console.warn('[startVoicemailFlow] playback_start failed; recording immediately');
+  }
+
+  // No greeting (or playback failed) — start recording right away.
+  await telnyxRecordVoicemail(apiKey, parentControlId);
+}
+
+// Handler: call.playback.ended — chain into voicemail recording
+async function handleInboundPlaybackEnded(supabase: any, payload: any) {
+  const controlId = payload.call_control_id;
+  if (!controlId) return;
+
+  // Only voicemail flows care about playback.ended.
+  const { data: vm } = await supabase
+    .from('voicemails')
+    .select('id, organization_id')
+    .eq('telnyx_call_control_id', controlId)
+    .maybeSingle();
+  if (!vm) {
+    console.log(`[playback.ended] no matching voicemail for ${controlId}; ignoring`);
+    return;
+  }
+
+  const apiKey = await getTelnyxApiKey(supabase, vm.organization_id);
+  if (!apiKey) return;
+  await telnyxRecordVoicemail(apiKey, controlId);
+}
+
+// ─── Fork-leg: answered → bridge + kill siblings ───
+
+async function tryHandleForkLegAnswered(supabase: any, payload: any): Promise<boolean> {
+  const legId = payload.call_control_id;
+  if (!legId) return false;
+
+  const { data: leg, error: legErr } = await supabase
+    .from('inbound_fork_legs')
+    .select('id, parent_call_id, parent_control_id, agent_id, organization_id, status')
+    .eq('leg_control_id', legId)
+    .maybeSingle();
+  if (legErr) {
+    console.error('[tryHandleForkLegAnswered] lookup error:', legErr);
+    return false;
+  }
+  if (!leg) return false;
+
+  console.log(`[fork.winner] leg ${legId} answered by agent ${leg.agent_id}`);
+
+  // Mark this leg the winner.
+  await supabase
+    .from('inbound_fork_legs')
+    .update({ status: 'answered' })
+    .eq('id', leg.id);
+
+  const apiKey = await getTelnyxApiKey(supabase, leg.organization_id);
+  if (!apiKey) return true;
+
+  // Bridge the winning leg to the parent inbound leg.
+  await telnyxBridge(apiKey, leg.parent_control_id, legId);
+
+  // Patch parent calls row to "connected" and set the winning agent.
+  await supabase
+    .from('calls')
+    .update({
+      status: 'connected',
+      agent_id: leg.agent_id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', leg.parent_call_id);
+
+  // Hang up every other sibling leg that is still dialing/ringing.
+  const { data: siblings } = await supabase
+    .from('inbound_fork_legs')
+    .select('id, leg_control_id')
+    .eq('parent_call_id', leg.parent_call_id)
+    .neq('id', leg.id)
+    .in('status', ['dialing']);
+
+  for (const s of siblings || []) {
+    console.log(`[fork.cancel] hanging up sibling leg ${s.leg_control_id}`);
+    await telnyxHangup(apiKey, s.leg_control_id);
+    await supabase
+      .from('inbound_fork_legs')
+      .update({ status: 'cancelled' })
+      .eq('id', s.id);
+  }
+
+  // Start recording the bridged parent leg if org has recording enabled.
+  try {
+    const recOn = await isRecordingEnabled(supabase, leg.organization_id);
+    if (recOn) {
+      await telnyxRecordStart(apiKey, leg.parent_control_id);
+    }
+  } catch (err) {
+    console.error('[fork.winner] recording start failed (non-fatal):', err);
+  }
+
+  return true;
+}
+
+// ─── Fork-leg: hangup (dead leg, no-answer, or timeout) ───
+// If every leg has died without a winner, fall back to org voicemail.
+
+async function tryHandleForkLegHangup(supabase: any, payload: any): Promise<boolean> {
+  const legId = payload.call_control_id;
+  if (!legId) return false;
+
+  const { data: leg } = await supabase
+    .from('inbound_fork_legs')
+    .select('id, parent_call_id, parent_control_id, organization_id, status')
+    .eq('leg_control_id', legId)
+    .maybeSingle();
+  if (!leg) return false;
+
+  // Winner leg hanging up after a bridge is normal — don't escalate.
+  if (leg.status === 'answered') {
+    await supabase
+      .from('inbound_fork_legs')
+      .update({ status: 'completed' })
+      .eq('id', leg.id);
+    return true;
+  }
+
+  await supabase
+    .from('inbound_fork_legs')
+    .update({ status: 'failed' })
+    .eq('id', leg.id);
+
+  // Any sibling still dialing or already answered? If yes, let them play out.
+  const { data: survivors } = await supabase
+    .from('inbound_fork_legs')
+    .select('id, status')
+    .eq('parent_call_id', leg.parent_call_id)
+    .in('status', ['dialing', 'answered']);
+
+  if (survivors && survivors.length > 0) {
+    console.log(`[fork.hangup] leg ${legId} failed; ${survivors.length} siblings still live`);
+    return true;
+  }
+
+  // All fork legs exhausted — send parent to org voicemail.
+  console.log(`[fork.exhausted] all legs failed for parent ${leg.parent_call_id}; routing to org voicemail`);
+
+  const { data: parentCall } = await supabase
+    .from('calls')
+    .select('id, contact_id, caller_id_used, telnyx_call_control_id, status')
+    .eq('id', leg.parent_call_id)
+    .maybeSingle();
+
+  if (!parentCall || parentCall.status === 'completed' || parentCall.status === 'voicemail') {
+    return true;
+  }
+
+  const { data: settings } = await supabase
+    .from('inbound_routing_settings')
+    .select('voicemail_greeting_url')
+    .eq('organization_id', leg.organization_id)
+    .maybeSingle();
+
+  const apiKey = await getTelnyxApiKey(supabase, leg.organization_id);
+  if (!apiKey) return true;
+
+  await startVoicemailFlow(supabase, apiKey, leg.parent_control_id, leg.parent_call_id, {
+    organizationId: leg.organization_id,
+    agentId: null,
+    contactId: parentCall.contact_id,
+    callerNumber: parentCall.caller_id_used,
+    greetingUrl: settings?.voicemail_greeting_url ?? null,
+  });
+
+  return true;
 }
