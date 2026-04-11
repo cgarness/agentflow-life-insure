@@ -42,6 +42,9 @@ verify_jwt = false
 [functions.telnyx-webhook]
 verify_jwt = false
 
+[functions.recording-proxy]
+verify_jwt = false
+
 [functions.daily-briefing]
 verify_jwt = false
 

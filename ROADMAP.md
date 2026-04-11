@@ -49,13 +49,17 @@
 | `20260406950000` | `robust_rpc_signature.sql` | Aligned RPC signature with JS payload; cleared schema cache overloads. |
 | `20260407000000` | `dialer_telemetry_hardening.sql` | `get_org_id()` graceful fallback to profiles table; re-applied `get_enterprise_queue_leads` with `SET search_path`; PostgREST cache reload. |
 | `20260409120000` | `hierarchical_calls_rls.sql` | Replaced strict owner-only `calls` RLS with Admin (org) + Team Leader / `Team Lead` (downline via `is_ancestor_of`) + Agent (own); backfill `contact_activities.organization_id` from `leads` (`contact_id` = `leads.id`, UUID). **Production:** also recorded as `20260409205652_hierarchical_calls_rls` on project `jncvvsvckxhqgqvkppmj`. |
+| `20260411190000` | `revert_inbound_calling_system.sql` | Rolls back inbound schema: drops `inbound_fork_legs`, `voicemails`, related trigger/function; removes inbound columns from `profiles`; resets `inbound_routing_settings` to the legacy single default row + `"Allow all for authenticated users"` RLS; drops voicemail-assets **policies** on `storage.objects` (Supabase disallows SQL `DELETE` on storage tables—delete the empty `voicemail-assets` bucket in Dashboard if you want it removed). Also drops prod policies `inbound_routing_select` / `inbound_routing_update` from the follow-up migration. **Production:** recorded as `20260411185718_revert_inbound_calling_system` on `jncvvsvckxhqgqvkppmj`. |
 
 ---
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-11 | [DONE] Post-revert production alignment (Vercel + Supabase + DB rollback)**
+  *What:* (1) **Vercel** — `npx vercel deploy --prod` to `agentflow-life-insure` (production alias updated). (2) **Edge Functions** — redeployed `telnyx-webhook` and `recording-proxy` from current `main`; **deleted** `inbound-route` and `telnyx-diagnose` from project `jncvvsvckxhqgqvkppmj`. (3) **`supabase/config.toml`** — `[functions.recording-proxy] verify_jwt = false` so redeploys match prior behavior (function validates JWT internally). (4) **Database** — applied `revert_inbound_calling_system` on production (see migration table). *Follow-up:* In **Telnyx Mission Control**, if any number’s voice webhook still pointed at the removed `inbound-route` URL, point it back to **`telnyx-webhook`** only.
+
 - **2026-04-11 | [DONE] Git revert — inbound calling system removed from `main`**
-  *What:* Reset `main` to `5702d0c` (last commit before the multi-phase inbound work) and force-pushed to `origin`. Outbound WebRTC dialer and prior features at that snapshot are restored in the repo. **Note:** If `20260410120000_inbound_calling_system` (or related) was already applied on Supabase, those DB objects may still exist until explicitly migrated/dropped—reverting the repo does not roll back production schema.
+  *What:* Reset `main` to `5702d0c` (last commit before the multi-phase inbound work) and force-pushed to `origin`, then a small docs commit. Outbound WebRTC dialer and prior features at that snapshot are restored in the repo.
 
 - **2026-04-10 | [DONE] Phone settings — bulk AgentFlow routing on Telnyx (API)**
   *What:* `telnyx-sync-numbers` can `PATCH` every number on the account to **AgentFlow Call Control** + **AgentFlow** messaging profile (same IDs as `telnyx-buy-number`). Optional body `apply_agentflow_routing` runs during CRM sync; `routing_only: true` updates Telnyx only (no DB upsert). UI: checkbox on sync + **Apply AgentFlow on Telnyx** button. *Files:* `supabase/functions/telnyx-sync-numbers/index.ts`, `src/components/settings/PhoneSettings.tsx`
