@@ -12,6 +12,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
 import { selectCallerID } from "@/lib/caller-id-selector";
 import { DateInput } from "@/components/shared/DateInput";
+import InboundCallBanner from "@/components/dialer/InboundCallBanner";
 
 interface ContactResult {
   id: string;
@@ -514,6 +515,7 @@ const FloatingDialer: React.FC = () => {
 
   return (
     <>
+      <InboundCallBanner />
       {showCallerIdWarning && pendingCall && (
         <div className="fixed inset-0 bg-black/50 z-[1001] flex items-center justify-center">
           <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">

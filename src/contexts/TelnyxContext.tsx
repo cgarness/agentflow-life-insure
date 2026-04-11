@@ -41,6 +41,12 @@ export interface MakeCallOptions {
   contactType?: string | null;
 }
 
+export interface InboundCallInfo {
+  callerNumber: string | null;
+  displayName: string | null;
+  leadId: string | null;
+}
+
 interface TelnyxContextValue {
   status: TelnyxStatus;
   errorMessage: string | null;
@@ -54,6 +60,9 @@ interface TelnyxContextValue {
   ringTimeout: number;
   orphanCall: OrphanCall | null;
   connectionDropped: boolean;
+  inboundCall: InboundCallInfo | null;
+  acceptInboundCall: () => void;
+  declineInboundCall: () => void;
   makeCall: (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions) => Promise<string | undefined>;
   hangUp: () => void;
   hangUpOrphan: () => Promise<void>;
@@ -101,6 +110,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
   const [connectionDropped, setConnectionDropped] = useState(false);
+  const [inboundCall, setInboundCall] = useState<InboundCallInfo | null>(null);
+  const inboundCallRef = useRef<any>(null);
 
 
   // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
@@ -956,6 +967,61 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           return;
         }
 
+        // ─── INBOUND CALL INTERCEPT ───
+        // A ringing call that isn't ours (we didn't call newCall → callRef is null)
+        // is a PSTN inbound leg transferred/dialed by the telnyx-webhook router.
+        // Stash the call object + caller ID so InboundCallBanner can render, then
+        // wait for the agent to accept/decline. Do NOT take over currentCall yet.
+        const isInboundIncoming =
+          state === "ringing" &&
+          !callRef.current &&
+          call !== inboundCallRef.current &&
+          (call.direction === "inbound" || call.options?.remoteCallerNumber);
+
+        if (isInboundIncoming) {
+          const rawCaller: string | null =
+            call.options?.remoteCallerNumber ||
+            call.options?.callerIdNumber ||
+            call.options?.callerNumber ||
+            null;
+          console.log("[TelnyxContext] Incoming call detected:", rawCaller);
+          inboundCallRef.current = call;
+          setInboundCall({ callerNumber: rawCaller, displayName: null, leadId: null });
+
+          // Fire-and-forget lead lookup to enrich the banner with a contact name.
+          if (rawCaller && organizationId) {
+            void supabase
+              .from("leads")
+              .select("id, first_name, last_name")
+              .eq("phone", rawCaller)
+              .eq("organization_id", organizationId)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (!data) return;
+                setInboundCall((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        leadId: data.id,
+                        displayName: `${data.first_name || ""} ${data.last_name || ""}`.trim() || null,
+                      }
+                    : prev
+                );
+              });
+          }
+          return;
+        }
+
+        // Once the inbound call has been accepted/declined, its subsequent
+        // notifications fall through to the normal flow below (callRef set in accept).
+        if (call === inboundCallRef.current && (state === "hangup" || state === "destroy")) {
+          // Caller hung up before we answered — clear banner.
+          console.log("[TelnyxContext] Inbound caller hung up before accept");
+          inboundCallRef.current = null;
+          setInboundCall(null);
+          return;
+        }
+
         callRef.current = call;
         setCurrentCall(call);
 
@@ -1313,6 +1379,56 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id]);
 
 
+  // ─── Inbound accept / decline ───
+  const acceptInboundCall = useCallback(() => {
+    const c = inboundCallRef.current;
+    if (!c) return;
+    try {
+      console.log("[TelnyxContext] Answering inbound call");
+      c.answer();
+      callRef.current = c;
+      setCurrentCall(c);
+      setCallState("active");
+      setInboundCall(null);
+      inboundCallRef.current = null;
+      attachRemoteAudio(c);
+    } catch (err: any) {
+      console.error("[TelnyxContext] Failed to answer inbound:", err);
+      toast.error(err?.message || "Failed to answer call");
+    }
+  }, [attachRemoteAudio]);
+
+  const declineInboundCall = useCallback(() => {
+    const c = inboundCallRef.current;
+    if (!c) return;
+    try {
+      console.log("[TelnyxContext] Declining inbound call");
+      c.hangup();
+    } catch (err) {
+      console.warn("[TelnyxContext] decline inbound — hangup threw:", err);
+    }
+    inboundCallRef.current = null;
+    setInboundCall(null);
+  }, []);
+
+  // ─── Presence heartbeat ───
+  // Updates profiles.last_seen_at every 60s while the dialer is Ready so the
+  // inbound router can identify online agents for simultaneous-ring forking.
+  useEffect(() => {
+    if (!profile?.id || status !== "ready") return;
+
+    const beat = () => {
+      void (supabase as any)
+        .from("profiles")
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq("id", profile.id);
+    };
+
+    beat(); // immediate heartbeat on ready
+    const interval = setInterval(beat, 60_000);
+    return () => clearInterval(interval);
+  }, [profile?.id, status]);
+
   // Network resilience: Auto-reconnect if internet blips
   useEffect(() => {
     const handleOnline = () => {
@@ -1372,6 +1488,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         ringTimeout,
         orphanCall,
         connectionDropped,
+        inboundCall,
+        acceptInboundCall,
+        declineInboundCall,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,
