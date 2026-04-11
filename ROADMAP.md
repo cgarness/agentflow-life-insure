@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 10, 2026
+**Owner:** Chris Garness | **Last Updated:** April 11, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -53,6 +53,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-11 | [DONE] Git revert — inbound calling system removed from `main`**
+  *What:* Reset `main` to `5702d0c` (last commit before the multi-phase inbound work) and force-pushed to `origin`. Outbound WebRTC dialer and prior features at that snapshot are restored in the repo. **Note:** If `20260410120000_inbound_calling_system` (or related) was already applied on Supabase, those DB objects may still exist until explicitly migrated/dropped—reverting the repo does not roll back production schema.
 
 - **2026-04-10 | [DONE] Phone settings — bulk AgentFlow routing on Telnyx (API)**
   *What:* `telnyx-sync-numbers` can `PATCH` every number on the account to **AgentFlow Call Control** + **AgentFlow** messaging profile (same IDs as `telnyx-buy-number`). Optional body `apply_agentflow_routing` runs during CRM sync; `routing_only: true` updates Telnyx only (no DB upsert). UI: checkbox on sync + **Apply AgentFlow on Telnyx** button. *Files:* `supabase/functions/telnyx-sync-numbers/index.ts`, `src/components/settings/PhoneSettings.tsx`
