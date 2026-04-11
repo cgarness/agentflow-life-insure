@@ -31,6 +31,14 @@ function decodeCallsRowIdFromPayload(payload: any): string | null {
   return null;
 }
 
+/** Telnyx uses `incoming`/`outgoing` in some webhooks; we store `inbound`/`outbound` for RLS + `inbound-call-claim`. */
+function normalizeStoredCallDirection(payload: { direction?: unknown }): 'inbound' | 'outbound' {
+  const d = payload?.direction;
+  if (d === 'inbound' || d === 'incoming') return 'inbound';
+  if (d === 'outbound' || d === 'outgoing') return 'outbound';
+  return 'outbound';
+}
+
 /** Telnyx varies: recording_urls vs public_recording_urls; mp3/wav keys; nested objects. */
 function extractRecordingDownloadUrl(payload: any): string | null {
   const tryObj = (o: unknown): string | null => {
@@ -350,36 +358,39 @@ async function telnyxRecordStart(apiKey: string, callControlId: string): Promise
 async function handleCallInitiated(supabase: any, payload: any) {
   const decodedClientState = decodeClientState(payload.client_state);
 
+  const direction = normalizeStoredCallDirection(payload);
+
   console.log('Call initiated details:', {
     callSessionId: payload.call_session_id,
     callControlId: payload.call_control_id,
-    direction: payload.direction,
+    directionRaw: payload.direction,
+    directionStored: direction,
     decodedClientState,
   });
 
   const callData: any = {
     telnyx_call_id: payload.call_session_id, // Session ID
     telnyx_call_control_id: payload.call_control_id, // Granular Control ID
-    direction: payload.direction,
+    direction,
     caller_id_used: payload.from,
     status: 'ringing',
     updated_at: new Date().toISOString(),
   };
 
   // Inbound rows often had null started_at → Recent / timelines sorted wrong or looked "empty".
-  if (payload.direction === 'inbound') {
+  if (direction === 'inbound') {
     const st = typeof payload.start_time === 'string' ? payload.start_time.trim() : '';
     callData.started_at = st || new Date().toISOString();
   }
 
   let orgFromConnection = await resolveOrganizationIdFromConnection(supabase, payload.connection_id);
-  if (!orgFromConnection && payload.direction === 'inbound') {
+  if (!orgFromConnection && direction === 'inbound') {
     orgFromConnection = await resolveOrganizationIdFromInboundTo(supabase, payload.to);
   }
   if (orgFromConnection) {
     callData.organization_id = orgFromConnection;
   }
-  if (payload.direction === 'inbound' && payload.from) {
+  if (direction === 'inbound' && payload.from) {
     callData.contact_phone = payload.from;
   }
 
@@ -415,7 +426,7 @@ async function handleCallInitiated(supabase: any, payload: any) {
     // Only insert if it looks like a genuine inbound or manually-initiated call.
     // Transfer legs from telnyxTransfer() don't carry client_state, so we skip
     // inserting orphan records that would pollute the calls table.
-    if (payload.direction === 'inbound') {
+    if (direction === 'inbound') {
       console.log('Inbound call without client_state UUID — inserting new record');
       const { error } = await supabase.from('calls').insert({
         ...callData,
@@ -553,6 +564,22 @@ async function handleCallHangup(supabase: any, payload: any) {
     }
   }
 
+  // WebRTC / ordering: control_id may not match the row yet; session id is stable on call.initiated.
+  if (!callRecord && payload.call_session_id) {
+    const { data: bySession, error: sessErr } = await supabase
+      .from('calls')
+      .update(hangPatch)
+      .eq('telnyx_call_id', payload.call_session_id)
+      .select('contact_id, duration, disposition_name, direction, caller_id_used, organization_id, agent_id')
+      .maybeSingle();
+    if (sessErr) {
+      console.error(`[handleCallHangup] session_id hangup failed:`, sessErr);
+    } else if (bySession) {
+      callRecord = bySession;
+      console.log(`[handleCallHangup] Applied hangup via telnyx_call_id ${payload.call_session_id}`);
+    }
+  }
+
   if (!callRecord) {
     console.warn(`[handleCallHangup] Call record not found for [${payload.call_control_id}]. Skipping activity log.`);
     return;
@@ -562,7 +589,8 @@ async function handleCallHangup(supabase: any, payload: any) {
     const durationFormatted = callRecord.duration
       ? `${Math.floor(callRecord.duration / 60)}m ${callRecord.duration % 60}s`
       : 'No answer';
-    const directionLabel = callRecord.direction === 'inbound' ? 'Inbound' : 'Outbound';
+    const directionLabel =
+      callRecord.direction === 'inbound' || callRecord.direction === 'incoming' ? 'Inbound' : 'Outbound';
     const dispositionLabel = callRecord.disposition_name
       ? ` — ${callRecord.disposition_name}`
       : '';

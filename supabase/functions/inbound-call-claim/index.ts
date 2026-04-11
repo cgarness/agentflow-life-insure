@@ -33,9 +33,11 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const call_control_id = body?.call_control_id as string | undefined;
-    if (!call_control_id?.trim()) {
-      throw new Error("Missing call_control_id");
+    const call_control_id = typeof body?.call_control_id === "string" ? body.call_control_id.trim() : "";
+    const telnyx_call_id = typeof body?.telnyx_call_id === "string" ? body.telnyx_call_id.trim() : "";
+
+    if (!call_control_id && !telnyx_call_id) {
+      throw new Error("Missing call_control_id and telnyx_call_id");
     }
 
     const { data: profile, error: profileError } = await supabaseClient
@@ -50,16 +52,44 @@ Deno.serve(async (req) => {
 
     const organizationId = profile.organization_id as string;
 
-    const { data: existing, error: fetchError } = await supabaseClient
-      .from("calls")
-      .select("id, agent_id")
-      .eq("telnyx_call_control_id", call_control_id.trim())
-      .eq("direction", "inbound")
-      .maybeSingle();
+    let existing: { id: string; agent_id: string | null } | null = null;
 
-    if (fetchError) {
-      console.error("[inbound-call-claim] Fetch error:", fetchError);
-      throw new Error(fetchError.message);
+    if (call_control_id) {
+      const { data, error: fetchError } = await supabaseClient
+        .from("calls")
+        .select("id, agent_id")
+        .eq("telnyx_call_control_id", call_control_id)
+        .in("direction", ["inbound", "incoming"])
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error("[inbound-call-claim] Fetch by control_id error:", fetchError);
+        throw new Error(fetchError.message);
+      }
+      existing = data;
+    }
+
+    if (!existing && telnyx_call_id) {
+      const { data, error: fetchSessionErr } = await supabaseClient
+        .from("calls")
+        .select("id, agent_id")
+        .eq("telnyx_call_id", telnyx_call_id)
+        .in("direction", ["inbound", "incoming"])
+        .maybeSingle();
+
+      if (fetchSessionErr) {
+        console.error("[inbound-call-claim] Fetch by telnyx_call_id error:", fetchSessionErr);
+        throw new Error(fetchSessionErr.message);
+      }
+      existing = data;
+
+      // Align control id when webhook row had session first or IDs diverged slightly.
+      if (existing && call_control_id) {
+        await supabaseClient
+          .from("calls")
+          .update({ telnyx_call_control_id: call_control_id, updated_at: new Date().toISOString() })
+          .eq("id", existing.id);
+      }
     }
 
     if (!existing) {

@@ -279,34 +279,58 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  /** Service-role claim so the agent can see the row under RLS (`calls.agent_id`). */
-  const claimInboundCall = useCallback(async (controlId: string): Promise<string | null> => {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const { data: { session } } = await supabase.auth.refreshSession();
-      if (!session?.access_token) return null;
+  /**
+   * Service-role claim so the agent can see the row under RLS (`calls.agent_id`).
+   * Retries for several seconds: `call.initiated` webhook often lands after the first SDK notification.
+   */
+  const claimInboundCall = useCallback(
+    async (controlId: string, telnyxCallSessionId?: string | null): Promise<string | null> => {
+      const cc = controlId?.trim() ?? "";
+      const sid = telnyxCallSessionId?.trim() ?? "";
+      if (!cc && !sid) return null;
 
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+      const maxAttempts = 18;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const {
+          data: { session },
+        } = await supabase.auth.refreshSession();
+        if (!session?.access_token) return null;
 
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/inbound-call-claim`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ call_control_id: controlId }),
-      });
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-      const json = (await resp.json().catch(() => ({}))) as { id?: string };
-      if (resp.ok && json.id) {
-        lastCallLogDirectionRef.current = "inbound";
-        return json.id;
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/inbound-call-claim`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            ...(cc ? { call_control_id: cc } : {}),
+            ...(sid ? { telnyx_call_id: sid } : {}),
+          }),
+        });
+
+        const json = (await resp.json().catch(() => ({}))) as { id?: string; error?: string };
+
+        if (resp.status === 400) {
+          console.warn("[inbound-call-claim] stopped:", json.error);
+          return null;
+        }
+
+        if (resp.ok && json.id) {
+          lastCallLogDirectionRef.current = "inbound";
+          return json.id;
+        }
+
+        const delay = Math.min(1200, 200 + attempt * 100);
+        await new Promise((r) => setTimeout(r, delay));
       }
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    return null;
-  }, []);
+      return null;
+    },
+    []
+  );
 
   const clearIncomingDisplay = useCallback(() => {
     setIncomingCallerNumber("");
@@ -666,8 +690,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         null;
     }
 
-    if (controlId) {
-      const rowId = await claimInboundCall(controlId);
+    let sessionId: string | null = null;
+    try {
+      const ids = call?.telnyxIDs as { telnyxSessionId?: string } | undefined;
+      if (ids?.telnyxSessionId) sessionId = ids.telnyxSessionId;
+    } catch {
+      /* ignore */
+    }
+
+    if (controlId || sessionId) {
+      const rowId = await claimInboundCall(controlId || "", sessionId);
       if (rowId) {
         activeCallIdRef.current = rowId;
         telnyxIdsDbSyncedRef.current = true;
@@ -1131,26 +1163,25 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             });
         }
 
-        // Inbound: claim webhook-created row (RLS requires agent_id) — retry inside claimInboundCall.
-        if (
-          call.direction === "inbound" &&
-          sdkControlId &&
-          branch === "incoming" &&
-          !activeCallIdRef.current
-        ) {
-          const snap = call;
-          void (async () => {
-            const claimedId = await claimInboundCall(sdkControlId);
-            if (!claimedId || callRef.current !== snap) return;
-            activeCallIdRef.current = claimedId;
-            telnyxIdsDbSyncedRef.current = true;
-            if (sdkSessionId) {
-              void supabase
-                .from("calls")
-                .update({ telnyx_call_id: sdkSessionId, updated_at: new Date().toISOString() } as any)
-                .eq("id", claimedId);
-            }
-          })();
+        // Inbound: claim webhook-created row (RLS requires agent_id) — retries inside claimInboundCall.
+        if (call.direction === "inbound" && branch === "incoming" && !activeCallIdRef.current) {
+          const cc = sdkControlId || "";
+          const sid = sdkSessionId || "";
+          if (cc || sid) {
+            const snap = call;
+            void (async () => {
+              const claimedId = await claimInboundCall(cc, sid);
+              if (!claimedId || callRef.current !== snap) return;
+              activeCallIdRef.current = claimedId;
+              telnyxIdsDbSyncedRef.current = true;
+              if (sdkSessionId) {
+                void supabase
+                  .from("calls")
+                  .update({ telnyx_call_id: sdkSessionId, updated_at: new Date().toISOString() } as any)
+                  .eq("id", claimedId);
+              }
+            })();
+          }
         }
 
         if (state === "active") {
