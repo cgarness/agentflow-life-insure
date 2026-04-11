@@ -36,6 +36,7 @@ import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
+import VoicemailPage from "./pages/VoicemailPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
@@ -122,6 +123,7 @@ const App = () => (
                           <Route path="/dialer" element={<DialerPage />} />
                           <Route path="/contacts" element={<Contacts />} />
                           <Route path="/conversations" element={<Conversations />} />
+                          <Route path="/voicemail" element={<VoicemailPage />} />
                           <Route path="/calendar" element={<CalendarPage />} />
 
 

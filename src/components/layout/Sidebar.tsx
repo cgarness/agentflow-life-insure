@@ -1,9 +1,9 @@
 import React from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { 
+import {
   ChevronLeft, ChevronRight, Sun, Moon, ArrowLeft, ShieldAlert,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
-  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X
+  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, Voicemail
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,6 +20,7 @@ const MAIN_MENU = [
   { icon: Phone, label: "Dialer", path: "/dialer" },
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: MessageSquare, label: "Conversations", path: "/conversations" },
+  { icon: Voicemail, label: "Voicemail", path: "/voicemail" },
   { icon: Calendar, label: "Calendar", path: "/calendar" },
   { icon: Megaphone, label: "Campaigns", path: "/campaigns" },
   { icon: Trophy, label: "Leaderboard", path: "/leaderboard" },

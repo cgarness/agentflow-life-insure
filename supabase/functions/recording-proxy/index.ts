@@ -39,9 +39,11 @@ Deno.serve(async (req: Request) => {
   const userOrgId = user.app_metadata?.organization_id;
 
   let callId: string | null = null;
+  let voicemailId: string | null = null;
   try {
     const body = await req.json();
-    callId = body.call_id;
+    callId = body.call_id ?? null;
+    voicemailId = body.voicemail_id ?? null;
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
       status: 400,
@@ -49,8 +51,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  if (!callId) {
-    return new Response(JSON.stringify({ error: 'call_id required' }), {
+  if (!callId && !voicemailId) {
+    return new Response(JSON.stringify({ error: 'call_id or voicemail_id required' }), {
       status: 400,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
@@ -58,22 +60,42 @@ Deno.serve(async (req: Request) => {
 
   const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Look up the call row
-  const { data: callRow, error: callErr } = await serviceClient
-    .from('calls')
-    .select('id, telnyx_call_control_id, organization_id, recording_url')
-    .eq('id', callId)
-    .maybeSingle();
+  // Resolve {organization_id, telnyx_call_control_id} from either calls or voicemails.
+  let controlId: string | null = null;
+  let rowOrgId: string | null = null;
 
-  if (callErr || !callRow) {
-    return new Response(JSON.stringify({ error: 'Call not found' }), {
-      status: 404,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-    });
+  if (voicemailId) {
+    const { data: vmRow, error: vmErr } = await serviceClient
+      .from('voicemails')
+      .select('id, telnyx_call_control_id, organization_id, recording_url')
+      .eq('id', voicemailId)
+      .maybeSingle();
+    if (vmErr || !vmRow) {
+      return new Response(JSON.stringify({ error: 'Voicemail not found' }), {
+        status: 404,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
+    }
+    controlId = vmRow.telnyx_call_control_id;
+    rowOrgId = vmRow.organization_id;
+  } else {
+    const { data: callRow, error: callErr } = await serviceClient
+      .from('calls')
+      .select('id, telnyx_call_control_id, organization_id, recording_url')
+      .eq('id', callId)
+      .maybeSingle();
+    if (callErr || !callRow) {
+      return new Response(JSON.stringify({ error: 'Call not found' }), {
+        status: 404,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
+    }
+    controlId = callRow.telnyx_call_control_id;
+    rowOrgId = callRow.organization_id;
   }
 
   // Org-level access check
-  if (callRow.organization_id && userOrgId && callRow.organization_id !== userOrgId) {
+  if (rowOrgId && userOrgId && rowOrgId !== userOrgId) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
       status: 403,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
@@ -81,7 +103,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Get Telnyx API key for the org
-  const apiKey = await getTelnyxApiKey(serviceClient, callRow.organization_id);
+  const apiKey = await getTelnyxApiKey(serviceClient, rowOrgId);
   if (!apiKey) {
     return new Response(JSON.stringify({ error: 'Telnyx API key not configured' }), {
       status: 500,
@@ -90,7 +112,6 @@ Deno.serve(async (req: Request) => {
   }
 
   // Strategy 1: use call_control_id to list recordings from Telnyx API
-  const controlId = callRow.telnyx_call_control_id;
   if (!controlId) {
     return new Response(JSON.stringify({ error: 'No Telnyx call control ID on record' }), {
       status: 404,
