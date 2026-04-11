@@ -242,9 +242,9 @@ const FloatingDialer: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from("calls")
-        .select("id, contact_name, contact_phone, disposition_name, started_at, contact_type")
+        .select("id, contact_name, contact_phone, disposition_name, started_at, created_at, contact_type")
         .eq("agent_id", user.id)
-        .order("started_at", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(15);
 
       if (error) throw error;
@@ -255,7 +255,7 @@ const FloatingDialer: React.FC = () => {
         phone: c.contact_phone || "",
         disposition_name: c.disposition_name,
         disposition_color: null,
-        created_at: c.started_at || new Date().toISOString(),
+        created_at: c.started_at || c.created_at || new Date().toISOString(),
         contact_type: c.contact_type as any
       }));
 

@@ -268,19 +268,57 @@ async function isRecordingEnabled(supabase: any, organizationId?: string): Promi
   }
 }
 
-/** Map Telnyx `connection_id` on call.initiated to our org (Credential Connection in `telnyx_settings`). */
+/**
+ * Map Telnyx `connection_id` on call.initiated to our org.
+ * Mission Control often sends the **Call Control Application** id (stored as `call_control_app_id`)
+ * rather than the WebRTC **Credential Connection** id (`connection_id`) — match either.
+ */
 async function resolveOrganizationIdFromConnection(supabase: any, connectionId: unknown): Promise<string | null> {
   if (!connectionId || typeof connectionId !== 'string') return null;
+  const cid = connectionId.trim();
+  if (!cid) return null;
+
   const { data, error } = await supabase
     .from('telnyx_settings')
     .select('organization_id')
-    .eq('connection_id', connectionId)
+    .or(`connection_id.eq.${cid},call_control_app_id.eq.${cid}`)
     .maybeSingle();
+
   if (error) {
-    console.warn('[call.initiated] connection_id org lookup failed:', error.message);
+    console.warn('[call.initiated] connection_id / call_control_app_id org lookup failed:', error.message);
     return null;
   }
   return data?.organization_id ?? null;
+}
+
+/** Inbound DID → org via `phone_numbers` (webhook uses service role — not subject to RLS). */
+async function resolveOrganizationIdFromInboundTo(supabase: any, toField: unknown): Promise<string | null> {
+  if (!toField || typeof toField !== 'string') return null;
+  const raw = toField.trim();
+  if (!raw) return null;
+
+  const candidates = new Set<string>([raw]);
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 10) {
+    candidates.add(`+1${digits}`);
+    candidates.add(`1${digits}`);
+  } else if (digits.length === 11 && digits.startsWith('1')) {
+    candidates.add(`+${digits}`);
+  }
+
+  for (const num of candidates) {
+    const { data, error } = await supabase
+      .from('phone_numbers')
+      .select('organization_id')
+      .eq('phone_number', num)
+      .maybeSingle();
+    if (error) {
+      console.warn('[call.initiated] phone_numbers org lookup failed:', num, error.message);
+      continue;
+    }
+    if (data?.organization_id) return data.organization_id as string;
+  }
+  return null;
 }
 
 // ─── Helper: start call recording via Telnyx REST API ───
@@ -328,7 +366,16 @@ async function handleCallInitiated(supabase: any, payload: any) {
     updated_at: new Date().toISOString(),
   };
 
-  const orgFromConnection = await resolveOrganizationIdFromConnection(supabase, payload.connection_id);
+  // Inbound rows often had null started_at → Recent / timelines sorted wrong or looked "empty".
+  if (payload.direction === 'inbound') {
+    const st = typeof payload.start_time === 'string' ? payload.start_time.trim() : '';
+    callData.started_at = st || new Date().toISOString();
+  }
+
+  let orgFromConnection = await resolveOrganizationIdFromConnection(supabase, payload.connection_id);
+  if (!orgFromConnection && payload.direction === 'inbound') {
+    orgFromConnection = await resolveOrganizationIdFromInboundTo(supabase, payload.to);
+  }
   if (orgFromConnection) {
     callData.organization_id = orgFromConnection;
   }

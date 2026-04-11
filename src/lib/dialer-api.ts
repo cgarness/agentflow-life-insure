@@ -197,7 +197,11 @@ export async function getLeadHistory(
     .limit(HISTORY_PER_SOURCE_LIMIT);
 
   if (organizationId) {
-    callsQuery = callsQuery.eq("organization_id", organizationId);
+    // Strict .eq(organization_id) hid legitimate rows: webhook/legacy calls with NULL org
+    // still pass agent RLS (agent_id match) but failed this client-side filter.
+    callsQuery = callsQuery.or(
+      `organization_id.eq.${organizationId},organization_id.is.null`
+    );
     activityQuery = activityQuery.eq("organization_id", organizationId);
   }
 

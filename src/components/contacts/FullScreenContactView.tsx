@@ -432,10 +432,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         supabase
           .from("calls")
           .select(
-            "id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, caller_id_used"
+            "id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, created_at, caller_id_used"
           )
           .eq("contact_id", myId)
-          .order("started_at", { ascending: false })
+          .order("created_at", { ascending: false })
           .limit(300),
         supabase
           .from("messages")
@@ -451,7 +451,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         .map((c) => ({
           ...c,
           _type: "call",
-          _ts: new Date((c as any).started_at).getTime(),
+          _ts: new Date((c as any).started_at || (c as any).created_at || 0).getTime(),
         }))
         .reverse();
       const msgs = (msgsRes.data || [])
