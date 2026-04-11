@@ -268,6 +268,21 @@ async function isRecordingEnabled(supabase: any, organizationId?: string): Promi
   }
 }
 
+/** Map Telnyx `connection_id` on call.initiated to our org (Credential Connection in `telnyx_settings`). */
+async function resolveOrganizationIdFromConnection(supabase: any, connectionId: unknown): Promise<string | null> {
+  if (!connectionId || typeof connectionId !== 'string') return null;
+  const { data, error } = await supabase
+    .from('telnyx_settings')
+    .select('organization_id')
+    .eq('connection_id', connectionId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[call.initiated] connection_id org lookup failed:', error.message);
+    return null;
+  }
+  return data?.organization_id ?? null;
+}
+
 // ─── Helper: start call recording via Telnyx REST API ───
 async function telnyxRecordStart(apiKey: string, callControlId: string): Promise<void> {
   console.log(`Attempting record_start for call: [${callControlId}]`);
@@ -312,6 +327,14 @@ async function handleCallInitiated(supabase: any, payload: any) {
     status: 'ringing',
     updated_at: new Date().toISOString(),
   };
+
+  const orgFromConnection = await resolveOrganizationIdFromConnection(supabase, payload.connection_id);
+  if (orgFromConnection) {
+    callData.organization_id = orgFromConnection;
+  }
+  if (payload.direction === 'inbound' && payload.from) {
+    callData.contact_phone = payload.from;
+  }
 
   if (decodedClientState && decodedClientState.length === 36) {
     // If clientState is a valid UUID, update the existing record

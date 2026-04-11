@@ -3,6 +3,7 @@ import { TelnyxRTC } from "@telnyx/webrtc";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { resolveTelnyxNotificationBranch } from "@/lib/telnyxNotificationBranch";
 
 const toE164 = (phone: string): string => {
   if (!phone) return phone;
@@ -18,9 +19,23 @@ const toE164 = (phone: string): string => {
   return `+${digits}`;
 };
 
+function extractIncomingCallerDisplay(call: any): { number: string; name: string } {
+  const opts = call?.options ?? {};
+  const num =
+    opts.remoteCallerNumber ??
+    opts.callerNumber ??
+    call?.remoteCallerNumber ??
+    "";
+  const name =
+    opts.remoteCallerName ??
+    opts.callerName ??
+    call?.remoteCallerName ??
+    "";
+  return { number: String(num || "").trim(), name: String(name || "").trim() };
+}
 
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
-type CallState = "idle" | "dialing" | "active" | "ended";
+export type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
 
 interface OrphanCall {
   id: string;
@@ -54,8 +69,12 @@ interface TelnyxContextValue {
   ringTimeout: number;
   orphanCall: OrphanCall | null;
   connectionDropped: boolean;
+  incomingCallerNumber: string;
+  incomingCallerName: string;
   makeCall: (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions) => Promise<string | undefined>;
   hangUp: () => void;
+  answerIncomingCall: () => Promise<void>;
+  rejectIncomingCall: () => void;
   hangUpOrphan: () => Promise<void>;
   dismissOrphanCall: () => void;
   toggleMute: () => void;
@@ -101,7 +120,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
   const [connectionDropped, setConnectionDropped] = useState(false);
+  const [incomingCallerNumber, setIncomingCallerNumber] = useState("");
+  const [incomingCallerName, setIncomingCallerName] = useState("");
 
+  /** `call_logs.direction` and finalize context for inbound vs outbound. */
+  const lastCallLogDirectionRef = useRef<"inbound" | "outbound">("outbound");
 
   // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
   const isDialingRef = useRef(false);
@@ -256,6 +279,40 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  /** Service-role claim so the agent can see the row under RLS (`calls.agent_id`). */
+  const claimInboundCall = useCallback(async (controlId: string): Promise<string | null> => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const { data: { session } } = await supabase.auth.refreshSession();
+      if (!session?.access_token) return null;
+
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/inbound-call-claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ call_control_id: controlId }),
+      });
+
+      const json = (await resp.json().catch(() => ({}))) as { id?: string };
+      if (resp.ok && json.id) {
+        lastCallLogDirectionRef.current = "inbound";
+        return json.id;
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return null;
+  }, []);
+
+  const clearIncomingDisplay = useCallback(() => {
+    setIncomingCallerNumber("");
+    setIncomingCallerName("");
+  }, []);
+
   // ─── Mid-Call Refresh Recovery ───
   // If the agent reloads mid-call, check for orphaned active calls and surface a hang-up UI
   useEffect(() => {
@@ -363,12 +420,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) return;
 
+      const direction = lastCallLogDirectionRef.current;
       const { error } = await (supabase as any).from('call_logs').insert({
         user_id: session.user.id,
         lead_id: leadId,
         duration: duration,
         status: duration > 0 ? 'completed' : 'no-answer',
-        direction: 'outbound'
+        direction,
       });
       
       if (error) {
@@ -577,8 +635,63 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCallState("idle");
       setIsMuted(false);
       setIsOnHold(false);
+      clearIncomingDisplay();
     }, 200);
-  }, []);
+  }, [clearIncomingDisplay]);
+
+  const answerIncomingCall = useCallback(async () => {
+    if (callStateRef.current !== "incoming") return;
+    const call = callRef.current;
+    if (!call || call.direction !== "inbound") return;
+
+    try {
+      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error("[TelnyxContext] Mic denied for answer:", err);
+      toast.error("Microphone access is required to answer.");
+      return;
+    }
+
+    let controlId = activeCallControlIdRef.current;
+    try {
+      const ids = call?.telnyxIDs as { telnyxCallControlId?: string } | undefined;
+      if (ids?.telnyxCallControlId) controlId = ids.telnyxCallControlId;
+    } catch {
+      /* ignore */
+    }
+    if (!controlId) {
+      controlId =
+        call?.telnyxCallControlId ||
+        call?.options?.telnyxCallControlId ||
+        null;
+    }
+
+    if (controlId) {
+      const rowId = await claimInboundCall(controlId);
+      if (rowId) {
+        activeCallIdRef.current = rowId;
+        telnyxIdsDbSyncedRef.current = true;
+      }
+    }
+
+    endStateProcessedRef.current = false;
+    recordingStartedRef.current = false;
+    activeLeadIdRef.current = null;
+    isDialingRef.current = true;
+
+    try {
+      await call.answer();
+    } catch (err: unknown) {
+      console.error("[TelnyxContext] answer() failed:", err);
+      toast.error(err instanceof Error ? err.message : "Could not answer the call.");
+      isDialingRef.current = false;
+    }
+  }, [claimInboundCall]);
+
+  const rejectIncomingCall = useCallback(() => {
+    if (callStateRef.current !== "incoming") return;
+    hangUp();
+  }, [hangUp]);
 
   // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
   useEffect(() => {
@@ -587,6 +700,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (callState === "dialing" && ringTimeout > 0) {
       console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
       timeoutId = setTimeout(async () => {
+        if (callRef.current?.direction === "inbound") {
+          return;
+        }
         if (
           callRef.current &&
           (callRef.current.state === "ringing" ||
@@ -889,6 +1005,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             setCallState("idle");
             setIsMuted(false);
             setIsOnHold(false);
+            clearIncomingDisplay();
           }, 200);
           return;
         }
@@ -940,6 +1057,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             setIsMuted(false);
             setIsOnHold(false);
             callRef.current = null;
+            clearIncomingDisplay();
           }, 200);
         });
       };
@@ -948,6 +1066,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (!notification.call) return;
         const call = notification.call;
         const state = call.state;
+        const branch = resolveTelnyxNotificationBranch({ direction: call.direction, state });
 
         // For end states already processed by hangUp() or telnyx.error, skip re-triggering
         if ((state === "destroy" || state === "hangup") && endStateProcessedRef.current) {
@@ -959,8 +1078,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         callRef.current = call;
         setCurrentCall(call);
 
-        // Attach remote audio for ringback tone and active call audio
-        if (state === "active" || state === "ringing" || state === "early" || state === "trying") {
+        // Attach remote audio for ringback / early media / active (inbound ring may have no stream yet).
+        if (
+          state === "active" ||
+          state === "ringing" ||
+          state === "early" ||
+          state === "trying"
+        ) {
           attachRemoteAudio(call);
         }
 
@@ -981,7 +1105,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         const rowId = activeCallIdRef.current;
-        if (rowId && sdkControlId && !telnyxIdsDbSyncedRef.current) {
+        if (
+          rowId &&
+          call.direction === "outbound" &&
+          sdkControlId &&
+          !telnyxIdsDbSyncedRef.current
+        ) {
           telnyxIdsDbSyncedRef.current = true;
           const patch: Record<string, string> = {
             telnyx_call_control_id: sdkControlId,
@@ -1002,6 +1131,28 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             });
         }
 
+        // Inbound: claim webhook-created row (RLS requires agent_id) — retry inside claimInboundCall.
+        if (
+          call.direction === "inbound" &&
+          sdkControlId &&
+          branch === "incoming" &&
+          !activeCallIdRef.current
+        ) {
+          const snap = call;
+          void (async () => {
+            const claimedId = await claimInboundCall(sdkControlId);
+            if (!claimedId || callRef.current !== snap) return;
+            activeCallIdRef.current = claimedId;
+            telnyxIdsDbSyncedRef.current = true;
+            if (sdkSessionId) {
+              void supabase
+                .from("calls")
+                .update({ telnyx_call_id: sdkSessionId, updated_at: new Date().toISOString() } as any)
+                .eq("id", claimedId);
+            }
+          })();
+        }
+
         if (state === "active") {
           try {
             call.stopRingback?.();
@@ -1010,6 +1161,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             /* SDK may not expose ring helpers on all builds */
           }
           attachRemoteAudio(call);
+
+          if (callStateRef.current === "incoming") {
+            setCallDuration(0);
+            if (!timerRef.current) {
+              timerRef.current = setInterval(() => {
+                setCallDuration((d) => d + 1);
+              }, 1000);
+            }
+          }
 
           const rs = call?.remoteStream;
           const remoteTracks = rs?.getAudioTracks() ?? [];
@@ -1045,11 +1205,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             recordingStartedRef.current = true;
             startBrowserRecording(call);
           }
-        } else if (state === "ringing" || state === "trying" || state === "early") {
-          // One-legged call: our SDK initiated the call, so we're just waiting for the
-          // remote party to answer. No auto-answer needed — the SDK manages media natively.
+        } else if (branch === "incoming") {
+          const { number, name } = extractIncomingCallerDisplay(call);
+          setIncomingCallerNumber(number || "Unknown caller");
+          setIncomingCallerName(name);
+          endStateProcessedRef.current = false;
+          setCallState("incoming");
+        } else if (branch === "dialing") {
           setCallState("dialing");
-        } else if (state === "destroy" || state === "hangup") {
+        } else if (branch === "ended") {
           endStateProcessedRef.current = true;
           setCallState("ended");
           if (timerRef.current) {
@@ -1084,6 +1248,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             setIsMuted(false);
             setIsOnHold(false);
             callRef.current = null;
+            clearIncomingDisplay();
           }, 200);
         }
       });
@@ -1097,7 +1262,18 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       initializeInFlightRef.current = false;
     }
-  }, [attachRemoteAudio, getRemoteAudioElement, organizationId, profile?.id, finalizeCallRecord]);
+  }, [
+    attachRemoteAudio,
+    getRemoteAudioElement,
+    organizationId,
+    profile?.id,
+    finalizeCallRecord,
+    claimInboundCall,
+    clearIncomingDisplay,
+    startBrowserRecording,
+    uploadRecording,
+    stopBrowserRecording,
+  ]);
 
   // Start WebRTC registration in the background as soon as we have org context (floating dialer no longer pays full cold-start cost).
   useEffect(() => {
@@ -1133,7 +1309,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCallDuration(0);
     setIsMuted(false);
     setIsOnHold(false);
-  }, []);
+    clearIncomingDisplay();
+  }, [clearIncomingDisplay]);
 
   // Call duration timer — start when active, stop otherwise
   useEffect(() => {
@@ -1158,6 +1335,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (isDialingRef.current) {
       console.warn("[TelnyxContext] makeCall blocked — already dialing (execution lock).");
       toast.error("A call is already starting. Please wait.");
+      return undefined;
+    }
+
+    if (
+      callStateRef.current === "incoming" ||
+      callStateRef.current === "active" ||
+      callStateRef.current === "dialing"
+    ) {
+      toast.error("Finish or decline the current call before placing another.");
       return undefined;
     }
 
@@ -1237,6 +1423,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     isDialingRef.current = true;
+    lastCallLogDirectionRef.current = "outbound";
 
     try {
       activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
@@ -1330,7 +1517,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
        setErrorMessage("Internet connection lost. Call may have dropped. Waiting to reconnect...");
        // Instead of calling hangUp() which bypasses wrap-up, transition to "ended" state.
        // This forces the DialerPage wrap-up phase so the agent can log the drop.
-       if (callState === "active" || callState === "dialing") {
+       if (callState === "active" || callState === "dialing" || callState === "incoming") {
          setConnectionDropped(true);
          setCallState("ended");
          // Clean up local WebRTC state without triggering full hangUp flow
@@ -1372,12 +1559,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         ringTimeout,
         orphanCall,
         connectionDropped,
+        incomingCallerNumber,
+        incomingCallerName,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,
         getSmartCallerId,
         makeCall,
         hangUp,
+        answerIncomingCall,
+        rejectIncomingCall,
         hangUpOrphan,
         dismissOrphanCall,
         toggleMute,

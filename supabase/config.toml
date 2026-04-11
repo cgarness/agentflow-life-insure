@@ -57,6 +57,9 @@ verify_jwt = false
 [functions.dialer-hangup]
 verify_jwt = false
 
+[functions.inbound-call-claim]
+verify_jwt = false
+
 # Custom JWT validation inside the function (anonClient.auth.getUser). Gateway verify_jwt
 # must be false — otherwise Supabase returns 401 Invalid JWT before the handler runs.
 [functions.dialer-start-call]

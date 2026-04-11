@@ -413,6 +413,8 @@ export default function DialerPage() {
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
   const hasProcessedEndedState = useRef(false);
+  /** True while handling an inbound WebRTC session — skips campaign auto-dispose / wrap-up on end. */
+  const wasInboundSessionRef = useRef(false);
   /** After applyQueueLifecycle mutates the queue, index is applied in the same paint via useLayoutEffect */
   const pendingLifecycleIndexRef = useRef<number | null>(null);
   const { user, profile } = useAuth();
@@ -517,7 +519,7 @@ export default function DialerPage() {
   const callStatus = useMemo<CallStatus>(() => {
     if (!lockMode) return "connected"; // Personal: full reveal always
     if (!currentLead) return "idle";
-    if (telnyxCallState === "dialing") return "ringing";
+    if (telnyxCallState === "dialing" || telnyxCallState === "incoming") return "ringing";
     if (telnyxCallState === "active" || telnyxCallState === "ended" || showWrapUp) return "connected";
     return "idle";
   }, [lockMode, currentLead, telnyxCallState, showWrapUp]);
@@ -1139,7 +1141,7 @@ export default function DialerPage() {
       const now = new Date();
       setLeadQueue(prev => {
         // Guard 1: Never re-sort while a call is active or dialing — would disrupt the live lead
-        if (telnyxCallState === 'active' || telnyxCallState === 'dialing') return prev;
+        if (telnyxCallState === 'active' || telnyxCallState === 'dialing' || telnyxCallState === 'incoming') return prev;
         // Guard 2: Never re-sort while wrap-up modal is open — agent is mid-disposition
         if (showWrapUp) return prev;
         // Guard 3: Only sort leads AFTER the current index — current and prior leads must not move
@@ -1686,6 +1688,14 @@ export default function DialerPage() {
     telnyxCallStateRef.current = telnyxCallState;
   }, [telnyxCallState]);
 
+  useEffect(() => {
+    if (telnyxCallState === "incoming") wasInboundSessionRef.current = true;
+    if (telnyxCallState === "active" && telnyxCurrentCall?.direction === "inbound") {
+      wasInboundSessionRef.current = true;
+    }
+    if (telnyxCallState === "idle") wasInboundSessionRef.current = false;
+  }, [telnyxCallState, telnyxCurrentCall?.direction]);
+
   // Track whether the current call was answered (reached "active" state)
   useEffect(() => {
     if (telnyxCallState === "active") {
@@ -1759,7 +1769,7 @@ export default function DialerPage() {
   // Resetting on "idle" caused a double-fire: ended → idle (200ms reset) → ended (WebRTC destroy notification)
   // would re-process the same call end and advance the lead twice.
   useEffect(() => {
-    if (telnyxCallState === "dialing") {
+    if (telnyxCallState === "dialing" || telnyxCallState === "incoming") {
       hasProcessedEndedState.current = false;
       lastProcessedCallIdRef.current = null;
     }
@@ -1775,6 +1785,13 @@ export default function DialerPage() {
 
       // Re-entrancy guard: prevent infinite loop
       if (isAutoDispositioningRef.current) return;
+
+      if (wasInboundSessionRef.current) {
+        hasProcessedEndedState.current = true;
+        callWasAnswered.current = false;
+        wasInboundSessionRef.current = false;
+        return;
+      }
 
       // Strict process-once-per-call-id guard (must run BEFORE flipping hasProcessedEndedState)
       const callIdToProcess = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId || currentCallId;
@@ -2089,6 +2106,10 @@ export default function DialerPage() {
   useEffect(() => {
     if (!lockMode || !currentLead) return;
     if (telnyxCallState === "active") {
+      if (telnyxCurrentCall?.direction === "inbound") {
+        setClaimRingActive(false);
+        return;
+      }
       setClaimRingActive(true);
       startClaimTimer(
         currentLead.id as string,

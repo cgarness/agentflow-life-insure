@@ -18,9 +18,9 @@
 - **Next Up**: Execute **SaaS Core Migration Block** to create `organizations` (multi-tenancy root), `tasks`, and `dial_sessions`.
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
-- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers.
-- **Features**: Smart Caller ID (Local Presence), Ring Timeout, and mandatory dispositions. (Answering Machine Detection was removed — bridge on answer only.)
-- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time.
+- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; Floating Dialer supports answer/decline (`inbound-call-claim` + webhook org hint).
+- **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. (Answering Machine Detection was removed — bridge on answer only.)
+- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Optional: richer inbound routing (settings UI), contact match on ring, voicemail.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
 - **State**: Entirely missing billing and SaaS partitioning layer.
@@ -54,6 +54,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-11 | [DONE] Inbound PSTN → WebRTC — ring, Floating Dialer popup, answer/decline**
+  *What:* Telnyx JS SDK `telnyx.notification` now distinguishes **inbound** `ringing` / `trying` / `early` from outbound ringback (`callState: "incoming"`). **Floating Dialer** auto-opens with **Answer** / **Decline**; **Decline** skips disposition. **`inbound-call-claim`** Edge Function (JWT + service role) sets `calls.agent_id` + `organization_id` by `telnyx_call_control_id` so hierarchical **RLS** allows the agent to read/finalize rows. **`telnyx-webhook` `call.initiated`:** sets `organization_id` from `payload.connection_id` → `telnyx_settings`, and `contact_phone` from `from` on inbound. **DialerPage** skips campaign auto-dispose/wrap-up and **claim timer** for inbound sessions. **Tests:** `src/lib/telnyxNotificationBranch.test.ts`. *Deploy:* add `inbound-call-claim` in Supabase Dashboard; `config.toml` includes `verify_jwt = false`. *Telnyx:* DID must terminate on the same **Credential Connection** as `telnyx_settings.connection_id`.
 
 - **2026-04-11 | [DONE] Post-revert production alignment (Vercel + Supabase + DB rollback)**
   *What:* (1) **Vercel** — `npx vercel deploy --prod` to `agentflow-life-insure` (production alias updated). (2) **Edge Functions** — redeployed `telnyx-webhook` and `recording-proxy` from current `main`; **deleted** `inbound-route` and `telnyx-diagnose` from project `jncvvsvckxhqgqvkppmj`. (3) **`supabase/config.toml`** — `[functions.recording-proxy] verify_jwt = false` so redeploys match prior behavior (function validates JWT internally). (4) **Database** — applied `revert_inbound_calling_system` on production (see migration table). *Follow-up:* In **Telnyx Mission Control**, if any number’s voice webhook still pointed at the removed `inbound-route` URL, point it back to **`telnyx-webhook`** only.

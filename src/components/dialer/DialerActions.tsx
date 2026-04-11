@@ -113,7 +113,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
     <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
       {/* Top Actions: Hang Up / Skip / Call */}
       <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
-        {telnyxCallState === "active" || telnyxCallState === "dialing" ? (
+        {telnyxCallState === "active" || telnyxCallState === "dialing" || telnyxCallState === "incoming" ? (
           <button
             onClick={onHangUp}
             className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90 shadow-lg shadow-destructive/20"
@@ -144,7 +144,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
         )}
         <button
           onClick={onSkip}
-          disabled={telnyxCallState === "active" || telnyxCallState === "dialing"}
+          disabled={telnyxCallState === "active" || telnyxCallState === "dialing" || telnyxCallState === "incoming"}
           className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ArrowRight className="w-4 h-4" />

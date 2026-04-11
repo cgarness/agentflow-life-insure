@@ -91,8 +91,12 @@ const FloatingDialer: React.FC = () => {
     callDuration: telnyxCallDuration,
     isMuted: telnyxIsMuted,
     isOnHold: telnyxIsOnHold,
+    incomingCallerNumber,
+    incomingCallerName,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
+    answerIncomingCall: telnyxAnswerIncoming,
+    rejectIncomingCall: telnyxRejectIncoming,
     toggleMute: telnyxToggleMute,
     toggleHold: telnyxToggleHold,
     initializeClient: telnyxInitialize,
@@ -422,8 +426,27 @@ const FloatingDialer: React.FC = () => {
   }, [telnyxHangUp]);
 
   useEffect(() => {
+    if (telnyxCallState === "incoming") {
+      setOpen(true);
+      setActiveTab("dial");
+    }
+  }, [telnyxCallState]);
+
+  useEffect(() => {
+    if (telnyxCallState === "active" && !onCall) {
+      setOnCall(true);
+      setCallSeconds(0);
+    }
+  }, [telnyxCallState, onCall]);
+
+  useEffect(() => {
     if (telnyxCallState === "ended" && onCall) {
       handleHangUp();
+    }
+    if (telnyxCallState === "ended" && !onCall) {
+      setCallSeconds(0);
+      setCurrentCallId(null);
+      setShowDisposition(false);
     }
   }, [telnyxCallState, onCall, handleHangUp]);
 
@@ -497,9 +520,10 @@ const FloatingDialer: React.FC = () => {
     resetAll();
   };
 
-  const callDisplayName = selectedContact
-    ? `${selectedContact.first_name} ${selectedContact.last_name}`
-    : dialedNumber;
+  const callDisplayName =
+    selectedContact
+      ? `${selectedContact.first_name} ${selectedContact.last_name}`
+      : incomingCallerName || incomingCallerNumber || dialedNumber;
 
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -679,6 +703,38 @@ const FloatingDialer: React.FC = () => {
 
             {activeTab === "dial" && (
               <div className="px-3 py-2 space-y-3">
+                {telnyxCallState === "incoming" && !onCall && (
+                  <div className="flex flex-col items-center space-y-4 py-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
+                    <p className="font-bold text-foreground text-lg text-center px-1">
+                      {incomingCallerName || incomingCallerNumber || "Unknown caller"}
+                    </p>
+                    {incomingCallerName && incomingCallerNumber ? (
+                      <p className="text-sm text-muted-foreground font-mono">{incomingCallerNumber}</p>
+                    ) : null}
+                    <div className="flex w-full gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void telnyxAnswerIncoming();
+                        }}
+                        className="flex-1 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold text-sm"
+                      >
+                        Answer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          telnyxRejectIncoming();
+                        }}
+                        className="flex-1 py-3 rounded-lg bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold text-sm"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {onCall && (
                   <div className="flex flex-col items-center space-y-4">
                     <p className="font-bold text-foreground text-lg text-center">{callDisplayName}</p>

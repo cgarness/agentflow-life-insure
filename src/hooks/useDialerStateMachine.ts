@@ -8,7 +8,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
  * or leave stale timeouts firing for the wrong lead.
  */
 
-type CallState = "idle" | "dialing" | "active" | "ended";
+type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
 
 export type MachineState =
@@ -74,6 +74,7 @@ export function useDialerStateMachine({
   const machineState: MachineState = (() => {
     if (showWrapUp) return "WRAP_UP";
     if (telnyxCallState === "active") return "CONNECTED";
+    if (telnyxCallState === "incoming") return "CONNECTED";
     if (telnyxCallState === "dialing") return "DIALING";
     if (telnyxCallState === "ended") return "WRAP_UP";
     return "IDLE";
