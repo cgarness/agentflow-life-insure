@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound UI — corner card, CRM name, WAV ringtone**
+  *What:* **`IncomingCallModal`** — removed full-screen overlay; **`modal={false}`**; card **`bottom-6 right-6`**, **`w-96`**, **`max-w-[calc(100vw-2rem)]`**, slide-in from bottom. **`TelnyxContext`** — **`crmContactName`** from **`public.leads`** (match **`phone`** E.164 then **`ilike` last-10-digits**), cleared when not **`incoming`**. **`incomingCallAlerts`** — looping **`HTMLAudioElement`** on **`/sounds/incoming-ring.wav`** with **`play().catch`** → Web Audio cadence fallback.
+
 - **2026-04-12 | [DONE] WebRTC mic — explicit AEC/NS/AGC + 48 kHz mono**
   *What:* Replaced **`getUserMedia({ audio: true })`** with a **`MediaStreamConstraints`** object (**`echoCancellation`**, **`noiseSuppression`**, **`autoGainControl`**, **`sampleRate: 48000`**, **`channelCount: 1`**) in **`TelnyxContext.tsx`** (answer, initialize warm-up, outbound **`makeCall`**) and **`src/lib/telnyx.ts`** (**`initTelnyx`** permission prompt). Browsers may ignore unsupported keys.
 

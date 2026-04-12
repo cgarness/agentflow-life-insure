@@ -6,6 +6,9 @@
 const PREFS_KEY = "agentflow_incoming_call_alerts_v1";
 const AUDIO_PRIMED_KEY = "agentflow_incoming_audio_primed";
 
+/** Same-origin ring asset (looping WAV). */
+const INCOMING_RING_PATH = "/sounds/incoming-ring.wav";
+
 export type IncomingCallAlertsPrefs = {
   /** User clicked "Enable" (one-time setup). */
   optIn: boolean;
@@ -109,9 +112,23 @@ export async function enableIncomingCallAlertsFromUserGesture(): Promise<{
 }
 
 let lastNotification: Notification | null = null;
-/** Repeating ring cadence — must not depend on AudioContext.resume() settling to schedule the next tick (some browsers drop the promise chain after suspend). */
+/** Repeating ring cadence — Web Audio fallback if HTMLAudioElement play is blocked. */
 let ringRepeatIntervalId: ReturnType<typeof setInterval> | null = null;
 let ringStopRequested = false;
+let htmlRingEl: HTMLAudioElement | null = null;
+
+function getHtmlRingElement(): HTMLAudioElement | null {
+  if (typeof window === "undefined") return null;
+  if (!htmlRingEl) {
+    const a = new Audio();
+    a.preload = "auto";
+    a.loop = true;
+    a.src = INCOMING_RING_PATH;
+    a.volume = 0.28;
+    htmlRingEl = a;
+  }
+  return htmlRingEl;
+}
 
 export function closeIncomingDesktopNotification(): void {
   try {
@@ -187,26 +204,59 @@ function playIncomingRingBurst(ctx: AudioContext): void {
   }
 }
 
-export function startIncomingRingtone(): void {
-  const prefs = loadIncomingCallAlertsPrefs();
-  if (!prefs.optIn || !prefs.ringtone) return;
-  if (!isIncomingAudioPrimed()) return;
+function stopHtmlRing(): void {
+  const el = htmlRingEl;
+  if (!el) return;
+  try {
+    el.pause();
+    el.currentTime = 0;
+  } catch {
+    /* ignore */
+  }
+}
 
-  stopIncomingRingtone();
+function startOscillatorFallback(): void {
   const ctx = getOrCreateAudioContext();
   if (!ctx) return;
-
   ringStopRequested = false;
-
-  // First burst immediately; then repeat every ~6s (~2s tone + ~4s gap).
   playIncomingRingBurst(ctx);
   ringRepeatIntervalId = window.setInterval(() => {
     playIncomingRingBurst(ctx);
   }, 6000);
 }
 
+export function startIncomingRingtone(): void {
+  const prefs = loadIncomingCallAlertsPrefs();
+  if (!prefs.optIn || !prefs.ringtone) return;
+  if (!isIncomingAudioPrimed()) return;
+
+  stopIncomingRingtone();
+  ringStopRequested = false;
+
+  const el = getHtmlRingElement();
+  if (el) {
+    try {
+      el.currentTime = 0;
+      void el.play().then(
+        () => {
+          /* HTML loop handles repetition */
+        },
+        (err: unknown) => {
+          console.warn("[incomingCallAlerts] HTML ring play rejected; using Web Audio fallback:", err);
+          startOscillatorFallback();
+        },
+      );
+      return;
+    } catch (err) {
+      console.warn("[incomingCallAlerts] HTML ring error; using Web Audio fallback:", err);
+    }
+  }
+  startOscillatorFallback();
+}
+
 export function stopIncomingRingtone(): void {
   ringStopRequested = true;
+  stopHtmlRing();
   if (ringRepeatIntervalId !== null) {
     clearInterval(ringRepeatIntervalId);
     ringRepeatIntervalId = null;

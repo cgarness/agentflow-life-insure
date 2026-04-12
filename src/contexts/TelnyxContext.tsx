@@ -96,6 +96,8 @@ interface TelnyxContextValue {
   connectionDropped: boolean;
   incomingCallerNumber: string;
   incomingCallerName: string;
+  /** CRM match from `leads` by inbound phone (incoming ring only). */
+  crmContactName: string;
   makeCall: (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions) => Promise<string | undefined>;
   hangUp: () => void;
   answerIncomingCall: () => Promise<void>;
@@ -156,6 +158,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [connectionDropped, setConnectionDropped] = useState(false);
   const [incomingCallerNumber, setIncomingCallerNumber] = useState("");
   const [incomingCallerName, setIncomingCallerName] = useState("");
+  const [crmContactName, setCrmContactName] = useState("");
   const incomingCallerNumberRef = useRef("");
   const incomingCallerNameRef = useRef("");
   useEffect(() => {
@@ -294,6 +297,67 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
+  // Resolve inbound caller against CRM (`leads.phone`) while ringing.
+  useEffect(() => {
+    if (callState !== "incoming") {
+      setCrmContactName("");
+      return;
+    }
+    const raw = incomingCallerNumber.trim();
+    if (!raw || !organizationId) {
+      setCrmContactName("");
+      return;
+    }
+    const digits = raw.replace(/\D/g, "");
+    const last10 = digits.length >= 10 ? digits.slice(-10) : "";
+    if (!last10) {
+      setCrmContactName("");
+      return;
+    }
+
+    let cancelled = false;
+    const e164 = toE164(raw);
+
+    void (async () => {
+      const exact = await supabase
+        .from("leads")
+        .select("first_name, last_name")
+        .eq("organization_id", organizationId)
+        .eq("phone", e164)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      let row = exact.data;
+      if (!row) {
+        const fuzzy = await supabase
+          .from("leads")
+          .select("first_name, last_name")
+          .eq("organization_id", organizationId)
+          .ilike("phone", `%${last10}%`)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        row = fuzzy.data ?? null;
+      }
+
+      if (cancelled) return;
+      if (!row) {
+        setCrmContactName("");
+        return;
+      }
+      const fn = (row.first_name || "").trim();
+      const ln = (row.last_name || "").trim();
+      const full = [fn, ln].filter(Boolean).join(" ").trim();
+      setCrmContactName(full);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [callState, incomingCallerNumber, organizationId]);
+
   /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
   const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
     try {
@@ -377,6 +441,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const clearIncomingDisplay = useCallback(() => {
     setIncomingCallerNumber("");
     setIncomingCallerName("");
+    setCrmContactName("");
   }, []);
 
   const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
@@ -1764,6 +1829,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         connectionDropped,
         incomingCallerNumber,
         incomingCallerName,
+        crmContactName,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,

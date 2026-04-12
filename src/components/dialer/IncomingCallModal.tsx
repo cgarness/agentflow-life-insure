@@ -5,14 +5,15 @@ import { useTelnyx } from "@/contexts/TelnyxContext";
 import { cn } from "@/lib/utils";
 
 /**
- * Global incoming-call surface: must stack **above** FloatingDialer (z-1000) and FloatingChat (z-10000).
- * Uses Radix primitives so overlay + content share a high z-index (shadcn Dialog defaults to z-50).
+ * Global incoming-call surface: pinned bottom-right, non-modal (no full-screen overlay).
+ * Stacks above FloatingDialer (z-1000) and FloatingChat (z-10000).
  */
 const IncomingCallModal = () => {
   const {
     callState,
     incomingCallerNumber,
     incomingCallerName,
+    crmContactName,
     currentCall,
     answerIncomingCall,
     rejectIncomingCall,
@@ -35,19 +36,16 @@ const IncomingCallModal = () => {
     await answerIncomingCall();
   };
 
+  const primaryName = crmContactName || incomingCallerName || "";
+
   return (
-    <DialogPrimitive.Root open={open} modal>
+    <DialogPrimitive.Root open={open} modal={false}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay
-          className={cn(
-            "fixed inset-0 z-[10100] bg-black/80",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-          )}
-        />
         <DialogPrimitive.Content
           className={cn(
-            "fixed left-[50%] top-[50%] z-[10101] grid w-full max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+            "fixed bottom-6 right-6 z-[10101] grid w-96 max-w-[calc(100vw-2rem)] gap-4 border bg-background p-6 shadow-lg duration-300 sm:rounded-lg",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+            "data-[state=open]:slide-in-from-bottom-8 data-[state=closed]:slide-out-to-bottom-8",
           )}
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
@@ -60,10 +58,17 @@ const IncomingCallModal = () => {
               Incoming call
             </DialogPrimitive.Title>
             <DialogPrimitive.Description className="text-center text-base text-foreground sm:text-center">
-              {incomingCallerName ? (
+              {primaryName ? (
                 <>
-                  <span className="font-semibold block">{incomingCallerName}</span>
-                  <span className="text-muted-foreground text-sm">
+                  <span
+                    className={cn(
+                      "font-semibold block",
+                      crmContactName ? "text-lg" : "",
+                    )}
+                  >
+                    {primaryName}
+                  </span>
+                  <span className="text-muted-foreground text-sm mt-1 block">
                     {incomingCallerNumber || "Unknown number"}
                   </span>
                 </>
