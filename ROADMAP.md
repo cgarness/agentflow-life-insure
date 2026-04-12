@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound — no auto-answer before WebRTC Dial**
+  *What:* Removed **`telnyxAnswerInboundLeg`** and its use in **`mvpBridgeInboundToWebRtcSip`** so the PSTN leg is **not** answered by the webhook immediately; callers keep normal ringback until the agent answers in the browser ( **`bridge_on_answer`** still links legs). *Risk:* Telnyx may require Answer before some Call Control actions — monitor **`telnyx-webhook`** logs if WebRTC leg stops ringing. *Deploy:* **`telnyx-webhook`**.
+
 - **2026-04-12 | [DONE] Inbound bridge — Call Control App first on Dial**
   *What:* **`mvpBridgeInboundToWebRtcSip`** in **`telnyx-webhook`** now tries **`call_control_connection_id`** before **`credential_connection_id`** so **`POST /v2/calls`** avoids Telnyx **422 / 10015** (credential UUID is not a valid Call Control App id for that field). **`scratch/test_webrtc_ring.ts`** simplified to a single Dial using **`call_control_app_id`** for live browser ring tests. *Deployed:* **`supabase functions deploy telnyx-webhook`** to **`jncvvsvckxhqgqvkppmj`** (2026-04-12).
 
