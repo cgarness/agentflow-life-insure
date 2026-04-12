@@ -55,6 +55,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound bridge — Call Control App first on Dial**
+  *What:* **`mvpBridgeInboundToWebRtcSip`** in **`telnyx-webhook`** now tries **`call_control_connection_id`** before **`credential_connection_id`** so **`POST /v2/calls`** avoids Telnyx **422 / 10015** (credential UUID is not a valid Call Control App id for that field). **`scratch/test_webrtc_ring.ts`** simplified to a single Dial using **`call_control_app_id`** for live browser ring tests. *Deploy:* redeploy **`telnyx-webhook`** to Supabase.
+
+- **2026-04-12 | [DONE] Scratch diagnostic — `POST /v2/calls` connection id type**
+  *What:* Added **`scratch/test_webrtc_ring.ts`** (Supabase read + Telnyx Dial). *Finding:* Using **`telnyx_settings.connection_id`** (WebRTC **Credential** UUID) in JSON **`connection_id`** returns **422** / Telnyx **`10015`** (“Invalid value for connection_id (Call Control App ID)”). Using **`call_control_app_id`** in that same JSON field returns **200** with a **`call_control_id`**. *Note:* **`telnyx-webhook`** already tries credential then app id in a loop; first attempt may always log a 422 before the second succeeds. Local `.env` uses **`SUPABASE_SERVICE_ROLE_KEY`** (script falls back if **`VITE_SUPABASE_SERVICE_ROLE_KEY`** is unset).
+
 - **2026-04-12 | [DONE] Inbound — no Answer UI + endless ring: SDK states + webhook public key**
   *Symptoms:* PSTN kept ringing; **no Answer** in browser (especially after adding **`TELNYX_PUBLIC_KEY`**). *Causes:* (1) WebRTC **`telnyx.notification`** can use inbound states (e.g. **`parked`**) not listed in **`resolveTelnyxNotificationBranch`** → branch **`other`** → no **`incoming`** UI. (2) **`TELNYX_PUBLIC_KEY`** wrong format / verification fail → webhook returns 200 but **does not run** **`mvpBridgeInboundToWebRtcSip`** → no WebRTC leg. *Fix:* **`resolveTelnyxNotificationBranch`** — any **`inbound`/`incoming`** before **`active`**/`ended` → **`incoming`**. **`telnyx-webhook`** — decode public key as **64 hex** or **base32-ish base64 (32 bytes)**; trim / strip colons; tolerate header casing; if key **unparseable**, skip verify (loud log) so bridge is not bricked; **redeploy `telnyx-webhook`**.
 

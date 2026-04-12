@@ -592,8 +592,8 @@ async function mvpBridgeInboundToWebRtcSip(
   }
 
   const connectionAttempts = [
+    settings.call_control_connection_id, // MUST be first for POST /v2/calls
     settings.credential_connection_id,
-    settings.call_control_connection_id,
   ].filter((x): x is string => typeof x === 'string' && x.length > 0);
   const uniqueConnections = [...new Set(connectionAttempts)];
 
