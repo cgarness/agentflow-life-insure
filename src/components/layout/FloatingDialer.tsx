@@ -12,6 +12,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
 import { selectCallerID } from "@/lib/caller-id-selector";
 import { DateInput } from "@/components/shared/DateInput";
+import { Button } from "@/components/ui/button";
 
 interface ContactResult {
   id: string;
@@ -105,6 +106,8 @@ const FloatingDialer: React.FC = () => {
     selectedCallerNumber,
     setSelectedCallerNumber,
     getSmartCallerId,
+    incomingCallAlerts,
+    enableIncomingCallAlerts,
   } = useTelnyx();
 
   const [open, setOpen] = useState(false);
@@ -660,6 +663,34 @@ const FloatingDialer: React.FC = () => {
               >Recent</button>
             </div>
           </div>
+
+          {telnyxIsReady &&
+            !incomingCallAlerts.optIn &&
+            telnyxCallState !== "incoming" && (
+            <div className="mx-3 mt-2 shrink-0 rounded-lg border border-border bg-muted/50 px-3 py-2.5">
+              <p className="text-[11px] text-muted-foreground leading-snug mb-2">
+                One tap unlocks ringtone and optional desktop pop-ups for inbound life-insurance calls (your browser requires it).
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                className="w-full h-8 text-xs"
+                onClick={() => void enableIncomingCallAlerts()}
+              >
+                Enable alerts &amp; ringtone
+              </Button>
+            </div>
+          )}
+
+          {telnyxIsReady &&
+            incomingCallAlerts.optIn &&
+            incomingCallAlerts.desktopEnabled &&
+            incomingCallAlerts.desktopPermission === "denied" &&
+            telnyxCallState !== "incoming" && (
+              <p className="mx-3 mt-1.5 shrink-0 text-[10px] text-amber-700 dark:text-amber-500/90 leading-snug">
+                Browser notifications are off — you’ll still get the in-app incoming screen and ringtone when this tab is open.
+              </p>
+            )}
 
           <div className="flex-1 overflow-y-auto min-h-0 bg-background/50">
             {activeTab === "recent" && (

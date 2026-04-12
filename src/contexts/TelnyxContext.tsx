@@ -1,10 +1,20 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { TelnyxRTC } from "@telnyx/webrtc";
 import { wireTelnyxIncomingNotifications } from "@/lib/telnyx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { resolveTelnyxNotificationBranch } from "@/lib/telnyxNotificationBranch";
+import {
+  loadIncomingCallAlertsPrefs,
+  enableIncomingCallAlertsFromUserGesture,
+  showIncomingDesktopNotification,
+  closeIncomingDesktopNotification,
+  startIncomingRingtone,
+  stopIncomingRingtone,
+  isIncomingAudioPrimed,
+  getDesktopNotificationPermission,
+} from "@/lib/incomingCallAlerts";
 
 const toE164 = (phone: string): string => {
   if (!phone) return phone;
@@ -86,6 +96,15 @@ interface TelnyxContextValue {
   getSmartCallerId: (contactPhone: string, contactId?: string | null) => Promise<string>;
   initializeClient: () => Promise<void>;
   destroyClient: () => void;
+  /** Inbound: desktop notification + ringtone prefs (requires one-time Enable click). */
+  incomingCallAlerts: {
+    optIn: boolean;
+    audioPrimed: boolean;
+    desktopPermission: NotificationPermission | "unsupported";
+    ringtoneEnabled: boolean;
+    desktopEnabled: boolean;
+  };
+  enableIncomingCallAlerts: () => Promise<void>;
 }
 
 const TelnyxContext = createContext<TelnyxContextValue | null>(null);
@@ -123,6 +142,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [connectionDropped, setConnectionDropped] = useState(false);
   const [incomingCallerNumber, setIncomingCallerNumber] = useState("");
   const [incomingCallerName, setIncomingCallerName] = useState("");
+  const incomingCallerNumberRef = useRef("");
+  const incomingCallerNameRef = useRef("");
+  useEffect(() => {
+    incomingCallerNumberRef.current = incomingCallerNumber;
+  }, [incomingCallerNumber]);
+  useEffect(() => {
+    incomingCallerNameRef.current = incomingCallerName;
+  }, [incomingCallerName]);
 
   /** `call_logs.direction` and finalize context for inbound vs outbound. */
   const lastCallLogDirectionRef = useRef<"inbound" | "outbound">("outbound");
@@ -337,6 +364,67 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIncomingCallerNumber("");
     setIncomingCallerName("");
   }, []);
+
+  const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
+  const prevCallStateForAlertsRef = useRef<CallState>("idle");
+
+  const incomingCallAlerts = useMemo(() => {
+    void incomingAlertsTick;
+    const prefs = loadIncomingCallAlertsPrefs();
+    return {
+      optIn: prefs.optIn,
+      audioPrimed: isIncomingAudioPrimed(),
+      desktopPermission: getDesktopNotificationPermission(),
+      ringtoneEnabled: prefs.ringtone,
+      desktopEnabled: prefs.desktop,
+    };
+  }, [incomingAlertsTick]);
+
+  const enableIncomingCallAlerts = useCallback(async () => {
+    const { audioPrimed, notificationPermission } = await enableIncomingCallAlertsFromUserGesture();
+    setIncomingAlertsTick((t) => t + 1);
+    if (callStateRef.current === "incoming") {
+      const body = incomingCallerNameRef.current
+        ? `${incomingCallerNameRef.current}${
+            incomingCallerNumberRef.current ? ` · ${incomingCallerNumberRef.current}` : ""
+          }`
+        : incomingCallerNumberRef.current || "Open AgentFlow to answer";
+      showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      startIncomingRingtone();
+    }
+    if (notificationPermission === "granted") {
+      toast.success("Desktop alerts and ringtone are on for inbound calls.");
+    } else if (notificationPermission === "denied") {
+      toast.message(
+        "Ringtone is on for this browser. Allow notifications in your browser settings if you also want pop-up alerts."
+      );
+    } else if (!audioPrimed) {
+      toast.error("Could not unlock call sounds. Try again or check browser audio permissions.");
+    } else {
+      toast.success("Inbound ringtone enabled.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const prev = prevCallStateForAlertsRef.current;
+    prevCallStateForAlertsRef.current = callState;
+
+    if (callState !== "incoming") {
+      if (prev === "incoming") {
+        stopIncomingRingtone();
+        closeIncomingDesktopNotification();
+      }
+      return;
+    }
+
+    if (prev !== "incoming") {
+      const body = incomingCallerName
+        ? `${incomingCallerName}${incomingCallerNumber ? ` · ${incomingCallerNumber}` : ""}`
+        : incomingCallerNumber || "Open AgentFlow to answer";
+      showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      startIncomingRingtone();
+    }
+  }, [callState, incomingCallerNumber, incomingCallerName]);
 
   // ─── Mid-Call Refresh Recovery ───
   // If the agent reloads mid-call, check for orphaned active calls and surface a hang-up UI
@@ -1316,6 +1404,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [profile?.id, organizationId, initializeClient]);
 
   const destroyClient = useCallback(() => {
+    stopIncomingRingtone();
+    closeIncomingDesktopNotification();
     telnyxConnectedOrgIdRef.current = null;
     telnyxSipReadyRef.current = false;
     if (clientRef.current) {
@@ -1609,6 +1699,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         toggleHold,
         initializeClient,
         destroyClient,
+        incomingCallAlerts,
+        enableIncomingCallAlerts,
       }}
     >
       {children}

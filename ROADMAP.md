@@ -20,7 +20,7 @@
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **global `IncomingCallModal`** (AppLayout) plus Floating Dialer support answer/decline (`inbound-call-claim` + webhook org hint).
 - **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
-- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), contact match on ring, voicemail.
+- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), contact match on ring, voicemail. **Inbound browser UX:** one-time **Enable alerts & ringtone** (floating dialer + incoming modal) unlocks **Web Notifications** + **Web Audio** ring pattern; see `src/lib/incomingCallAlerts.ts`.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
 - **State**: Entirely missing billing and SaaS partitioning layer.
@@ -54,6 +54,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-12 | [DONE] Inbound Phase 0–1 — verify path + desktop alerts & ringtone**
+  *Phase 0 (ops):* Confirm prod has migrations through **`20260412140000_calls_rls_inbound_unassigned_visible`**, Edge **`telnyx-webhook`** + **`inbound-call-claim`** deployed, Telnyx voice webhook → **`telnyx-webhook`**, agency DID on the same Call Control app as **`telnyx_settings`**, and **one** org profile with **`sip_username`** matching the browser credential (or bridge falls back to settings — see work log below). *Phase 1 (app):* **`incomingCallAlerts`** — `Notification` + repeating **440/480 Hz** ring (after click-to-enable), prefs in **`localStorage`**, audio primed flag in **`sessionStorage`**. **FloatingDialer** banner + **IncomingCallModal** button; **`TelnyxContext`** fires alerts on transition to **`callState === "incoming"`**. Tests: **`src/lib/incomingCallAlerts.test.ts`**.
 
 - **2026-04-12 | [DONE] Inbound never rang browser — Answer before Dial (Telnyx API prerequisite)**
   *Diagnosis:* Inbound **`calls`** rows kept appearing (**`originator_cancel`**, **`agent_id` NULL**) — PSTN hit the webhook but the **WebRTC leg never rang**. Telnyx Call Control docs: **“You must issue [Answer] before executing subsequent commands on an incoming call.”** We were only **`POST /v2/calls` (Dial)** with **`link_to`** + **`bridge_on_answer`** on a still-**unanswered** inbound leg, so the bridge/SIP leg likely never completed. *Fix:* **`telnyxAnswerInboundLeg`** — **`POST /v2/calls/{id}/actions/answer`** then Dial to **`sip:{profile.sip_username}@sip.telnyx.com`**. Caller may hear silence/hold until the agent answers the WebRTC leg (**`bridge_on_answer`**). *Deploy:* **`telnyx-webhook`** to **`jncvvsvckxhqgqvkppmj`**.

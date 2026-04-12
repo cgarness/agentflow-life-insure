@@ -16,6 +16,8 @@ const IncomingCallModal = () => {
     currentCall,
     answerIncomingCall,
     rejectIncomingCall,
+    incomingCallAlerts,
+    enableIncomingCallAlerts,
   } = useTelnyx();
 
   const open = callState === "incoming";
@@ -70,6 +72,17 @@ const IncomingCallModal = () => {
               )}
             </DialogPrimitive.Description>
           </div>
+          {!incomingCallAlerts.optIn && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full text-xs"
+              onClick={() => void enableIncomingCallAlerts()}
+            >
+              Enable ringtone &amp; desktop alert (recommended)
+            </Button>
+          )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-center">
             <Button type="button" variant="outline" className="flex-1" onClick={handleReject}>
               Reject
