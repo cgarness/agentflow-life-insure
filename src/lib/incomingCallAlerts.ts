@@ -109,7 +109,8 @@ export async function enableIncomingCallAlertsFromUserGesture(): Promise<{
 }
 
 let lastNotification: Notification | null = null;
-let ringTimeoutChain: ReturnType<typeof setTimeout> | null = null;
+/** Repeating ring cadence — must not depend on AudioContext.resume() settling to schedule the next tick (some browsers drop the promise chain after suspend). */
+let ringRepeatIntervalId: ReturnType<typeof setInterval> | null = null;
 let ringStopRequested = false;
 
 export function closeIncomingDesktopNotification(): void {
@@ -169,6 +170,23 @@ function playRingBurst(ctx: AudioContext): void {
   }
 }
 
+function playIncomingRingBurst(ctx: AudioContext): void {
+  if (ringStopRequested) return;
+  const play = () => {
+    if (ringStopRequested) return;
+    try {
+      playRingBurst(ctx);
+    } catch {
+      /* ignore */
+    }
+  };
+  try {
+    void ctx.resume().then(play, play);
+  } catch {
+    play();
+  }
+}
+
 export function startIncomingRingtone(): void {
   const prefs = loadIncomingCallAlertsPrefs();
   if (!prefs.optIn || !prefs.ringtone) return;
@@ -180,27 +198,17 @@ export function startIncomingRingtone(): void {
 
   ringStopRequested = false;
 
-  const scheduleCycle = () => {
-    if (ringStopRequested) return;
-    void ctx.resume().then(() => {
-      if (ringStopRequested) return;
-      try {
-        playRingBurst(ctx);
-      } catch {
-        /* ignore */
-      }
-      // ~2s tone + ~4s silence before the next burst
-      ringTimeoutChain = setTimeout(scheduleCycle, 6000);
-    });
-  };
-
-  scheduleCycle();
+  // First burst immediately; then repeat every ~6s (~2s tone + ~4s gap).
+  playIncomingRingBurst(ctx);
+  ringRepeatIntervalId = window.setInterval(() => {
+    playIncomingRingBurst(ctx);
+  }, 6000);
 }
 
 export function stopIncomingRingtone(): void {
   ringStopRequested = true;
-  if (ringTimeoutChain !== null) {
-    clearTimeout(ringTimeoutChain);
-    ringTimeoutChain = null;
+  if (ringRepeatIntervalId !== null) {
+    clearInterval(ringRepeatIntervalId);
+    ringRepeatIntervalId = null;
   }
 }

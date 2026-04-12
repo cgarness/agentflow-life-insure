@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound ringtone — repeat cadence fix**
+  *Issue:* Custom ring played **once** then stopped. *Cause:* Next burst was scheduled **inside** `AudioContext.resume().then(...)`; after silence the context often **suspends**, and some environments never chained the next `setTimeout`. *Fix:* **`setInterval`** every **6s** + **`resume().then(play, play)`** so timing does not depend on the resume promise to schedule the following ring.
+
 - **2026-04-12 | [DONE] Inbound Phase 0–1 — verify path + desktop alerts & ringtone**
   *Phase 0 (ops):* Confirm prod has migrations through **`20260412140000_calls_rls_inbound_unassigned_visible`**, Edge **`telnyx-webhook`** + **`inbound-call-claim`** deployed, Telnyx voice webhook → **`telnyx-webhook`**, agency DID on the same Call Control app as **`telnyx_settings`**, and **one** org profile with **`sip_username`** matching the browser credential (or bridge falls back to settings — see work log below). *Phase 1 (app):* **`incomingCallAlerts`** — `Notification` + repeating **440/480 Hz** ring (after click-to-enable), prefs in **`localStorage`**, audio primed flag in **`sessionStorage`**. **FloatingDialer** banner + **IncomingCallModal** button; **`TelnyxContext`** fires alerts on transition to **`callState === "incoming"`**. Tests: **`src/lib/incomingCallAlerts.test.ts`**.
 
