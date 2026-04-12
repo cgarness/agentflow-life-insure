@@ -18,18 +18,10 @@ export function resolveTelnyxNotificationBranch(call: {
   const state = call.state;
   if (state === "destroy" || state === "hangup") return "ended";
   if (state === "active") return "active";
+  // Inbound WebRTC legs: Telnyx may use `parked`, `ringing`, `new`, `trying`, etc. Missing a state
+  // maps the call to "other" and hides Answer in the UI while the PSTN side keeps ringing.
   if (isTelnyxSdkInboundDirection(dir)) {
-    if (
-      state === "ringing" ||
-      state === "new" ||
-      state === "early" ||
-      state === "trying" ||
-      state === "requesting" ||
-      state === "answering" ||
-      state === "recovering"
-    ) {
-      return "incoming";
-    }
+    return "incoming";
   }
   if (state === "ringing" || state === "trying" || state === "early") return "dialing";
   return "other";

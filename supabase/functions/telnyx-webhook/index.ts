@@ -65,6 +65,28 @@ function extractRecordingDownloadUrl(payload: any): string | null {
   return fromNested;
 }
 
+/** Raw Ed25519 public key is 32 bytes. Mission Control may show hex (64 chars) or base64. */
+function decodeTelnyxEd25519PublicKey(raw: string): Uint8Array | null {
+  let s = raw.trim().replace(/\s+/g, '').replace(/:/g, '');
+  if (s.startsWith('0x') || s.startsWith('0X')) s = s.slice(2);
+  if (/^[0-9a-fA-F]+$/.test(s) && s.length === 64) {
+    try {
+      return new Uint8Array(s.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)));
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+    const bin = Uint8Array.from(atob(b64 + pad), (c) => c.charCodeAt(0));
+    if (bin.length === 32) return bin;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 // ─── Helper: Verify Telnyx Ed25519 webhook signature ───
 async function verifyTelnyxSignature(req: Request, rawBody: string): Promise<boolean> {
   const telnyxPublicKey = Deno.env.get('TELNYX_PUBLIC_KEY');
@@ -73,8 +95,10 @@ async function verifyTelnyxSignature(req: Request, rawBody: string): Promise<boo
     return true; // Fail-open during initial deployment; close once key is set
   }
 
-  const signature = req.headers.get('telnyx-signature-ed25519');
-  const timestamp = req.headers.get('telnyx-timestamp');
+  const signature =
+    req.headers.get('telnyx-signature-ed25519') ||
+    req.headers.get('Telnyx-Signature-Ed25519');
+  const timestamp = req.headers.get('telnyx-timestamp') || req.headers.get('Telnyx-Timestamp');
 
   if (!signature || !timestamp) {
     console.error('[SECURITY] Missing telnyx-signature-ed25519 or telnyx-timestamp headers. Rejecting.');
@@ -94,10 +118,13 @@ async function verifyTelnyxSignature(req: Request, rawBody: string): Promise<boo
     const encoder = new TextEncoder();
     const messageBytes = encoder.encode(signedPayload);
 
-    // Decode the hex-encoded public key into raw bytes
-    const publicKeyBytes = new Uint8Array(
-      telnyxPublicKey.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16))
-    );
+    const publicKeyBytes = decodeTelnyxEd25519PublicKey(telnyxPublicKey);
+    if (!publicKeyBytes) {
+      console.error(
+        '[SECURITY] TELNYX_PUBLIC_KEY invalid format (expect 64 hex chars or base64 of 32 raw bytes). Skipping verification like an unset key — fix or remove this secret.',
+      );
+      return true;
+    }
 
     // Import the Ed25519 public key
     const cryptoKey = await crypto.subtle.importKey(
@@ -109,7 +136,7 @@ async function verifyTelnyxSignature(req: Request, rawBody: string): Promise<boo
     );
 
     // Decode the base64-encoded signature
-    const signatureBytes = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
+    const signatureBytes = Uint8Array.from(atob(signature.trim()), (c) => c.charCodeAt(0));
 
     // Verify the signature
     const isValid = await crypto.subtle.verify('Ed25519', cryptoKey, signatureBytes, messageBytes);

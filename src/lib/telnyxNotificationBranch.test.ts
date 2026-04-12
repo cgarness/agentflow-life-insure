@@ -24,6 +24,11 @@ describe("resolveTelnyxNotificationBranch", () => {
     expect(resolveTelnyxNotificationBranch({ direction: "inbound", state: "recovering" })).toBe("incoming");
   });
 
+  it("classifies inbound parked as incoming (Voice API uses parked on call.initiated)", () => {
+    expect(resolveTelnyxNotificationBranch({ direction: "incoming", state: "parked" })).toBe("incoming");
+    expect(resolveTelnyxNotificationBranch({ direction: "inbound", state: "parked" })).toBe("incoming");
+  });
+
   it("classifies outbound ringing as dialing", () => {
     expect(resolveTelnyxNotificationBranch({ direction: "outbound", state: "ringing" })).toBe("dialing");
   });

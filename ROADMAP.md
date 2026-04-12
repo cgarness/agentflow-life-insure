@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound — no Answer UI + endless ring: SDK states + webhook public key**
+  *Symptoms:* PSTN kept ringing; **no Answer** in browser (especially after adding **`TELNYX_PUBLIC_KEY`**). *Causes:* (1) WebRTC **`telnyx.notification`** can use inbound states (e.g. **`parked`**) not listed in **`resolveTelnyxNotificationBranch`** → branch **`other`** → no **`incoming`** UI. (2) **`TELNYX_PUBLIC_KEY`** wrong format / verification fail → webhook returns 200 but **does not run** **`mvpBridgeInboundToWebRtcSip`** → no WebRTC leg. *Fix:* **`resolveTelnyxNotificationBranch`** — any **`inbound`/`incoming`** before **`active`**/`ended` → **`incoming`**. **`telnyx-webhook`** — decode public key as **64 hex** or **base32-ish base64 (32 bytes)**; trim / strip colons; tolerate header casing; if key **unparseable**, skip verify (loud log) so bridge is not bricked; **redeploy `telnyx-webhook`**.
+
 - **2026-04-12 | [DONE] Inbound basic rollout — Edge redeploy + telnyx-token activity bump**
   *What:* Redeployed **`telnyx-webhook`**, **`inbound-call-claim`**, and **`telnyx-token`** to Supabase project **`jncvvsvckxhqgqvkppmj`**. **`telnyx-token`** now bumps **`profiles.updated_at`** on every successful WebRTC token response (not only when **`sip_username`** changes) so **`resolveInboundWebRtcSipTarget`** prefers whoever **last opened the dialer** in multi-agent orgs. *Chris (ops):* Telnyx voice webhook → your **`telnyx-webhook`** URL; set **`TELNYX_PUBLIC_KEY`** in Edge secrets; **`telnyx_settings.connection_id`** = WebRTC **Credential Connection** UUID (same as Phone Settings); inbound DID on the **Call Control** app that fires the webhook; confirm migration **`20260412140000_calls_rls_inbound_unassigned_visible`** applied; **`phone_numbers`** row for the agency DID; test with one agent, dialer open, mic + alerts enabled.
 
