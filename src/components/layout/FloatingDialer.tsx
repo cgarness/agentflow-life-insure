@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
 import { selectCallerID } from "@/lib/caller-id-selector";
+import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
 import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
 
@@ -55,6 +56,16 @@ function timeAgo(dateStr: string): string {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+/** Telnyx often sets `remoteCallerName` to the same digits as the number — treat that as “no display name”. */
+function isTelnyxNameJustTheNumber(name: string, number: string): boolean {
+  const n = name.trim();
+  if (!n) return true;
+  const nd = number.replace(/\D/g, "");
+  const nn = n.replace(/\D/g, "");
+  if (!nd || nn.length < 7) return false;
+  return nn === nd || nd.endsWith(nn) || (nn.length >= 10 && nd.endsWith(nn.slice(-10)));
+}
+
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
@@ -94,6 +105,7 @@ const FloatingDialer: React.FC = () => {
     isOnHold: telnyxIsOnHold,
     incomingCallerNumber,
     incomingCallerName,
+    crmContactName,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     answerIncomingCall: telnyxAnswerIncoming,
@@ -167,7 +179,13 @@ const FloatingDialer: React.FC = () => {
 
   // Listen for toggle event from TopBar
   useEffect(() => {
-    const handler = () => setOpen((prev) => !prev);
+    const handler = () => {
+      setOpen((prev) => {
+        const next = !prev;
+        if (next) void primeIncomingCallAudio();
+        return next;
+      });
+    };
     window.addEventListener("toggle-floating-dialer", handler);
     return () => window.removeEventListener("toggle-floating-dialer", handler);
   }, []);
@@ -190,6 +208,7 @@ const FloatingDialer: React.FC = () => {
         }
         setSearchTerm(detail.name || detail.phone);
         setActiveTab("dial");
+        void primeIncomingCallAudio();
         setOpen(true);
       }
     };
@@ -535,10 +554,18 @@ const FloatingDialer: React.FC = () => {
     resetAll();
   };
 
+  const telnyxUsefulCallerName =
+    incomingCallerName.trim() && !isTelnyxNameJustTheNumber(incomingCallerName, incomingCallerNumber)
+      ? incomingCallerName.trim()
+      : "";
+
+  const incomingHeadline =
+    crmContactName || telnyxUsefulCallerName || incomingCallerNumber || "Unknown caller";
+
   const callDisplayName =
     selectedContact
       ? `${selectedContact.first_name} ${selectedContact.last_name}`
-      : incomingCallerName || incomingCallerNumber || dialedNumber;
+      : crmContactName || telnyxUsefulCallerName || incomingCallerNumber || dialedNumber;
 
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -750,9 +777,9 @@ const FloatingDialer: React.FC = () => {
                   <div className="flex flex-col items-center space-y-4 py-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
                     <p className="font-bold text-foreground text-lg text-center px-1">
-                      {incomingCallerName || incomingCallerNumber || "Unknown caller"}
+                      {incomingHeadline}
                     </p>
-                    {incomingCallerName && incomingCallerNumber ? (
+                    {(crmContactName || telnyxUsefulCallerName) && incomingCallerNumber ? (
                       <p className="text-sm text-muted-foreground font-mono">{incomingCallerNumber}</p>
                     ) : null}
                     <div className="flex w-full gap-3 pt-2">

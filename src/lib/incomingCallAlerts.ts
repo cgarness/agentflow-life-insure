@@ -229,31 +229,38 @@ function startOscillatorFallback(): void {
 
 export function startIncomingRingtone(): void {
   const prefs = loadIncomingCallAlertsPrefs();
-  if (!prefs.optIn || !prefs.ringtone) return;
-  if (!isIncomingAudioPrimed()) return;
+  if (prefs.ringtone === false) return;
 
   stopIncomingRingtone();
   ringStopRequested = false;
 
-  const el = getHtmlRingElement();
-  if (el) {
-    try {
-      el.currentTime = 0;
-      void el.play().then(
-        () => {
-          /* HTML loop handles repetition */
-        },
-        (e: unknown) => {
-          console.warn("Autoplay blocked:", e);
-          startOscillatorFallback();
-        },
-      );
-      return;
-    } catch (err) {
-      console.warn("[incomingCallAlerts] HTML ring error; using Web Audio fallback:", err);
+  const play = (): void => {
+    const el = getHtmlRingElement();
+    if (el) {
+      try {
+        el.currentTime = 0;
+        void el.play().then(
+          () => {
+            /* HTML loop handles repetition */
+          },
+          (e: unknown) => {
+            console.warn("Autoplay blocked:", e);
+            startOscillatorFallback();
+          },
+        );
+        return;
+      } catch (err) {
+        console.warn("[incomingCallAlerts] HTML ring error; using Web Audio fallback:", err);
+      }
     }
-  }
-  startOscillatorFallback();
+    startOscillatorFallback();
+  };
+
+  // Ring does not require "Enable alerts" — only the ringtone pref.
+  // Always attempt playback immediately; browsers often block until a user gesture — priming runs in parallel
+  // so the next ring after opening the dialer is more likely to succeed.
+  void primeIncomingCallAudio();
+  play();
 }
 
 export function stopIncomingRingtone(): void {

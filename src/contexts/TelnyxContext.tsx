@@ -44,6 +44,24 @@ const toE164 = (phone: string): string => {
   return `+${digits}`;
 };
 
+/** Values commonly stored in `leads.phone` / `clients.phone` for the same PSTN number. */
+function buildInboundPhoneVariants(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  const digits = trimmed.replace(/\D/g, "");
+  const e164 = toE164(trimmed);
+  const last10 = digits.length >= 10 ? digits.slice(-10) : "";
+  const out = new Set<string>();
+  if (e164) out.add(e164);
+  if (digits) out.add(digits);
+  if (last10) {
+    out.add(last10);
+    out.add(`+1${last10}`);
+    out.add(`1${last10}`);
+  }
+  return [...out];
+}
+
 function extractIncomingCallerDisplay(call: any): { number: string; name: string } {
   const opts = call?.options ?? {};
   const num =
@@ -316,7 +334,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     let cancelled = false;
-    const e164 = toE164(raw);
+    const variants = buildInboundPhoneVariants(raw);
 
     const formatName = (row: { first_name: string; last_name: string } | null) => {
       if (!row) return "";
@@ -330,7 +348,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .from("leads")
         .select("first_name, last_name")
         .eq("organization_id", organizationId)
-        .eq("phone", e164)
+        .in("phone", variants)
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (cancelled) return;
@@ -354,7 +374,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           .from("clients")
           .select("first_name, last_name")
           .eq("organization_id", organizationId)
-          .eq("phone", e164)
+          .in("phone", variants)
+          .order("updated_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
         if (cancelled) return;
         row = clientExact.data ?? null;

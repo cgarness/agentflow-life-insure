@@ -18,7 +18,7 @@
 - **Next Up**: Execute **SaaS Core Migration Block** to create `organizations` (multi-tenancy root), `tasks`, and `dial_sessions`.
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
-- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **global `IncomingCallModal`** (AppLayout) plus Floating Dialer support answer/decline (`inbound-call-claim` + webhook org hint).
+- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
 - **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
 - **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), contact match on ring, voicemail. **Inbound browser UX:** one-time **Enable alerts & ringtone** (floating dialer + incoming modal) unlocks **Web Notifications** + **Web Audio** ring pattern; see `src/lib/incomingCallAlerts.ts`.
 
@@ -54,6 +54,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-12 | [DONE] Inbound UX — single popup, ringtone path, CRM on dialer**
+  *What:* Removed **`IncomingCallModal`** from **`AppLayout`** (left **`FloatingDialer`** as the only incoming UI). **`startIncomingRingtone`** no longer returns early when audio was not primed — it always calls **`play()`** and runs **`primeIncomingCallAudio()`** in parallel (fixes “silent first ring”). **`FloatingDialer`** — **`primeIncomingCallAudio`** when opening via TopBar toggle or quick-call; shows **`crmContactName`** and treats Telnyx **`remoteCallerName`** equal to the number as not a real name. **`TelnyxContext`** CRM match — **`.in("phone", variants)`** (E.164, raw digits, `+1` + last-10, `1` + last-10, last-10) before **`ilike`** fuzzy. *Note:* RLS still limits **`leads`/`clients`** to assigned agent (or upline/admin); unassigned or another agent’s lead will not resolve a name.
 
 - **2026-04-12 | [DONE] Inbound modal + CRM name — strict pass**
   *Modal:* Bottom-right card, **no** **`DialogPrimitive.Overlay`**, **`modal={false}`**, slide from bottom (**no** zoom). *CRM:* **`crmContactName`** from **`leads`** (exact **`phone`** = E.164 then **`ilike '%last10%'`**), then **`clients`** same pattern; reset when not **`incoming`**. *UI:* **`displayName`** = CRM → Telnyx name → **"Unknown Caller"**; CRM hits use **`text-xl`**.
