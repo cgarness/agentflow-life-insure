@@ -330,6 +330,117 @@ async function resolveOrganizationIdFromInboundTo(supabase: any, toField: unknow
 }
 
 // ─── Helper: start call recording via Telnyx REST API ───
+/** SIP bridge target for MVP inbound → WebRTC (org row or global fallback). */
+async function getTelnyxSipBridgeSettings(
+  supabase: any,
+  organizationId?: string | null,
+): Promise<{ api_key: string; sip_username: string; connection_id: string } | null> {
+  if (organizationId) {
+    const { data, error } = await supabase
+      .from('telnyx_settings')
+      .select('api_key, sip_username, connection_id')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    if (error) {
+      console.warn('[inbound-bridge] org telnyx_settings lookup failed:', error.message);
+    }
+    if (data?.api_key && data?.sip_username && data?.connection_id) {
+      return {
+        api_key: data.api_key,
+        sip_username: data.sip_username,
+        connection_id: data.connection_id,
+      };
+    }
+  }
+  const { data: global, error: globalError } = await supabase
+    .from('telnyx_settings')
+    .select('api_key, sip_username, connection_id')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .maybeSingle();
+  if (globalError) {
+    console.warn('[inbound-bridge] global telnyx_settings lookup failed:', globalError.message);
+  }
+  if (global?.api_key && global?.sip_username && global?.connection_id) {
+    return {
+      api_key: global.api_key,
+      sip_username: global.sip_username,
+      connection_id: global.connection_id,
+    };
+  }
+  return null;
+}
+
+/**
+ * MVP: Telnyx Call Control **Dial** is `POST /v2/calls` (see Telnyx Voice API).
+ * Dials the WebRTC SIP URI and links to the inbound PSTN leg via `link_to` + `bridge_on_answer`.
+ */
+async function telnyxDialBridgeToSipUri(
+  apiKey: string,
+  inboundCallControlId: string,
+  sipUri: string,
+  connectionId: string,
+  fromE164: string,
+  commandId: string,
+): Promise<void> {
+  const url = 'https://api.telnyx.com/v2/calls';
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      connection_id: connectionId,
+      to: sipUri,
+      from: fromE164,
+      link_to: inboundCallControlId,
+      bridge_on_answer: true,
+      command_id: commandId,
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error(
+      `[inbound-bridge] Telnyx Dial (POST /v2/calls) failed: ${resp.status}`,
+      errText,
+    );
+    return;
+  }
+  console.log('[inbound-bridge] Dial + bridge_on_answer issued for inbound leg', inboundCallControlId);
+}
+
+async function mvpBridgeInboundToWebRtcSip(
+  supabase: any,
+  opts: {
+    organizationId: string | null | undefined;
+    inboundCallControlId: string;
+    callSessionId: string | null | undefined;
+    agencyDid: string | null | undefined;
+  },
+): Promise<void> {
+  const { organizationId, inboundCallControlId, callSessionId, agencyDid } = opts;
+  if (!agencyDid) {
+    console.warn('[inbound-bridge] Missing payload.to (agency DID); skip bridge.');
+    return;
+  }
+  const settings = await getTelnyxSipBridgeSettings(supabase, organizationId ?? null);
+  if (!settings) {
+    console.warn('[inbound-bridge] No telnyx_settings with api_key + sip_username + connection_id; skip bridge.');
+    return;
+  }
+  // TODO: Replace with specific agent SIP username (per logged-in WebRTC credential), not shared org SIP.
+  const sipUri = `sip:${settings.sip_username}@sip.telnyx.com`;
+  const commandId = `agentflow-mvp-bridge-${callSessionId || inboundCallControlId}`;
+  await telnyxDialBridgeToSipUri(
+    settings.api_key,
+    inboundCallControlId,
+    sipUri,
+    settings.connection_id,
+    agencyDid,
+    commandId,
+  );
+}
+
 async function telnyxRecordStart(apiKey: string, callControlId: string): Promise<void> {
   console.log(`Attempting record_start for call: [${callControlId}]`);
   try {
@@ -436,6 +547,16 @@ async function handleCallInitiated(supabase: any, payload: any) {
     } else {
       console.log(`[call.initiated] Outbound call without client_state — likely a transfer leg. Skipping record creation. control_id: ${payload.call_control_id}`);
     }
+  }
+
+  // MVP: PSTN inbound → dial WebRTC SIP leg and bridge when the agent answers (Telnyx POST /v2/calls).
+  if (direction === 'inbound' && payload.call_control_id) {
+    void mvpBridgeInboundToWebRtcSip(supabase, {
+      organizationId: callData.organization_id,
+      inboundCallControlId: payload.call_control_id,
+      callSessionId: payload.call_session_id,
+      agencyDid: typeof payload.to === 'string' ? payload.to.trim() : null,
+    });
   }
 }
 

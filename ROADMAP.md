@@ -18,9 +18,9 @@
 - **Next Up**: Execute **SaaS Core Migration Block** to create `organizations` (multi-tenancy root), `tasks`, and `dial_sessions`.
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
-- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; Floating Dialer supports answer/decline (`inbound-call-claim` + webhook org hint).
-- **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. (Answering Machine Detection was removed — bridge on answer only.)
-- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Optional: richer inbound routing (settings UI), contact match on ring, voicemail.
+- **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **global `IncomingCallModal`** (AppLayout) plus Floating Dialer support answer/decline (`inbound-call-claim` + webhook org hint).
+- **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
+- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), contact match on ring, voicemail.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
 - **State**: Entirely missing billing and SaaS partitioning layer.
@@ -54,6 +54,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-12 | [DONE] MVP inbound WebRTC “Hello World” (notification pub/sub + modal + webhook Dial bridge)**
+  *What:* **`src/lib/telnyx.ts`** — `wireTelnyxIncomingNotifications()` listens for **`telnyx.notification`** and **`notification`**, fans out inbound ringing to **`subscribeIncomingCall()`**; **`initTelnyx()`** wires the same. **`TelnyxContext`** calls `wireTelnyxIncomingNotifications(client)` so the live app gets subscribers without a second SDK path. **`IncomingCallModal`** in **`AppLayout`**: Answer (**`answerIncomingCall`**) / Reject (**`rejectIncomingCall`** or SDK **`reject`** if present). **`telnyx-webhook` `handleCallInitiated`:** for **inbound**, **`POST https://api.telnyx.com/v2/calls`** (Telnyx Call Control Dial) with **`link_to`** = inbound `call_control_id`, **`bridge_on_answer`**, **`to`** = `sip:{sip_username}@sip.telnyx.com` from **`telnyx_settings`** (org then global fallback); **`TODO`** for per-agent SIP. *Deploy:* redeploy **`telnyx-webhook`** after merge.
 
 - **2026-04-12 | [DONE] Inbound calls visible in app — full stack (RLS + claim + webhook + DB)**
   *Diagnosis:* Agents only pass **`calls` RLS** when **`agent_id = auth.uid()`**. Inbound rows are created by **`telnyx-webhook`** with **`agent_id` NULL** until **`inbound-call-claim`** runs. Calls “disappeared” when: (1) **claim raced** the webhook (few retries, row not inserted yet); (2) **Telnyx** sometimes sends **`direction: incoming`** while claim queried **`direction = inbound`** only; (3) **SDK vs webhook ID mismatch** — claim matched only **`telnyx_call_control_id`**; **`telnyx_call_id`** (session) is a stable fallback.

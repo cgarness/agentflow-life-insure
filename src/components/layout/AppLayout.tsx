@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import FloatingDialer from "./FloatingDialer";
+import IncomingCallModal from "@/components/dialer/IncomingCallModal";
 import FloatingChat from "@/components/chat/FloatingChat";
 import WinCelebration from "@/components/WinCelebration";
 import ReminderPopup from "./ReminderPopup";
@@ -28,6 +29,7 @@ const AppLayout: React.FC = () => {
             </div>
           </main>
           <FloatingDialer />
+          <IncomingCallModal />
           <FloatingChat />
           <WinCelebration />
           <ReminderPopup />

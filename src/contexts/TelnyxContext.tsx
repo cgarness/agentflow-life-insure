@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { TelnyxRTC } from "@telnyx/webrtc";
+import { wireTelnyxIncomingNotifications } from "@/lib/telnyx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -992,6 +993,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Required by @telnyx/webrtc: SDK wires remote RTP to this element. Manual srcObject
       // attachment alone is not reliable for bidirectional audio on bridged calls.
       client.remoteElement = getRemoteAudioElement();
+      wireTelnyxIncomingNotifications(client);
 
       client.on("telnyx.ready", () => {
         telnyxConnectedOrgIdRef.current = organizationId;
