@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound Answer UI not visible**
+  *Cause:* **`IncomingCallModal`** used shadcn **Dialog** at **`z-50`** while **FloatingDialer** is **`z-[1000]`** and **FloatingChat** up to **`z-[10000]`** — modal rendered **under** floating UI. **FloatingDialer** also required **`!onCall`** for Answer/Decline; **`onCall`** could flip **true** early, hiding buttons. *Fix:* Incoming modal via **Radix primitives** at **`z-[10100]` / `z-[10101]`**; on **`callState === "incoming"`** force **`setOnCall(false)`** and show ring UI **without** `!onCall`; **`telnyxNotificationBranch`** adds **`recovering`**; **TelnyxContext** handles **`branch === "incoming"`** before **`active`**.
+
 - **2026-04-12 | [DONE] Inbound calls invisible in UI (RLS + Recent query)**
   *Cause:* Webhook creates **`calls.agent_id` NULL** until answer/claim. **`Calls Hierarchical Access`** only allowed **`agent_id = auth.uid()`** for agents, so PostgREST returned **zero rows** for unclaimed inbound. **FloatingDialer → Recent** also used **`.eq("agent_id", user.id)`**, excluding those calls even if RLS had allowed them. *Fix:* Migration **`20260412140000_calls_rls_inbound_unassigned_visible.sql`** adds a **USING** branch: same org, **`direction = 'inbound'`**, **`agent_id IS NULL`** (WITH CHECK unchanged). **FloatingDialer** Recent query uses **`.or(own agent, unclaimed org inbound)`**. *Apply migration on any env not yet patched* (prod applied via Supabase MCP for `jncvvsvckxhqgqvkppmj`).
 

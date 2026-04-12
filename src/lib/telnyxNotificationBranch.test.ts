@@ -15,6 +15,10 @@ describe("resolveTelnyxNotificationBranch", () => {
     expect(resolveTelnyxNotificationBranch({ direction: "inbound", state: "early" })).toBe("incoming");
   });
 
+  it("classifies inbound recovering as incoming", () => {
+    expect(resolveTelnyxNotificationBranch({ direction: "inbound", state: "recovering" })).toBe("incoming");
+  });
+
   it("classifies outbound ringing as dialing", () => {
     expect(resolveTelnyxNotificationBranch({ direction: "outbound", state: "ringing" })).toBe("dialing");
   });

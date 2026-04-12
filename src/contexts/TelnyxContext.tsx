@@ -1186,7 +1186,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
 
-        if (state === "active") {
+        // Inbound ring states before "active" — must run before active block so UI shows Answer.
+        if (branch === "incoming") {
+          const { number, name } = extractIncomingCallerDisplay(call);
+          setIncomingCallerNumber(number || "Unknown caller");
+          setIncomingCallerName(name);
+          endStateProcessedRef.current = false;
+          setCallState("incoming");
+        } else if (state === "active") {
           try {
             call.stopRingback?.();
             call.stopRingtone?.();
@@ -1238,12 +1245,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             recordingStartedRef.current = true;
             startBrowserRecording(call);
           }
-        } else if (branch === "incoming") {
-          const { number, name } = extractIncomingCallerDisplay(call);
-          setIncomingCallerNumber(number || "Unknown caller");
-          setIncomingCallerName(name);
-          endStateProcessedRef.current = false;
-          setCallState("incoming");
         } else if (branch === "dialing") {
           setCallState("dialing");
         } else if (branch === "ended") {

@@ -16,7 +16,8 @@ export function resolveTelnyxNotificationBranch(call: {
       state === "early" ||
       state === "trying" ||
       state === "requesting" ||
-      state === "answering"
+      state === "answering" ||
+      state === "recovering"
     ) {
       return "incoming";
     }

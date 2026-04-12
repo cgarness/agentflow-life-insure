@@ -437,6 +437,8 @@ const FloatingDialer: React.FC = () => {
 
   useEffect(() => {
     if (telnyxCallState === "incoming") {
+      // Premature onCall(true) (e.g. SDK "active" edge) hides Answer/Decline — reset for ring UI.
+      setOnCall(false);
       setOpen(true);
       setActiveTab("dial");
     }
@@ -713,7 +715,7 @@ const FloatingDialer: React.FC = () => {
 
             {activeTab === "dial" && (
               <div className="px-3 py-2 space-y-3">
-                {telnyxCallState === "incoming" && !onCall && (
+                {telnyxCallState === "incoming" && (
                   <div className="flex flex-col items-center space-y-4 py-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
                     <p className="font-bold text-foreground text-lg text-center px-1">
