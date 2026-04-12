@@ -409,6 +409,36 @@ async function resolveRegisteredWebRtcSipUsername(
 }
 
 /**
+ * Telnyx requires answering the inbound PSTN leg before other Call Control commands on that leg.
+ * Without this, Dial + link_to often never rings the WebRTC client (caller waits then hangs up).
+ * @see https://developers.telnyx.com/api-reference/call-commands/answer-call
+ */
+async function telnyxAnswerInboundLeg(apiKey: string, inboundCallControlId: string): Promise<boolean> {
+  const id = encodeURIComponent(inboundCallControlId);
+  const url = `https://api.telnyx.com/v2/calls/${id}/actions/answer`;
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error(`[inbound-bridge] Telnyx answer failed: ${resp.status}`, errText);
+      return false;
+    }
+    console.log('[inbound-bridge] Inbound PSTN leg answered via API; dialing WebRTC SIP next.');
+    return true;
+  } catch (err) {
+    console.error('[inbound-bridge] Telnyx answer exception:', err);
+    return false;
+  }
+}
+
+/**
  * MVP: Telnyx Call Control **Dial** is `POST /v2/calls` (see Telnyx Voice API).
  * Dials the WebRTC SIP URI and links to the inbound PSTN leg via `link_to` + `bridge_on_answer`.
  */
@@ -492,6 +522,13 @@ async function mvpBridgeInboundToWebRtcSip(
   // TODO: Multi-agent — replace with explicit inbound target (queue, last-online, or DID→agent map).
   const sipUri = `sip:${sipLocalPart}@sip.telnyx.com`;
   const commandId = `agentflow-mvp-bridge-${callSessionId || inboundCallControlId}`;
+
+  const answered = await telnyxAnswerInboundLeg(settings.api_key, inboundCallControlId);
+  if (!answered) {
+    console.warn('[inbound-bridge] Skipping WebRTC dial — inbound answer failed (Telnyx prerequisite).');
+    return;
+  }
+
   await telnyxDialBridgeToSipUri(
     settings.api_key,
     inboundCallControlId,

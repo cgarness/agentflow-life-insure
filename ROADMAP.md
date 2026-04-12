@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound never rang browser — Answer before Dial (Telnyx API prerequisite)**
+  *Diagnosis:* Inbound **`calls`** rows kept appearing (**`originator_cancel`**, **`agent_id` NULL**) — PSTN hit the webhook but the **WebRTC leg never rang**. Telnyx Call Control docs: **“You must issue [Answer] before executing subsequent commands on an incoming call.”** We were only **`POST /v2/calls` (Dial)** with **`link_to`** + **`bridge_on_answer`** on a still-**unanswered** inbound leg, so the bridge/SIP leg likely never completed. *Fix:* **`telnyxAnswerInboundLeg`** — **`POST /v2/calls/{id}/actions/answer`** then Dial to **`sip:{profile.sip_username}@sip.telnyx.com`**. Caller may hear silence/hold until the agent answers the WebRTC leg (**`bridge_on_answer`**). *Deploy:* **`telnyx-webhook`** to **`jncvvsvckxhqgqvkppmj`**.
+
 - **2026-04-12 | [DONE] Inbound Answer UI not visible**
   *Cause:* **`IncomingCallModal`** used shadcn **Dialog** at **`z-50`** while **FloatingDialer** is **`z-[1000]`** and **FloatingChat** up to **`z-[10000]`** — modal rendered **under** floating UI. **FloatingDialer** also required **`!onCall`** for Answer/Decline; **`onCall`** could flip **true** early, hiding buttons. *Fix:* Incoming modal via **Radix primitives** at **`z-[10100]` / `z-[10101]`**; on **`callState === "incoming"`** force **`setOnCall(false)`** and show ring UI **without** `!onCall`; **`telnyxNotificationBranch`** adds **`recovering`**; **TelnyxContext** handles **`branch === "incoming"`** before **`active`**.
 
