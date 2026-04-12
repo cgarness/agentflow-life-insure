@@ -345,8 +345,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         const json = (await resp.json().catch(() => ({}))) as { id?: string; error?: string };
 
-        if (resp.status === 400) {
-          console.warn("[inbound-call-claim] stopped:", json.error);
+        if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
+          console.warn("[inbound-call-claim] stopped:", resp.status, json?.error);
           return null;
         }
 
@@ -813,11 +813,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (controlId || sessionId) {
-      const rowId = await claimInboundCall(controlId || "", sessionId);
-      if (rowId) {
-        activeCallIdRef.current = rowId;
-        telnyxIdsDbSyncedRef.current = true;
-      }
+      void (async () => {
+        const rowId = await claimInboundCall(controlId || "", sessionId);
+        if (rowId) {
+          activeCallIdRef.current = rowId;
+          telnyxIdsDbSyncedRef.current = true;
+        }
+      })();
     }
 
     endStateProcessedRef.current = false;

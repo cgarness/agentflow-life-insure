@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound Answer — non-blocking claim + stop retries on 401/403**
+  *Symptoms:* **Answer** felt frozen while **`claimInboundCall`** retried. *Fix:* **`answerIncomingCall`** fires **`void (async () => { await claimInboundCall(...) })()`** so **`call.answer()`** runs immediately; claim still updates **`activeCallIdRef`** when it completes. **`claimInboundCall`** returns **`null`** on **400 / 401 / 403** (no further retries on auth/forbidden).
+
 - **2026-04-12 | [DONE] Inbound claim — stop refreshSession spam in retry loop**
   *Symptoms:* UI freeze / unexpected logout during inbound while **`claimInboundCall`** retried (~18×). *Cause:* Each iteration called **`supabase.auth.refreshSession()`**, hammering Auth’s refresh endpoint. *Fix:* Use **`getSession()`** inside the loop (read cached session + JWT for **`inbound-call-claim`**); leave other **`refreshSession()`** usages (e.g. hang up / outbound) unchanged.
 
