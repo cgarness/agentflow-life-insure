@@ -826,6 +826,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isDialingRef.current = true;
 
     try {
+      try {
+        (clientRef.current as { enableMicrophone?: () => void } | null)?.enableMicrophone?.();
+      } catch {
+        /* ignore */
+      }
       await call.answer();
       try {
         call.unmuteAudio?.();
@@ -1144,6 +1149,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setStatus("ready");
         setErrorMessage(null);
         console.log("TelnyxRTC ready (eager init)");
+        // Telnyx docs: enable mic constraints on the client before answering inbound.
+        try {
+          (client as { enableMicrophone?: () => void }).enableMicrophone?.();
+        } catch {
+          /* ignore */
+        }
       });
 
       client.on("telnyx.error", (error: any) => {

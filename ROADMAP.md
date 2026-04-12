@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound silent audio — webhook used wrong `connection_id` for WebRTC dial**
+  *Telnyx docs / architecture:* The browser registers to a **Credential SIP Connection** (`connection_id`). **`POST /v2/calls`** to `sip:{user}@sip.telnyx.com` must use **that** connection UUID. We previously preferred **`call_control_app_id`**, which can bridge as “answered” with **no RTP**. *Fix:* **`getTelnyxSipBridgeSettings`** now uses **`connection_id` first**, then app id fallback + warning. *Ops:* **`telnyx_settings.connection_id`** must match the connection **`telnyx-token`** uses (same as Phone Settings). Redeploy **`telnyx-webhook`**. *Client:* **`enableMicrophone()`** on **`telnyx.ready`** and before **`answer()`** per Telnyx “make a call to a web browser” guide.
+
 - **2026-04-12 | [DONE] Inbound answer — bind microphone + late remote audio**
   *Symptoms:* Call “connected” but **silent** (no agent audio to caller / no caller audio in browser). *Cause:* `getUserMedia` ran before **`call.answer()`** but **`call.options.localStream`** was never set; Telnyx’s **`Call.answer()`** builds the Peer from **`this.options`**, so signaling could complete without a proper mic leg. Also stop the **eager warm-up** mic stream so only one capture is active. *Follow-up:* after **`answer()`**, **`attachRemoteAudio`** + **`unmuteAudio`**, and a one-time **`RTCPeerConnection` `track`** listener (30s) for bridged legs where remote media arrives after `active`.
 

@@ -331,8 +331,10 @@ async function resolveOrganizationIdFromInboundTo(supabase: any, toField: unknow
 
 // ─── Helper: start call recording via Telnyx REST API ───
 /**
- * Telnyx `POST /v2/calls` should use the **Call Control Application** id when present
- * (`call_control_app_id`); the WebRTC **Credential Connection** id alone often cannot originate dial legs.
+ * Inbound → WebRTC: `POST /v2/calls` to `sip:{user}@sip.telnyx.com` must use the **same**
+ * SIP Connection UUID the browser registers with (Credential Connection / `connection_id`).
+ * Using `call_control_app_id` here often yields “answered” legs with **no audio**.
+ * @see https://developers.telnyx.com/docs/voice/webrtc/architecture
  */
 async function getTelnyxSipBridgeSettings(
   supabase: any,
@@ -346,7 +348,12 @@ async function getTelnyxSipBridgeSettings(
     if (!data?.api_key) return null;
     const app = typeof data.call_control_app_id === 'string' ? data.call_control_app_id.trim() : '';
     const cred = typeof data.connection_id === 'string' ? data.connection_id.trim() : '';
-    const outbound = app || cred;
+    const outbound = cred || app;
+    if (!cred && app) {
+      console.warn(
+        '[inbound-bridge] `connection_id` (WebRTC credential UUID) is empty — falling back to call_control_app_id. If inbound is silent, set telnyx_settings.connection_id to the same ID used by telnyx-token for the browser.',
+      );
+    }
     if (!outbound) return null;
     const su = typeof data.sip_username === 'string' ? data.sip_username.trim() : '';
     return {
