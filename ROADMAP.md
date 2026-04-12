@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound calls invisible in UI (RLS + Recent query)**
+  *Cause:* Webhook creates **`calls.agent_id` NULL** until answer/claim. **`Calls Hierarchical Access`** only allowed **`agent_id = auth.uid()`** for agents, so PostgREST returned **zero rows** for unclaimed inbound. **FloatingDialer → Recent** also used **`.eq("agent_id", user.id)`**, excluding those calls even if RLS had allowed them. *Fix:* Migration **`20260412140000_calls_rls_inbound_unassigned_visible.sql`** adds a **USING** branch: same org, **`direction = 'inbound'`**, **`agent_id IS NULL`** (WITH CHECK unchanged). **FloatingDialer** Recent query uses **`.or(own agent, unclaimed org inbound)`**. *Apply migration on any env not yet patched* (prod applied via Supabase MCP for `jncvvsvckxhqgqvkppmj`).
+
 - **2026-04-12 | [DONE] Hotfix — inbound bridge rang wrong SIP (no AgentFlow popup)**
   *Diagnosis:* `telnyx-webhook` logged **`call.initiated` / `call.hangup`** and **`calls`** rows for **`+19097756963` → agency DID** (`+19098345211`), but **`agent_id` stayed NULL** and **`hangup_details: originator_cancel`** — caller waited then hung up. Edge logs showed **`telnyx-webhook` 200s**; DB proved the PSTN leg worked. Root cause: MVP bridge dialed **`sip:{telnyx_settings.sip_username}@sip.telnyx.com`** while the browser registers **`profiles.sip_username`** (different Telnyx credential). *Fix:* If exactly **one** profile in the org has **`sip_username`**, dial that user; if several, fall back to settings + log **TODO** (DID→agent). **`POST /v2/calls`** now prefers **`call_control_app_id`** over credential **`connection_id`**. *Deployed:* `telnyx-webhook` to **`jncvvsvckxhqgqvkppmj`**.
 
