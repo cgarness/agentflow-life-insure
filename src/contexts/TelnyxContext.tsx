@@ -16,6 +16,9 @@ import {
   getDesktopNotificationPermission,
 } from "@/lib/incomingCallAlerts";
 
+/** Bridged inbound: remote audio may attach after `active` — refresh playback once per `RTCPeerConnection`. */
+const inboundPeerTrackRefreshAttached = new WeakSet<RTCPeerConnection>();
+
 const toE164 = (phone: string): string => {
   if (!phone) return phone;
   // Already E.164
@@ -757,12 +760,34 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const call = callRef.current;
     if (!call || !isTelnyxSdkInboundDirection(call.direction)) return;
 
+    let stream: MediaStream;
     try {
-      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       console.error("[TelnyxContext] Mic denied for answer:", err);
       toast.error("Microphone access is required to answer.");
       return;
+    }
+
+    // Only one mic capture: release eager warm-up stream from initializeClient / prior calls.
+    if (mediaStreamRef.current && mediaStreamRef.current !== stream) {
+      try {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* ignore */
+      }
+    }
+    mediaStreamRef.current = stream;
+
+    // Telnyx `Call.answer()` instantiates the Peer with `this.options`; without `localStream`
+    // the SDK may complete signaling with no microphone attached → silent / one-way audio.
+    try {
+      const opts = call.options as { localStream?: MediaStream } | undefined;
+      if (opts && typeof opts === "object") {
+        opts.localStream = stream;
+      }
+    } catch {
+      /* ignore */
     }
 
     let controlId = activeCallControlIdRef.current;
@@ -802,12 +827,42 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       await call.answer();
+      try {
+        call.unmuteAudio?.();
+      } catch {
+        /* SDK may not expose */
+      }
+      attachRemoteAudio(call);
+      try {
+        remoteAudioRef.current?.play?.().catch(() => {});
+      } catch {
+        /* ignore */
+      }
+      // Peer is created inside `answer()`; late remote tracks need a refresh hook.
+      try {
+        const pc = call.peer?.instance as RTCPeerConnection | undefined;
+        if (pc && !inboundPeerTrackRefreshAttached.has(pc)) {
+          inboundPeerTrackRefreshAttached.add(pc);
+          const onTrack = () => {
+            attachRemoteAudio(call);
+            try {
+              remoteAudioRef.current?.play?.().catch(() => {});
+            } catch {
+              /* ignore */
+            }
+          };
+          pc.addEventListener("track", onTrack);
+          window.setTimeout(() => pc.removeEventListener("track", onTrack), 30000);
+        }
+      } catch {
+        /* ignore */
+      }
     } catch (err: unknown) {
       console.error("[TelnyxContext] answer() failed:", err);
       toast.error(err instanceof Error ? err.message : "Could not answer the call.");
       isDialingRef.current = false;
     }
-  }, [claimInboundCall]);
+  }, [attachRemoteAudio, claimInboundCall]);
 
   const rejectIncomingCall = useCallback(() => {
     if (callStateRef.current !== "incoming") return;

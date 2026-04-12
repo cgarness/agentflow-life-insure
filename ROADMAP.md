@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound answer — bind microphone + late remote audio**
+  *Symptoms:* Call “connected” but **silent** (no agent audio to caller / no caller audio in browser). *Cause:* `getUserMedia` ran before **`call.answer()`** but **`call.options.localStream`** was never set; Telnyx’s **`Call.answer()`** builds the Peer from **`this.options`**, so signaling could complete without a proper mic leg. Also stop the **eager warm-up** mic stream so only one capture is active. *Follow-up:* after **`answer()`**, **`attachRemoteAudio`** + **`unmuteAudio`**, and a one-time **`RTCPeerConnection` `track`** listener (30s) for bridged legs where remote media arrives after `active`.
+
 - **2026-04-12 | [DONE] Inbound — Telnyx SDK uses `direction: "incoming"` (not `inbound`)**
   *Symptoms:* PSTN rang once then silence; **no incoming UI** in the browser. *Cause:* WebRTC `telnyx.notification` often sets **`call.direction === "incoming"`** while AgentFlow only treated **`inbound`**. Branch resolver fell through to **outbound ringback** (`dialing`); **`answerIncomingCall`** exited early; **inbound-call-claim** never ran from the notification path. *Fix:* **`isTelnyxSdkInboundDirection()`** in **`telnyxNotificationBranch.ts`** (`inbound` **or** `incoming`); applied in **`resolveTelnyxNotificationBranch`**, **`telnyx.ts`** pub/sub, **`TelnyxContext`**, **`DialerPage`**. Tests extended for **`incoming` + ringing/trying**.
 
