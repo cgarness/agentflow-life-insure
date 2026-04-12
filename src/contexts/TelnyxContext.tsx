@@ -468,7 +468,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             incomingCallerNumberRef.current ? ` · ${incomingCallerNumberRef.current}` : ""
           }`
         : incomingCallerNumberRef.current || "Open AgentFlow to answer";
-      showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      if (typeof document !== "undefined" && document.hidden) {
+        showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      }
       startIncomingRingtone();
     }
     if (notificationPermission === "granted") {
@@ -500,7 +502,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const body = incomingCallerName
         ? `${incomingCallerName}${incomingCallerNumber ? ` · ${incomingCallerNumber}` : ""}`
         : incomingCallerNumber || "Open AgentFlow to answer";
-      showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      if (typeof document !== "undefined" && document.hidden) {
+        showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      }
       startIncomingRingtone();
     }
   }, [callState, incomingCallerNumber, incomingCallerName]);

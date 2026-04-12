@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound alerts — tab-focused suppresses OS notification + inline ring WAV**
+  *What:* **`TelnyxContext`** calls **`showIncomingDesktopNotification`** only when **`document.hidden`** (other tab / minimized); **`startIncomingRingtone()`** always runs. **`incomingCallAlerts`** uses **`data:audio/wav;base64,...`** from **`incomingRingWavBase64.ts`** (dual-tone clip, **`loop = true`**); **`play()`** rejection logs **`Autoplay blocked:`** then Web Audio fallback. Removed unused **`public/sounds/incoming-ring.wav`**.
+
 - **2026-04-12 | [DONE] Inbound UI — corner card, CRM name, WAV ringtone**
   *What:* **`IncomingCallModal`** — removed full-screen overlay; **`modal={false}`**; card **`bottom-6 right-6`**, **`w-96`**, **`max-w-[calc(100vw-2rem)]`**, slide-in from bottom. **`TelnyxContext`** — **`crmContactName`** from **`public.leads`** (match **`phone`** E.164 then **`ilike` last-10-digits**), cleared when not **`incoming`**. **`incomingCallAlerts`** — looping **`HTMLAudioElement`** on **`/sounds/incoming-ring.wav`** with **`play().catch`** → Web Audio cadence fallback.
 

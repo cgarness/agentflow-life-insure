@@ -3,11 +3,13 @@
  * Browsers require a user gesture before Notification.requestPermission() and reliable audio.
  */
 
+import { INCOMING_RING_WAV_BASE64_CHUNKS } from "./incomingRingWavBase64";
+
 const PREFS_KEY = "agentflow_incoming_call_alerts_v1";
 const AUDIO_PRIMED_KEY = "agentflow_incoming_audio_primed";
 
-/** Same-origin ring asset (looping WAV). */
-const INCOMING_RING_PATH = "/sounds/incoming-ring.wav";
+/** Inline WAV (no network fetch) — loops via `HTMLAudioElement.loop`. */
+const INCOMING_RING_DATA_URI = `data:audio/wav;base64,${INCOMING_RING_WAV_BASE64_CHUNKS.join("")}`;
 
 export type IncomingCallAlertsPrefs = {
   /** User clicked "Enable" (one-time setup). */
@@ -113,7 +115,7 @@ export async function enableIncomingCallAlertsFromUserGesture(): Promise<{
 
 let lastNotification: Notification | null = null;
 /** Repeating ring cadence — Web Audio fallback if HTMLAudioElement play is blocked. */
-let ringRepeatIntervalId: ReturnType<typeof setInterval> | null = null;
+let ringRepeatIntervalId: number | null = null;
 let ringStopRequested = false;
 let htmlRingEl: HTMLAudioElement | null = null;
 
@@ -123,7 +125,7 @@ function getHtmlRingElement(): HTMLAudioElement | null {
     const a = new Audio();
     a.preload = "auto";
     a.loop = true;
-    a.src = INCOMING_RING_PATH;
+    a.src = INCOMING_RING_DATA_URI;
     a.volume = 0.28;
     htmlRingEl = a;
   }
@@ -241,8 +243,8 @@ export function startIncomingRingtone(): void {
         () => {
           /* HTML loop handles repetition */
         },
-        (err: unknown) => {
-          console.warn("[incomingCallAlerts] HTML ring play rejected; using Web Audio fallback:", err);
+        (e: unknown) => {
+          console.warn("Autoplay blocked:", e);
           startOscillatorFallback();
         },
       );
