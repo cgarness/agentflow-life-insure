@@ -240,12 +240,22 @@ const FloatingDialer: React.FC = () => {
     setRecentLoading(true);
     setRecentError(false);
     try {
-      const { data, error } = await supabase
+      let q = supabase
         .from("calls")
-        .select("id, contact_name, contact_phone, disposition_name, started_at, created_at, contact_type")
-        .eq("agent_id", user.id)
+        .select("id, contact_name, contact_phone, disposition_name, started_at, created_at, contact_type, direction, agent_id")
         .order("created_at", { ascending: false })
         .limit(15);
+
+      // Own outbound/inbound (after claim) + org inbound still ringing / unclaimed (agent_id NULL)
+      if (organizationId) {
+        q = q.or(
+          `agent_id.eq.${user.id},and(direction.eq.inbound,agent_id.is.null,organization_id.eq.${organizationId})`
+        );
+      } else {
+        q = q.eq("agent_id", user.id);
+      }
+
+      const { data, error } = await q;
 
       if (error) throw error;
 
@@ -267,7 +277,7 @@ const FloatingDialer: React.FC = () => {
     } finally {
       setRecentLoading(false);
     }
-  }, [user]);
+  }, [user, organizationId]);
 
   useEffect(() => {
     if (activeTab === "recent") {
