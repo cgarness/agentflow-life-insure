@@ -324,7 +324,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const {
           data: { session },
-        } = await supabase.auth.refreshSession();
+        } = await supabase.auth.getSession();
         if (!session?.access_token) return null;
 
         const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;

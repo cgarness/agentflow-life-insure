@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound claim — stop refreshSession spam in retry loop**
+  *Symptoms:* UI freeze / unexpected logout during inbound while **`claimInboundCall`** retried (~18×). *Cause:* Each iteration called **`supabase.auth.refreshSession()`**, hammering Auth’s refresh endpoint. *Fix:* Use **`getSession()`** inside the loop (read cached session + JWT for **`inbound-call-claim`**); leave other **`refreshSession()`** usages (e.g. hang up / outbound) unchanged.
+
 - **2026-04-12 | [DONE] Inbound — no auto-answer before WebRTC Dial**
   *What:* Removed **`telnyxAnswerInboundLeg`** and its use in **`mvpBridgeInboundToWebRtcSip`** so the PSTN leg is **not** answered by the webhook immediately; callers keep normal ringback until the agent answers in the browser ( **`bridge_on_answer`** still links legs). *Risk:* Telnyx may require Answer before some Call Control actions — monitor **`telnyx-webhook`** logs if WebRTC leg stops ringing. *Deploy:* **`telnyx-webhook`**.
 
