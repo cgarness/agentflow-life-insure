@@ -197,6 +197,13 @@ Deno.serve(async (req) => {
       if (json.data) token = json.data;
     } catch { /* use raw string */ }
 
+    // Inbound bridge picks WebRTC SIP target by profiles.updated_at when multiple agents
+    // share an org — bump even if sip_username unchanged so "last opened dialer" wins.
+    await supabaseClient
+      .from("profiles")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+
     return new Response(
       JSON.stringify({
         token: token.trim(),

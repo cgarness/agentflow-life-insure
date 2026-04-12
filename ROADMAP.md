@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound basic rollout — Edge redeploy + telnyx-token activity bump**
+  *What:* Redeployed **`telnyx-webhook`**, **`inbound-call-claim`**, and **`telnyx-token`** to Supabase project **`jncvvsvckxhqgqvkppmj`**. **`telnyx-token`** now bumps **`profiles.updated_at`** on every successful WebRTC token response (not only when **`sip_username`** changes) so **`resolveInboundWebRtcSipTarget`** prefers whoever **last opened the dialer** in multi-agent orgs. *Chris (ops):* Telnyx voice webhook → your **`telnyx-webhook`** URL; set **`TELNYX_PUBLIC_KEY`** in Edge secrets; **`telnyx_settings.connection_id`** = WebRTC **Credential Connection** UUID (same as Phone Settings); inbound DID on the **Call Control** app that fires the webhook; confirm migration **`20260412140000_calls_rls_inbound_unassigned_visible`** applied; **`phone_numbers`** row for the agency DID; test with one agent, dialer open, mic + alerts enabled.
+
 - **2026-04-12 | [DONE] Inbound — dial correct WebRTC SIP user + dual connection Dial**
   *Symptoms:* PSTN picked up once then silence; **no incoming UI** in browser. *Cause:* With **multiple `profiles.sip_username`** (or stale data), bridge dialed **`telnyx_settings.sip_username`** instead of the agent’s **telephony credential** (`gencred…`) from **`telnyx-token`** — INVITE never hit the logged-in browser. *Fix:* **`resolveInboundWebRtcSipTarget`** — order profiles by **`updated_at`**, prefer **settings hint** if it matches one credential, else **most recently updated** profile; clear logs. **`telnyxDialBridgeToSipUri`** returns success flag; try **`connection_id` then `call_control_app_id`**. **`telnyx-token`** sets **`updated_at`** when saving **`sip_username`** so “active agent” resolution works. *Deploy:* **`telnyx-webhook`** + **`telnyx-token`**.
 
