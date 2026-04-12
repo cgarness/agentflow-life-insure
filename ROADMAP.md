@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound modal + CRM name — strict pass**
+  *Modal:* Bottom-right card, **no** **`DialogPrimitive.Overlay`**, **`modal={false}`**, slide from bottom (**no** zoom). *CRM:* **`crmContactName`** from **`leads`** (exact **`phone`** = E.164 then **`ilike '%last10%'`**), then **`clients`** same pattern; reset when not **`incoming`**. *UI:* **`displayName`** = CRM → Telnyx name → **"Unknown Caller"**; CRM hits use **`text-xl`**.
+
 - **2026-04-12 | [DONE] Inbound alerts — tab-focused suppresses OS notification + inline ring WAV**
   *What:* **`TelnyxContext`** calls **`showIncomingDesktopNotification`** only when **`document.hidden`** (other tab / minimized); **`startIncomingRingtone()`** always runs. **`incomingCallAlerts`** uses **`data:audio/wav;base64,...`** from **`incomingRingWavBase64.ts`** (dual-tone clip, **`loop = true`**); **`play()`** rejection logs **`Autoplay blocked:`** then Web Audio fallback. Removed unused **`public/sounds/incoming-ring.wav`**.
 

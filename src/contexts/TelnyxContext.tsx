@@ -297,7 +297,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
-  // Resolve inbound caller against CRM (`leads.phone`) while ringing.
+  // Resolve inbound caller against CRM (`leads` then `clients` by `phone`) while ringing.
   useEffect(() => {
     if (callState !== "incoming") {
       setCrmContactName("");
@@ -318,8 +318,15 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let cancelled = false;
     const e164 = toE164(raw);
 
+    const formatName = (row: { first_name: string; last_name: string } | null) => {
+      if (!row) return "";
+      const fn = (row.first_name || "").trim();
+      const ln = (row.last_name || "").trim();
+      return [fn, ln].filter(Boolean).join(" ").trim();
+    };
+
     void (async () => {
-      const exact = await supabase
+      const leadExact = await supabase
         .from("leads")
         .select("first_name, last_name")
         .eq("organization_id", organizationId)
@@ -328,9 +335,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (cancelled) return;
 
-      let row = exact.data;
+      let row = leadExact.data;
       if (!row) {
-        const fuzzy = await supabase
+        const leadFuzzy = await supabase
           .from("leads")
           .select("first_name, last_name")
           .eq("organization_id", organizationId)
@@ -339,17 +346,35 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           .limit(1)
           .maybeSingle();
         if (cancelled) return;
-        row = fuzzy.data ?? null;
+        row = leadFuzzy.data ?? null;
+      }
+
+      if (!row) {
+        const clientExact = await supabase
+          .from("clients")
+          .select("first_name, last_name")
+          .eq("organization_id", organizationId)
+          .eq("phone", e164)
+          .maybeSingle();
+        if (cancelled) return;
+        row = clientExact.data ?? null;
+      }
+
+      if (!row) {
+        const clientFuzzy = await supabase
+          .from("clients")
+          .select("first_name, last_name")
+          .eq("organization_id", organizationId)
+          .ilike("phone", `%${last10}%`)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        row = clientFuzzy.data ?? null;
       }
 
       if (cancelled) return;
-      if (!row) {
-        setCrmContactName("");
-        return;
-      }
-      const fn = (row.first_name || "").trim();
-      const ln = (row.last_name || "").trim();
-      const full = [fn, ln].filter(Boolean).join(" ").trim();
+      const full = formatName(row);
       setCrmContactName(full);
     })();
 

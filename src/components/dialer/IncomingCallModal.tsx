@@ -36,7 +36,9 @@ const IncomingCallModal = () => {
     await answerIncomingCall();
   };
 
-  const primaryName = crmContactName || incomingCallerName || "";
+  /** CRM name wins; else Telnyx caller ID; else label for empty ID. */
+  const displayName =
+    (crmContactName || incomingCallerName || "").trim() || "Unknown Caller";
 
   return (
     <DialogPrimitive.Root open={open} modal={false}>
@@ -58,23 +60,17 @@ const IncomingCallModal = () => {
               Incoming call
             </DialogPrimitive.Title>
             <DialogPrimitive.Description className="text-center text-base text-foreground sm:text-center">
-              {primaryName ? (
-                <>
-                  <span
-                    className={cn(
-                      "font-semibold block",
-                      crmContactName ? "text-lg" : "",
-                    )}
-                  >
-                    {primaryName}
-                  </span>
-                  <span className="text-muted-foreground text-sm mt-1 block">
-                    {incomingCallerNumber || "Unknown number"}
-                  </span>
-                </>
-              ) : (
-                <span className="font-medium">{incomingCallerNumber || "Unknown caller"}</span>
-              )}
+              <span
+                className={cn(
+                  "font-semibold block",
+                  crmContactName.trim() ? "text-xl text-foreground" : "text-base",
+                )}
+              >
+                {displayName}
+              </span>
+              <span className="text-muted-foreground text-sm mt-1 block">
+                {incomingCallerNumber || "Unknown number"}
+              </span>
             </DialogPrimitive.Description>
           </div>
           {!incomingCallAlerts.optIn && (
