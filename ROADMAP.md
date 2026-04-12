@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] WebRTC mic — explicit AEC/NS/AGC + 48 kHz mono**
+  *What:* Replaced **`getUserMedia({ audio: true })`** with a **`MediaStreamConstraints`** object (**`echoCancellation`**, **`noiseSuppression`**, **`autoGainControl`**, **`sampleRate: 48000`**, **`channelCount: 1`**) in **`TelnyxContext.tsx`** (answer, initialize warm-up, outbound **`makeCall`**) and **`src/lib/telnyx.ts`** (**`initTelnyx`** permission prompt). Browsers may ignore unsupported keys.
+
 - **2026-04-12 | [DONE] Inbound Answer — non-blocking claim + stop retries on 401/403**
   *Symptoms:* **Answer** felt frozen while **`claimInboundCall`** retried. *Fix:* **`answerIncomingCall`** fires **`void (async () => { await claimInboundCall(...) })()`** so **`call.answer()`** runs immediately; claim still updates **`activeCallIdRef`** when it completes. **`claimInboundCall`** returns **`null`** on **400 / 401 / 403** (no further retries on auth/forbidden).
 

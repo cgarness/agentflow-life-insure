@@ -17,6 +17,17 @@ type IncomingSubscriber = (payload: IncomingCallNotificationPayload) => void;
 const incomingSubscribers = new Set<IncomingSubscriber>();
 const wiredClients = new WeakSet<TelnyxRTC>();
 
+/** Mic capture for Telnyx WebRTC: AEC/NS/AGC + 48 kHz mono where the browser supports it. */
+const TELNYX_MIC_CAPTURE: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    sampleRate: 48000,
+    channelCount: 1,
+  },
+};
+
 function dispatchIncoming(payload: IncomingCallNotificationPayload): void {
   incomingSubscribers.forEach((fn) => {
     try {
@@ -68,7 +79,7 @@ export async function initTelnyx(): Promise<TelnyxRTC> {
   }
 
   // Request mic permission before initializing
-  await navigator.mediaDevices.getUserMedia({ audio: true });
+  await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
 
   telnyxClient = new TelnyxRTC({
     login: import.meta.env.VITE_TELNYX_SIP_USERNAME,

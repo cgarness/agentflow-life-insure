@@ -19,6 +19,17 @@ import {
 /** Bridged inbound: remote audio may attach after `active` — refresh playback once per `RTCPeerConnection`. */
 const inboundPeerTrackRefreshAttached = new WeakSet<RTCPeerConnection>();
 
+/** Mic capture for Telnyx WebRTC: AEC/NS/AGC + 48 kHz mono where the browser supports it. */
+const TELNYX_MIC_CAPTURE: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    sampleRate: 48000,
+    channelCount: 1,
+  },
+};
+
 const toE164 = (phone: string): string => {
   if (!phone) return phone;
   // Already E.164
@@ -762,7 +773,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
     } catch (err) {
       console.error("[TelnyxContext] Mic denied for answer:", err);
       toast.error("Microphone access is required to answer.");
@@ -1126,7 +1137,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // 3. Pre-acquire microphone so permission is already granted at call time
       try {
-        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
       } catch {
         // Mic denied — still register; makeCall will handle the prompt
       }
@@ -1605,7 +1616,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
-      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
     } catch (err) {
       console.error("Microphone permission denied:", err);
       setStatus("error");
