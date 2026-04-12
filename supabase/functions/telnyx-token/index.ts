@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
         if (finalSettings.sip_username) {
           await supabaseClient
             .from("profiles")
-            .update({ sip_username: finalSettings.sip_username })
+            .update({ sip_username: finalSettings.sip_username, updated_at: new Date().toISOString() })
             .eq("id", user.id);
         }
         return new Response(
@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
       console.log(`[telnyx-token] Updating profile.sip_username: ${profile.sip_username} → ${credSipUsername}`);
       await supabaseClient
         .from("profiles")
-        .update({ sip_username: credSipUsername })
+        .update({ sip_username: credSipUsername, updated_at: new Date().toISOString() })
         .eq("id", user.id);
     }
 
@@ -177,7 +177,7 @@ Deno.serve(async (req) => {
       if (finalSettings.sip_username) {
         await supabaseClient
           .from("profiles")
-          .update({ sip_username: finalSettings.sip_username })
+          .update({ sip_username: finalSettings.sip_username, updated_at: new Date().toISOString() })
           .eq("id", user.id);
       }
       return new Response(

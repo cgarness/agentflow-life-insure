@@ -341,24 +341,27 @@ async function getTelnyxSipBridgeSettings(
   organizationId?: string | null,
 ): Promise<{
   api_key: string;
-  outbound_connection_id: string;
+  /** WebRTC Credential Connection UUID — preferred for Dial to sip:user@sip.telnyx.com */
+  credential_connection_id: string | null;
+  /** Call Control Application UUID — retry if Dial fails with credential id */
+  call_control_connection_id: string | null;
   settings_sip_username: string | null;
 } | null> {
   const pick = (data: any) => {
     if (!data?.api_key) return null;
     const app = typeof data.call_control_app_id === 'string' ? data.call_control_app_id.trim() : '';
     const cred = typeof data.connection_id === 'string' ? data.connection_id.trim() : '';
-    const outbound = cred || app;
     if (!cred && app) {
       console.warn(
-        '[inbound-bridge] `connection_id` (WebRTC credential UUID) is empty — falling back to call_control_app_id. If inbound is silent, set telnyx_settings.connection_id to the same ID used by telnyx-token for the browser.',
+        '[inbound-bridge] `connection_id` (WebRTC credential UUID) is empty — Dial will try Call Control app id only. Set telnyx_settings.connection_id to match telnyx-token.',
       );
     }
-    if (!outbound) return null;
+    if (!cred && !app) return null;
     const su = typeof data.sip_username === 'string' ? data.sip_username.trim() : '';
     return {
       api_key: data.api_key as string,
-      outbound_connection_id: outbound,
+      credential_connection_id: cred || null,
+      call_control_connection_id: app || null,
       settings_sip_username: su || null,
     };
   };
@@ -386,33 +389,55 @@ async function getTelnyxSipBridgeSettings(
   return pick(global) ?? null;
 }
 
-/** When exactly one agent in the org has `profiles.sip_username`, that is the WebRTC registration we must dial. */
-async function resolveRegisteredWebRtcSipUsername(
+/**
+ * SIP user the browser actually registers as (from `telnyx-token` → `profiles.sip_username`, e.g. gencred…).
+ * When several agents exist, the old “ambiguous → telnyx_settings.sip_username” path dialed the WRONG user
+ * (no INVITE in browser, PSTN answered + silence).
+ */
+async function resolveInboundWebRtcSipTarget(
   supabase: any,
   organizationId: string | null,
-): Promise<
-  | { kind: 'single'; username: string }
-  | { kind: 'none' }
-  | { kind: 'ambiguous'; count: number }
-> {
-  if (!organizationId) return { kind: 'none' };
+  settingsSipHint: string | null,
+): Promise<string | null> {
+  if (!organizationId) return null;
   const { data, error } = await supabase
     .from('profiles')
-    .select('sip_username')
+    .select('sip_username, updated_at')
     .eq('organization_id', organizationId)
     .not('sip_username', 'is', null)
-    .limit(5);
+    .order('updated_at', { ascending: false, nullsFirst: false })
+    .limit(40);
   if (error) {
     console.warn('[inbound-bridge] profiles sip_username lookup failed:', error.message);
-    return { kind: 'none' };
+    return null;
   }
-  const usernames = (data ?? [])
-    .map((r: { sip_username?: string }) => (typeof r.sip_username === 'string' ? r.sip_username.trim() : ''))
+  const rows = (data ?? []) as { sip_username?: string }[];
+  const ordered = rows
+    .map((r) => (typeof r.sip_username === 'string' ? r.sip_username.trim() : ''))
     .filter(Boolean);
-  const unique = [...new Set(usernames)];
-  if (unique.length === 1) return { kind: 'single', username: unique[0] };
-  if (unique.length === 0) return { kind: 'none' };
-  return { kind: 'ambiguous', count: unique.length };
+  const seen = new Set<string>();
+  const uniqueOrdered: string[] = [];
+  for (const u of ordered) {
+    if (seen.has(u)) continue;
+    seen.add(u);
+    uniqueOrdered.push(u);
+  }
+  if (uniqueOrdered.length === 0) return null;
+  if (uniqueOrdered.length === 1) {
+    console.log('[inbound-bridge] Single WebRTC sip target:', uniqueOrdered[0]);
+    return uniqueOrdered[0];
+  }
+  const hint = typeof settingsSipHint === 'string' ? settingsSipHint.trim() : '';
+  if (hint && uniqueOrdered.includes(hint)) {
+    console.log('[inbound-bridge] Multi-agent org — using telnyx_settings.sip_username hint:', hint);
+    return hint;
+  }
+  const chosen = uniqueOrdered[0];
+  console.warn(
+    `[inbound-bridge] Multi-agent org (${uniqueOrdered.length} sip_username values) — dialing most recently updated profile credential: ${chosen}. Others:`,
+    uniqueOrdered.slice(1).join(', '),
+  );
+  return chosen;
 }
 
 /**
@@ -456,7 +481,7 @@ async function telnyxDialBridgeToSipUri(
   connectionId: string,
   fromE164: string,
   commandId: string,
-): Promise<void> {
+): Promise<boolean> {
   const url = 'https://api.telnyx.com/v2/calls';
   const resp = await fetch(url, {
     method: 'POST',
@@ -476,12 +501,19 @@ async function telnyxDialBridgeToSipUri(
   if (!resp.ok) {
     const errText = await resp.text();
     console.error(
-      `[inbound-bridge] Telnyx Dial (POST /v2/calls) failed: ${resp.status}`,
+      `[inbound-bridge] Telnyx Dial failed (${connectionId.slice(0, 8)}…): ${resp.status}`,
       errText,
     );
-    return;
+    return false;
   }
-  console.log('[inbound-bridge] Dial + bridge_on_answer issued for inbound leg', inboundCallControlId);
+  try {
+    const j = await resp.json();
+    const id = j?.data?.call_control_id ?? j?.data?.id;
+    console.log('[inbound-bridge] Dial OK → WebRTC leg', { sipUri, connectionSlice: connectionId.slice(0, 8), callControlId: id });
+  } catch {
+    console.log('[inbound-bridge] Dial OK (no JSON body)', inboundCallControlId);
+  }
+  return true;
 }
 
 async function mvpBridgeInboundToWebRtcSip(
@@ -500,33 +532,29 @@ async function mvpBridgeInboundToWebRtcSip(
   }
   const settings = await getTelnyxSipBridgeSettings(supabase, organizationId ?? null);
   if (!settings) {
-    console.warn('[inbound-bridge] No telnyx_settings with api_key + connection_id (or call_control_app_id); skip bridge.');
+    console.warn('[inbound-bridge] No telnyx_settings with api_key + at least one connection id; skip bridge.');
     return;
   }
 
-  const resolved = await resolveRegisteredWebRtcSipUsername(supabase, organizationId ?? null);
-  let sipLocalPart: string | null = null;
-  if (resolved.kind === 'single') {
-    sipLocalPart = resolved.username;
-    console.log('[inbound-bridge] Dialing registered WebRTC user (sole profile sip_username in org).');
-  } else if (resolved.kind === 'ambiguous') {
-    console.warn(
-      `[inbound-bridge] ${resolved.count} profiles with sip_username — using telnyx_settings.sip_username. TODO: map DID → agent.`,
-    );
-    sipLocalPart = settings.settings_sip_username;
-  } else {
-    sipLocalPart = settings.settings_sip_username;
-    if (sipLocalPart) {
-      console.log('[inbound-bridge] No profile sip_username; using telnyx_settings.sip_username.');
-    }
-  }
+  const fromProfile = await resolveInboundWebRtcSipTarget(
+    supabase,
+    organizationId ?? null,
+    settings.settings_sip_username,
+  );
+  const sipLocalPart = fromProfile ?? settings.settings_sip_username ?? null;
 
   if (!sipLocalPart) {
-    console.warn('[inbound-bridge] No SIP local part (profile or telnyx_settings); skip bridge.');
+    console.warn(
+      '[inbound-bridge] No SIP target — profiles.sip_username empty and telnyx_settings.sip_username empty. Open AgentFlow once so telnyx-token can save your gencred sip_username to your profile.',
+    );
     return;
   }
+  if (!fromProfile && settings.settings_sip_username) {
+    console.warn(
+      '[inbound-bridge] Using telnyx_settings.sip_username only (no profile rows). Prefer logging in once so profile.sip_username matches your WebRTC credential.',
+    );
+  }
 
-  // TODO: Multi-agent — replace with explicit inbound target (queue, last-online, or DID→agent map).
   const sipUri = `sip:${sipLocalPart}@sip.telnyx.com`;
   const commandId = `agentflow-mvp-bridge-${callSessionId || inboundCallControlId}`;
 
@@ -536,14 +564,32 @@ async function mvpBridgeInboundToWebRtcSip(
     return;
   }
 
-  await telnyxDialBridgeToSipUri(
-    settings.api_key,
-    inboundCallControlId,
-    sipUri,
-    settings.outbound_connection_id,
-    agencyDid,
-    commandId,
-  );
+  const connectionAttempts = [
+    settings.credential_connection_id,
+    settings.call_control_connection_id,
+  ].filter((x): x is string => typeof x === 'string' && x.length > 0);
+  const uniqueConnections = [...new Set(connectionAttempts)];
+
+  if (uniqueConnections.length === 0) {
+    console.warn('[inbound-bridge] No connection_id / call_control_app_id to originate Dial; skip.');
+    return;
+  }
+
+  let dialOk = false;
+  for (const conn of uniqueConnections) {
+    dialOk = await telnyxDialBridgeToSipUri(
+      settings.api_key,
+      inboundCallControlId,
+      sipUri,
+      conn,
+      agencyDid,
+      `${commandId}-${conn.slice(0, 8)}`,
+    );
+    if (dialOk) break;
+  }
+  if (!dialOk) {
+    console.error('[inbound-bridge] All Dial attempts failed — browser will not ring.', { sipUri });
+  }
 }
 
 async function telnyxRecordStart(apiKey: string, callControlId: string): Promise<void> {

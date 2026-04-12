@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound — dial correct WebRTC SIP user + dual connection Dial**
+  *Symptoms:* PSTN picked up once then silence; **no incoming UI** in browser. *Cause:* With **multiple `profiles.sip_username`** (or stale data), bridge dialed **`telnyx_settings.sip_username`** instead of the agent’s **telephony credential** (`gencred…`) from **`telnyx-token`** — INVITE never hit the logged-in browser. *Fix:* **`resolveInboundWebRtcSipTarget`** — order profiles by **`updated_at`**, prefer **settings hint** if it matches one credential, else **most recently updated** profile; clear logs. **`telnyxDialBridgeToSipUri`** returns success flag; try **`connection_id` then `call_control_app_id`**. **`telnyx-token`** sets **`updated_at`** when saving **`sip_username`** so “active agent” resolution works. *Deploy:* **`telnyx-webhook`** + **`telnyx-token`**.
+
 - **2026-04-12 | [DONE] Production deploy — inbound fixes live**
   *Supabase (`jncvvsvckxhqgqvkppmj`):* **`telnyx-webhook`** redeployed via **`supabase functions deploy telnyx-webhook`** (includes **`connection_id`-first** WebRTC dial). *Vercel:* **`vercel deploy --prod`** — production alias **`https://agentflow-life-insure.vercel.app`** (includes **`enableMicrophone`**, **`incoming`/`inbound` direction**, **`localStream`** answer path, ringtone interval).
 
