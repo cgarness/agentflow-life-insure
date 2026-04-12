@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound — Telnyx SDK uses `direction: "incoming"` (not `inbound`)**
+  *Symptoms:* PSTN rang once then silence; **no incoming UI** in the browser. *Cause:* WebRTC `telnyx.notification` often sets **`call.direction === "incoming"`** while AgentFlow only treated **`inbound`**. Branch resolver fell through to **outbound ringback** (`dialing`); **`answerIncomingCall`** exited early; **inbound-call-claim** never ran from the notification path. *Fix:* **`isTelnyxSdkInboundDirection()`** in **`telnyxNotificationBranch.ts`** (`inbound` **or** `incoming`); applied in **`resolveTelnyxNotificationBranch`**, **`telnyx.ts`** pub/sub, **`TelnyxContext`**, **`DialerPage`**. Tests extended for **`incoming` + ringing/trying**.
+
 - **2026-04-12 | [DONE] Inbound ringtone — repeat cadence fix**
   *Issue:* Custom ring played **once** then stopped. *Cause:* Next burst was scheduled **inside** `AudioContext.resume().then(...)`; after silence the context often **suspends**, and some environments never chained the next `setTimeout`. *Fix:* **`setInterval`** every **6s** + **`resume().then(play, play)`** so timing does not depend on the resume promise to schedule the following ring.
 

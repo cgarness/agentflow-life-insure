@@ -4,7 +4,7 @@ import { wireTelnyxIncomingNotifications } from "@/lib/telnyx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { resolveTelnyxNotificationBranch } from "@/lib/telnyxNotificationBranch";
+import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
 import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
@@ -755,7 +755,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const answerIncomingCall = useCallback(async () => {
     if (callStateRef.current !== "incoming") return;
     const call = callRef.current;
-    if (!call || call.direction !== "inbound") return;
+    if (!call || !isTelnyxSdkInboundDirection(call.direction)) return;
 
     try {
       mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -821,7 +821,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (callState === "dialing" && ringTimeout > 0) {
       console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
       timeoutId = setTimeout(async () => {
-        if (callRef.current?.direction === "inbound") {
+        if (isTelnyxSdkInboundDirection(callRef.current?.direction)) {
           return;
         }
         if (
@@ -1254,7 +1254,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         // Inbound: claim webhook-created row (RLS requires agent_id) — retries inside claimInboundCall.
-        if (call.direction === "inbound" && branch === "incoming" && !activeCallIdRef.current) {
+        if (isTelnyxSdkInboundDirection(call.direction) && branch === "incoming" && !activeCallIdRef.current) {
           const cc = sdkControlId || "";
           const sid = sdkSessionId || "";
           if (cc || sid) {

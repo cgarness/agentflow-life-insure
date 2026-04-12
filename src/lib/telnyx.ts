@@ -2,7 +2,7 @@
 // These must be prefixed with VITE_ to be accessible in the browser.
 
 import { TelnyxRTC } from "@telnyx/webrtc";
-import { resolveTelnyxNotificationBranch } from "@/lib/telnyxNotificationBranch";
+import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
 
 let telnyxClient: TelnyxRTC | null = null;
 
@@ -49,7 +49,7 @@ export function wireTelnyxIncomingNotifications(client: TelnyxRTC): void {
   const handler = (notification: { call?: { direction?: string; state?: string } }) => {
     const call = notification?.call;
     if (!call) return;
-    if (call.direction !== "inbound") return;
+    if (!isTelnyxSdkInboundDirection(call.direction)) return;
     const branch = resolveTelnyxNotificationBranch({
       direction: call.direction,
       state: call.state,

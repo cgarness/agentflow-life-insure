@@ -34,6 +34,7 @@ import {
   SortAsc,
 } from "lucide-react";
 import { cn, getStatusColorStyle } from "@/lib/utils";
+import { isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -1690,7 +1691,7 @@ export default function DialerPage() {
 
   useEffect(() => {
     if (telnyxCallState === "incoming") wasInboundSessionRef.current = true;
-    if (telnyxCallState === "active" && telnyxCurrentCall?.direction === "inbound") {
+    if (telnyxCallState === "active" && isTelnyxSdkInboundDirection(telnyxCurrentCall?.direction)) {
       wasInboundSessionRef.current = true;
     }
     if (telnyxCallState === "idle") wasInboundSessionRef.current = false;
@@ -2106,7 +2107,7 @@ export default function DialerPage() {
   useEffect(() => {
     if (!lockMode || !currentLead) return;
     if (telnyxCallState === "active") {
-      if (telnyxCurrentCall?.direction === "inbound") {
+      if (isTelnyxSdkInboundDirection(telnyxCurrentCall?.direction)) {
         setClaimRingActive(false);
         return;
       }

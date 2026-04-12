@@ -6,6 +6,11 @@ describe("resolveTelnyxNotificationBranch", () => {
     expect(resolveTelnyxNotificationBranch({ direction: "inbound", state: "ringing" })).toBe("incoming");
   });
 
+  it("classifies SDK incoming (synonym) ringing as incoming, not outbound dialing", () => {
+    expect(resolveTelnyxNotificationBranch({ direction: "incoming", state: "ringing" })).toBe("incoming");
+    expect(resolveTelnyxNotificationBranch({ direction: "incoming", state: "trying" })).toBe("incoming");
+  });
+
   it("classifies inbound new as incoming", () => {
     expect(resolveTelnyxNotificationBranch({ direction: "inbound", state: "new" })).toBe("incoming");
   });
