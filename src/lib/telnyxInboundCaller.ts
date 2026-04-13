@@ -84,3 +84,28 @@ export function resolveInboundCallerRawNumber(
 
   return cands[0].v;
 }
+
+/**
+ * Best-effort remote party number on an inbound WebRTC leg when `resolveInboundCallerRawNumber`
+ * returns nothing — tries `call.remote` and `options.remoteCallerIdNumber` (SDK/version dependent).
+ */
+export function extractWebrtcInboundRemoteNumber(
+  call: any,
+  excludeOrgLast10?: Set<string>,
+): string {
+  const resolved = resolveInboundCallerRawNumber(call, undefined, excludeOrgLast10).trim();
+  if (resolved) return resolved;
+
+  const opts = call?.options ?? {};
+  const tryStr = (v: unknown): string =>
+    typeof v === "string" && v.trim() ? v.trim() : "";
+
+  for (const v of [tryStr(call?.remote), tryStr(opts.remoteCallerIdNumber)]) {
+    const d = digitLen(v);
+    if (d < 10 || d > 15) continue;
+    const l10 = last10Digits(v);
+    if (l10 && excludeOrgLast10?.has(l10)) continue;
+    return v;
+  }
+  return "";
+}

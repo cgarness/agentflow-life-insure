@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Phone, X, Mic, Pause, Voicemail,
   PhoneOff, Search, Delete, Loader2,
@@ -16,6 +16,8 @@ import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
 import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
 import { DialerCallPhaseLabel } from "@/components/layout/DialerCallPhaseLabel";
+import { buildInboundCallerLines } from "@/components/layout/inboundCallerDisplay";
+import { buildOrgDidLast10Set, extractWebrtcInboundRemoteNumber } from "@/lib/telnyxInboundCaller";
 
 interface ContactResult {
   id: string;
@@ -124,6 +126,8 @@ const FloatingDialer: React.FC = () => {
     getSmartCallerId,
     incomingCallAlerts,
     enableIncomingCallAlerts,
+    currentCall: telnyxCurrentCall,
+    defaultCallerNumber,
   } = useTelnyx();
 
   const [open, setOpen] = useState(false);
@@ -563,18 +567,35 @@ const FloatingDialer: React.FC = () => {
       ? incomingCallerName.trim()
       : "";
 
-  const incomingHeadline =
-    crmContactName || telnyxUsefulCallerName || incomingCallerNumber || "Unknown caller";
+  const inboundExcludeSet = useMemo(
+    () => buildOrgDidLast10Set(availableNumbers, defaultCallerNumber, selectedCallerNumber),
+    [availableNumbers, defaultCallerNumber, selectedCallerNumber],
+  );
 
-  const activeInboundOnCall =
-    onCall && telnyxCallState === "active" && lastCallDirection === "inbound";
-  const identifiedInboundName = (identifiedContact?.name || "").trim();
+  const webrtcInboundRaw = useMemo(() => {
+    const inboundUi =
+      telnyxCallState === "incoming" ||
+      (onCall && telnyxCallState === "active" && lastCallDirection === "inbound");
+    if (!inboundUi || !telnyxCurrentCall) return "";
+    return extractWebrtcInboundRemoteNumber(telnyxCurrentCall, inboundExcludeSet);
+  }, [telnyxCallState, onCall, lastCallDirection, telnyxCurrentCall, inboundExcludeSet]);
+
+  const inboundLines = useMemo(
+    () =>
+      buildInboundCallerLines({
+        identifiedContact,
+        incomingCallerNumber,
+        webrtcRemoteRaw: webrtcInboundRaw,
+        crmContactName,
+        telnyxCallerName: telnyxUsefulCallerName,
+      }),
+    [identifiedContact, incomingCallerNumber, webrtcInboundRaw, crmContactName, telnyxUsefulCallerName],
+  );
+
   const callDisplayName =
-    activeInboundOnCall && identifiedInboundName
-      ? identifiedInboundName
-      : selectedContact
-        ? `${selectedContact.first_name} ${selectedContact.last_name}`
-        : crmContactName || telnyxUsefulCallerName || incomingCallerNumber || dialedNumber;
+    selectedContact
+      ? `${selectedContact.first_name} ${selectedContact.last_name}`
+      : crmContactName || telnyxUsefulCallerName || incomingCallerNumber || dialedNumber;
 
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -801,8 +822,8 @@ const FloatingDialer: React.FC = () => {
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
                     <InboundCallIdentity
                       identifiedContact={identifiedContact}
-                      fallbackName={incomingHeadline}
-                      fallbackNumber={incomingCallerNumber}
+                      fallbackName={inboundLines.displayName}
+                      fallbackNumber={inboundLines.displayPhone}
                       nameClassName="text-xl"
                     />
                     <div className="flex w-full gap-3 pt-2">
@@ -837,8 +858,16 @@ const FloatingDialer: React.FC = () => {
                     />
                     <InboundCallIdentity
                       identifiedContact={identifiedContact}
-                      fallbackName={callDisplayName}
-                      fallbackNumber={incomingCallerNumber || dialedNumber}
+                      fallbackName={
+                        lastCallDirection === "inbound"
+                          ? inboundLines.displayName
+                          : callDisplayName
+                      }
+                      fallbackNumber={
+                        lastCallDirection === "inbound"
+                          ? inboundLines.displayPhone
+                          : incomingCallerNumber || dialedNumber
+                      }
                       nameClassName="text-lg"
                     />
                     {selectedContact && (

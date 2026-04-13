@@ -1711,7 +1711,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             notification,
             inboundCallerExcludeRef.current,
           );
-          setIncomingCallerNumber(number || "Unknown caller");
+          setIncomingCallerNumber(number || "");
           setIncomingCallerName(name);
           endStateProcessedRef.current = false;
           setCallState("incoming");

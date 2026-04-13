@@ -56,6 +56,19 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Floating Dialer — inbound caller ID always shows a phone line**
+  *Cause:* **`incomingCallerNumber`** was sometimes set to the literal **"Unknown caller"** when the SDK had no digits yet; active inbound **`callDisplayName`** fell through to empty **`dialedNumber`**; **`InboundCallIdentity`** hid the number row when falsy. *Fix:* **`TelnyxContext`** stores **`""`** when ANI is unknown (no placeholder in the phone field). **`extractWebrtcInboundRemoteNumber`** reads the live WebRTC leg (**`resolveInboundCallerRawNumber`** + **`call.remote`** / **`options.remoteCallerIdNumber`**), excluding org DIDs. **`buildInboundCallerLines`** (**`inboundCallerDisplay.ts`**) merges **`identifiedContact`**, CRM / Telnyx display name, sanitized **`incomingCallerNumber`**, and WebRTC for headline + phone; headline never uses **"Connecting…"**; final title fallback **"Unknown Caller"**. **`InboundCallIdentity`** always renders a monospace phone row (**"—"** only if no digits anywhere). **Floating Dialer** passes **`currentCall`** into that pipeline for **incoming** and **active inbound**.
+
+### Context snapshot (inbound CID display — Floating Dialer — 2026-04-13)
+
+| Input | Use |
+| :--- | :--- |
+| **`identifiedContact`** | Webhook / Realtime **`calls`** row (name, number, type). |
+| **`crmContactName` / `telnyxUsefulCallerName`** | Extra display-name sources before raw digits. |
+| **`incomingCallerNumber`** | Context ANI (normalized from **`calls`** when possible); never the string **"Unknown caller"**. |
+| **`currentCall` (WebRTC)** | **`extractWebrtcInboundRemoteNumber`** for immediate remote digits on ring/active inbound. |
+| **UI** | **`InboundCallIdentity`**: bold name line + always a phone line below. |
+
 - **2026-04-13 | [DONE] Inbound caller ID — Realtime + UI polish (`identifiedContact.type`, phase labels)**
   *What:* **`IdentifiedContact`** now includes optional **`type`** (from **`calls.contact_type`**). **`reconcileIdentifiedContactFromCallsRow`** sets display from **`contact_name` + phone** when the webhook fills name without **`contact_id`**; still org-checks every row. Realtime on **`calls`** (`organization_id=eq…`) runs identity reconcile on **INSERT/UPDATE** when **`contact_id`** or non-empty **`contact_name`**, after **`applyInboundAniFromCallsRow`**, still matching **Telnyx session/control id** + agent. **`hangUp`** clears **`identifiedContact`** immediately; **`clearIncomingDisplay`** also resets **`lastCallDirection`**. **`lastCallDirection`** state (mirrors inbound notification / outbound **`makeCall`**) drives **Floating Dialer** labels via **`DialerCallPhaseLabel`**: **Calling…** while dialing, **Inbound call** vs **Outbound call** when active; **`callDisplayName`** prefers **`identifiedContact.name`** for active inbound. **`InboundCallIdentity`** shows a small **type** line when present.
 

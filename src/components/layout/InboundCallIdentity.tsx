@@ -15,9 +15,11 @@ export const InboundCallIdentity: React.FC<Props> = ({
   fallbackNumber,
   nameClassName = "text-lg",
 }) => {
-  const name = (identifiedContact?.name || fallbackName || "").trim() || "Unknown caller";
+  const name =
+    (identifiedContact?.name || fallbackName || "").trim() || "Unknown Caller";
   const number = (identifiedContact?.number || fallbackNumber || "").trim();
   const typeLabel = (identifiedContact?.type || "").trim();
+  const phoneLine = number || "—";
   return (
     <>
       <p className={`font-bold text-foreground text-center px-1 ${nameClassName}`}>{name}</p>
@@ -26,7 +28,7 @@ export const InboundCallIdentity: React.FC<Props> = ({
           {typeLabel}
         </span>
       ) : null}
-      {number ? <p className="text-sm text-muted-foreground font-mono">{number}</p> : null}
+      <p className="text-sm text-muted-foreground font-mono min-h-[1.25rem]">{phoneLine}</p>
     </>
   );
 };
