@@ -73,8 +73,8 @@ function extractIncomingCallerDisplay(
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
 export type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
 
-/** CRM-backed identity for inbound calls (from `calls.contact_id` / webhook + Realtime). */
-export type IdentifiedContact = { name: string; number: string };
+/** CRM-backed identity for inbound calls (from `calls` row / webhook + Realtime). */
+export type IdentifiedContact = { name: string; number: string; type?: string };
 
 interface OrphanCall {
   id: string;
@@ -191,6 +191,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   /** `call_logs.direction` and finalize context for inbound vs outbound. */
   const lastCallLogDirectionRef = useRef<"inbound" | "outbound">("outbound");
+  const [lastCallDirection, setLastCallDirection] = useState<"inbound" | "outbound">("outbound");
 
   // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
   const isDialingRef = useRef(false);
@@ -475,6 +476,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         if (resp.ok && json.id) {
           lastCallLogDirectionRef.current = "inbound";
+          setLastCallDirection("inbound");
           return json.id;
         }
 
@@ -493,26 +495,34 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIdentifiedContact(null);
     setInboundClaimedCallRowId(null);
     inboundSdkSessionIdRef.current = "";
+    setLastCallDirection("outbound");
   }, []);
 
   const reconcileIdentifiedContactFromCallsRow = useCallback(
     async (row: Record<string, unknown> | null | undefined) => {
-      if (!row?.contact_id || !organizationId) return;
+      if (!row || !organizationId) return;
       if (row.direction !== "inbound") return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
 
-      const cid = String(row.contact_id);
+      const typeRaw = typeof row.contact_type === "string" ? row.contact_type.trim() : "";
+      const typeStr = typeRaw ? typeRaw.toLowerCase() : undefined;
+
       const nameFromRow = typeof row.contact_name === "string" ? row.contact_name.trim() : "";
       const num =
         String(row.contact_phone || row.caller_id_used || "").trim() ||
         incomingCallerNumberRef.current;
 
-      if (nameFromRow) {
-        setIdentifiedContact({ name: nameFromRow, number: num });
-        return;
+      if (nameFromRow && num) {
+        setIdentifiedContact({ name: nameFromRow, number: num, type: typeStr });
       }
 
+      if (!row.contact_id) return;
+
+      const cid = String(row.contact_id);
+      if (nameFromRow) return;
+
       const ct = String(row.contact_type || "lead").toLowerCase();
+      const resolvedType = ct === "client" ? "client" : "lead";
       if (ct === "client") {
         const { data, error } = await supabase
           .from("clients")
@@ -526,7 +536,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         if (data) {
           const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
-          setIdentifiedContact({ name: n, number: String(data.phone || num || "").trim() });
+          setIdentifiedContact({
+            name: n,
+            number: String(data.phone || num || "").trim(),
+            type: resolvedType,
+          });
         }
       } else {
         const { data, error } = await supabase
@@ -541,7 +555,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         if (data) {
           const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Lead";
-          setIdentifiedContact({ name: n, number: String(data.phone || num || "").trim() });
+          setIdentifiedContact({
+            name: n,
+            number: String(data.phone || num || "").trim(),
+            type: resolvedType,
+          });
         }
       }
     },
@@ -647,7 +665,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (!unassignedRing && !assignedMine) return;
 
           applyInboundAniFromCallsRow(row);
-          if (row.contact_id) void reconcileIdentifiedContactFromCallsRow(row);
+
+          const eventType = String((payload as { eventType?: string }).eventType || "");
+          const hasCrmMarker =
+            Boolean(row.contact_id) ||
+            (typeof row.contact_name === "string" && row.contact_name.trim() !== "");
+          if ((eventType === "UPDATE" || eventType === "INSERT") && hasCrmMarker) {
+            void reconcileIdentifiedContactFromCallsRow(row);
+          }
         },
       )
       .subscribe();
@@ -1010,6 +1035,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     console.log("[TelnyxContext] Initiating dual-layer hangup.", { callId, controlId });
 
     endStateProcessedRef.current = true;
+
+    setIdentifiedContact(null);
 
     // 1. Instant UI update — triggers wrap-up phase in DialerPage
     setCallState("ended");
@@ -1677,6 +1704,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Inbound ring states before "active" — must run before active block so UI shows Answer.
         if (branch === "incoming") {
+          setLastCallDirection("inbound");
           inboundSdkSessionIdRef.current = sdkSessionId || "";
           const { number, name } = extractIncomingCallerDisplay(
             call,
@@ -1954,6 +1982,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     isDialingRef.current = true;
     lastCallLogDirectionRef.current = "outbound";
+    setLastCallDirection("outbound");
 
     try {
       setInboundClaimedCallRowId(null);
@@ -2096,6 +2125,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         incomingCallerName,
         crmContactName,
         identifiedContact,
+        lastCallDirection,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,

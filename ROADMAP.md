@@ -56,6 +56,17 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Inbound caller ID — Realtime + UI polish (`identifiedContact.type`, phase labels)**
+  *What:* **`IdentifiedContact`** now includes optional **`type`** (from **`calls.contact_type`**). **`reconcileIdentifiedContactFromCallsRow`** sets display from **`contact_name` + phone** when the webhook fills name without **`contact_id`**; still org-checks every row. Realtime on **`calls`** (`organization_id=eq…`) runs identity reconcile on **INSERT/UPDATE** when **`contact_id`** or non-empty **`contact_name`**, after **`applyInboundAniFromCallsRow`**, still matching **Telnyx session/control id** + agent. **`hangUp`** clears **`identifiedContact`** immediately; **`clearIncomingDisplay`** also resets **`lastCallDirection`**. **`lastCallDirection`** state (mirrors inbound notification / outbound **`makeCall`**) drives **Floating Dialer** labels via **`DialerCallPhaseLabel`**: **Calling…** while dialing, **Inbound call** vs **Outbound call** when active; **`callDisplayName`** prefers **`identifiedContact.name`** for active inbound. **`InboundCallIdentity`** shows a small **type** line when present.
+
+### Context snapshot (Telnyx inbound CID — 2026-04-13)
+
+| Piece | Role |
+| :--- | :--- |
+| **`calls` row** | Webhook writes **`caller_id_used`**, **`contact_id`**, **`contact_name`**, **`contact_type`**, **`contact_phone`**; Realtime publication on **`public.calls`**. |
+| **`TelnyxContext`** | Channel filter **`organization_id=eq.{org}`**; handler matches inbound leg (**`telnyx_call_id`** / **`telnyx_call_control_id`**) + **`agent_id`** or unassigned ring; **`identifiedContact`** + **`lastCallDirection`**; reset on hangup / clear. |
+| **`FloatingDialer` + `InboundCallIdentity`** | Phase label + CRM name priority on active inbound; optional **lead/client** type chip. |
+
 - **2026-04-13 | [DONE] Inbound ring — show PSTN caller (not agency DID)**
   *Cause:* WebRTC often sets **`remoteCallerNumber`** / **`remoteCallerName`** to **your Telnyx DID**; **`identifiedContact`** / hydrate only ran when **`contact_id`** was set, so **`caller_id_used`** (webhook **`payload.from`**) never corrected the UI. *Fix:* **`applyInboundAniFromCallsRow`** applies **`calls.caller_id_used` / `contact_phone`** when the SDK number is an org DID or differs; Realtime fires without requiring **`contact_id`**; hydrate **polls ~500ms / 4.5s**, prefers **`telnyx_call_id`** then control id; **`resolveInboundCallerRawNumber`** prefers **non–org-DID** candidates when multiple exist.
 

@@ -15,6 +15,7 @@ import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
 import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
 import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
+import { DialerCallPhaseLabel } from "@/components/layout/DialerCallPhaseLabel";
 
 interface ContactResult {
   id: string;
@@ -108,6 +109,7 @@ const FloatingDialer: React.FC = () => {
     incomingCallerName,
     crmContactName,
     identifiedContact,
+    lastCallDirection,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     answerIncomingCall: telnyxAnswerIncoming,
@@ -564,10 +566,15 @@ const FloatingDialer: React.FC = () => {
   const incomingHeadline =
     crmContactName || telnyxUsefulCallerName || incomingCallerNumber || "Unknown caller";
 
+  const activeInboundOnCall =
+    onCall && telnyxCallState === "active" && lastCallDirection === "inbound";
+  const identifiedInboundName = (identifiedContact?.name || "").trim();
   const callDisplayName =
-    selectedContact
-      ? `${selectedContact.first_name} ${selectedContact.last_name}`
-      : crmContactName || telnyxUsefulCallerName || incomingCallerNumber || dialedNumber;
+    activeInboundOnCall && identifiedInboundName
+      ? identifiedInboundName
+      : selectedContact
+        ? `${selectedContact.first_name} ${selectedContact.last_name}`
+        : crmContactName || telnyxUsefulCallerName || incomingCallerNumber || dialedNumber;
 
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
@@ -775,6 +782,20 @@ const FloatingDialer: React.FC = () => {
 
             {activeTab === "dial" && (
               <div className="px-3 py-2 space-y-3">
+                {telnyxCallState === "dialing" && (
+                  <div className="flex flex-col items-center gap-2 py-3 rounded-lg border border-border bg-muted/30">
+                    <DialerCallPhaseLabel
+                      callState={telnyxCallState}
+                      lastCallDirection={lastCallDirection}
+                      onCall={false}
+                    />
+                    <p className="text-sm font-semibold text-foreground text-center px-2 truncate max-w-full">
+                      {selectedContact
+                        ? `${selectedContact.first_name} ${selectedContact.last_name}`.trim()
+                        : dialedNumber || "Connecting…"}
+                    </p>
+                  </div>
+                )}
                 {telnyxCallState === "incoming" && (
                   <div className="flex flex-col items-center space-y-4 py-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
@@ -809,6 +830,11 @@ const FloatingDialer: React.FC = () => {
 
                 {onCall && (
                   <div className="flex flex-col items-center space-y-4">
+                    <DialerCallPhaseLabel
+                      callState={telnyxCallState}
+                      lastCallDirection={lastCallDirection}
+                      onCall={onCall}
+                    />
                     <InboundCallIdentity
                       identifiedContact={identifiedContact}
                       fallbackName={callDisplayName}

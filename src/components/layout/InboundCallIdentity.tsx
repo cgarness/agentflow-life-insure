@@ -17,9 +17,15 @@ export const InboundCallIdentity: React.FC<Props> = ({
 }) => {
   const name = (identifiedContact?.name || fallbackName || "").trim() || "Unknown caller";
   const number = (identifiedContact?.number || fallbackNumber || "").trim();
+  const typeLabel = (identifiedContact?.type || "").trim();
   return (
     <>
       <p className={`font-bold text-foreground text-center px-1 ${nameClassName}`}>{name}</p>
+      {typeLabel ? (
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {typeLabel}
+        </span>
+      ) : null}
       {number ? <p className="text-sm text-muted-foreground font-mono">{number}</p> : null}
     </>
   );
