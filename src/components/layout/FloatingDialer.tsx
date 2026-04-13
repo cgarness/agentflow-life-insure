@@ -14,6 +14,7 @@ import { selectCallerID } from "@/lib/caller-id-selector";
 import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
 import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
+import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
 
 interface ContactResult {
   id: string;
@@ -106,6 +107,7 @@ const FloatingDialer: React.FC = () => {
     incomingCallerNumber,
     incomingCallerName,
     crmContactName,
+    identifiedContact,
     makeCall: telnyxMakeCall,
     hangUp: telnyxHangUp,
     answerIncomingCall: telnyxAnswerIncoming,
@@ -776,12 +778,12 @@ const FloatingDialer: React.FC = () => {
                 {telnyxCallState === "incoming" && (
                   <div className="flex flex-col items-center space-y-4 py-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
-                    <p className="font-bold text-foreground text-lg text-center px-1">
-                      {incomingHeadline}
-                    </p>
-                    {(crmContactName || telnyxUsefulCallerName) && incomingCallerNumber ? (
-                      <p className="text-sm text-muted-foreground font-mono">{incomingCallerNumber}</p>
-                    ) : null}
+                    <InboundCallIdentity
+                      identifiedContact={identifiedContact}
+                      fallbackName={incomingHeadline}
+                      fallbackNumber={incomingCallerNumber}
+                      nameClassName="text-xl"
+                    />
                     <div className="flex w-full gap-3 pt-2">
                       <button
                         type="button"
@@ -807,7 +809,12 @@ const FloatingDialer: React.FC = () => {
 
                 {onCall && (
                   <div className="flex flex-col items-center space-y-4">
-                    <p className="font-bold text-foreground text-lg text-center">{callDisplayName}</p>
+                    <InboundCallIdentity
+                      identifiedContact={identifiedContact}
+                      fallbackName={callDisplayName}
+                      fallbackNumber={incomingCallerNumber || dialedNumber}
+                      nameClassName="text-lg"
+                    />
                     {selectedContact && (
                       <button onClick={() => { navigate(`/contacts?contact=${selectedContact.id}`); setOpen(false); }} className="text-sm text-teal-500 hover:text-teal-600 hover:underline">View Full Contact &rarr;</button>
                     )}

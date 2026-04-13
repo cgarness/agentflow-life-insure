@@ -20,7 +20,7 @@
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
 - **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
-- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), contact match on ring, voicemail. **Inbound browser UX:** one-time **Enable alerts & ringtone** (floating dialer + incoming modal) unlocks **Web Notifications** + **Web Audio** ring pattern; see `src/lib/incomingCallAlerts.ts`.
+- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), voicemail. **Inbound:** Webhook + Realtime populate **`calls.contact_id`**; floating dialer shows **`identifiedContact`**. **Inbound browser UX:** one-time **Enable alerts & ringtone** unlocks **Web Notifications** + **Web Audio**; see `src/lib/incomingCallAlerts.ts`.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
 - **State**: Entirely missing billing and SaaS partitioning layer.
@@ -33,6 +33,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260413190000` | `calls_realtime_publication.sql` | Adds **`public.calls`** to **`supabase_realtime`** (if absent) so clients can subscribe to inbound **`contact_id`** updates. |
 | `20260404000000` | `standardize_leads_user_id.sql` | Aligned all lead ownership to unified `user_id` field for RLS performance. |
 | `20260404000001` | `fix_leads_user_id_drift.sql` | Repaired historical lead data drift where ownership mapping was disconnected. |
 | `20260404100000` | `dialer_rls_audit.sql` | Hardened Row-Level Security for campaigns and dialer state components. |
@@ -54,6 +55,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-13 | [DONE] Inbound dialer — CRM name + number from `calls.contact_id`**
+  *What:* **`telnyx-webhook`** `handleCallInitiated` — for **inbound**, org-scoped lookup on **`payload.from`** (**`leads`** then **`clients`**, E.164 + last-10 **`ilike`**), writes **`contact_id`**, **`contact_name`**, **`contact_type`**, **`contact_phone`** on the **`calls`** row. **`TelnyxContext`** — **`identifiedContact`** state, **Realtime** on **`calls`** (`organization_id=eq…`, then match **`agent_id`** or unassigned inbound + Telnyx session/control id), hydrate **`useEffect`** for ring/active inbound, reset on **`clearIncomingDisplay`** / offline drop. **`FloatingDialer`** + **`InboundCallIdentity`** — show name + number prominently on **incoming** and **active**. *Migration:* **`20260413190000_calls_realtime_publication.sql`** adds **`calls`** to **`supabase_realtime`** when missing. *Deploy:* run migration; **`supabase functions deploy telnyx-webhook`**.
 
 - **2026-04-13 | [DONE] Contacts — Source column matches Add Lead modal**
   *Cause:* The Lead Source dropdown could show one option while React state still held a default (e.g. **Facebook Ads**) that was not in the org’s **Settings → Lead sources** list, or state could be out of sync with the visible selection—so **`lead_source`** was omitted or wrong and the **Source** column looked empty or incorrect. *Fix:* **`AddLeadModal`** — sync **`leadSource`** to the loaded list for new leads, resolve the value on submit, and support legacy sources when editing; **`Contacts.tsx`** **`handleAddLead`** — fallback to **`allLeadSources[0]`** or **Other** and ensure **status** defaults to **New**.

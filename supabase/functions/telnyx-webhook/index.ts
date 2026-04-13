@@ -326,6 +326,136 @@ async function resolveOrganizationIdFromConnection(supabase: any, connectionId: 
   return data?.organization_id ?? null;
 }
 
+function digitsOnlyPhone(s: string): string {
+  return String(s || '').replace(/\D/g, '');
+}
+
+/** E.164 / national variants for org-scoped phone match (same idea as client CRM matching). */
+function buildInboundCallerPhoneVariants(raw: string): { variants: string[]; last10: string | null } {
+  const d = digitsOnlyPhone(raw);
+  if (d.length < 10) return { variants: [], last10: null };
+  const last10 = d.slice(-10);
+  const variants = new Set<string>();
+  variants.add(`+1${last10}`);
+  variants.add(`1${last10}`);
+  variants.add(last10);
+  if (d.length === 11 && d.startsWith('1')) variants.add(`+${d}`);
+  else if (d.length > 11) variants.add(`+${d}`);
+  const trimmed = String(raw || '').trim();
+  if (trimmed.startsWith('+')) {
+    const cleaned = trimmed.replace(/[^\d+]/g, '');
+    if (cleaned.length > 2) variants.add(cleaned);
+  }
+  return { variants: [...variants], last10 };
+}
+
+/**
+ * Inbound PSTN caller → lead (preferred) or client, scoped by organization_id.
+ * Returns fields for `calls.contact_*` columns.
+ */
+async function resolveInboundContactForOrg(
+  supabase: any,
+  fromRaw: string,
+  organizationId: string,
+): Promise<{
+  contact_id: string;
+  contact_name: string;
+  contact_type: string;
+  contact_phone: string;
+} | null> {
+  if (!fromRaw || !organizationId) return null;
+  const { variants, last10 } = buildInboundCallerPhoneVariants(fromRaw);
+  if (!last10) return null;
+
+  for (const phone of variants) {
+    const { data: lead, error: leadErr } = await supabase
+      .from('leads')
+      .select('id, first_name, last_name, phone')
+      .eq('organization_id', organizationId)
+      .eq('phone', phone)
+      .maybeSingle();
+    if (leadErr) {
+      console.warn('[call.initiated] inbound lead lookup error:', phone, leadErr.message);
+    }
+    if (lead?.id) {
+      const name = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Lead';
+      return {
+        contact_id: lead.id,
+        contact_name: name,
+        contact_type: 'lead',
+        contact_phone: lead.phone || fromRaw,
+      };
+    }
+  }
+
+  if (last10) {
+    const { data: leadFuzzy, error: fuzzyErr } = await supabase
+      .from('leads')
+      .select('id, first_name, last_name, phone')
+      .eq('organization_id', organizationId)
+      .ilike('phone', `%${last10}`)
+      .limit(1)
+      .maybeSingle();
+    if (fuzzyErr) {
+      console.warn('[call.initiated] inbound lead ilike lookup error:', fuzzyErr.message);
+    }
+    if (leadFuzzy?.id) {
+      const name = `${leadFuzzy.first_name || ''} ${leadFuzzy.last_name || ''}`.trim() || 'Lead';
+      return {
+        contact_id: leadFuzzy.id,
+        contact_name: name,
+        contact_type: 'lead',
+        contact_phone: leadFuzzy.phone || fromRaw,
+      };
+    }
+  }
+
+  for (const phone of variants) {
+    const { data: client, error: clientErr } = await supabase
+      .from('clients')
+      .select('id, first_name, last_name, phone')
+      .eq('organization_id', organizationId)
+      .eq('phone', phone)
+      .maybeSingle();
+    if (clientErr) {
+      console.warn('[call.initiated] inbound client lookup error:', phone, clientErr.message);
+    }
+    if (client?.id) {
+      const name = `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client';
+      return {
+        contact_id: client.id,
+        contact_name: name,
+        contact_type: 'client',
+        contact_phone: client.phone || fromRaw,
+      };
+    }
+  }
+
+  if (last10) {
+    const { data: clientFuzzy, error: cfErr } = await supabase
+      .from('clients')
+      .select('id, first_name, last_name, phone')
+      .eq('organization_id', organizationId)
+      .ilike('phone', `%${last10}`)
+      .limit(1)
+      .maybeSingle();
+    if (cfErr) {
+      console.warn('[call.initiated] inbound client ilike lookup error:', cfErr.message);
+    }
+    if (clientFuzzy?.id) {
+      const name = `${clientFuzzy.first_name || ''} ${clientFuzzy.last_name || ''}`.trim() || 'Client';
+      return {
+        contact_id: clientFuzzy.id,
+        contact_name: name,
+        contact_type: 'client',
+        contact_phone: clientFuzzy.phone || fromRaw,
+      };
+    }
+  }
+
+  return null;
+}
+
 /** Inbound DID → org via `phone_numbers` (webhook uses service role — not subject to RLS). */
 async function resolveOrganizationIdFromInboundTo(supabase: any, toField: unknown): Promise<string | null> {
   if (!toField || typeof toField !== 'string') return null;
@@ -645,6 +775,20 @@ async function handleCallInitiated(supabase: any, payload: any) {
   }
   if (direction === 'inbound' && payload.from) {
     callData.contact_phone = payload.from;
+  }
+
+  if (direction === 'inbound' && callData.organization_id && payload.from) {
+    const resolved = await resolveInboundContactForOrg(
+      supabase,
+      String(payload.from),
+      callData.organization_id,
+    );
+    if (resolved) {
+      callData.contact_id = resolved.contact_id;
+      callData.contact_name = resolved.contact_name;
+      callData.contact_type = resolved.contact_type;
+      callData.contact_phone = resolved.contact_phone || callData.contact_phone;
+    }
   }
 
   if (decodedClientState && decodedClientState.length === 36) {

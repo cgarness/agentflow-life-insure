@@ -73,6 +73,9 @@ function extractIncomingCallerDisplay(
 type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
 export type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
 
+/** CRM-backed identity for inbound calls (from `calls.contact_id` / webhook + Realtime). */
+export type IdentifiedContact = { name: string; number: string };
+
 interface OrphanCall {
   id: string;
   telnyx_call_control_id: string | null;
@@ -109,6 +112,8 @@ interface TelnyxContextValue {
   incomingCallerName: string;
   /** CRM match from `leads` by inbound phone (incoming ring only). */
   crmContactName: string;
+  /** Lead/client name + number from `calls` row (webhook contact match + Realtime). */
+  identifiedContact: IdentifiedContact | null;
   makeCall: (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions) => Promise<string | undefined>;
   hangUp: () => void;
   answerIncomingCall: () => Promise<void>;
@@ -170,10 +175,13 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [incomingCallerNumber, setIncomingCallerNumber] = useState("");
   const [incomingCallerName, setIncomingCallerName] = useState("");
   const [crmContactName, setCrmContactName] = useState("");
+  const [identifiedContact, setIdentifiedContact] = useState<IdentifiedContact | null>(null);
   /** Set when `inbound-call-claim` succeeds — used to read webhook `caller_id_used` for CRM match. */
   const [inboundClaimedCallRowId, setInboundClaimedCallRowId] = useState<string | null>(null);
   const incomingCallerNumberRef = useRef("");
   const incomingCallerNameRef = useRef("");
+  /** Telnyx session id for the current inbound SDK call — matches `calls.telnyx_call_id` from webhook. */
+  const inboundSdkSessionIdRef = useRef("");
   useEffect(() => {
     incomingCallerNumberRef.current = incomingCallerNumber;
   }, [incomingCallerNumber]);
@@ -284,8 +292,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [getRemoteAudioElement]);
 
-  const { profile } = useAuth();
-  const organizationId = (profile as any)?.organization_id;
+  const { profile, user } = useAuth();
+  const organizationId = (profile as { organization_id?: string | null })?.organization_id;
+  const authUserId = user?.id ?? profile?.id ?? null;
 
   // Fetch available numbers for the organization
   useEffect(() => {
@@ -481,8 +490,63 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIncomingCallerNumber("");
     setIncomingCallerName("");
     setCrmContactName("");
+    setIdentifiedContact(null);
     setInboundClaimedCallRowId(null);
+    inboundSdkSessionIdRef.current = "";
   }, []);
+
+  const reconcileIdentifiedContactFromCallsRow = useCallback(
+    async (row: Record<string, unknown> | null | undefined) => {
+      if (!row?.contact_id || !organizationId) return;
+      if (row.direction !== "inbound") return;
+      if (String(row.organization_id ?? "") !== String(organizationId)) return;
+
+      const cid = String(row.contact_id);
+      const nameFromRow = typeof row.contact_name === "string" ? row.contact_name.trim() : "";
+      const num =
+        String(row.contact_phone || row.caller_id_used || "").trim() ||
+        incomingCallerNumberRef.current;
+
+      if (nameFromRow) {
+        setIdentifiedContact({ name: nameFromRow, number: num });
+        return;
+      }
+
+      const ct = String(row.contact_type || "lead").toLowerCase();
+      if (ct === "client") {
+        const { data, error } = await supabase
+          .from("clients")
+          .select("first_name, last_name, phone")
+          .eq("id", cid)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        if (error) {
+          console.warn("[TelnyxContext] identifiedContact client fetch:", error.message);
+          return;
+        }
+        if (data) {
+          const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
+          setIdentifiedContact({ name: n, number: String(data.phone || num || "").trim() });
+        }
+      } else {
+        const { data, error } = await supabase
+          .from("leads")
+          .select("first_name, last_name, phone")
+          .eq("id", cid)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        if (error) {
+          console.warn("[TelnyxContext] identifiedContact lead fetch:", error.message);
+          return;
+        }
+        if (data) {
+          const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Lead";
+          setIdentifiedContact({ name: n, number: String(data.phone || num || "").trim() });
+        }
+      }
+    },
+    [organizationId],
+  );
 
   const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
   const prevCallStateForAlertsRef = useRef<CallState>("idle");
@@ -525,6 +589,104 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       toast.success("Inbound ringtone enabled.");
     }
   }, []);
+
+  useEffect(() => {
+    if (!organizationId || !authUserId) return;
+
+    const channel = supabase
+      .channel(`calls-identified-${authUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "calls",
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!row?.contact_id) return;
+          if (row.direction !== "inbound") return;
+
+          const rowAgent = row.agent_id as string | null | undefined;
+          const sid = String(row.telnyx_call_id || "");
+          const cc = String(row.telnyx_call_control_id || "");
+          const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
+          const controlMatch = Boolean(cc && cc === activeCallControlIdRef.current);
+          const unassignedRing =
+            (rowAgent == null || rowAgent === "") && (sessionMatch || controlMatch);
+          const assignedMine = rowAgent === authUserId;
+          if (!unassignedRing && !assignedMine) return;
+
+          void reconcileIdentifiedContactFromCallsRow(row);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [organizationId, authUserId, reconcileIdentifiedContactFromCallsRow]);
+
+  useEffect(() => {
+    const inboundUi =
+      callState === "incoming" ||
+      (callState === "active" && lastCallLogDirectionRef.current === "inbound");
+    if (!inboundUi || !organizationId) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      const selectCols =
+        "contact_id, contact_name, contact_phone, caller_id_used, contact_type, direction, organization_id, agent_id, telnyx_call_id, telnyx_call_control_id";
+
+      let row: Record<string, unknown> | null = null;
+
+      if (inboundClaimedCallRowId) {
+        const { data } = await supabase
+          .from("calls")
+          .select(selectCols)
+          .eq("id", inboundClaimedCallRowId)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        row = (data as Record<string, unknown>) ?? null;
+      }
+
+      if (!row?.contact_id) {
+        const cc = activeCallControlIdRef.current;
+        if (cc) {
+          const { data } = await supabase
+            .from("calls")
+            .select(selectCols)
+            .eq("organization_id", organizationId)
+            .eq("direction", "inbound")
+            .eq("telnyx_call_control_id", cc)
+            .maybeSingle();
+          row = (data as Record<string, unknown>) ?? null;
+        }
+      }
+
+      if (!row?.contact_id) {
+        const sid = inboundSdkSessionIdRef.current;
+        if (sid) {
+          const { data } = await supabase
+            .from("calls")
+            .select(selectCols)
+            .eq("organization_id", organizationId)
+            .eq("direction", "inbound")
+            .eq("telnyx_call_id", sid)
+            .maybeSingle();
+          row = (data as Record<string, unknown>) ?? null;
+        }
+      }
+
+      if (!cancelled && row) await reconcileIdentifiedContactFromCallsRow(row);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [callState, organizationId, inboundClaimedCallRowId, reconcileIdentifiedContactFromCallsRow]);
 
   useEffect(() => {
     const prev = prevCallStateForAlertsRef.current;
@@ -1465,6 +1627,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Inbound ring states before "active" — must run before active block so UI shows Answer.
         if (branch === "incoming") {
+          inboundSdkSessionIdRef.current = sdkSessionId || "";
           const { number, name } = extractIncomingCallerDisplay(
             call,
             notification,
@@ -1838,6 +2001,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
        if (callState === "active" || callState === "dialing" || callState === "incoming") {
          setConnectionDropped(true);
          setCallState("ended");
+         setIdentifiedContact(null);
+         inboundSdkSessionIdRef.current = "";
          // Clean up local WebRTC state without triggering full hangUp flow
          if (callRef.current) {
            try { callRef.current.hangup(); } catch { /* connection already lost */ }
@@ -1880,6 +2045,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         incomingCallerNumber,
         incomingCallerName,
         crmContactName,
+        identifiedContact,
         availableNumbers,
         selectedCallerNumber,
         setSelectedCallerNumber,
