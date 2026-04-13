@@ -3,6 +3,8 @@
  * cooldown, and daily caps (counts maintained server-side; client passes current rows).
  */
 
+import { supabase } from "@/integrations/supabase/client";
+
 export const CALLER_ID_COOLDOWN_MS = 10_000;
 export const CALLER_ID_STICKY_MIN_DURATION_SEC = 30;
 export const DEFAULT_DAILY_CALL_LIMIT = 100;
@@ -175,4 +177,25 @@ export async function selectOutboundCallerId(
   if (fb) return fb;
 
   return defaultFallback || phones[0]?.phone_number || "";
+}
+
+/** Look up the US state for a given 3-digit area code via the `area_code_mapping` table. */
+export async function getStateByAreaCode(areaCode: string): Promise<string | null> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('area_code_mapping')
+      .select('state')
+      .eq('area_code', areaCode)
+      .maybeSingle();
+
+    if (error) {
+      console.warn(`[caller-id-selection] area_code_mapping lookup failed for areaCode=${areaCode}`, error);
+      return null;
+    }
+    if (!data) return null;
+    return (data as any).state;
+  } catch (err) {
+    console.warn(`[caller-id-selection] getStateByAreaCode threw for areaCode=${areaCode}`, err);
+    return null;
+  }
 }
