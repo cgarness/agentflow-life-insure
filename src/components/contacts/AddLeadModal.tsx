@@ -63,7 +63,7 @@ const AddLeadModal: React.FC<AddLeadModalProps> = ({ open, onClose, onSave, init
         phone: "",
         email: "",
         state: "",
-        leadSource: "Facebook Ads",
+        leadSource: leadSources[0] || "Facebook Ads",
         status: "New",
         age: undefined,
         dateOfBirth: "",
@@ -73,6 +73,17 @@ const AddLeadModal: React.FC<AddLeadModalProps> = ({ open, onClose, onSave, init
       });
     }
   }, [initial, open]);
+
+  // New lead only: keep stored leadSource aligned with org settings list so the value we save matches the dropdown.
+  useEffect(() => {
+    if (!open || initial) return;
+    if (leadSources.length === 0) return;
+    setForm((f) => {
+      const cur = f.leadSource;
+      if (cur && leadSources.includes(cur)) return f;
+      return { ...f, leadSource: leadSources[0]! };
+    });
+  }, [open, initial, leadSources]);
 
   if (!open) return null;
 
@@ -105,7 +116,16 @@ const leadSchema = z.object({
 
     setSaving(true);
     try {
-      await onSave(form);
+      const resolvedLeadSource = initial
+        ? (form.leadSource ?? "")
+        : form.leadSource && leadSources.includes(form.leadSource)
+          ? form.leadSource
+          : (leadSources[0] ?? "");
+      await onSave({
+        ...form,
+        leadSource: resolvedLeadSource,
+        status: form.status ?? "New",
+      });
       onClose();
     } catch (err: unknown) {
       toast.error((err as Error).message);
@@ -159,7 +179,18 @@ const leadSchema = z.object({
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-              <select value={form.leadSource || (leadSources[0] || "")} onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+              <select
+                value={
+                  form.leadSource && (leadSources.includes(form.leadSource) || !!initial)
+                    ? form.leadSource
+                    : (leadSources[0] || "")
+                }
+                onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))}
+                className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              >
+                {form.leadSource && !leadSources.includes(form.leadSource) ? (
+                  <option value={form.leadSource}>{form.leadSource}</option>
+                ) : null}
                 {leadSources.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>

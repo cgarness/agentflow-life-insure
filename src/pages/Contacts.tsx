@@ -855,7 +855,20 @@ const Contacts: React.FC = () => {
 
   // ===== Lead CRUD =====
   const handleAddLead = async (data: Partial<Lead>) => {
-    await leadsSupabaseApi.create({ ...data, leadScore: 5, assignedAgentId: user?.id || "u1" } as unknown as Omit<Lead, "id" | "createdAt" | "updatedAt">, organizationId);
+    const leadSource =
+      String(data.leadSource ?? "").trim() ||
+      allLeadSources[0] ||
+      "Other";
+    await leadsSupabaseApi.create(
+      {
+        ...data,
+        leadScore: 5,
+        assignedAgentId: user?.id || "u1",
+        leadSource,
+        status: (data.status as LeadStatus) || "New",
+      } as unknown as Omit<Lead, "id" | "createdAt" | "updatedAt">,
+      organizationId
+    );
     toast.success("Lead added successfully");
     fetchData();
   };
