@@ -77,6 +77,20 @@
   | **tsc** | Clean (no errors) |
   | **Branch** | `claude/remove-spam-filtering-7U0Hi` |
 
+- **2026-04-13 | [DONE] Verify `getSmartCallerId` sticky threshold — no code changes required**
+  *What:* Audited `src/contexts/TelnyxContext.tsx` (`getSmartCallerId`) against the reported bug: "inline step 2 query returns early for any prior call with `duration > 0`, bypassing `selectOutboundCallerId` entirely." The inline check (`callerIdByContactRef` cache + bare `SELECT caller_id_used` without a duration filter) was present in the pre-LRU code but was **fully removed** in commit `66dda73` ("feat(dialer): rotate caller ID with LRU, cooldown, daily cap RPC"). Current implementation is correct: (1) manual override → return; (2) delegate to `selectOutboundCallerId` with `contactId` passed through; (3) stamp `didLastUsedAtRef`. The ≥30s threshold lives exclusively in `caller-id-selection.ts` line 132 (`sticky.duration_sec >= input.stickyMinDurationSec`). `tsc --noEmit` clean. *No TypeScript changes.*
+
+  ### Context Snapshot — `getSmartCallerId` sticky threshold (2026-04-13)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **File** | `src/contexts/TelnyxContext.tsx` — `getSmartCallerId` (lines 1561–1609) |
+  | **Inline check removed** | `callerIdByContactRef` session-cache + bare `SELECT caller_id_used` (no duration) — deleted in `66dda73` |
+  | **Current flow** | Step 1: `if (selectedCallerNumber)` → stamp + return. Step 2: `selectOutboundCallerId(...)` with `contactId: contactId ?? null`. Step 3: `stamp(chosen)` |
+  | **Sticky threshold** | `caller-id-selection.ts:132` — `sticky.duration_sec >= input.stickyMinDurationSec` (30s). Only location in codebase |
+  | **`queryStickyOutboundCaller`** | `TelnyxContext.tsx:1539` — data provider injected into `selectOutboundCallerId`; fetches `caller_id_used + duration`, returns `duration_sec`. Makes no threshold decision itself |
+  | **`tsc --noEmit`** | Clean — no errors |
+
 - **2026-04-13 | [DONE] Seed `area_code_mapping` — same-state caller ID fallback activated**
   *What:* `area_code_mapping` table was empty; same-state tier in `selectOutboundCallerId` (`src/lib/caller-id-selection.ts:150`) was completely skipped. Migration **`20260413200000_seed_area_code_mapping.sql`** adds a `UNIQUE (area_code)` constraint then inserts **324 US NANP area codes** across 51 jurisdictions (50 states + DC) using full state names (e.g. `"California"`) matching `getStateByAreaCode`'s return format. `supabase/seed.sql` created so fresh `supabase db reset` environments get the data automatically. Migration applied to prod `jncvvsvckxhqgqvkppmj`; verified: 51 states in table, California = 34 area codes. *No TypeScript changes.*
 
