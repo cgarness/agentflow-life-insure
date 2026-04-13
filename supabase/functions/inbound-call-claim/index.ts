@@ -6,6 +6,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+/** Telnyx WebRTC ids may use v3: prefix; webhook rows may not — compare without prefix. */
+function normalizeTelnyxCallControlId(id: string): string {
+  return id.trim().replace(/^v[0-9]+:/i, "");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -67,6 +72,37 @@ Deno.serve(async (req) => {
         throw new Error(fetchError.message);
       }
       existing = data;
+    }
+
+    // WebRTC leg control id often differs from PSTN row; match normalized id or single recent ring.
+    if (!existing && call_control_id) {
+      const ccNorm = normalizeTelnyxCallControlId(call_control_id);
+      const since = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+      const { data: recent, error: recentErr } = await supabaseClient
+        .from("calls")
+        .select("id, agent_id, telnyx_call_control_id")
+        .eq("organization_id", organizationId)
+        .in("direction", ["inbound", "incoming"])
+        .eq("status", "ringing")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(15);
+
+      if (recentErr) {
+        console.error("[inbound-call-claim] Fetch recent ringing error:", recentErr);
+      } else if (recent?.length) {
+        const flex = recent.find(
+          (row) =>
+            row.telnyx_call_control_id &&
+            normalizeTelnyxCallControlId(row.telnyx_call_control_id) === ccNorm,
+        );
+        if (flex) {
+          existing = { id: flex.id, agent_id: flex.agent_id };
+        } else if (recent.length === 1) {
+          const only = recent[0];
+          existing = { id: only.id, agent_id: only.agent_id };
+        }
+      }
     }
 
     if (!existing && telnyx_call_id) {
