@@ -14,7 +14,6 @@ const basePhone = (over: Partial<CallerIdPhoneRow> = {}): CallerIdPhoneRow => ({
   is_default: false,
   daily_call_count: 0,
   daily_call_limit: 100,
-  spam_status: "Clean",
   ...over,
 });
 

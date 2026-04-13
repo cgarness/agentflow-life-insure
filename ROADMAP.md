@@ -60,6 +60,23 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Remove spam_status filtering from caller ID selection — local presence unblocked**
+  *What:* `selectOutboundCallerId` in `src/lib/caller-id-selection.ts` was silently blocking all local presence matching because `isEligibleStrict` and `isEligibleFallback` both gated on `isFlagged()` (checking `spam_status === "Flagged"`). Since no org numbers have `spam_status = "Clean"`, every DID was treated as ineligible for exact-area-code and same-state tiers. Fix: removed `isFlagged` helper, `spam_status` field from `CallerIdPhoneRow`, and all spam filter branches from `isEligibleStrict` (now: daily cap + cooldown only) and `isEligibleFallback` (now: unconditionally `true`). Hard fallback comment updated. TODO comment left in `isEligibleStrict` for future re-enable. Removed orphaned `spam_status: "Clean"` from `basePhone()` test helper. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Remove spam_status filtering (2026-04-13)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Primary file** | `src/lib/caller-id-selection.ts` — `CallerIdPhoneRow` interface, `isFlagged` fn, `isEligibleStrict`, `isEligibleFallback`, hard-fallback comment |
+  | **Test file** | `src/lib/caller-id-selection.test.ts` line 17 — `spam_status: "Clean"` removed from `basePhone()` literal (excess-property TypeScript error) |
+  | **Removed** | `spam_status?: string | null` from `CallerIdPhoneRow`; `isFlagged()` helper; `if (isFlagged(p)) return false` guard in `isEligibleStrict`; `return !isFlagged(p)` in `isEligibleFallback`; "still skip flagged" from hard fallback comment |
+  | **Preserved** | Daily cap (`underDailyCap`) + cooldown (`pastCooldown`) enforcement in `isEligibleStrict`; full tier order: sticky → exact area code → same-state → org default → any strict → hard fallback |
+  | **TODO** | `// TODO: re-enable spam_status filtering once reputation system is fully configured` — placed above `isEligibleStrict` |
+  | **Why not TelnyxContext** | `availableNumbers` typed as `any[]` — removing `spam_status` from interface has no TypeScript impact there |
+  | **Why not FloatingDialer** | Accesses `.spam_status` on `any` element — no TypeScript impact |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/remove-spam-filtering-7U0Hi` |
+
 - **2026-04-13 | [DONE] Seed `area_code_mapping` — same-state caller ID fallback activated**
   *What:* `area_code_mapping` table was empty; same-state tier in `selectOutboundCallerId` (`src/lib/caller-id-selection.ts:150`) was completely skipped. Migration **`20260413200000_seed_area_code_mapping.sql`** adds a `UNIQUE (area_code)` constraint then inserts **324 US NANP area codes** across 51 jurisdictions (50 states + DC) using full state names (e.g. `"California"`) matching `getStateByAreaCode`'s return format. `supabase/seed.sql` created so fresh `supabase db reset` environments get the data automatically. Migration applied to prod `jncvvsvckxhqgqvkppmj`; verified: 51 states in table, California = 34 area codes. *No TypeScript changes.*
 
