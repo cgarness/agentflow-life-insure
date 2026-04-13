@@ -7,7 +7,7 @@ function digitLen(s: string): number {
   return s.replace(/\D/g, "").length;
 }
 
-function last10Digits(s: string): string | null {
+export function last10Digits(s: string): string | null {
   const d = s.replace(/\D/g, "");
   return d.length >= 10 ? d.slice(-10) : null;
 }
@@ -36,7 +36,7 @@ export function resolveInboundCallerRawNumber(
 ): string {
   const opts = call?.options ?? {};
 
-  type Cand = { v: string; p: number };
+  type Cand = { v: string; p: number; excluded: boolean };
   const cands: Cand[] = [];
 
   const add = (v: unknown, priority: number) => {
@@ -45,8 +45,8 @@ export function resolveInboundCallerRawNumber(
     const d = digitLen(t);
     if (d < 10 || d > 15) return;
     const l10 = last10Digits(t);
-    if (l10 && excludeOrgLast10?.has(l10)) return;
-    cands.push({ v: t, p: priority });
+    const excluded = Boolean(l10 && excludeOrgLast10?.has(l10));
+    cands.push({ v: t, p: priority, excluded });
   };
 
   // Remote party only — do NOT add opts.callerNumber (agency DID on inbound legs).
@@ -58,6 +58,8 @@ export function resolveInboundCallerRawNumber(
     add(n.caller_id_number, 2);
     add(n.caller_id, 3);
     add(n.from, 4);
+    add(n.from_number, 4);
+    add(n.caller_number, 4);
     const inner = n.call;
     if (inner && typeof inner === "object") {
       const c = inner as Record<string, unknown>;
@@ -73,6 +75,7 @@ export function resolveInboundCallerRawNumber(
   if (cands.length === 0) return "";
 
   cands.sort((a, b) => {
+    if (a.excluded !== b.excluded) return a.excluded ? 1 : -1;
     const da = digitLen(a.v);
     const db = digitLen(b.v);
     if (db !== da) return db - da;

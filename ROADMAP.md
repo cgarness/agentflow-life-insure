@@ -56,6 +56,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Inbound ring — show PSTN caller (not agency DID)**
+  *Cause:* WebRTC often sets **`remoteCallerNumber`** / **`remoteCallerName`** to **your Telnyx DID**; **`identifiedContact`** / hydrate only ran when **`contact_id`** was set, so **`caller_id_used`** (webhook **`payload.from`**) never corrected the UI. *Fix:* **`applyInboundAniFromCallsRow`** applies **`calls.caller_id_used` / `contact_phone`** when the SDK number is an org DID or differs; Realtime fires without requiring **`contact_id`**; hydrate **polls ~500ms / 4.5s**, prefers **`telnyx_call_id`** then control id; **`resolveInboundCallerRawNumber`** prefers **non–org-DID** candidates when multiple exist.
+
 - **2026-04-13 | [DONE] Inbound dialer — CRM name + number from `calls.contact_id`**
   *What:* **`telnyx-webhook`** `handleCallInitiated` — for **inbound**, org-scoped lookup on **`payload.from`** (**`leads`** then **`clients`**, E.164 + last-10 **`ilike`**), writes **`contact_id`**, **`contact_name`**, **`contact_type`**, **`contact_phone`** on the **`calls`** row. **`TelnyxContext`** — **`identifiedContact`** state, **Realtime** on **`calls`** (`organization_id=eq…`, then match **`agent_id`** or unassigned inbound + Telnyx session/control id), hydrate **`useEffect`** for ring/active inbound, reset on **`clearIncomingDisplay`** / offline drop. **`FloatingDialer`** + **`InboundCallIdentity`** — show name + number prominently on **incoming** and **active**. *Migration:* **`20260413190000_calls_realtime_publication.sql`** adds **`calls`** to **`supabase_realtime`** when missing. *Deploy:* run migration; **`supabase functions deploy telnyx-webhook`**.
 

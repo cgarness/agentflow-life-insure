@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
-import { buildOrgDidLast10Set, resolveInboundCallerRawNumber } from "@/lib/telnyxInboundCaller";
+import { buildOrgDidLast10Set, last10Digits, resolveInboundCallerRawNumber } from "@/lib/telnyxInboundCaller";
 import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
@@ -548,6 +548,34 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [organizationId],
   );
 
+  /** Prefer PSTN ANI from `calls` (webhook `payload.from`) when the SDK shows your DID as "remote". */
+  const applyInboundAniFromCallsRow = useCallback(
+    (row: Record<string, unknown> | null | undefined) => {
+      if (!row || !organizationId) return;
+      if (row.direction !== "inbound") return;
+      if (String(row.organization_id ?? "") !== String(organizationId)) return;
+
+      const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
+      if (!fromRow) return;
+
+      const l10 = last10Digits(fromRow);
+      if (!l10) return;
+
+      const exclude = inboundCallerExcludeRef.current;
+      if (exclude.has(l10)) return;
+
+      const cur = incomingCallerNumberRef.current.trim();
+      const curDigits = cur.replace(/\D/g, "");
+      const curL10 = curDigits.length >= 10 ? curDigits.slice(-10) : "";
+      const curIsAgency = curL10.length === 10 && exclude.has(curL10);
+
+      if (curIsAgency || !cur || curL10 !== l10) {
+        setIncomingCallerNumber(normalizePhoneNumber(fromRow) || fromRow);
+      }
+    },
+    [organizationId],
+  );
+
   const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
   const prevCallStateForAlertsRef = useRef<CallState>("idle");
 
@@ -605,7 +633,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         },
         (payload) => {
           const row = payload.new as Record<string, unknown> | undefined;
-          if (!row?.contact_id) return;
+          if (!row) return;
           if (row.direction !== "inbound") return;
 
           const rowAgent = row.agent_id as string | null | undefined;
@@ -618,7 +646,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const assignedMine = rowAgent === authUserId;
           if (!unassignedRing && !assignedMine) return;
 
-          void reconcileIdentifiedContactFromCallsRow(row);
+          applyInboundAniFromCallsRow(row);
+          if (row.contact_id) void reconcileIdentifiedContactFromCallsRow(row);
         },
       )
       .subscribe();
@@ -626,7 +655,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [organizationId, authUserId, reconcileIdentifiedContactFromCallsRow]);
+  }, [organizationId, authUserId, reconcileIdentifiedContactFromCallsRow, applyInboundAniFromCallsRow]);
 
   useEffect(() => {
     const inboundUi =
@@ -636,7 +665,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     let cancelled = false;
 
-    void (async () => {
+    const run = async () => {
       const selectCols =
         "contact_id, contact_name, contact_phone, caller_id_used, contact_type, direction, organization_id, agent_id, telnyx_call_id, telnyx_call_control_id";
 
@@ -652,21 +681,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         row = (data as Record<string, unknown>) ?? null;
       }
 
-      if (!row?.contact_id) {
-        const cc = activeCallControlIdRef.current;
-        if (cc) {
-          const { data } = await supabase
-            .from("calls")
-            .select(selectCols)
-            .eq("organization_id", organizationId)
-            .eq("direction", "inbound")
-            .eq("telnyx_call_control_id", cc)
-            .maybeSingle();
-          row = (data as Record<string, unknown>) ?? null;
-        }
-      }
-
-      if (!row?.contact_id) {
+      if (!row) {
         const sid = inboundSdkSessionIdRef.current;
         if (sid) {
           const { data } = await supabase
@@ -680,13 +695,48 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
 
-      if (!cancelled && row) await reconcileIdentifiedContactFromCallsRow(row);
-    })();
+      if (!row) {
+        const cc = activeCallControlIdRef.current;
+        if (cc) {
+          const { data } = await supabase
+            .from("calls")
+            .select(selectCols)
+            .eq("organization_id", organizationId)
+            .eq("direction", "inbound")
+            .eq("telnyx_call_control_id", cc)
+            .maybeSingle();
+          row = (data as Record<string, unknown>) ?? null;
+        }
+      }
+
+      if (cancelled || !row) return;
+      applyInboundAniFromCallsRow(row);
+      await reconcileIdentifiedContactFromCallsRow(row);
+    };
+
+    void run();
+
+    const interval =
+      typeof window !== "undefined" ? window.setInterval(() => void run(), 500) : 0;
+    const stop =
+      typeof window !== "undefined"
+        ? window.setTimeout(() => {
+            if (interval) window.clearInterval(interval);
+          }, 4500)
+        : 0;
 
     return () => {
       cancelled = true;
+      if (interval) window.clearInterval(interval);
+      if (stop) window.clearTimeout(stop);
     };
-  }, [callState, organizationId, inboundClaimedCallRowId, reconcileIdentifiedContactFromCallsRow]);
+  }, [
+    callState,
+    organizationId,
+    inboundClaimedCallRowId,
+    reconcileIdentifiedContactFromCallsRow,
+    applyInboundAniFromCallsRow,
+  ]);
 
   useEffect(() => {
     const prev = prevCallStateForAlertsRef.current;
