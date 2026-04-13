@@ -15,6 +15,18 @@ export function sanitizeCallerIdPhoneField(value: string): string {
   return t;
 }
 
+/** Telnyx / SDK often sends these as “display name” on inbound browser legs — not a person. */
+function isGarbageInboundDisplayLabel(s: string): boolean {
+  const t = s.trim().toLowerCase();
+  return (
+    !t ||
+    t === "unknown caller" ||
+    t === "unknown" ||
+    t === "outbound call" ||
+    t === "anonymous"
+  );
+}
+
 /**
  * Inbound ring / active: headline + phone line. Name line never uses "Connecting…".
  * Phone line prefers CRM/DB, then context state, then WebRTC leg.
@@ -41,8 +53,10 @@ export function buildInboundCallerLines(args: {
     (args.identifiedContact?.number || "").trim(),
     ex,
   );
-  const crm = (args.crmContactName || "").trim();
-  const telnyxName = (args.telnyxCallerName || "").trim();
+  const crmRaw = (args.crmContactName || "").trim();
+  const crm = !isGarbageInboundDisplayLabel(crmRaw) ? crmRaw : "";
+  const telnyxRaw = (args.telnyxCallerName || "").trim();
+  const telnyxName = !isGarbageInboundDisplayLabel(telnyxRaw) ? telnyxRaw : "";
 
   const phoneCompare = idNum || inc || rtc;
   const idName =
@@ -56,7 +70,7 @@ export function buildInboundCallerLines(args: {
     !humanHeadline && rawPhone
       ? formatPhoneNumber(rawPhone) || rawPhone
       : "";
-  const displayName = humanHeadline || phoneAsHeadline || "Unknown Caller";
+  const displayName = humanHeadline || phoneAsHeadline || "";
   const displayPhone = rawPhone;
 
   return { displayName, displayPhone };

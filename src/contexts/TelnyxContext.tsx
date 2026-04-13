@@ -677,6 +677,65 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [organizationId],
   );
 
+  /**
+   * Webhook writes `calls.caller_id_used` shortly after ring; client SELECT/Realtime can miss
+   * if Telnyx session/control ids are not aligned yet. Poll SECURITY DEFINER RPC until row appears.
+   */
+  useEffect(() => {
+    if (callState !== "incoming" || !organizationId) return;
+
+    let cancelled = false;
+    let ticks = 0;
+    const maxTicks = 26;
+
+    const tick = async () => {
+      if (cancelled || ticks++ >= maxTicks) return;
+      const sid = inboundSdkSessionIdRef.current?.trim() || "";
+      const cc = activeCallControlIdRef.current?.trim() || "";
+      if (!sid && !cc) return;
+
+      const { data, error } = await supabase.rpc("peek_inbound_call_identity", {
+        p_telnyx_session_id: sid || null,
+        p_call_control_id: cc || null,
+      });
+
+      if (cancelled || error) {
+        if (error) {
+          console.warn("[TelnyxContext] peek_inbound_call_identity:", error.message);
+        }
+        return;
+      }
+      if (data == null || typeof data !== "object") return;
+
+      const j = data as Record<string, unknown>;
+      const synthetic: Record<string, unknown> = {
+        direction: "inbound",
+        organization_id: organizationId,
+        caller_id_used: j.caller_id_used,
+        contact_phone: j.contact_phone,
+        contact_name: j.contact_name,
+        contact_id: j.contact_id,
+        contact_type: j.contact_type,
+      };
+
+      applyInboundAniFromCallsRow(synthetic);
+      void reconcileIdentifiedContactFromCallsRow(synthetic);
+    };
+
+    void tick();
+    const id =
+      typeof window !== "undefined" ? window.setInterval(() => void tick(), 350) : 0;
+    return () => {
+      cancelled = true;
+      if (id) window.clearInterval(id);
+    };
+  }, [
+    callState,
+    organizationId,
+    applyInboundAniFromCallsRow,
+    reconcileIdentifiedContactFromCallsRow,
+  ]);
+
   const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
   const prevCallStateForAlertsRef = useRef<CallState>("idle");
 

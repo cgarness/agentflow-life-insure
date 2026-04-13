@@ -34,6 +34,8 @@
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
 | `20260413190000` | `calls_realtime_publication.sql` | Adds **`public.calls`** to **`supabase_realtime`** (if absent) so clients can subscribe to inbound **`contact_id`** updates. |
+| `20260413230000` | `peek_inbound_call_identity.sql` | **`peek_inbound_call_identity`** (**`SECURITY DEFINER`**) returns ANI/CRM JSON for the signed-in org by **`telnyx_call_id`** or **`telnyx_call_control_id`** (client poll while ringing). |
+| `20260413240000` | `peek_inbound_call_identity_control_id_flex.sql` | Same RPC — matches **`call_control_id`** with or without Telnyx **`vN:`** prefix so SDK vs webhook ids align. |
 | `20260404000000` | `standardize_leads_user_id.sql` | Aligned all lead ownership to unified `user_id` field for RLS performance. |
 | `20260404000001` | `fix_leads_user_id_drift.sql` | Repaired historical lead data drift where ownership mapping was disconnected. |
 | `20260404100000` | `dialer_rls_audit.sql` | Hardened Row-Level Security for campaigns and dialer state components. |
@@ -56,6 +58,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Inbound ring headline — no “Unknown Caller”; phone-only + peek id match**
+  *Cause:* After stripping the agency DID, **`buildInboundCallerLines`** still fell through to **“Unknown Caller”** when **`calls`** ANI had not landed yet, and **`InboundCallIdentity`** forced the same label even when a formatted number was available. **`peek_inbound_call_identity`** could miss the row when the SDK **`call_control_id`** used a **`v3:`** prefix but **`calls.telnyx_call_control_id`** did not (or the reverse). *Fix:* **`inboundCallerDisplay`** — ignore garbage labels (**`Outbound Call`**, **`Unknown`**, etc.) on CRM/Telnyx name slots; empty string fallback instead of **Unknown Caller**. **`InboundCallIdentity`** — headline is **name** (CRM + webhook) or **formatted phone** or **“Incoming call”**; second line shows the number only when the headline is a real name (avoids duplicate). **`IncomingCallModal`** aligned with **`useInboundCallerDisplayLines`** + **`InboundCallIdentity`**. *Migration:* **`20260413240000_peek_inbound_call_identity_control_id_flex.sql`** replaces the peek RPC with prefix-tolerant **`call_control_id`** matching. *Deploy:* apply **`20260413230000`** and **`20260413240000`** on Supabase if not already applied.
+
 - **2026-04-13 | [DONE] Incoming ring — “Unknown Caller” + CRM when `calls` had ANI only**
   *Cause:* **`reconcileIdentifiedContactFromCallsRow`** returned early when **`contact_id`** was null, so **`caller_id_used`** from the webhook never populated **`identifiedContact`**. The CRM **`useEffect`** required **`incomingCallerNumber`**, which stayed empty after stripping the agency DID. Realtime only ran reconcile when **`contact_id` / `contact_name`** changed, not when **`caller_id_used`** landed. *Fix:* Reconcile always applies PSTN from the row when not an org DID; Realtime calls reconcile on **ANI** updates; CRM RPC also uses **`identifiedContact.number`**; **`buildInboundCallerLines`** uses **`formatPhoneNumber`** for the headline when there is no name. **`isInboundNameSameAsPhoneNumber`** moved to **`telnyxInboundCaller.ts`**. *Migration:* **`20260413220000_resolve_inbound_caller_phone_variants.sql`** — RPC also matches stored phones as exact **`1` + last10** or **10-digit** forms.
 
@@ -76,7 +81,7 @@
 | **`crmContactName` / `telnyxUsefulCallerName`** | Extra display-name sources before raw digits. |
 | **`incomingCallerNumber`** | Context ANI (normalized from **`calls`** when possible); never the string **"Unknown caller"**. |
 | **`currentCall` (WebRTC)** | **`extractWebrtcInboundRemoteNumber`** for immediate remote digits on ring/active inbound. |
-| **UI** | **`InboundCallIdentity`**: bold name line + always a phone line below. |
+| **UI** | **`InboundCallIdentity`**: bold headline (name or formatted phone) + phone subtitle only when the headline is a person’s name (not duplicate digits). |
 
 - **2026-04-13 | [DONE] Inbound caller ID — Realtime + UI polish (`identifiedContact.type`, phase labels)**
   *What:* **`IdentifiedContact`** now includes optional **`type`** (from **`calls.contact_type`**). **`reconcileIdentifiedContactFromCallsRow`** sets display from **`contact_name` + phone** when the webhook fills name without **`contact_id`**; still org-checks every row. Realtime on **`calls`** (`organization_id=eq…`) runs identity reconcile on **INSERT/UPDATE** when **`contact_id`** or non-empty **`contact_name`**, after **`applyInboundAniFromCallsRow`**, still matching **Telnyx session/control id** + agent. **`hangUp`** clears **`identifiedContact`** immediately; **`clearIncomingDisplay`** also resets **`lastCallDirection`**. **`lastCallDirection`** state (mirrors inbound notification / outbound **`makeCall`**) drives **Floating Dialer** labels via **`DialerCallPhaseLabel`**: **Calling…** while dialing, **Inbound call** vs **Outbound call** when active; **`callDisplayName`** prefers **`identifiedContact.name`** for active inbound. **`InboundCallIdentity`** shows a small **type** line when present.

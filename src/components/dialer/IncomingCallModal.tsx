@@ -3,23 +3,26 @@ import { PhoneIncoming } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTelnyx } from "@/contexts/TelnyxContext";
 import { cn } from "@/lib/utils";
+import { useInboundCallerDisplayLines } from "@/hooks/useInboundCallerDisplayLines";
+import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
 
 /**
  * Global incoming-call surface: pinned bottom-right, non-modal (no full-screen overlay).
  * Stacks above FloatingDialer (z-1000) and FloatingChat (z-10000).
+ * Optional: mount from AppLayout if you want this card in addition to Floating Dialer.
  */
 const IncomingCallModal = () => {
   const {
     callState,
-    incomingCallerNumber,
-    incomingCallerName,
-    crmContactName,
+    identifiedContact,
     currentCall,
     answerIncomingCall,
     rejectIncomingCall,
     incomingCallAlerts,
     enableIncomingCallAlerts,
   } = useTelnyx();
+
+  const inboundLines = useInboundCallerDisplayLines({ onCall: false });
 
   const open = callState === "incoming";
 
@@ -35,10 +38,6 @@ const IncomingCallModal = () => {
   const handleAnswer = async () => {
     await answerIncomingCall();
   };
-
-  /** CRM name wins; else Telnyx caller ID; else label for empty ID. */
-  const displayName =
-    (crmContactName || incomingCallerName || "").trim() || "Unknown Caller";
 
   return (
     <DialogPrimitive.Root open={open} modal={false}>
@@ -59,18 +58,15 @@ const IncomingCallModal = () => {
             <DialogPrimitive.Title className="text-lg font-semibold leading-none tracking-tight text-center">
               Incoming call
             </DialogPrimitive.Title>
-            <DialogPrimitive.Description className="text-center text-base text-foreground sm:text-center">
-              <span
-                className={cn(
-                  "font-semibold block",
-                  crmContactName.trim() ? "text-xl text-foreground" : "text-base",
-                )}
-              >
-                {displayName}
-              </span>
-              <span className="text-muted-foreground text-sm mt-1 block">
-                {incomingCallerNumber || "Unknown number"}
-              </span>
+            <DialogPrimitive.Description asChild>
+              <div className="text-center sm:text-center pt-1">
+                <InboundCallIdentity
+                  identifiedContact={identifiedContact}
+                  fallbackName={inboundLines.displayName}
+                  fallbackNumber={inboundLines.displayPhone}
+                  nameClassName="text-xl"
+                />
+              </div>
             </DialogPrimitive.Description>
           </div>
           {!incomingCallAlerts.optIn && (

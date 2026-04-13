@@ -2699,6 +2699,13 @@ export type Database = {
         Args: { p_caller_phone: string }
         Returns: string | null
       }
+      peek_inbound_call_identity: {
+        Args: {
+          p_telnyx_session_id?: string | null
+          p_call_control_id?: string | null
+        }
+        Returns: Json | null
+      }
       is_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_team_leader: { Args: never; Returns: boolean }

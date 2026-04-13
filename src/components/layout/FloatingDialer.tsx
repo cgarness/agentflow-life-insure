@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Phone, X, Mic, Pause, Voicemail,
   PhoneOff, Search, Delete, Loader2,
@@ -16,8 +16,10 @@ import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
 import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
 import { DialerCallPhaseLabel } from "@/components/layout/DialerCallPhaseLabel";
-import { buildInboundCallerLines } from "@/components/layout/inboundCallerDisplay";
-import { buildOrgDidLast10Set, extractWebrtcInboundRemoteNumber } from "@/lib/telnyxInboundCaller";
+import {
+  useInboundCallerDisplayLines,
+  telnyxUsefulIncomingDisplayName,
+} from "@/hooks/useInboundCallerDisplayLines";
 
 interface ContactResult {
   id: string;
@@ -58,16 +60,6 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
   const days = Math.floor(hours / 24);
   return `${days} day${days > 1 ? "s" : ""} ago`;
-}
-
-/** Telnyx often sets `remoteCallerName` to the same digits as the number — treat that as “no display name”. */
-function isTelnyxNameJustTheNumber(name: string, number: string): boolean {
-  const n = name.trim();
-  if (!n) return true;
-  const nd = number.replace(/\D/g, "");
-  const nn = n.replace(/\D/g, "");
-  if (!nd || nn.length < 7) return false;
-  return nn === nd || nd.endsWith(nn) || (nn.length >= 10 && nd.endsWith(nn.slice(-10)));
 }
 
 const FloatingDialer: React.FC = () => {
@@ -126,8 +118,6 @@ const FloatingDialer: React.FC = () => {
     getSmartCallerId,
     incomingCallAlerts,
     enableIncomingCallAlerts,
-    currentCall: telnyxCurrentCall,
-    defaultCallerNumber,
   } = useTelnyx();
 
   const [open, setOpen] = useState(false);
@@ -562,48 +552,15 @@ const FloatingDialer: React.FC = () => {
     resetAll();
   };
 
-  const telnyxUsefulCallerName =
-    incomingCallerName.trim() && !isTelnyxNameJustTheNumber(incomingCallerName, incomingCallerNumber)
-      ? incomingCallerName.trim()
-      : "";
-
-  const inboundExcludeSet = useMemo(
-    () => buildOrgDidLast10Set(availableNumbers, defaultCallerNumber, selectedCallerNumber),
-    [availableNumbers, defaultCallerNumber, selectedCallerNumber],
-  );
-
-  const webrtcInboundRaw = useMemo(() => {
-    const inboundUi =
-      telnyxCallState === "incoming" ||
-      (onCall && telnyxCallState === "active" && lastCallDirection === "inbound");
-    if (!inboundUi || !telnyxCurrentCall) return "";
-    return extractWebrtcInboundRemoteNumber(telnyxCurrentCall, inboundExcludeSet);
-  }, [telnyxCallState, onCall, lastCallDirection, telnyxCurrentCall, inboundExcludeSet]);
-
-  const inboundLines = useMemo(
-    () =>
-      buildInboundCallerLines({
-        identifiedContact,
-        incomingCallerNumber,
-        webrtcRemoteRaw: webrtcInboundRaw,
-        excludeOrgLast10: inboundExcludeSet,
-        crmContactName,
-        telnyxCallerName: telnyxUsefulCallerName,
-      }),
-    [
-      identifiedContact,
-      incomingCallerNumber,
-      webrtcInboundRaw,
-      inboundExcludeSet,
-      crmContactName,
-      telnyxUsefulCallerName,
-    ],
-  );
+  const inboundLines = useInboundCallerDisplayLines({ onCall });
 
   const callDisplayName =
     selectedContact
       ? `${selectedContact.first_name} ${selectedContact.last_name}`
-      : crmContactName || telnyxUsefulCallerName || incomingCallerNumber || dialedNumber;
+      : crmContactName ||
+        telnyxUsefulIncomingDisplayName(incomingCallerName, incomingCallerNumber) ||
+        incomingCallerNumber ||
+        dialedNumber;
 
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
