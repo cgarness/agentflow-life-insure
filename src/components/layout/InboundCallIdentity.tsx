@@ -48,7 +48,18 @@ export const InboundCallIdentity: React.FC<Props> = ({
   const headline =
     idName || fbHuman || formattedPhone || numberRaw || "Incoming call";
 
-  const showPhoneSubtitle = Boolean(idName || fbHuman) && Boolean(numberRaw || formattedPhone);
+  const digitCount = numberRaw.replace(/\D/g, "").length;
+  const hasRealDigits = digitCount >= 10;
+  const headlineIsGeneric = headline === "Incoming call";
+  const headlineIsPhoneOnly =
+    hasRealDigits &&
+    !idName &&
+    !fbHuman &&
+    (headline === formattedPhone || headline === numberRaw);
+
+  const showPhoneSubtitle =
+    (!headlineIsPhoneOnly && Boolean(idName || fbHuman) && hasRealDigits) ||
+    (headlineIsGeneric && hasRealDigits);
   const typeLabel = (identifiedContact?.type || "").trim();
   const phoneLine = formattedPhone || numberRaw || "—";
 

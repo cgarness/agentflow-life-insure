@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   resolveInboundCallerRawNumber,
   buildOrgDidLast10Set,
+  telnyxCallControlIdsEqual,
+  isCallsRowInboundDirection,
 } from "./telnyxInboundCaller";
 
 describe("resolveInboundCallerRawNumber", () => {
@@ -39,5 +41,26 @@ describe("buildOrgDidLast10Set", () => {
   it("collects last 10 from extras", () => {
     const s = buildOrgDidLast10Set([], "+1 (555) 000-2222");
     expect(s.has("5550002222")).toBe(true);
+  });
+});
+
+describe("telnyxCallControlIdsEqual", () => {
+  it("matches ids with or without v3: prefix", () => {
+    const bare = "Pb5PxRu5ZSFAXZEfJXiRXgoUS3Ooog1ZeyI2ovRSzJu_ddfJCTFCg";
+    expect(telnyxCallControlIdsEqual(`v3:${bare}`, bare)).toBe(true);
+    expect(telnyxCallControlIdsEqual(`v3:${bare}`, `v3:${bare}`)).toBe(true);
+  });
+
+  it("returns false for empty or unrelated ids", () => {
+    expect(telnyxCallControlIdsEqual("", "abc")).toBe(false);
+    expect(telnyxCallControlIdsEqual("a", "b")).toBe(false);
+  });
+});
+
+describe("isCallsRowInboundDirection", () => {
+  it("accepts inbound and incoming labels", () => {
+    expect(isCallsRowInboundDirection("inbound")).toBe(true);
+    expect(isCallsRowInboundDirection("incoming")).toBe(true);
+    expect(isCallsRowInboundDirection("outbound")).toBe(false);
   });
 });

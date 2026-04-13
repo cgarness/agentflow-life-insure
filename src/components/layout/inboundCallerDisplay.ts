@@ -71,7 +71,16 @@ export function buildInboundCallerLines(args: {
       ? formatPhoneNumber(rawPhone) || rawPhone
       : "";
   const displayName = humanHeadline || phoneAsHeadline || "";
-  const displayPhone = rawPhone;
+  /** When CRM/Telnyx supplies a name before DID strip clears context, keep any non–org-DID digits for the subtitle. */
+  const displayPhone =
+    rawPhone ||
+    (humanHeadline
+      ? stripIfOrgOwnedPhoneLabel(
+          sanitizeCallerIdPhoneField(args.incomingCallerNumber),
+          ex,
+        ) || idNum ||
+        rtc
+      : "");
 
   return { displayName, displayPhone };
 }

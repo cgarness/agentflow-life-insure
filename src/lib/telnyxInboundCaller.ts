@@ -12,6 +12,23 @@ export function last10Digits(s: string): string | null {
   return d.length >= 10 ? d.slice(-10) : null;
 }
 
+/** `calls.direction` / Telnyx payloads may use `inbound` or legacy `incoming`. */
+export function isCallsRowInboundDirection(direction: unknown): boolean {
+  const d = String(direction ?? "").toLowerCase();
+  return d === "inbound" || d === "incoming";
+}
+
+/** Telnyx JS SDK often prefixes `call_control_id` with `v3:` while webhooks may omit it. */
+export function telnyxCallControlIdsEqual(a: string, b: string): boolean {
+  const ta = (a || "").trim();
+  const tb = (b || "").trim();
+  if (!ta || !tb) return false;
+  if (ta === tb) return true;
+  const na = ta.replace(/^v[0-9]+:/i, "");
+  const nb = tb.replace(/^v[0-9]+:/i, "");
+  return na.length > 0 && na === nb;
+}
+
 /**
  * If `label` is a phone whose last-10 matches an org-owned DID, return "" — the WebRTC SDK
  * often reports the destination (your Telnyx number) as "remote" on inbound browser legs.

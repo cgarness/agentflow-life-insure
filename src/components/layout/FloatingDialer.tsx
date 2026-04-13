@@ -916,7 +916,7 @@ const FloatingDialer: React.FC = () => {
                   </div>
                 )}
 
-                {!onCall && !showDisposition && (
+                {!onCall && !showDisposition && telnyxCallState !== "incoming" && (
                   <div className="space-y-4">
                     {!canPlaceCall && telnyxStatus !== 'error' && (
                       <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/40 px-3 py-2">

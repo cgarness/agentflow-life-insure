@@ -8,10 +8,12 @@ import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import {
   buildOrgDidLast10Set,
+  isCallsRowInboundDirection,
   isInboundNameSameAsPhoneNumber,
   last10Digits,
   resolveInboundCallerRawNumber,
   stripIfOrgOwnedPhoneLabel,
+  telnyxCallControlIdsEqual,
 } from "@/lib/telnyxInboundCaller";
 import {
   loadIncomingCallAlertsPrefs,
@@ -556,7 +558,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const reconcileIdentifiedContactFromCallsRow = useCallback(
     async (row: Record<string, unknown> | null | undefined) => {
       if (!row || !organizationId) return;
-      if (row.direction !== "inbound") return;
+      if (!isCallsRowInboundDirection(row.direction)) return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
 
       const typeRaw = typeof row.contact_type === "string" ? row.contact_type.trim() : "";
@@ -653,7 +655,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const applyInboundAniFromCallsRow = useCallback(
     (row: Record<string, unknown> | null | undefined) => {
       if (!row || !organizationId) return;
-      if (row.direction !== "inbound") return;
+      if (!isCallsRowInboundDirection(row.direction)) return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
 
       const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
@@ -686,13 +688,16 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     let cancelled = false;
     let ticks = 0;
-    const maxTicks = 26;
+    /** Count RPC attempts only after SDK exposes session or control id — do not burn budget while refs are empty. */
+    const maxTicks = 40;
 
     const tick = async () => {
-      if (cancelled || ticks++ >= maxTicks) return;
+      if (cancelled) return;
       const sid = inboundSdkSessionIdRef.current?.trim() || "";
       const cc = activeCallControlIdRef.current?.trim() || "";
       if (!sid && !cc) return;
+      if (ticks >= maxTicks) return;
+      ticks += 1;
 
       const { data, error } = await supabase.rpc("peek_inbound_call_identity", {
         p_telnyx_session_id: sid || null,
@@ -794,13 +799,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         (payload) => {
           const row = payload.new as Record<string, unknown> | undefined;
           if (!row) return;
-          if (row.direction !== "inbound") return;
+          if (!isCallsRowInboundDirection(row.direction)) return;
 
           const rowAgent = row.agent_id as string | null | undefined;
           const sid = String(row.telnyx_call_id || "");
           const cc = String(row.telnyx_call_control_id || "");
           const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
-          const controlMatch = Boolean(cc && cc === activeCallControlIdRef.current);
+          const localCc = activeCallControlIdRef.current?.trim() || "";
+          const controlMatch = Boolean(cc && localCc && telnyxCallControlIdsEqual(cc, localCc));
           const unassignedRing =
             (rowAgent == null || rowAgent === "") && (sessionMatch || controlMatch);
           const assignedMine = rowAgent === authUserId;
@@ -860,7 +866,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             .from("calls")
             .select(selectCols)
             .eq("organization_id", organizationId)
-            .eq("direction", "inbound")
+            .in("direction", ["inbound", "incoming"])
             .eq("telnyx_call_id", sid)
             .maybeSingle();
           row = (data as Record<string, unknown>) ?? null;
@@ -874,10 +880,29 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             .from("calls")
             .select(selectCols)
             .eq("organization_id", organizationId)
-            .eq("direction", "inbound")
+            .in("direction", ["inbound", "incoming"])
             .eq("telnyx_call_control_id", cc)
             .maybeSingle();
           row = (data as Record<string, unknown>) ?? null;
+        }
+      }
+
+      if (!row && (inboundSdkSessionIdRef.current || activeCallControlIdRef.current)) {
+        const { data: peek } = await supabase.rpc("peek_inbound_call_identity", {
+          p_telnyx_session_id: inboundSdkSessionIdRef.current?.trim() || null,
+          p_call_control_id: activeCallControlIdRef.current?.trim() || null,
+        });
+        if (peek && typeof peek === "object" && !Array.isArray(peek)) {
+          const j = peek as Record<string, unknown>;
+          row = {
+            direction: "inbound",
+            organization_id: organizationId,
+            caller_id_used: j.caller_id_used,
+            contact_phone: j.contact_phone,
+            contact_name: j.contact_name,
+            contact_id: j.contact_id,
+            contact_type: j.contact_type,
+          };
         }
       }
 
