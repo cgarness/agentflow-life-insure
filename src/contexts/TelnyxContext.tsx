@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
+import { resolveInboundCallerRawNumber } from "@/lib/telnyxInboundCaller";
 import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
@@ -44,13 +46,15 @@ const toE164 = (phone: string): string => {
   return `+${digits}`;
 };
 
-function extractIncomingCallerDisplay(call: any): { number: string; name: string } {
+function extractIncomingCallerDisplay(call: any, rawNotification?: unknown): { number: string; name: string } {
   const opts = call?.options ?? {};
-  const num =
+  const resolved = resolveInboundCallerRawNumber(call, rawNotification);
+  const fallback =
     opts.remoteCallerNumber ??
     opts.callerNumber ??
     call?.remoteCallerNumber ??
     "";
+  const num = resolved || fallback;
   const name =
     opts.remoteCallerName ??
     opts.callerName ??
@@ -159,6 +163,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [incomingCallerNumber, setIncomingCallerNumber] = useState("");
   const [incomingCallerName, setIncomingCallerName] = useState("");
   const [crmContactName, setCrmContactName] = useState("");
+  /** Set when `inbound-call-claim` succeeds — used to read webhook `caller_id_used` for CRM match. */
+  const [inboundClaimedCallRowId, setInboundClaimedCallRowId] = useState<string | null>(null);
   const incomingCallerNumberRef = useRef("");
   const incomingCallerNameRef = useRef("");
   useEffect(() => {
@@ -297,14 +303,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
-  // Resolve inbound caller against CRM (`leads` then `clients` by `phone`) while ringing.
+  // Resolve inbound caller against CRM (RPC: leads → campaign_leads → clients) while ringing.
   useEffect(() => {
     if (callState !== "incoming") {
       setCrmContactName("");
       return;
     }
     const raw = incomingCallerNumber.trim();
-    if (!raw || !organizationId) {
+    if (!raw || raw === "Unknown caller" || !organizationId) {
       setCrmContactName("");
       return;
     }
@@ -318,8 +324,36 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let cancelled = false;
 
     void (async () => {
+      let phoneForLookup = raw;
+
+      if (inboundClaimedCallRowId) {
+        const { data: row, error: rowErr } = await supabase
+          .from("calls")
+          .select("caller_id_used, contact_phone")
+          .eq("id", inboundClaimedCallRowId)
+          .maybeSingle();
+
+        if (!cancelled && !rowErr && row) {
+          const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
+          const rowDigits = fromRow.replace(/\D/g, "");
+          if (rowDigits.length >= 10) {
+            phoneForLookup = fromRow;
+            if (!cancelled && rowDigits !== digits) {
+              setIncomingCallerNumber(fromRow);
+            }
+          }
+        }
+      }
+
+      const normalized = normalizePhoneNumber(phoneForLookup);
+      const normDigits = normalized.replace(/\D/g, "");
+      if (normDigits.length < 10) {
+        if (!cancelled) setCrmContactName("");
+        return;
+      }
+
       const { data: displayName, error } = await supabase.rpc("resolve_inbound_caller_display_name", {
-        p_caller_phone: raw,
+        p_caller_phone: normalized || phoneForLookup,
       });
 
       if (cancelled) return;
@@ -336,7 +370,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       cancelled = true;
     };
-  }, [callState, incomingCallerNumber, organizationId]);
+  }, [callState, incomingCallerNumber, organizationId, inboundClaimedCallRowId]);
 
   /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
   const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
@@ -422,6 +456,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIncomingCallerNumber("");
     setIncomingCallerName("");
     setCrmContactName("");
+    setInboundClaimedCallRowId(null);
   }, []);
 
   const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
@@ -1391,6 +1426,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               const claimedId = await claimInboundCall(cc, sid);
               if (!claimedId || callRef.current !== snap) return;
               activeCallIdRef.current = claimedId;
+              setInboundClaimedCallRowId(claimedId);
               telnyxIdsDbSyncedRef.current = true;
               if (sdkSessionId) {
                 void supabase
@@ -1404,7 +1440,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Inbound ring states before "active" — must run before active block so UI shows Answer.
         if (branch === "incoming") {
-          const { number, name } = extractIncomingCallerDisplay(call);
+          const { number, name } = extractIncomingCallerDisplay(call, notification);
           setIncomingCallerNumber(number || "Unknown caller");
           setIncomingCallerName(name);
           endStateProcessedRef.current = false;
@@ -1678,6 +1714,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     lastCallLogDirectionRef.current = "outbound";
 
     try {
+      setInboundClaimedCallRowId(null);
       activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
       setCallState("dialing");
       setIsMuted(false);

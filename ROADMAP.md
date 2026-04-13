@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 12, 2026
+**Owner:** Chris Garness | **Last Updated:** April 13, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -54,6 +54,12 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-13 | [DONE] Contacts — Source column matches Add Lead modal**
+  *Cause:* The Lead Source dropdown could show one option while React state still held a default (e.g. **Facebook Ads**) that was not in the org’s **Settings → Lead sources** list, or state could be out of sync with the visible selection—so **`lead_source`** was omitted or wrong and the **Source** column looked empty or incorrect. *Fix:* **`AddLeadModal`** — sync **`leadSource`** to the loaded list for new leads, resolve the value on submit, and support legacy sources when editing; **`Contacts.tsx`** **`handleAddLead`** — fallback to **`allLeadSources[0]`** or **Other** and ensure **status** defaults to **New**.
+
+- **2026-04-13 | [DONE] Inbound CID vs CRM formatting + authoritative `calls` row**
+  *Cause:* CRM shows **`(809) 775-6963`** but stores digits (or `1` + 10 digits); matching already uses **last 10 digits**, so formatting is not the blocker. The WebRTC SDK often shows a **different digit string** than Telnyx **`call.initiated`** writes to **`calls.caller_id_used`**, so CRM lookup used the wrong ANI. *Fix:* After **`inbound-call-claim`**, read **`calls.caller_id_used` / `contact_phone`** and prefer that for **`resolve_inbound_caller_display_name`**; refresh **`incomingCallerNumber`** when it differs. **`resolveInboundCallerRawNumber()`** scans **`call.options`** + notification envelope for the best 10–15 digit candidate. **`normalizePhoneNumber()`** before RPC. Migration **`20260413183000`** — RPC also checks **`campaign_leads`** (queue row phone/name) between leads and clients. *Deploy:* migration applied to **`jncvvsvckxhqgqvkppmj`**; front-end on **`main`**.
 
 - **2026-04-12 | [DONE] Inbound lead name — org-scoped RPC (RLS bypass for CID only)**
   *Cause:* Client **`leads`/`clients`** reads respect **hierarchical RLS** (agent only sees assigned rows), so inbound CID queries returned **no row** even when the lead existed in the same agency. *Fix:* Migration **`20260412210000_resolve_inbound_caller_display_name.sql`** — **`resolve_inbound_caller_display_name(p_caller_phone)`** (**`SECURITY DEFINER`**) matches **last 10 digits** in caller’s **`get_org_id()`** org (**`leads`** first, then **`clients`**); returns **display name text only**. **`TelnyxContext`** calls **`.rpc()`** instead of direct selects. *Deploy:* **Applied** to Supabase project **`jncvvsvckxhqgqvkppmj`** (AGENTFLOW CRM), 2026-04-12 — app on latest **`main`** should show inbound names after refresh.
