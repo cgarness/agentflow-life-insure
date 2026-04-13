@@ -55,6 +55,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-12 | [DONE] Inbound lead name — org-scoped RPC (RLS bypass for CID only)**
+  *Cause:* Client **`leads`/`clients`** reads respect **hierarchical RLS** (agent only sees assigned rows), so inbound CID queries returned **no row** even when the lead existed in the same agency. *Fix:* Migration **`20260412210000_resolve_inbound_caller_display_name.sql`** — **`resolve_inbound_caller_display_name(p_caller_phone)`** (**`SECURITY DEFINER`**) matches **last 10 digits** in caller’s **`get_org_id()`** org (**`leads`** first, then **`clients`**); returns **display name text only**. **`TelnyxContext`** calls **`.rpc()`** instead of direct selects. *Deploy:* apply migration to Supabase (`db push` / Dashboard SQL / CI) before expecting names in prod.
+
 - **2026-04-12 | [DONE] Inbound UX — single popup, ringtone path, CRM on dialer**
   *What:* Removed **`IncomingCallModal`** from **`AppLayout`** (left **`FloatingDialer`** as the only incoming UI). **`startIncomingRingtone`** no longer returns early when audio was not primed — it always calls **`play()`** and runs **`primeIncomingCallAudio()`** in parallel (fixes “silent first ring”). **`FloatingDialer`** — **`primeIncomingCallAudio`** when opening via TopBar toggle or quick-call; shows **`crmContactName`** and treats Telnyx **`remoteCallerName`** equal to the number as not a real name. **`TelnyxContext`** CRM match — **`.in("phone", variants)`** (E.164, raw digits, `+1` + last-10, `1` + last-10, last-10) before **`ilike`** fuzzy. *Note:* RLS still limits **`leads`/`clients`** to assigned agent (or upline/admin); unassigned or another agent’s lead will not resolve a name.
 

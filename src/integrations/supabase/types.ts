@@ -2695,6 +2695,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      resolve_inbound_caller_display_name: {
+        Args: { p_caller_phone: string }
+        Returns: string | null
+      }
       is_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_team_leader: { Args: never; Returns: boolean }

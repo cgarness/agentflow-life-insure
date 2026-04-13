@@ -44,24 +44,6 @@ const toE164 = (phone: string): string => {
   return `+${digits}`;
 };
 
-/** Values commonly stored in `leads.phone` / `clients.phone` for the same PSTN number. */
-function buildInboundPhoneVariants(raw: string): string[] {
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-  const digits = trimmed.replace(/\D/g, "");
-  const e164 = toE164(trimmed);
-  const last10 = digits.length >= 10 ? digits.slice(-10) : "";
-  const out = new Set<string>();
-  if (e164) out.add(e164);
-  if (digits) out.add(digits);
-  if (last10) {
-    out.add(last10);
-    out.add(`+1${last10}`);
-    out.add(`1${last10}`);
-  }
-  return [...out];
-}
-
 function extractIncomingCallerDisplay(call: any): { number: string; name: string } {
   const opts = call?.options ?? {};
   const num =
@@ -334,70 +316,21 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     let cancelled = false;
-    const variants = buildInboundPhoneVariants(raw);
-
-    const formatName = (row: { first_name: string; last_name: string } | null) => {
-      if (!row) return "";
-      const fn = (row.first_name || "").trim();
-      const ln = (row.last_name || "").trim();
-      return [fn, ln].filter(Boolean).join(" ").trim();
-    };
 
     void (async () => {
-      const leadExact = await supabase
-        .from("leads")
-        .select("first_name, last_name")
-        .eq("organization_id", organizationId)
-        .in("phone", variants)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: displayName, error } = await supabase.rpc("resolve_inbound_caller_display_name", {
+        p_caller_phone: raw,
+      });
 
       if (cancelled) return;
 
-      let row = leadExact.data;
-      if (!row) {
-        const leadFuzzy = await supabase
-          .from("leads")
-          .select("first_name, last_name")
-          .eq("organization_id", organizationId)
-          .ilike("phone", `%${last10}%`)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (cancelled) return;
-        row = leadFuzzy.data ?? null;
+      if (error) {
+        console.warn("[TelnyxContext] resolve_inbound_caller_display_name:", error.message);
+        setCrmContactName("");
+        return;
       }
 
-      if (!row) {
-        const clientExact = await supabase
-          .from("clients")
-          .select("first_name, last_name")
-          .eq("organization_id", organizationId)
-          .in("phone", variants)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (cancelled) return;
-        row = clientExact.data ?? null;
-      }
-
-      if (!row) {
-        const clientFuzzy = await supabase
-          .from("clients")
-          .select("first_name, last_name")
-          .eq("organization_id", organizationId)
-          .ilike("phone", `%${last10}%`)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (cancelled) return;
-        row = clientFuzzy.data ?? null;
-      }
-
-      if (cancelled) return;
-      const full = formatName(row);
-      setCrmContactName(full);
+      setCrmContactName(typeof displayName === "string" ? displayName.trim() : "");
     })();
 
     return () => {
