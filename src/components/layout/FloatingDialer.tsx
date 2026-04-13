@@ -586,10 +586,18 @@ const FloatingDialer: React.FC = () => {
         identifiedContact,
         incomingCallerNumber,
         webrtcRemoteRaw: webrtcInboundRaw,
+        excludeOrgLast10: inboundExcludeSet,
         crmContactName,
         telnyxCallerName: telnyxUsefulCallerName,
       }),
-    [identifiedContact, incomingCallerNumber, webrtcInboundRaw, crmContactName, telnyxUsefulCallerName],
+    [
+      identifiedContact,
+      incomingCallerNumber,
+      webrtcInboundRaw,
+      inboundExcludeSet,
+      crmContactName,
+      telnyxUsefulCallerName,
+    ],
   );
 
   const callDisplayName =

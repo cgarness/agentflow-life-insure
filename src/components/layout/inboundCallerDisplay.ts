@@ -1,4 +1,5 @@
 import type { IdentifiedContact } from "@/contexts/TelnyxContext";
+import { stripIfOrgOwnedPhoneLabel } from "@/lib/telnyxInboundCaller";
 
 /**
  * True when `name` is empty or is effectively the same digit string as the caller’s phone
@@ -35,15 +36,24 @@ export function buildInboundCallerLines(args: {
   identifiedContact: IdentifiedContact | null;
   incomingCallerNumber: string;
   webrtcRemoteRaw: string;
+  /** Last-10 digits of org-owned DIDs — never show as inbound “customer” caller ID. */
+  excludeOrgLast10?: Set<string>;
   /** `resolve_inbound_caller_display_name` / org CRM (separate from webhook `identifiedContact`). */
   crmContactName?: string;
   /** Telnyx SIP display name when it is not just the raw number. */
   telnyxCallerName?: string;
 }): { displayName: string; displayPhone: string } {
-  const inc = sanitizeCallerIdPhoneField(args.incomingCallerNumber);
-  const rtc = (args.webrtcRemoteRaw || "").trim();
+  const ex = args.excludeOrgLast10;
+  const inc = stripIfOrgOwnedPhoneLabel(
+    sanitizeCallerIdPhoneField(args.incomingCallerNumber),
+    ex,
+  );
+  const rtc = stripIfOrgOwnedPhoneLabel((args.webrtcRemoteRaw || "").trim(), ex);
   const idNameRaw = (args.identifiedContact?.name || "").trim();
-  const idNum = (args.identifiedContact?.number || "").trim();
+  const idNum = stripIfOrgOwnedPhoneLabel(
+    (args.identifiedContact?.number || "").trim(),
+    ex,
+  );
   const crm = (args.crmContactName || "").trim();
   const telnyxName = (args.telnyxCallerName || "").trim();
 

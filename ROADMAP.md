@@ -56,6 +56,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Incoming ring — WebRTC showed agency DID instead of PSTN caller**
+  *Cause:* On inbound browser legs Telnyx often puts **your Telnyx DID** in **`remoteCallerNumber` / `remoteCallerName`**. The first SDK notifications sometimes ran **before** **`phone_numbers`** finished loading, so the org-DID exclude set was empty and the UI treated the DID as the customer. *Fix:* **`stripIfOrgOwnedPhoneLabel`** strips any label whose last-10 matches an org-owned DID (used on ANI + display names, skipping **`Outbound Call`**-style **`callerName`**). **`extractIncomingCallerDisplay`** applies it; a **`useEffect`** re-runs extraction when **`inboundCallerExcludeOrg`** gains the DID so state clears and **`calls.caller_id_used`** + CRM can fill **909…** and the contact name. **`buildInboundCallerLines`** also strips DID from **`incomingCallerNumber`**, WebRTC raw, and **`identifiedContact.number`** when building Floating Dialer lines.
+
 - **2026-04-13 | [DONE] Incoming ring — CRM name not shown when webhook/Telnyx duplicated ANI as “name”**
   *Cause:* **`InboundCallIdentity`** preferred **`identifiedContact.name`** over **`fallbackName`**. The **`calls`** row / Telnyx often set **`contact_name`** / display name to the same digit string as the caller ID, so the headline showed the raw number and **`crmContactName`** (from **`resolve_inbound_caller_display_name`**) never appeared. *Fix:* **`isInboundNameSameAsPhoneNumber`** in **`inboundCallerDisplay.ts`** — treat digit-only / same-last-10 “names” as non-names so **`buildInboundCallerLines`** and **`InboundCallIdentity`** fall through to CRM + real fallbacks; phone stays on the second line.
 

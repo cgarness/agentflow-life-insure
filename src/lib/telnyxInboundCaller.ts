@@ -12,6 +12,21 @@ export function last10Digits(s: string): string | null {
   return d.length >= 10 ? d.slice(-10) : null;
 }
 
+/**
+ * If `label` is a phone whose last-10 matches an org-owned DID, return "" — the WebRTC SDK
+ * often reports the destination (your Telnyx number) as "remote" on inbound browser legs.
+ */
+export function stripIfOrgOwnedPhoneLabel(
+  label: string,
+  excludeOrgLast10?: Set<string>,
+): string {
+  const t = (label || "").trim();
+  if (!t || !excludeOrgLast10?.size) return t;
+  const l10 = last10Digits(t);
+  if (l10 && excludeOrgLast10.has(l10)) return "";
+  return t;
+}
+
 /** Last-10 sets for numbers you own (DIDs) — never treat these as the inbound customer. */
 export function buildOrgDidLast10Set(
   availableNumbers: { phone_number?: string | null }[],

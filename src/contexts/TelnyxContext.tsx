@@ -6,7 +6,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
-import { buildOrgDidLast10Set, last10Digits, resolveInboundCallerRawNumber } from "@/lib/telnyxInboundCaller";
+import {
+  buildOrgDidLast10Set,
+  last10Digits,
+  resolveInboundCallerRawNumber,
+  stripIfOrgOwnedPhoneLabel,
+} from "@/lib/telnyxInboundCaller";
 import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
@@ -62,11 +67,21 @@ function extractIncomingCallerDisplay(
   };
   let num = resolved || fallback;
   if (num && isExcluded(num)) num = "";
-  const name =
-    opts.remoteCallerName ??
-    opts.callerName ??
-    call?.remoteCallerName ??
-    "";
+  num = stripIfOrgOwnedPhoneLabel(String(num || "").trim(), excludeOrgLast10);
+
+  const nameCandidates = [opts.remoteCallerName, call?.remoteCallerName, opts.callerName];
+  let name = "";
+  for (const c of nameCandidates) {
+    if (typeof c !== "string") continue;
+    const t = c.trim();
+    if (!t || /^outbound call$/i.test(t)) continue;
+    const stripped = stripIfOrgOwnedPhoneLabel(t, excludeOrgLast10);
+    if (stripped) {
+      name = stripped;
+      break;
+    }
+  }
+
   return { number: String(num || "").trim(), name: String(name || "").trim() };
 }
 
@@ -237,6 +252,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Set on `telnyx.ready` so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
   const telnyxConnectedOrgIdRef = useRef<string | null>(null);
   const callRef = useRef<any>(null);
+  /** Last Telnyx envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
+  const lastInboundNotificationRef = useRef<unknown>(undefined);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -407,6 +424,33 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [callState, incomingCallerNumber, organizationId, inboundClaimedCallRowId, inboundCallerExcludeOrg]);
 
+  /**
+   * WebRTC inbound often reports the agency DID as "remote" on the first notifications.
+   * When `phone_numbers` / manual caller ID finish loading, the org-DID exclude set fills in —
+   * re-run ANI extraction so we clear the DID and let `calls.caller_id_used` + CRM take over.
+   */
+  useEffect(() => {
+    if (callState !== "incoming") return;
+    if (inboundCallerExcludeOrg.size === 0) return;
+    const raw = incomingCallerNumber.trim();
+    if (!raw) return;
+    const l10 = last10Digits(raw);
+    if (!l10 || !inboundCallerExcludeOrg.has(l10)) return;
+    const c = callRef.current;
+    if (!c) {
+      setIncomingCallerNumber("");
+      setIncomingCallerName("");
+      return;
+    }
+    const { number, name } = extractIncomingCallerDisplay(
+      c,
+      lastInboundNotificationRef.current,
+      inboundCallerExcludeOrg,
+    );
+    setIncomingCallerNumber(number || "");
+    setIncomingCallerName(name);
+  }, [callState, incomingCallerNumber, inboundCallerExcludeOrg]);
+
   /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
   const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
     try {
@@ -495,6 +539,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIdentifiedContact(null);
     setInboundClaimedCallRowId(null);
     inboundSdkSessionIdRef.current = "";
+    lastInboundNotificationRef.current = undefined;
     setLastCallDirection("outbound");
   }, []);
 
@@ -1706,6 +1751,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (branch === "incoming") {
           setLastCallDirection("inbound");
           inboundSdkSessionIdRef.current = sdkSessionId || "";
+          lastInboundNotificationRef.current = notification;
           const { number, name } = extractIncomingCallerDisplay(
             call,
             notification,
