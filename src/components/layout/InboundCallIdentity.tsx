@@ -1,5 +1,6 @@
 import React from "react";
 import type { IdentifiedContact } from "@/contexts/TelnyxContext";
+import { isInboundNameSameAsPhoneNumber } from "@/components/layout/inboundCallerDisplay";
 
 type Props = {
   identifiedContact: IdentifiedContact | null;
@@ -15,9 +16,13 @@ export const InboundCallIdentity: React.FC<Props> = ({
   fallbackNumber,
   nameClassName = "text-lg",
 }) => {
-  const name =
-    (identifiedContact?.name || fallbackName || "").trim() || "Unknown Caller";
+  const rawIdName = (identifiedContact?.name || "").trim();
   const number = (identifiedContact?.number || fallbackNumber || "").trim();
+  const idName =
+    rawIdName && !isInboundNameSameAsPhoneNumber(rawIdName, number || rawIdName)
+      ? rawIdName
+      : "";
+  const name = (idName || fallbackName || "").trim() || "Unknown Caller";
   const typeLabel = (identifiedContact?.type || "").trim();
   const phoneLine = number || "—";
   return (

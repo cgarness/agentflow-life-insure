@@ -56,6 +56,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Incoming ring — CRM name not shown when webhook/Telnyx duplicated ANI as “name”**
+  *Cause:* **`InboundCallIdentity`** preferred **`identifiedContact.name`** over **`fallbackName`**. The **`calls`** row / Telnyx often set **`contact_name`** / display name to the same digit string as the caller ID, so the headline showed the raw number and **`crmContactName`** (from **`resolve_inbound_caller_display_name`**) never appeared. *Fix:* **`isInboundNameSameAsPhoneNumber`** in **`inboundCallerDisplay.ts`** — treat digit-only / same-last-10 “names” as non-names so **`buildInboundCallerLines`** and **`InboundCallIdentity`** fall through to CRM + real fallbacks; phone stays on the second line.
+
 - **2026-04-13 | [DONE] Floating Dialer — inbound caller ID always shows a phone line**
   *Cause:* **`incomingCallerNumber`** was sometimes set to the literal **"Unknown caller"** when the SDK had no digits yet; active inbound **`callDisplayName`** fell through to empty **`dialedNumber`**; **`InboundCallIdentity`** hid the number row when falsy. *Fix:* **`TelnyxContext`** stores **`""`** when ANI is unknown (no placeholder in the phone field). **`extractWebrtcInboundRemoteNumber`** reads the live WebRTC leg (**`resolveInboundCallerRawNumber`** + **`call.remote`** / **`options.remoteCallerIdNumber`**), excluding org DIDs. **`buildInboundCallerLines`** (**`inboundCallerDisplay.ts`**) merges **`identifiedContact`**, CRM / Telnyx display name, sanitized **`incomingCallerNumber`**, and WebRTC for headline + phone; headline never uses **"Connecting…"**; final title fallback **"Unknown Caller"**. **`InboundCallIdentity`** always renders a monospace phone row (**"—"** only if no digits anywhere). **Floating Dialer** passes **`currentCall`** into that pipeline for **incoming** and **active inbound**.
 
