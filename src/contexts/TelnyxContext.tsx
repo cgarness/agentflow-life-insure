@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
-import { resolveInboundCallerRawNumber } from "@/lib/telnyxInboundCaller";
+import { buildOrgDidLast10Set, resolveInboundCallerRawNumber } from "@/lib/telnyxInboundCaller";
 import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
@@ -46,15 +46,22 @@ const toE164 = (phone: string): string => {
   return `+${digits}`;
 };
 
-function extractIncomingCallerDisplay(call: any, rawNotification?: unknown): { number: string; name: string } {
+function extractIncomingCallerDisplay(
+  call: any,
+  rawNotification?: unknown,
+  excludeOrgLast10?: Set<string>,
+): { number: string; name: string } {
   const opts = call?.options ?? {};
-  const resolved = resolveInboundCallerRawNumber(call, rawNotification);
-  const fallback =
-    opts.remoteCallerNumber ??
-    opts.callerNumber ??
-    call?.remoteCallerNumber ??
-    "";
-  const num = resolved || fallback;
+  const resolved = resolveInboundCallerRawNumber(call, rawNotification, excludeOrgLast10);
+  const fallbackRaw = opts.remoteCallerNumber ?? call?.remoteCallerNumber ?? "";
+  const fallback = typeof fallbackRaw === "string" ? fallbackRaw.trim() : "";
+  const isExcluded = (s: string) => {
+    const d = s.replace(/\D/g, "");
+    const l10 = d.length >= 10 ? d.slice(-10) : "";
+    return l10.length === 10 && Boolean(excludeOrgLast10?.has(l10));
+  };
+  let num = resolved || fallback;
+  if (num && isExcluded(num)) num = "";
   const name =
     opts.remoteCallerName ??
     opts.callerName ??
@@ -198,6 +205,21 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [selectedCallerNumber]);
 
+  /** Inbound ring: never show org-owned DIDs as the “customer” caller ID. */
+  const inboundCallerExcludeRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    inboundCallerExcludeRef.current = buildOrgDidLast10Set(
+      availableNumbers,
+      defaultCallerNumber,
+      selectedCallerNumber,
+    );
+  }, [availableNumbers, defaultCallerNumber, selectedCallerNumber]);
+
+  const inboundCallerExcludeOrg = useMemo(
+    () => buildOrgDidLast10Set(availableNumbers, defaultCallerNumber, selectedCallerNumber),
+    [availableNumbers, defaultCallerNumber, selectedCallerNumber],
+  );
+
   const clientRef = useRef<any>(null);
   /** True only after `telnyx.ready` for the current client — avoids placing calls when React status is stale or socket is half-open. */
   const telnyxSipReadyRef = useRef(false);
@@ -336,7 +358,10 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (!cancelled && !rowErr && row) {
           const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
           const rowDigits = fromRow.replace(/\D/g, "");
-          if (rowDigits.length >= 10) {
+          const rowLast10 = rowDigits.length >= 10 ? rowDigits.slice(-10) : "";
+          const rowLooksLikeCustomer =
+            rowDigits.length >= 10 && !inboundCallerExcludeOrg.has(rowLast10);
+          if (rowLooksLikeCustomer) {
             phoneForLookup = fromRow;
             if (!cancelled && rowDigits !== digits) {
               setIncomingCallerNumber(fromRow);
@@ -370,7 +395,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       cancelled = true;
     };
-  }, [callState, incomingCallerNumber, organizationId, inboundClaimedCallRowId]);
+  }, [callState, incomingCallerNumber, organizationId, inboundClaimedCallRowId, inboundCallerExcludeOrg]);
 
   /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
   const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
@@ -1440,7 +1465,11 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Inbound ring states before "active" — must run before active block so UI shows Answer.
         if (branch === "incoming") {
-          const { number, name } = extractIncomingCallerDisplay(call, notification);
+          const { number, name } = extractIncomingCallerDisplay(
+            call,
+            notification,
+            inboundCallerExcludeRef.current,
+          );
           setIncomingCallerNumber(number || "Unknown caller");
           setIncomingCallerName(name);
           endStateProcessedRef.current = false;
