@@ -60,6 +60,23 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Remove spam_status filtering from caller ID selection — local presence unblocked**
+  *What:* `selectOutboundCallerId` in `src/lib/caller-id-selection.ts` was silently blocking all local presence matching because `isEligibleStrict` and `isEligibleFallback` both gated on `isFlagged()` (checking `spam_status === "Flagged"`). Since no org numbers have `spam_status = "Clean"`, every DID was treated as ineligible for exact-area-code and same-state tiers. Fix: removed `isFlagged` helper, `spam_status` field from `CallerIdPhoneRow`, and all spam filter branches from `isEligibleStrict` (now: daily cap + cooldown only) and `isEligibleFallback` (now: unconditionally `true`). Hard fallback comment updated. TODO comment left in `isEligibleStrict` for future re-enable. Removed orphaned `spam_status: "Clean"` from `basePhone()` test helper. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Remove spam_status filtering (2026-04-13)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Primary file** | `src/lib/caller-id-selection.ts` — `CallerIdPhoneRow` interface, `isFlagged` fn, `isEligibleStrict`, `isEligibleFallback`, hard-fallback comment |
+  | **Test file** | `src/lib/caller-id-selection.test.ts` line 17 — `spam_status: "Clean"` removed from `basePhone()` literal (excess-property TypeScript error) |
+  | **Removed** | `spam_status?: string | null` from `CallerIdPhoneRow`; `isFlagged()` helper; `if (isFlagged(p)) return false` guard in `isEligibleStrict`; `return !isFlagged(p)` in `isEligibleFallback`; "still skip flagged" from hard fallback comment |
+  | **Preserved** | Daily cap (`underDailyCap`) + cooldown (`pastCooldown`) enforcement in `isEligibleStrict`; full tier order: sticky → exact area code → same-state → org default → any strict → hard fallback |
+  | **TODO** | `// TODO: re-enable spam_status filtering once reputation system is fully configured` — placed above `isEligibleStrict` |
+  | **Why not TelnyxContext** | `availableNumbers` typed as `any[]` — removing `spam_status` from interface has no TypeScript impact there |
+  | **Why not FloatingDialer** | Accesses `.spam_status` on `any` element — no TypeScript impact |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/remove-spam-filtering-7U0Hi` |
+
 - **2026-04-13 | [DONE] Verify `getSmartCallerId` sticky threshold — no code changes required**
   *What:* Audited `src/contexts/TelnyxContext.tsx` (`getSmartCallerId`) against the reported bug: "inline step 2 query returns early for any prior call with `duration > 0`, bypassing `selectOutboundCallerId` entirely." The inline check (`callerIdByContactRef` cache + bare `SELECT caller_id_used` without a duration filter) was present in the pre-LRU code but was **fully removed** in commit `66dda73` ("feat(dialer): rotate caller ID with LRU, cooldown, daily cap RPC"). Current implementation is correct: (1) manual override → return; (2) delegate to `selectOutboundCallerId` with `contactId` passed through; (3) stamp `didLastUsedAtRef`. The ≥30s threshold lives exclusively in `caller-id-selection.ts` line 132 (`sticky.duration_sec >= input.stickyMinDurationSec`). `tsc --noEmit` clean. *No TypeScript changes.*
 

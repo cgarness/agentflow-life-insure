@@ -15,7 +15,6 @@ export interface CallerIdPhoneRow {
   is_default: boolean | null;
   daily_call_count: number | null;
   daily_call_limit: number | null;
-  spam_status?: string | null;
 }
 
 export interface SelectCallerIdInput {
@@ -30,10 +29,6 @@ export interface SelectCallerIdInput {
   now: number;
   cooldownMs: number;
   stickyMinDurationSec: number;
-}
-
-function isFlagged(p: CallerIdPhoneRow): boolean {
-  return (p.spam_status || "").toLowerCase() === "flagged";
 }
 
 function dailyLimit(p: CallerIdPhoneRow): number {
@@ -57,20 +52,20 @@ function pastCooldown(
   return now - last >= cooldownMs;
 }
 
-/** Strict: not flagged, under daily cap, past cooldown. */
+// TODO: re-enable spam_status filtering once reputation system is fully configured
+/** Strict: under daily cap, past cooldown. */
 export function isEligibleStrict(
   p: CallerIdPhoneRow,
   input: Pick<SelectCallerIdInput, "didLastUsedAt" | "now" | "cooldownMs">,
 ): boolean {
-  if (isFlagged(p)) return false;
   if (!underDailyCap(p)) return false;
   if (!pastCooldown(p.phone_number, input.didLastUsedAt, input.now, input.cooldownMs)) return false;
   return true;
 }
 
-/** Fallback pool: not flagged; ignores daily cap and cooldown. */
-export function isEligibleFallback(p: CallerIdPhoneRow): boolean {
-  return !isFlagged(p);
+/** Fallback pool: ignores daily cap and cooldown. */
+export function isEligibleFallback(_p: CallerIdPhoneRow): boolean {
+  return true;
 }
 
 export function extractDestinationAreaCode(destinationPhone: string): string | null {
@@ -172,7 +167,7 @@ export async function selectOutboundCallerId(
   const anyStrict = pickFromTier(phones, input, true);
   if (anyStrict) return anyStrict;
 
-  // ── Hard fallback: ignore daily/cooldown, still skip flagged ──
+  // ── Hard fallback: ignore daily/cooldown ──
   const fb = pickFromTier(phones, input, false);
   if (fb) return fb;
 
