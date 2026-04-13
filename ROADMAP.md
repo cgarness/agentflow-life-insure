@@ -33,6 +33,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260413200000` | `seed_area_code_mapping.sql` | Adds `UNIQUE (area_code)` constraint + seeds **324 US NANP area codes** across 51 jurisdictions (50 states + DC) into **`area_code_mapping`**. Activates the same-state fallback tier in `selectOutboundCallerId`. **Production:** applied to `jncvvsvckxhqgqvkppmj` (2026-04-13). |
 | `20260413190000` | `calls_realtime_publication.sql` | Adds **`public.calls`** to **`supabase_realtime`** (if absent) so clients can subscribe to inbound **`contact_id`** updates. |
 | `20260413230000` | `peek_inbound_call_identity.sql` | **`peek_inbound_call_identity`** (**`SECURITY DEFINER`**) returns ANI/CRM JSON for the signed-in org by **`telnyx_call_id`** or **`telnyx_call_control_id`** (client poll while ringing). |
 | `20260413240000` | `peek_inbound_call_identity_control_id_flex.sql` | Same RPC — matches **`call_control_id`** with or without Telnyx **`vN:`** prefix so SDK vs webhook ids align. |
@@ -58,6 +59,21 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-13 | [DONE] Seed `area_code_mapping` — same-state caller ID fallback activated**
+  *What:* `area_code_mapping` table was empty; same-state tier in `selectOutboundCallerId` (`src/lib/caller-id-selection.ts:150`) was completely skipped. Migration **`20260413200000_seed_area_code_mapping.sql`** adds a `UNIQUE (area_code)` constraint then inserts **324 US NANP area codes** across 51 jurisdictions (50 states + DC) using full state names (e.g. `"California"`) matching `getStateByAreaCode`'s return format. `supabase/seed.sql` created so fresh `supabase db reset` environments get the data automatically. Migration applied to prod `jncvvsvckxhqgqvkppmj`; verified: 51 states in table, California = 34 area codes. *No TypeScript changes.*
+
+  ### Context Snapshot — area_code_mapping seed (2026-04-13)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Migration** | `supabase/migrations/20260413200000_seed_area_code_mapping.sql` — UNIQUE constraint + 324-row INSERT |
+  | **Seed file** | `supabase/seed.sql` (created fresh) — same INSERT block under `-- area_code_mapping seed (US area codes)` header |
+  | **`area_code_mapping` schema** | `id` (uuid PK), `area_code` (text, now UNIQUE), `state` (text), `city` (text, NULL), `timezone` (text, NULL), `created_at` (timestamptz) |
+  | **Lookup path** | `getStateByAreaCode` (`caller-id-selection.ts:183`) → `.from('area_code_mapping').select('state').eq('area_code', areaCode).maybeSingle()` — returns full state name |
+  | **Same-state tier** | `selectOutboundCallerId` lines 150–163: looks up `leadState` for destination AC, then checks each DID's AC for matching state; picks LRU among matches |
+  | **Coverage** | 324 codes, California 34 (≥ 25 ✓), Texas 28, Florida 19, New York 19 |
+  | **Idempotent** | `ON CONFLICT (area_code) DO NOTHING` — safe to re-run |
 
 - **2026-04-13 | [DONE] Retire `caller-id-selector.ts` — dead code removal**
   *What:* `getStateByAreaCode` moved verbatim from `src/lib/caller-id-selector.ts` into `src/lib/caller-id-selection.ts` (now the single caller-ID module). `supabase` client import added to `caller-id-selection.ts`. Import in `TelnyxContext.tsx` (line 28) updated from `@/lib/caller-id-selector` → `@/lib/caller-id-selection`. `src/lib/caller-id-selector.ts` deleted — zero remaining callers. `tsc --noEmit` clean. *No logic changes.*
