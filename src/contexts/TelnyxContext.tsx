@@ -25,7 +25,7 @@ import {
   isIncomingAudioPrimed,
   getDesktopNotificationPermission,
 } from "@/lib/incomingCallAlerts";
-import { getStateByAreaCode } from "@/lib/caller-id-selector";
+import { getStateByAreaCode } from "@/lib/caller-id-selection";
 import {
   CALLER_ID_COOLDOWN_MS,
   CALLER_ID_STICKY_MIN_DURATION_SEC,

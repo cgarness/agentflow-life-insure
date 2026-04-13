@@ -59,6 +59,18 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Retire `caller-id-selector.ts` — dead code removal**
+  *What:* `getStateByAreaCode` moved verbatim from `src/lib/caller-id-selector.ts` into `src/lib/caller-id-selection.ts` (now the single caller-ID module). `supabase` client import added to `caller-id-selection.ts`. Import in `TelnyxContext.tsx` (line 28) updated from `@/lib/caller-id-selector` → `@/lib/caller-id-selection`. `src/lib/caller-id-selector.ts` deleted — zero remaining callers. `tsc --noEmit` clean. *No logic changes.*
+
+  ### Context Snapshot — Caller ID Module (2026-04-13)
+
+  | Piece | Role |
+  | :--- | :--- |
+  | **`src/lib/caller-id-selection.ts`** | Single authoritative module. Exports: constants (`CALLER_ID_COOLDOWN_MS`, `CALLER_ID_STICKY_MIN_DURATION_SEC`, `DEFAULT_DAILY_CALL_LIMIT`), interfaces (`CallerIdPhoneRow`, `SelectCallerIdInput`, `CallerIdSelectionDeps`), helpers (`isEligibleStrict`, `isEligibleFallback`, `extractDestinationAreaCode`), algorithm (`selectOutboundCallerId`), and DB lookup (`getStateByAreaCode`). |
+  | **`src/lib/caller-id-selector.ts`** | **Deleted.** Was the pre-LRU legacy module; `selectCallerID` had no callers at time of deletion. |
+  | **`TelnyxContext.tsx` — `getSmartCallerId`** | Delegates to `selectOutboundCallerId` from `caller-id-selection`; passes `getStateByAreaCode` (now also from `caller-id-selection`) as an injected dep. |
+  | **`FloatingDialer.tsx`** | Imports `CALLER_ID_STICKY_MIN_DURATION_SEC` from `caller-id-selection` only. No changes needed. |
+
 - **2026-04-13 | [DONE] Outbound caller ID — rotation, sticky (≥30s talk), cooldown, daily cap**
   *What:* **`src/lib/caller-id-selection.ts`** — area-code → same-state (**`area_code_mapping`**) → default → any, with **LRU** among eligible DIDs, **10s cooldown** per number, **sticky** only when last outbound to the contact had **`duration ≥ 30`**. **`TelnyxContext`** — loads **`daily_call_count` / `daily_call_limit`**, org **local presence** from **`phone_settings.api_secret`**, passes campaign **`local_presence_enabled`** from **`DialerPage`**. After **`newCall`** succeeds, **`increment_phone_number_daily_usage`** (migration **`20260414120000`**) bumps count with **UTC day reset** via **`limit_reset_at`**. **`FloatingDialer`** uses the same **`getSmartCallerId`** path (no duplicate sticky); flagged-number warning uses **≥30s** prior call. Vitest: **`caller-id-selection.test.ts`**. *Next:* Apply migration on Supabase; optional cron to refresh **`phone_numbers`** counts from server truth if clients get stale.
 
