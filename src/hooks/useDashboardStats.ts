@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
 
 export interface StatData {
   callsToday: number;
@@ -77,6 +78,7 @@ export const useDashboardStats = (
         let q = supabase
           .from("calls")
           .select("id", { count: "exact", head: true })
+          .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
           .gte("created_at", start);
         if (end) q = q.lte("created_at", end);
         if (isFiltered) q = q.eq("agent_id", userId);
@@ -118,6 +120,7 @@ export const useDashboardStats = (
         let q = supabase
           .from("calls")
           .select("duration")
+          .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
           .gte("created_at", start);
         if (isFiltered) q = q.eq("agent_id", userId);
         return q as any;

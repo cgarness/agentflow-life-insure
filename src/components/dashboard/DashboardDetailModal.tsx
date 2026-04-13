@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useTelnyx } from "@/contexts/TelnyxContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
 
 export type ModalType =
   | "callbacks"
@@ -245,8 +246,13 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             if (isFiltered) query = query.eq("user_id", userId);
             break;
           case "calls_today":
-            query = supabase.from("calls").select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, duration, status, direction").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
-            // Workspace Privacy: Respect dashboard toggle
+            query = supabase
+              .from("calls")
+              .select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, duration, status, direction")
+              .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
+              .gte("created_at", startStr)
+              .lte("created_at", endStr)
+              .order("created_at", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
           case "policies_sold":

@@ -4,6 +4,7 @@ import {
   buildOrgDidLast10Set,
   telnyxCallControlIdsEqual,
   isCallsRowInboundDirection,
+  isCallsRowOutboundDirection,
 } from "./telnyxInboundCaller";
 
 describe("resolveInboundCallerRawNumber", () => {
@@ -62,5 +63,15 @@ describe("isCallsRowInboundDirection", () => {
     expect(isCallsRowInboundDirection("inbound")).toBe(true);
     expect(isCallsRowInboundDirection("incoming")).toBe(true);
     expect(isCallsRowInboundDirection("outbound")).toBe(false);
+  });
+});
+
+describe("isCallsRowOutboundDirection", () => {
+  it("accepts outbound and outgoing labels", () => {
+    expect(isCallsRowOutboundDirection("outbound")).toBe(true);
+    expect(isCallsRowOutboundDirection("outgoing")).toBe(true);
+    expect(isCallsRowOutboundDirection("OUTBOUND")).toBe(true);
+    expect(isCallsRowOutboundDirection("inbound")).toBe(false);
+    expect(isCallsRowOutboundDirection("")).toBe(false);
   });
 });

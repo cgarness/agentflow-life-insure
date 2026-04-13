@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { StatData } from "@/hooks/useDashboardStats";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
 
 interface GoalProgressWidgetProps {
   userId: string;
@@ -111,6 +112,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
           supabase
             .from("calls")
             .select("id", { count: "exact", head: true })
+            .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
             .eq("agent_id", userId)
             .gte("created_at", startOfDay),
           supabase
@@ -121,6 +123,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
           supabase
             .from("calls")
             .select("duration")
+            .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
             .eq("agent_id", userId)
             .gte("created_at", startOfMonth),
         ]);

@@ -59,6 +59,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-13 | [DONE] Dashboard — Calls Made & talk time outbound-only**
+  *Issue:* **Calls Made** and **talk time** counted every **`calls`** row (including **inbound**), so stats looked inflated vs real power-dialer activity. *Fix:* **`OUTBOUND_CALL_DIRECTIONS`** + **`isCallsRowOutboundDirection`** in **`telnyxInboundCaller.ts`**. **`useDashboardStats`** — count + duration queries filter **`direction` ∈ `outbound` / `outgoing`**. **`DashboardDetailModal`** **calls_today** list matches. **`GoalProgressWidget`** fallback queries aligned. Vitest for **`isCallsRowOutboundDirection`**. No UI hint on the stat card (per Chris).
+
 - **2026-04-13 | [DONE] Inbound CID still blank — PSTN row vs WebRTC leg Telnyx ids**
   *Cause:* **`telnyx-webhook`** stores **`call_control_id` / `call_session_id`** from the **PSTN inbound** leg. The browser SDK reports ids for the **bridged SIP / WebRTC** leg — they often **never match**, so **`peek_inbound_call_identity`** returned **null**, **`incomingCallerNumber`** stayed empty after DID strip, and the UI showed only **“Incoming call”**. *Fix:* Migration **`20260413250000`** — peek RPC **fallback**: latest org inbound with **`status = 'ringing'`** in the last **6 minutes** when strict id match fails. **`inbound-call-claim`** — same-window lookup with **prefix-normalized** control id match, or **exactly one** recent ringing row (single-call org). *Deploy:* migration applied + **`inbound-call-claim`** deployed to **`jncvvsvckxhqgqvkppmj`**.
 

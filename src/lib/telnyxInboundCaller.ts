@@ -18,6 +18,14 @@ export function isCallsRowInboundDirection(direction: unknown): boolean {
   return d === "inbound" || d === "incoming";
 }
 
+/** Stored on `calls.direction` for power-dialer legs (`telnyx-webhook` normalizes Telnyx `outgoing` → `outbound`). */
+export const OUTBOUND_CALL_DIRECTIONS = ["outbound", "outgoing"] as const;
+
+export function isCallsRowOutboundDirection(direction: unknown): boolean {
+  const d = String(direction ?? "").toLowerCase();
+  return d === "outbound" || d === "outgoing";
+}
+
 /** Telnyx JS SDK often prefixes `call_control_id` with `v3:` while webhooks may omit it. */
 export function telnyxCallControlIdsEqual(a: string, b: string): boolean {
   const ta = (a || "").trim();
