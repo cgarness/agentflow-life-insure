@@ -27,6 +27,19 @@ export function stripIfOrgOwnedPhoneLabel(
   return t;
 }
 
+/**
+ * True when `name` is empty or matches the caller’s digits (Telnyx / DB often duplicate ANI as “name”).
+ */
+export function isInboundNameSameAsPhoneNumber(name: string, callerPhone: string): boolean {
+  const n = name.trim();
+  if (!n) return true;
+  const nd = callerPhone.replace(/\D/g, "");
+  const nn = n.replace(/\D/g, "");
+  if (nn.length < 7) return false;
+  if (!nd) return nn.length >= 10;
+  return nn === nd || nd.endsWith(nn) || (nn.length >= 10 && nd.endsWith(nn.slice(-10)));
+}
+
 /** Last-10 sets for numbers you own (DIDs) — never treat these as the inbound customer. */
 export function buildOrgDidLast10Set(
   availableNumbers: { phone_number?: string | null }[],

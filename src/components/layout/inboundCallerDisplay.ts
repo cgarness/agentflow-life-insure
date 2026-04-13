@@ -1,31 +1,18 @@
 import type { IdentifiedContact } from "@/contexts/TelnyxContext";
-import { stripIfOrgOwnedPhoneLabel } from "@/lib/telnyxInboundCaller";
+import {
+  isInboundNameSameAsPhoneNumber,
+  stripIfOrgOwnedPhoneLabel,
+} from "@/lib/telnyxInboundCaller";
+import { formatPhoneNumber } from "@/utils/phoneUtils";
 
-/**
- * True when `name` is empty or is effectively the same digit string as the caller’s phone
- * (Telnyx / webhook often put the ANI in both “name” and “number” — not a CRM display name).
- */
-export function isInboundNameSameAsPhoneNumber(name: string, callerPhone: string): boolean {
-  const n = name.trim();
-  if (!n) return true;
-  const nd = callerPhone.replace(/\D/g, "");
-  const nn = n.replace(/\D/g, "");
-  if (nn.length < 7) return false;
-  if (!nd) return nn.length >= 10;
-  return nn === nd || nd.endsWith(nn) || (nn.length >= 10 && nd.endsWith(nn.slice(-10)));
-}
+/** Re-export for callers that already import from this module. */
+export { isInboundNameSameAsPhoneNumber } from "@/lib/telnyxInboundCaller";
 
 /** Strip placeholder text mistakenly stored in the “number” field. */
 export function sanitizeCallerIdPhoneField(value: string): string {
   const t = value.trim();
   if (!t || /^unknown\s*caller$/i.test(t)) return "";
   return t;
-}
-
-const MIN_SIGNIFICANT_DIGITS = 10;
-
-function digitCount(s: string): number {
-  return s.replace(/\D/g, "").length;
 }
 
 /**
@@ -63,12 +50,14 @@ export function buildInboundCallerLines(args: {
       ? idNameRaw
       : "";
 
-  const displayName = idName || crm || telnyxName || idNum || rtc || "Unknown Caller";
-
-  let displayPhone = idNum || inc || rtc;
-  if (!displayPhone && digitCount(displayName) >= MIN_SIGNIFICANT_DIGITS) {
-    displayPhone = displayName;
-  }
+  const rawPhone = idNum || inc || rtc;
+  const humanHeadline = idName || crm || telnyxName;
+  const phoneAsHeadline =
+    !humanHeadline && rawPhone
+      ? formatPhoneNumber(rawPhone) || rawPhone
+      : "";
+  const displayName = humanHeadline || phoneAsHeadline || "Unknown Caller";
+  const displayPhone = rawPhone;
 
   return { displayName, displayPhone };
 }

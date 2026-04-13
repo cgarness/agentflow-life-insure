@@ -8,6 +8,7 @@ import { resolveTelnyxNotificationBranch, isTelnyxSdkInboundDirection } from "@/
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import {
   buildOrgDidLast10Set,
+  isInboundNameSameAsPhoneNumber,
   last10Digits,
   resolveInboundCallerRawNumber,
   stripIfOrgOwnedPhoneLabel,
@@ -358,7 +359,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCrmContactName("");
       return;
     }
-    const raw = incomingCallerNumber.trim();
+    const raw =
+      incomingCallerNumber.trim() ||
+      (identifiedContact?.number || "").trim();
     if (!raw || raw === "Unknown caller" || !organizationId) {
       setCrmContactName("");
       return;
@@ -422,7 +425,14 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       cancelled = true;
     };
-  }, [callState, incomingCallerNumber, organizationId, inboundClaimedCallRowId, inboundCallerExcludeOrg]);
+  }, [
+    callState,
+    incomingCallerNumber,
+    identifiedContact?.number,
+    organizationId,
+    inboundClaimedCallRowId,
+    inboundCallerExcludeOrg,
+  ]);
 
   /**
    * WebRTC inbound often reports the agency DID as "remote" on the first notifications.
@@ -557,55 +567,83 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         String(row.contact_phone || row.caller_id_used || "").trim() ||
         incomingCallerNumberRef.current;
 
-      if (nameFromRow && num) {
-        setIdentifiedContact({ name: nameFromRow, number: num, type: typeStr });
+      const pstn = String(row.contact_phone || row.caller_id_used || "").trim();
+      const pstnL10 = pstn ? last10Digits(pstn) : null;
+      if (pstnL10 && inboundCallerExcludeRef.current.has(pstnL10)) {
+        return;
       }
 
-      if (!row.contact_id) return;
+      const cleanName =
+        nameFromRow && num && !isInboundNameSameAsPhoneNumber(nameFromRow, num)
+          ? nameFromRow
+          : "";
 
-      const cid = String(row.contact_id);
-      if (nameFromRow) return;
+      if (cleanName && num) {
+        setIdentifiedContact({ name: cleanName, number: num, type: typeStr });
+      }
 
-      const ct = String(row.contact_type || "lead").toLowerCase();
-      const resolvedType = ct === "client" ? "client" : "lead";
-      if (ct === "client") {
-        const { data, error } = await supabase
-          .from("clients")
-          .select("first_name, last_name, phone")
-          .eq("id", cid)
-          .eq("organization_id", organizationId)
-          .maybeSingle();
-        if (error) {
-          console.warn("[TelnyxContext] identifiedContact client fetch:", error.message);
-          return;
+      if (row.contact_id) {
+        const cid = String(row.contact_id);
+        if (cleanName) return;
+
+        const ct = String(row.contact_type || "lead").toLowerCase();
+        const resolvedType = ct === "client" ? "client" : "lead";
+        if (ct === "client") {
+          const { data, error } = await supabase
+            .from("clients")
+            .select("first_name, last_name, phone")
+            .eq("id", cid)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[TelnyxContext] identifiedContact client fetch:", error.message);
+            return;
+          }
+          if (data) {
+            const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
+            setIdentifiedContact({
+              name: n,
+              number: String(data.phone || num || "").trim(),
+              type: resolvedType,
+            });
+          }
+        } else {
+          const { data, error } = await supabase
+            .from("leads")
+            .select("first_name, last_name, phone")
+            .eq("id", cid)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[TelnyxContext] identifiedContact lead fetch:", error.message);
+            return;
+          }
+          if (data) {
+            const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Lead";
+            setIdentifiedContact({
+              name: n,
+              number: String(data.phone || num || "").trim(),
+              type: resolvedType,
+            });
+          }
         }
-        if (data) {
-          const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
-          setIdentifiedContact({
-            name: n,
-            number: String(data.phone || num || "").trim(),
-            type: resolvedType,
-          });
-        }
-      } else {
-        const { data, error } = await supabase
-          .from("leads")
-          .select("first_name, last_name, phone")
-          .eq("id", cid)
-          .eq("organization_id", organizationId)
-          .maybeSingle();
-        if (error) {
-          console.warn("[TelnyxContext] identifiedContact lead fetch:", error.message);
-          return;
-        }
-        if (data) {
-          const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Lead";
-          setIdentifiedContact({
-            name: n,
-            number: String(data.phone || num || "").trim(),
-            type: resolvedType,
-          });
-        }
+        return;
+      }
+
+      // No contact_id yet: still expose PSTN from webhook row so UI is not stuck on "Unknown Caller"
+      if (pstn) {
+        setIdentifiedContact((prev) => {
+          if (
+            prev?.name &&
+            !isInboundNameSameAsPhoneNumber(prev.name, prev.number || pstn)
+          ) {
+            return prev.number === pstn ? prev : { ...prev, number: pstn };
+          }
+          if (cleanName) {
+            return { name: cleanName, number: pstn, type: typeStr };
+          }
+          return { name: "", number: pstn, type: typeStr };
+        });
       }
     },
     [organizationId],
@@ -715,7 +753,12 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const hasCrmMarker =
             Boolean(row.contact_id) ||
             (typeof row.contact_name === "string" && row.contact_name.trim() !== "");
-          if ((eventType === "UPDATE" || eventType === "INSERT") && hasCrmMarker) {
+          const hasAni =
+            String(row.caller_id_used || row.contact_phone || "").trim() !== "";
+          if (
+            (eventType === "UPDATE" || eventType === "INSERT") &&
+            (hasCrmMarker || hasAni)
+          ) {
             void reconcileIdentifiedContactFromCallsRow(row);
           }
         },
