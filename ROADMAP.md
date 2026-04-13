@@ -19,7 +19,7 @@
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
-- **Features**: Smart Caller ID (Local Presence), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
+- **Features**: Smart Caller ID (local / same-state / LRU rotation, per-DID cooldown, daily usage cap via RPC), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
 - **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), voicemail. **Inbound:** Webhook + Realtime populate **`calls.contact_id`**; floating dialer shows **`identifiedContact`**. **Inbound browser UX:** one-time **Enable alerts & ringtone** unlocks **Web Notifications** + **Web Audio**; see `src/lib/incomingCallAlerts.ts`.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
@@ -58,6 +58,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-13 | [DONE] Outbound caller ID — rotation, sticky (≥30s talk), cooldown, daily cap**
+  *What:* **`src/lib/caller-id-selection.ts`** — area-code → same-state (**`area_code_mapping`**) → default → any, with **LRU** among eligible DIDs, **10s cooldown** per number, **sticky** only when last outbound to the contact had **`duration ≥ 30`**. **`TelnyxContext`** — loads **`daily_call_count` / `daily_call_limit`**, org **local presence** from **`phone_settings.api_secret`**, passes campaign **`local_presence_enabled`** from **`DialerPage`**. After **`newCall`** succeeds, **`increment_phone_number_daily_usage`** (migration **`20260414120000`**) bumps count with **UTC day reset** via **`limit_reset_at`**. **`FloatingDialer`** uses the same **`getSmartCallerId`** path (no duplicate sticky); flagged-number warning uses **≥30s** prior call. Vitest: **`caller-id-selection.test.ts`**. *Next:* Apply migration on Supabase; optional cron to refresh **`phone_numbers`** counts from server truth if clients get stale.
 
 - **2026-04-13 | [DONE] Dashboard — Calls Made & talk time outbound-only**
   *Issue:* **Calls Made** and **talk time** counted every **`calls`** row (including **inbound**), so stats looked inflated vs real power-dialer activity. *Fix:* **`OUTBOUND_CALL_DIRECTIONS`** + **`isCallsRowOutboundDirection`** in **`telnyxInboundCaller.ts`**. **`useDashboardStats`** — count + duration queries filter **`direction` ∈ `outbound` / `outgoing`**. **`DashboardDetailModal`** **calls_today** list matches. **`GoalProgressWidget`** fallback queries aligned. Vitest for **`isCallsRowOutboundDirection`**. No UI hint on the stat card (per Chris).

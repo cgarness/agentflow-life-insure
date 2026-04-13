@@ -25,6 +25,13 @@ import {
   isIncomingAudioPrimed,
   getDesktopNotificationPermission,
 } from "@/lib/incomingCallAlerts";
+import { getStateByAreaCode } from "@/lib/caller-id-selector";
+import {
+  CALLER_ID_COOLDOWN_MS,
+  CALLER_ID_STICKY_MIN_DURATION_SEC,
+  selectOutboundCallerId,
+} from "@/lib/caller-id-selection";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
 
 /** Bridged inbound: remote audio may attach after `active` — refresh playback once per `RTCPeerConnection`. */
 const inboundPeerTrackRefreshAttached = new WeakSet<RTCPeerConnection>();
@@ -113,6 +120,11 @@ export interface MakeCallOptions {
   contactType?: string | null;
 }
 
+/** Optional campaign-level override for `getSmartCallerId` (falls back to org Phone Settings). */
+export type SmartCallerIdOptions = {
+  localPresenceEnabled?: boolean;
+};
+
 interface TelnyxContextValue {
   status: TelnyxStatus;
   errorMessage: string | null;
@@ -143,7 +155,11 @@ interface TelnyxContextValue {
   availableNumbers: any[];
   selectedCallerNumber: string;
   setSelectedCallerNumber: (number: string) => void;
-  getSmartCallerId: (contactPhone: string, contactId?: string | null) => Promise<string>;
+  getSmartCallerId: (
+    contactPhone: string,
+    contactId?: string | null,
+    opts?: SmartCallerIdOptions,
+  ) => Promise<string>;
   initializeClient: () => Promise<void>;
   destroyClient: () => void;
   /** Inbound: desktop notification + ringtone prefs (requires one-time Enable click). */
@@ -184,6 +200,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
   const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
   const [ringTimeout, setRingTimeout] = useState(30);
+  /** Org default from `phone_settings.api_secret` JSON (`local_presence_enabled`). */
+  const [orgLocalPresenceEnabled, setOrgLocalPresenceEnabled] = useState(true);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
     return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
   });
@@ -270,8 +288,8 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const recordingStartedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
-  /** Skip repeat `calls` lookups for the same contact during auto-dial (invalidated when numbers change). */
-  const callerIdByContactRef = useRef<Map<string, string>>(new Map());
+  /** LRU + cooldown for outbound DIDs (E.164 → last used epoch ms). */
+  const didLastUsedAtRef = useRef<Map<string, number>>(new Map());
 
   // Browser-side call recording (MediaRecorder)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -323,7 +341,9 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     supabase
       .from("phone_numbers")
-      .select("phone_number, is_default, spam_status, area_code, friendly_name")
+      .select(
+        "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit",
+      )
       .eq("organization_id", organizationId)
       .in("status", ["active", "Active"])
       .then(({ data }) => {
@@ -336,21 +356,23 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
-  useEffect(() => {
-    callerIdByContactRef.current.clear();
-  }, [availableNumbers, selectedCallerNumber]);
-
   // Fetch global phone settings (ring timeout, etc.)
   useEffect(() => {
     if (!organizationId) return;
     supabase
       .from("phone_settings")
-      .select("ring_timeout")
+      .select("ring_timeout, api_secret")
       .eq("organization_id", organizationId)
       .maybeSingle()
       .then(({ data }) => {
         if (data?.ring_timeout) {
           setRingTimeout(data.ring_timeout);
+        }
+        try {
+          const flags = data?.api_secret ? JSON.parse(String(data.api_secret)) : {};
+          setOrgLocalPresenceEnabled(flags.local_presence_enabled !== false);
+        } catch {
+          setOrgLocalPresenceEnabled(true);
         }
       });
   }, [organizationId, profile?.id]);
@@ -1514,60 +1536,77 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })();
   }, [isOnHold]);
 
-  const getSmartCallerId = useCallback(async (contactPhone: string, contactId?: string | null): Promise<string> => {
-    // 1. Manual Override always wins
-    if (selectedCallerNumber) return selectedCallerNumber;
-
-    // 2. Check Contact History (session cache avoids a DB round trip per auto-dial on the same contact)
-    if (contactId) {
-      const cached = callerIdByContactRef.current.get(contactId);
-      if (cached) {
-        const ownedCached = availableNumbers.find(
-          (n) => n.phone_number === cached && n.spam_status !== "Flagged",
-        );
-        if (ownedCached) return cached;
-        callerIdByContactRef.current.delete(contactId);
-      }
-      try {
-        const { data } = await supabase
-          .from('calls')
-          .select('caller_id_used')
-          .eq('contact_id', contactId)
-          .not('caller_id_used', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        
-        if (data?.caller_id_used) {
-          // Verify we still own this number and it's not flagged
-          const owned = availableNumbers.find(n => n.phone_number === data.caller_id_used);
-          if (owned && owned.spam_status !== 'Flagged') {
-            callerIdByContactRef.current.set(contactId, data.caller_id_used);
-            return data.caller_id_used;
-          }
-        }
-      } catch (err) {
-        console.warn("Error fetching contact call history:", err);
-      }
+  const queryStickyOutboundCaller = useCallback(async (cid: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("calls")
+        .select("caller_id_used, duration")
+        .eq("contact_id", cid)
+        .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
+        .not("caller_id_used", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data?.caller_id_used) return null;
+      return {
+        caller_id_used: data.caller_id_used,
+        duration_sec: typeof data.duration === "number" ? data.duration : 0,
+      };
+    } catch (e) {
+      console.warn("[TelnyxContext] queryStickyOutboundCaller:", e);
+      return null;
     }
+  }, []);
 
-    // 3. Local Presence or Area Code Match
-    if (contactPhone && availableNumbers.length > 0) {
-      const digits = contactPhone.replace(/\D/g, '');
-      const areaCode = digits.length >= 10 ? digits.substring(digits.length - 10, digits.length - 7) : null;
-      if (areaCode) {
-        const match = availableNumbers.find(n => n.area_code === areaCode && n.spam_status !== 'Flagged');
-        if (match) return match.phone_number;
+  const getSmartCallerId = useCallback(
+    async (
+      contactPhone: string,
+      contactId?: string | null,
+      opts?: SmartCallerIdOptions,
+    ): Promise<string> => {
+      const stamp = (e164: string) => {
+        if (e164) didLastUsedAtRef.current.set(e164, Date.now());
+      };
+
+      if (selectedCallerNumber) {
+        stamp(selectedCallerNumber);
+        return selectedCallerNumber;
       }
-    }
 
-    // 4. Default to Org Default (unless it's flagged)
-    const def = availableNumbers.find(n => n.is_default && n.spam_status !== 'Flagged');
-    if (def) return def.phone_number;
+      const localPresenceEnabled =
+        opts?.localPresenceEnabled !== undefined
+          ? opts.localPresenceEnabled
+          : orgLocalPresenceEnabled;
 
-    // 5. Absolute fallback
-    return availableNumbers[0]?.phone_number || defaultCallerNumber || "";
-  }, [selectedCallerNumber, availableNumbers, defaultCallerNumber]);
+      const chosen = await selectOutboundCallerId(
+        {
+          destinationPhone: contactPhone,
+          contactId: contactId ?? null,
+          phones: availableNumbers,
+          localPresenceEnabled,
+          defaultFallback: defaultCallerNumber,
+          didLastUsedAt: didLastUsedAtRef.current,
+          now: Date.now(),
+          cooldownMs: CALLER_ID_COOLDOWN_MS,
+          stickyMinDurationSec: CALLER_ID_STICKY_MIN_DURATION_SEC,
+        },
+        {
+          queryStickyCaller: queryStickyOutboundCaller,
+          getStateByAreaCode,
+        },
+      );
+
+      stamp(chosen);
+      return chosen;
+    },
+    [
+      selectedCallerNumber,
+      availableNumbers,
+      defaultCallerNumber,
+      orgLocalPresenceEnabled,
+      queryStickyOutboundCaller,
+    ],
+  );
 
   const initializeClient = useCallback(async () => {
     // 0. Wait for profile to load
@@ -2220,6 +2259,22 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       callRef.current = call;
       setCurrentCall(call);
+
+      void supabase
+        .rpc("increment_phone_number_daily_usage", { p_phone_e164: callerIdUsed })
+        .then(({ error: incErr }) => {
+          if (incErr) {
+            console.warn("[TelnyxContext] increment_phone_number_daily_usage:", incErr.message);
+          }
+        });
+
+      setAvailableNumbers((prev) =>
+        prev.map((n) =>
+          n.phone_number === callerIdUsed
+            ? { ...n, daily_call_count: (n.daily_call_count ?? 0) + 1 }
+            : n,
+        ),
+      );
 
       return callRecord.id;
     } catch (err: any) {

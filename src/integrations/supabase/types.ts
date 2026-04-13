@@ -2695,6 +2695,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      increment_phone_number_daily_usage: {
+        Args: { p_phone_e164: string }
+        Returns: undefined
+      }
       resolve_inbound_caller_display_name: {
         Args: { p_caller_phone: string }
         Returns: string | null

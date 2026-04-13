@@ -10,8 +10,9 @@ import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
-import { selectCallerID } from "@/lib/caller-id-selector";
 import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
+import { CALLER_ID_STICKY_MIN_DURATION_SEC } from "@/lib/caller-id-selection";
 import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
 import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
@@ -366,25 +367,6 @@ const FloatingDialer: React.FC = () => {
     setDialedNumber((prev) => prev.slice(0, -1));
   };
 
-  const getPreviousCallerId = async (contactId: string): Promise<string | null> => {
-    if (!contactId) return null;
-    try {
-      const { data } = await supabase
-        .from('calls')
-        .select('caller_id_used')
-        .eq('contact_id', contactId)
-        .not('caller_id_used', 'is', null)
-        .gt('duration', 0)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data?.caller_id_used || null;
-    } catch (err) {
-      console.warn('[FloatingDialer] getPreviousCallerId failed', err);
-      return null;
-    }
-  };
-
   // --- Call logic ---
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -409,33 +391,56 @@ const FloatingDialer: React.FC = () => {
   };
 
   const initiateCall = async (destinationNumber: string, contactId: string | null) => {
-    let finalCallerId = selectedCallerNumber || displayedFromNumber;
-    if (!finalCallerId && availableNumbers.length > 0) {
-      finalCallerId = availableNumbers.find(n => n.is_default)?.phone_number || availableNumbers[0].phone_number;
-    }
-
     const leadPhone = dialedNumber.trim() || destinationNumber;
     if (!leadPhone) return;
 
+    let finalCallerId = selectedCallerNumber || "";
+    if (!finalCallerId) {
+      finalCallerId = await getSmartCallerId(leadPhone, contactId ?? undefined);
+    }
+    if (!finalCallerId && availableNumbers.length > 0) {
+      finalCallerId =
+        availableNumbers.find((n) => n.is_default)?.phone_number || availableNumbers[0].phone_number;
+    }
+
     // Consolidated call creation: TelnyxContext.makeCall handles call record creation.
-    // No more separate dialer-api.createCall here.
     if (!contactId) {
-      proceedWithCall(destinationNumber, finalCallerId);
+      void proceedWithCall(destinationNumber, finalCallerId);
       return;
     }
-    const previousNumber = await getPreviousCallerId(contactId);
-    if (previousNumber && !selectedCallerNumber) {
-      const prevRecord = availableNumbers.find(n => n.phone_number === previousNumber);
-      const prevIsFlagged = prevRecord?.spam_status === 'Flagged';
-      if (!prevIsFlagged) {
-        proceedWithCall(destinationNumber, previousNumber, contactId);
-      } else {
-        setPendingCall({ leadPhone: destinationNumber, contactId, proposedNumber: finalCallerId, previousNumber });
-        setShowCallerIdWarning(true);
+
+    if (!selectedCallerNumber) {
+      try {
+        const { data } = await supabase
+          .from("calls")
+          .select("caller_id_used")
+          .eq("contact_id", contactId)
+          .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
+          .gte("duration", CALLER_ID_STICKY_MIN_DURATION_SEC)
+          .not("caller_id_used", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const previousNumber = data?.caller_id_used;
+        if (previousNumber) {
+          const prevRecord = availableNumbers.find((n) => n.phone_number === previousNumber);
+          if (prevRecord?.spam_status === "Flagged" && previousNumber !== finalCallerId) {
+            setPendingCall({
+              leadPhone: destinationNumber,
+              contactId,
+              proposedNumber: finalCallerId,
+              previousNumber,
+            });
+            setShowCallerIdWarning(true);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("[FloatingDialer] flagged-caller check failed", err);
       }
-    } else {
-      proceedWithCall(destinationNumber, finalCallerId, contactId);
     }
+
+    void proceedWithCall(destinationNumber, finalCallerId, contactId);
   };
 
   const handleCallFromContact = () => {

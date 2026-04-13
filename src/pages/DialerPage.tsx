@@ -691,11 +691,11 @@ export default function DialerPage() {
     const resolve = async () => {
       const contactPhone = currentLead?.phone || "";
       const contactId = currentLead?.lead_id || currentLead?.id || "";
-      const smartId = await getSmartCallerId(contactPhone, contactId);
+      const smartId = await getSmartCallerId(contactPhone, contactId, { localPresenceEnabled });
       setDisplayedFromNumber(smartId);
     };
     resolve();
-  }, [currentLead, selectedCallerNumber, getSmartCallerId]);
+  }, [currentLead, selectedCallerNumber, getSmartCallerId, localPresenceEnabled]);
 
   // ── Owned phone numbers (removed local fetching, now using TelnyxContext) ──
   const lastUsedCallerId = useRef<string>("");
@@ -1572,9 +1572,9 @@ export default function DialerPage() {
       toast.error("Authentication required to make calls. Please log in again.");
       return;
     }
-    const smartCallerId = await getSmartCallerId(leadPhone, contactId);
+    const smartCallerId = await getSmartCallerId(leadPhone, contactId, { localPresenceEnabled });
     proceedWithCall(leadPhone, smartCallerId, contactId);
-  }, [getSmartCallerId, user?.id, proceedWithCall]);
+  }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled]);
 
   const handleCall = useCallback(() => {
     if (!currentLead) {
