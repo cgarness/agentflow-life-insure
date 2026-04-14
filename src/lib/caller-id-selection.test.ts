@@ -3,7 +3,6 @@ import {
   selectOutboundCallerId,
   extractDestinationAreaCode,
   isEligibleStrict,
-  CALLER_ID_COOLDOWN_MS,
   type CallerIdPhoneRow,
   type SelectCallerIdInput,
 } from "./caller-id-selection";
@@ -26,7 +25,6 @@ function input(partial: Partial<SelectCallerIdInput> & { phones: CallerIdPhoneRo
     defaultFallback: "+15550000099",
     didLastUsedAt: new Map(),
     now: 1_000_000,
-    cooldownMs: CALLER_ID_COOLDOWN_MS,
     stickyMinDurationSec: 30,
     ...partial,
   };
@@ -40,20 +38,14 @@ describe("extractDestinationAreaCode", () => {
 });
 
 describe("isEligibleStrict", () => {
-  it("rejects when within cooldown", () => {
-    const map = new Map([["+15550000001", 1_000_000]]);
-    const p = basePhone();
-    expect(
-      isEligibleStrict(p, { didLastUsedAt: map, now: 1_000_000 + 1000, cooldownMs: 10_000 }),
-    ).toBe(false);
+  it("rejects when over daily cap", () => {
+    const p = basePhone({ daily_call_count: 100, daily_call_limit: 100 });
+    expect(isEligibleStrict(p, { didLastUsedAt: new Map() })).toBe(false);
   });
 
-  it("accepts when cooldown elapsed", () => {
-    const map = new Map([["+15550000001", 1_000_000]]);
-    const p = basePhone();
-    expect(
-      isEligibleStrict(p, { didLastUsedAt: map, now: 1_000_000 + 11_000, cooldownMs: 10_000 }),
-    ).toBe(true);
+  it("accepts when under daily cap", () => {
+    const p = basePhone({ daily_call_count: 0, daily_call_limit: 100 });
+    expect(isEligibleStrict(p, { didLastUsedAt: new Map() })).toBe(true);
   });
 });
 
