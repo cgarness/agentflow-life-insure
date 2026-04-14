@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
   Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
-  User, Keyboard, LogOut, X, Megaphone, Phone, IdCard,
+  User, Keyboard, LogOut, X, Megaphone, Phone, PhoneCall, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
   Sparkles, Eye,
 } from "lucide-react";
@@ -78,6 +78,17 @@ const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout, isImpersonating, impersonatedUser } = useAuth();
   const [viewAsOpen, setViewAsOpen] = useState(false);
+  const [dialerOnCall, setDialerOnCall] = useState(false);
+
+  // Listen for live-call state changes from FloatingDialer
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setDialerOnCall(detail?.onCall ?? false);
+    };
+    window.addEventListener('dialer-call-state-change', handler);
+    return () => window.removeEventListener('dialer-call-state-change', handler);
+  }, []);
 
   // Detect if current user is super admin using the hook
   const { isSuperAdmin } = useOrganization();
@@ -216,13 +227,24 @@ const TopBar: React.FC = () => {
         {/* Right Actions */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Dialer Trigger */}
-          <button
-            onClick={() => window.dispatchEvent(new Event("toggle-floating-dialer"))}
-            className="h-8 px-3 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center gap-1.5 text-sm font-medium sidebar-transition"
-          >
-            <Phone className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Dialer</span>
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => window.dispatchEvent(new Event("toggle-floating-dialer"))}
+              className={`h-8 px-3 rounded-full text-white flex items-center gap-1.5 text-sm font-medium sidebar-transition ${
+                dialerOnCall ? "bg-red-500 hover:bg-red-600" : "bg-green-500 hover:bg-green-600"
+              }`}
+            >
+              {dialerOnCall ? (
+                <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
+              ) : (
+                <Phone className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">{dialerOnCall ? "On Call" : "Dialer"}</span>
+            </button>
+            {dialerOnCall && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 animate-ping" />
+            )}
+          </div>
 
           {/* Quick Add */}
           <Tooltip>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Phone, X, Mic, Pause, Voicemail,
   PhoneOff, Search, Delete, Loader2,
+  Minus, ChevronUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
@@ -119,9 +120,11 @@ const FloatingDialer: React.FC = () => {
     getSmartCallerId,
     incomingCallAlerts,
     enableIncomingCallAlerts,
+    destroyClient: telnyxDestroy,
   } = useTelnyx();
 
   const [open, setOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
 
   // --- Recent calls state ---
@@ -224,16 +227,28 @@ const FloatingDialer: React.FC = () => {
     return () => clearInterval(timer);
   }, [onCall]);
 
+  // Fire call state change event for TopBar live-call indicator
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('dialer-call-state-change', { detail: { onCall } }));
+  }, [onCall]);
+
+  // Reset minimized when panel is closed
+  useEffect(() => {
+    if (!open) setMinimized(false);
+  }, [open]);
+
   // Open: ensure Telnyx is initialized (idempotent — will not disconnect an existing live client).
-  // Close: do NOT destroy the shared client — that was killing active calls and clearing callRef (mute/hold no-ops).
+  // Close: destroy client only when not mid-call to preserve active call state.
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => setIsVisible(true), 0);
       telnyxInitialize();
       return () => clearTimeout(t);
+    } else {
+      setIsVisible(false);
+      if (!onCall) telnyxDestroy();
     }
-    setIsVisible(false);
-  }, [open, telnyxInitialize]);
+  }, [open, telnyxInitialize, telnyxDestroy, onCall]);
 
   // Fetch dispositions for post-call
   useEffect(() => {
@@ -637,46 +652,93 @@ const FloatingDialer: React.FC = () => {
             left: `${position.x}px`,
             top: `${position.y}px`,
           }}
-          className="fixed w-[320px] max-w-[calc(100vw-2rem)] h-[540px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
+          className={minimized
+            ? "fixed w-[240px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
+            : "fixed w-[320px] max-w-[calc(100vw-2rem)] h-[540px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
+          }
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
-          {/* Panel Header — drag handle only here so body controls receive clicks reliably */}
-          <div
-            className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0 select-none"
-            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  backgroundColor: statusDotColor,
-                  display: 'inline-block',
-                  flexShrink: 0,
-                  animation: shouldPulse ? 'pulse 2s infinite' : 'none',
-                }}
-              />
-              <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
-              {telnyxStatus === 'connecting' && <span className="text-[10px] text-muted-foreground">Connecting…</span>}
-              {telnyxStatus === 'idle' && open && <span className="text-[10px] text-muted-foreground">Starting phone…</span>}
-              {telnyxStatus === 'ready' && <span className="text-[10px] text-muted-foreground">Ready</span>}
-              {telnyxStatus === 'error' && (
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-destructive leading-tight">{telnyxErrorMessage || "Connection failed"}</span>
-                  <button onClick={() => telnyxInitialize()} className="text-[10px] text-primary underline underline-offset-2 w-fit">retry</button>
-                </div>
-              )}
+          {/* Minimized strip — compact bar shown when panel is minimized */}
+          {minimized && (
+            <div
+              className="flex items-center justify-between px-3 py-2 select-none"
+              style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+            >
+              <div className="flex items-center gap-2">
+                {onCall && <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />}
+                <span className="text-sm font-semibold text-foreground">
+                  {onCall ? (selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : dialedNumber) : 'Dialer'}
+                </span>
+                {onCall && <span className="text-xs text-muted-foreground font-mono">{formatTime(callSeconds)}</span>}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setMinimized(false)}
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setOpen(false)}
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-            <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          )}
 
+          {/* Panel Header — drag handle only here so body controls receive clicks reliably */}
+          {!minimized && (
+            <div
+              className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0 select-none"
+              style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: statusDotColor,
+                    display: 'inline-block',
+                    flexShrink: 0,
+                    animation: shouldPulse ? 'pulse 2s infinite' : 'none',
+                  }}
+                />
+                <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
+                {telnyxStatus === 'connecting' && <span className="text-[10px] text-muted-foreground">Connecting…</span>}
+                {telnyxStatus === 'idle' && open && <span className="text-[10px] text-muted-foreground">Starting phone…</span>}
+                {telnyxStatus === 'ready' && <span className="text-[10px] text-muted-foreground">Ready</span>}
+                {telnyxStatus === 'error' && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-destructive leading-tight">{telnyxErrorMessage || "Connection failed"}</span>
+                    <button onClick={() => telnyxInitialize()} className="text-[10px] text-primary underline underline-offset-2 w-fit">retry</button>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setMinimized(true)}
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!minimized && (<>
           {/* Tab Bar */}
           <div className="px-3 pt-2 pb-1 shrink-0">
             <div className="flex bg-accent rounded-lg p-0.5">
@@ -1033,6 +1095,7 @@ const FloatingDialer: React.FC = () => {
               </div>
             )}
           </div>
+          </>)}
         </div>
       )}
     </>
