@@ -27,7 +27,6 @@ import {
 } from "@/lib/incomingCallAlerts";
 import { getStateByAreaCode } from "@/lib/caller-id-selection";
 import {
-  CALLER_ID_COOLDOWN_MS,
   CALLER_ID_STICKY_MIN_DURATION_SEC,
   selectOutboundCallerId,
 } from "@/lib/caller-id-selection";
@@ -288,7 +287,7 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const recordingStartedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
-  /** LRU + cooldown for outbound DIDs (E.164 → last used epoch ms). */
+  /** LRU for outbound DIDs (E.164 → last used epoch ms). */
   const didLastUsedAtRef = useRef<Map<string, number>>(new Map());
 
   // Browser-side call recording (MediaRecorder)
@@ -1587,7 +1586,6 @@ export const TelnyxProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           defaultFallback: defaultCallerNumber,
           didLastUsedAt: didLastUsedAtRef.current,
           now: Date.now(),
-          cooldownMs: CALLER_ID_COOLDOWN_MS,
           stickyMinDurationSec: CALLER_ID_STICKY_MIN_DURATION_SEC,
         },
         {

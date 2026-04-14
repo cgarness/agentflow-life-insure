@@ -19,7 +19,7 @@
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (Telnyx) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
-- **Features**: Smart Caller ID (local / same-state / LRU rotation, per-DID cooldown, daily usage cap via RPC), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
+- **Features**: Smart Caller ID (local / same-state / LRU rotation, daily usage cap via RPC), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **MVP inbound bridge:** `telnyx-webhook` on `call.initiated` (inbound) issues Telnyx **Dial** `POST /v2/calls` with `link_to` + `bridge_on_answer` to `sip:{sip_username}@sip.telnyx.com` (org/global `telnyx_settings`) — proves PSTN → WebRTC audio path without fork/voicemail routing. (Answering Machine Detection was removed — bridge on answer only.)
 - **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), voicemail. **Inbound:** Webhook + Realtime populate **`calls.contact_id`**; floating dialer shows **`identifiedContact`**. **Inbound browser UX:** one-time **Enable alerts & ringtone** unlocks **Web Notifications** + **Web Audio**; see `src/lib/incomingCallAlerts.ts`.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
@@ -59,6 +59,22 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-13 | [DONE] Remove per-DID cooldown from caller ID selection**
+  *What:* Deleted the 10-second `CALLER_ID_COOLDOWN_MS` cooldown gate from `isEligibleStrict` in `src/lib/caller-id-selection.ts`. Daily cap + LRU rotation are sufficient to prevent rapid-fire same-number dialing; the hard cooldown was unnecessarily restrictive. Removed `pastCooldown()` helper, `cooldownMs` field from `SelectCallerIdInput`, and replaced the constant with a comment. Updated `TelnyxContext.tsx` to drop the `CALLER_ID_COOLDOWN_MS` import and `cooldownMs` pass-through (keeping `didLastUsedAtRef` stamp intact for LRU ordering). Replaced stale cooldown-specific tests in `caller-id-selection.test.ts` with daily-cap tests. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Remove per-DID cooldown (2026-04-13)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Primary file** | `src/lib/caller-id-selection.ts` — constant, `pastCooldown()`, `SelectCallerIdInput.cooldownMs`, `isEligibleStrict` signature + body |
+  | **Context file** | `src/contexts/TelnyxContext.tsx` — `CALLER_ID_COOLDOWN_MS` import removed; `cooldownMs:` line removed from `selectOutboundCallerId` input; `didLastUsedAtRef` comment updated |
+  | **Test file** | `src/lib/caller-id-selection.test.ts` — `CALLER_ID_COOLDOWN_MS` import removed; `cooldownMs` in `input()` helper removed; two cooldown tests replaced with two daily-cap tests |
+  | **Removed** | `CALLER_ID_COOLDOWN_MS` constant; `pastCooldown()` function; `SelectCallerIdInput.cooldownMs`; cooldown guard in `isEligibleStrict` |
+  | **Preserved** | `didLastUsedAtRef` stamp in `getSmartCallerId` (LRU ordering); `sortLru`; daily cap via `underDailyCap`; all selection tiers intact |
+  | **Replacement comment** | `// Cooldown removed — daily cap + LRU handles rotation` where constant was |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/remove-caller-id-cooldown-uesDU` |
 
 - **2026-04-13 | [DONE] Remove spam_status filtering from caller ID selection — local presence unblocked**
   *What:* `selectOutboundCallerId` in `src/lib/caller-id-selection.ts` was silently blocking all local presence matching because `isEligibleStrict` and `isEligibleFallback` both gated on `isFlagged()` (checking `spam_status === "Flagged"`). Since no org numbers have `spam_status = "Clean"`, every DID was treated as ineligible for exact-area-code and same-state tiers. Fix: removed `isFlagged` helper, `spam_status` field from `CallerIdPhoneRow`, and all spam filter branches from `isEligibleStrict` (now: daily cap + cooldown only) and `isEligibleFallback` (now: unconditionally `true`). Hard fallback comment updated. TODO comment left in `isEligibleStrict` for future re-enable. Removed orphaned `spam_status: "Clean"` from `basePhone()` test helper. `tsc --noEmit` clean. *No schema changes.*

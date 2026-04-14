@@ -1,11 +1,11 @@
 /**
  * Outbound caller ID selection: sticky (spoken-to), local/state match, LRU rotation,
- * cooldown, and daily caps (counts maintained server-side; client passes current rows).
+ * and daily caps (counts maintained server-side; client passes current rows).
  */
 
 import { supabase } from "@/integrations/supabase/client";
 
-export const CALLER_ID_COOLDOWN_MS = 10_000;
+// Cooldown removed — daily cap + LRU handles rotation
 export const CALLER_ID_STICKY_MIN_DURATION_SEC = 30;
 export const DEFAULT_DAILY_CALL_LIMIT = 100;
 
@@ -24,10 +24,9 @@ export interface SelectCallerIdInput {
   /** When false, skip area-code / same-state matching (default + LRU only). */
   localPresenceEnabled: boolean;
   defaultFallback: string;
-  /** LRU + cooldown map (E.164 keys). */
+  /** LRU map (E.164 keys). */
   didLastUsedAt: Map<string, number>;
   now: number;
-  cooldownMs: number;
   stickyMinDurationSec: number;
 }
 
@@ -40,26 +39,13 @@ function underDailyCap(p: CallerIdPhoneRow): boolean {
   return (p.daily_call_count ?? 0) < dailyLimit(p);
 }
 
-function pastCooldown(
-  phoneNumber: string,
-  didLastUsedAt: Map<string, number>,
-  now: number,
-  cooldownMs: number,
-): boolean {
-  if (cooldownMs <= 0) return true;
-  const last = didLastUsedAt.get(phoneNumber);
-  if (last == null) return true;
-  return now - last >= cooldownMs;
-}
-
 // TODO: re-enable spam_status filtering once reputation system is fully configured
-/** Strict: under daily cap, past cooldown. */
+/** Strict: under daily cap only. */
 export function isEligibleStrict(
   p: CallerIdPhoneRow,
-  input: Pick<SelectCallerIdInput, "didLastUsedAt" | "now" | "cooldownMs">,
+  _input: Pick<SelectCallerIdInput, "didLastUsedAt">,
 ): boolean {
   if (!underDailyCap(p)) return false;
-  if (!pastCooldown(p.phone_number, input.didLastUsedAt, input.now, input.cooldownMs)) return false;
   return true;
 }
 
