@@ -60,6 +60,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-14 | [DONE] Dialer disposition actions — Supabase alignment (remove-from-campaign status)**
+  *Verify:* Reviewed migrations + RLS vs `DialerPage` / `dialer-api` (no live DB run — Supabase CLI not available in this environment). *Bug:* **Remove from campaign** wrote `campaign_leads.status = 'removed'` while `getCampaignLeads` terminal filter used **`Removed`** only, so removed rows could reappear after reload. *Fix:* write **`Removed`**; check `{ error }` from update; add lowercase **`removed`** to `TERMINAL_STATUSES` in **`dialer-api.ts`** and **`DialerPage`** for legacy rows. Enterprise RPCs already excluded both spellings.
+
 - **2026-04-14 | [DONE] Fix profile loading race — skeleton shimmer replaces FOFC fallbacks**
   *What:* On hard refresh, `profile` was `null` for ~300–800ms while `fetchProfile` resolved in `AuthContext`, causing avatar buttons and name fields to flash `"??"` / `"Guest"` before snapping to real data. Created `src/components/ui/ProfileSkeleton.tsx` with three exports: `AvatarSkeleton` (circle for sm/md, rounded-2xl for lg), `NameSkeleton` (~80px pill), and `RoleSkeleton` (~60px pill) — all Tailwind `animate-pulse bg-muted`. Applied `isLoading || !profile` guards to three components: `TopBar.tsx` (avatar button + dropdown name/email block), `Sidebar.tsx` (bottom-bar avatar + name), and `AgentProfile.tsx` (hero card avatar + name + role row). Auth fetch logic, Supabase queries, RLS, and dialer code untouched. `tsc --noEmit` clean. *No schema changes.*
 

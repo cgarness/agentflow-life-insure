@@ -1349,7 +1349,7 @@ export default function DialerPage() {
    * re-sorts the queue, and advances the dialer head to the next dialable lead.
    * Called after every disposition save in both the manual and auto-dispose paths.
    */
-  const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'Closed Won'];
+  const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Closed Won'];
   const applyQueueLifecycle = useCallback((
     disposedLead: CampaignLead,
     dispositionName: string,
@@ -2383,11 +2383,15 @@ export default function DialerPage() {
 
         if (action === 'remove_from_campaign') {
           try {
-            await supabase
+            const { error: removeClError } = await supabase
               .from('campaign_leads')
-              .update({ status: 'removed' })
+              // Must match TERMINAL_STATUSES in dialer-api `getCampaignLeads` (capital R)
+              .update({ status: 'Removed' })
               .eq('campaign_id', selectedCampaignId!)
               .eq('lead_id', currentLead.lead_id || currentLead.id);
+            if (removeClError) {
+              console.warn("Failed to remove lead from campaign", removeClError.message);
+            }
           } catch (e) {
             console.warn("Failed to remove lead from campaign", e);
           }

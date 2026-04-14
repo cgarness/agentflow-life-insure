@@ -84,7 +84,8 @@ export async function getCampaigns(organizationId: string | null = null) {
   return data ?? [];
 }
 
-const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'Closed Won'];
+/** Lowercase `removed` was written historically by the dialer — exclude both. */
+const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Closed Won'];
 
 export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
   // Fetch campaign settings for maxAttempts and retryInterval logic
