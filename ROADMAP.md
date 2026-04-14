@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 13, 2026
+**Owner:** Chris Garness | **Last Updated:** April 14, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -185,6 +185,9 @@
   | **`src/lib/caller-id-selector.ts`** | **Deleted.** Was the pre-LRU legacy module; `selectCallerID` had no callers at time of deletion. |
   | **`TelnyxContext.tsx` — `getSmartCallerId`** | Delegates to `selectOutboundCallerId` from `caller-id-selection`; passes `getStateByAreaCode` (now also from `caller-id-selection`) as an injected dep. |
   | **`FloatingDialer.tsx`** | Imports `CALLER_ID_STICKY_MIN_DURATION_SEC` from `caller-id-selection` only. No changes needed. |
+
+- **2026-04-14 | [DONE] Settings — Dispositions Manager (locked rows + Appointment Set + No Answer/DNC edit)**
+  *What:* **`DispositionsManager.tsx`** — (1) **Reorder:** every disposition row is draggable (including `is_locked`); grip handle no longer dimmed for locked rows. (2) **Appointment Set:** modal treats **Appointment Set** as fully editable (name, color, required notes, callback / appointment schedulers, automation) while other locked rows still use the restricted form (rename + those sections hidden). (3) **No Answer / DNC:** edit control is disabled with a tooltip; delete remains blocked for all locked rows.
 
 - **2026-04-13 | [DONE] Outbound caller ID — rotation, sticky (≥30s talk), cooldown, daily cap**
   *What:* **`src/lib/caller-id-selection.ts`** — area-code → same-state (**`area_code_mapping`**) → default → any, with **LRU** among eligible DIDs, **10s cooldown** per number, **sticky** only when last outbound to the contact had **`duration ≥ 30`**. **`TelnyxContext`** — loads **`daily_call_count` / `daily_call_limit`**, org **local presence** from **`phone_settings.api_secret`**, passes campaign **`local_presence_enabled`** from **`DialerPage`**. After **`newCall`** succeeds, **`increment_phone_number_daily_usage`** (migration **`20260414120000`**) bumps count with **UTC day reset** via **`limit_reset_at`**. **`FloatingDialer`** uses the same **`getSmartCallerId`** path (no duplicate sticky); flagged-number warning uses **≥30s** prior call. Vitest: **`caller-id-selection.test.ts`**. *Next:* Apply migration on Supabase; optional cron to refresh **`phone_numbers`** counts from server truth if clients get stale.

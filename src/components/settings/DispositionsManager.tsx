@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { dispositionsSupabaseApi as dispositionsApi } from "@/lib/supabase-dispositions";
 import { Disposition } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
@@ -63,6 +63,21 @@ const emptyForm: FormState = {
   campaignAction: "none",
   dncAutoAdd: false,
 };
+
+function normalizeDispositionName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+/** No Answer / DNC are system defaults — settings UI is read-only at the row level. */
+function isDispositionEditDisabled(d: Disposition): boolean {
+  const n = normalizeDispositionName(d.name);
+  return n === "no answer" || n === "dnc";
+}
+
+/** Locked rows still hide most form fields, except Appointment Set which admins may fully configure. */
+function isAppointmentSetDisposition(d: Pick<Disposition, "name">): boolean {
+  return normalizeDispositionName(d.name) === "appointment set";
+}
 
 const DispositionsManager: React.FC = () => {
   const { organizationId } = useOrganization();
@@ -234,9 +249,13 @@ const DispositionsManager: React.FC = () => {
     }
   };
 
-  const isEditingLocked = editingId
-    ? dispositions.find(d => d.id === editingId)?.isLocked ?? false
-    : false;
+  const editingDisposition = editingId
+    ? dispositions.find(d => d.id === editingId)
+    : undefined;
+
+  const isEditingFormRestricted =
+    !!editingDisposition?.isLocked &&
+    !isAppointmentSetDisposition(editingDisposition);
 
   return (
     <div className="space-y-6">
@@ -268,18 +287,16 @@ const DispositionsManager: React.FC = () => {
           {dispositions.map((d, idx) => (
             <div
               key={d.id}
-              {...(!d.isLocked && {
-                draggable: true,
-                onDragStart: () => handleDragStart(idx),
-                onDragOver: (e: React.DragEvent) => handleDragOver(e, idx),
-                onDrop: () => handleDrop(idx),
-                onDragEnd: () => { setDragIdx(null); setOverIdx(null); },
-              })}
+              draggable
+              onDragStart={() => handleDragStart(idx)}
+              onDragOver={(e: React.DragEvent) => handleDragOver(e, idx)}
+              onDrop={() => handleDrop(idx)}
+              onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
               className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${
                 overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
               } ${dragIdx === idx ? "opacity-50" : ""}`}
             >
-              <GripVertical className={`w-4 h-4 text-muted-foreground shrink-0 ${d.isLocked ? "cursor-default opacity-30" : "cursor-grab"}`} />
+              <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 cursor-grab" />
               <span className="w-6 h-6 rounded bg-muted text-muted-foreground text-xs font-bold flex items-center justify-center shrink-0">
                 {idx + 1}
               </span>
@@ -325,17 +342,40 @@ const DispositionsManager: React.FC = () => {
                 )}
               </div>
 
-              <button
-                onClick={() => openEdit(d)}
-                className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {isDispositionEditDisabled(d) ? (
+                      <span
+                        className="inline-flex p-1.5 rounded-md opacity-40 cursor-not-allowed text-muted-foreground"
+                        tabIndex={0}
+                        aria-label="Edit disabled"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openEdit(d)}
+                        className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </TooltipTrigger>
+                  {isDispositionEditDisabled(d) && (
+                    <TooltipContent>
+                      <p>No Answer and DNC are fixed system dispositions and cannot be edited.</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
 
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
+                      type="button"
                       onClick={() => !d.isLocked && setDeleteTarget(d)}
                       disabled={d.isLocked}
                       className={`p-1.5 rounded-md transition-colors ${
@@ -453,11 +493,13 @@ const DispositionsManager: React.FC = () => {
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value.slice(0, 30) }))}
                 placeholder="e.g., Appointment Set"
-                disabled={isEditingLocked}
+                disabled={isEditingFormRestricted}
                 maxLength={30}
               />
               <p className="text-xs text-muted-foreground mt-1 text-right">{form.name.length}/30</p>
-              {isEditingLocked && <p className="text-xs text-muted-foreground">This disposition is locked and cannot be renamed.</p>}
+              {isEditingFormRestricted && (
+                <p className="text-xs text-muted-foreground">This disposition is locked and cannot be renamed.</p>
+              )}
             </div>
 
             {/* Color */}
@@ -491,7 +533,7 @@ const DispositionsManager: React.FC = () => {
             </div>
 
             {/* Required Notes */}
-            {!isEditingLocked && (
+            {!isEditingFormRestricted && (
               <div className="rounded-lg border p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -522,7 +564,7 @@ const DispositionsManager: React.FC = () => {
             )}
 
             {/* Callback Scheduler */}
-            {!isEditingLocked && (
+            {!isEditingFormRestricted && (
               <div className="rounded-lg border p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 pr-4">
@@ -540,7 +582,7 @@ const DispositionsManager: React.FC = () => {
             )}
 
             {/* Appointment Scheduler */}
-            {!isEditingLocked && (
+            {!isEditingFormRestricted && (
               <div className="rounded-lg border p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 pr-4">
@@ -558,7 +600,7 @@ const DispositionsManager: React.FC = () => {
             )}
 
             {/* Automation Trigger */}
-            {!isEditingLocked && (
+            {!isEditingFormRestricted && (
               <div className="rounded-lg border p-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
