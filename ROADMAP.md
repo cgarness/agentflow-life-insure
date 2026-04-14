@@ -60,6 +60,22 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-14 | [DONE] Fix profile loading race — skeleton shimmer replaces FOFC fallbacks**
+  *What:* On hard refresh, `profile` was `null` for ~300–800ms while `fetchProfile` resolved in `AuthContext`, causing avatar buttons and name fields to flash `"??"` / `"Guest"` before snapping to real data. Created `src/components/ui/ProfileSkeleton.tsx` with three exports: `AvatarSkeleton` (circle for sm/md, rounded-2xl for lg), `NameSkeleton` (~80px pill), and `RoleSkeleton` (~60px pill) — all Tailwind `animate-pulse bg-muted`. Applied `isLoading || !profile` guards to three components: `TopBar.tsx` (avatar button + dropdown name/email block), `Sidebar.tsx` (bottom-bar avatar + name), and `AgentProfile.tsx` (hero card avatar + name + role row). Auth fetch logic, Supabase queries, RLS, and dialer code untouched. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Profile Loading Race Fix (2026-04-14)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **New file** | `src/components/ui/ProfileSkeleton.tsx` — `AvatarSkeleton` (sm/md/lg), `NameSkeleton`, `RoleSkeleton` |
+  | **Skeleton guard pattern** | `isLoading \|\| !profile` — covers both the `isLoading=true` window AND the brief race where `INITIAL_SESSION` fires before `fetchProfile` resolves |
+  | **TopBar.tsx** | Avatar button → `<AvatarSkeleton size="sm" />` while loading; dropdown name/email → `<NameSkeleton>` pair while loading |
+  | **Sidebar.tsx** | Bottom-bar avatar + name → skeleton pair while loading |
+  | **AgentProfile.tsx** | Hero card avatar → `<AvatarSkeleton size="lg" />`, name/role → `<NameSkeleton>` + `<RoleSkeleton>` while loading |
+  | **Not touched** | AuthContext fetch logic, `fetchProfile`, `setIsLoading` calls, Supabase queries, RLS, dialer code, data-heavy pages |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/fix-profile-loading-race-1k4f4` |
+
 - **2026-04-14 | [DONE] Fix useEffect onCall dependency — double Telnyx init bug**
   *What:* The `open` useEffect in `FloatingDialer.tsx` had `onCall` in its dependency array so that `telnyxDestroy()` could be guarded on close. This caused `telnyxInitialize()` to fire a second time whenever a call started, double-registering the Telnyx WebRTC client and breaking SIP registration. Fix: extracted a `onCallRef = useRef(false)` + a one-liner sync effect (`useEffect(() => { onCallRef.current = onCall; }, [onCall])`) so the `open` effect can read the current call state without `onCall` as a dependency. The `open` effect now only has `[open, telnyxInitialize, telnyxDestroy]` in its dep array, guaranteeing `telnyxInitialize()` fires exactly once per open toggle. The `dialer-call-state-change` dispatch effect is untouched. `tsc --noEmit` clean. *No schema changes.*
 

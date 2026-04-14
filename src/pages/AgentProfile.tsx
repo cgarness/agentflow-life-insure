@@ -17,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { AvatarSkeleton, NameSkeleton, RoleSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,7 +39,7 @@ const ACCENT_COLORS = [
 ];
 
 const AgentProfile: React.FC = () => {
-  const { profile, user } = useAuth();
+  const { profile, user, isLoading } = useAuth();
 
   const firstName = profile?.first_name || "Agent";
   const lastName = profile?.last_name || "Profile";
@@ -165,23 +166,34 @@ const AgentProfile: React.FC = () => {
           <div className="relative grid gap-6 lg:grid-cols-[1fr_auto] lg:items-start">
             <div className="space-y-5">
               <div className="flex items-start gap-4">
-                {profile?.avatar_url ? (
+                {/* Avatar */}
+                {isLoading || !profile ? (
+                  <AvatarSkeleton size="lg" />
+                ) : profile.avatar_url ? (
                   <img src={profile.avatar_url} alt={`${firstName} ${lastName}`} className="h-16 w-16 rounded-2xl border border-primary/30 object-cover" />
                 ) : (
                   <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10 text-lg font-semibold text-primary">
-                    {profile ? initials : <UserRound className="h-8 w-8" />}
+                    {initials}
                   </div>
                 )}
-                <div>
-                  <h1 className="text-2xl font-semibold text-foreground md:text-3xl">{firstName} {lastName}</h1>
-                  <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                    <BriefcaseBusiness className="h-4 w-4" />
-                    {role}
-                    {commissionLevel && commissionLevel !== "0%" && (
-                      <span className="text-xs text-primary">• {commissionLevel} commission</span>
-                    )}
-                  </p>
-                </div>
+                {/* Name / Role */}
+                {isLoading || !profile ? (
+                  <div className="flex flex-col gap-2 pt-1">
+                    <NameSkeleton className="h-7 w-40" />
+                    <RoleSkeleton className="h-4 w-24" />
+                  </div>
+                ) : (
+                  <div>
+                    <h1 className="text-2xl font-semibold text-foreground md:text-3xl">{firstName} {lastName}</h1>
+                    <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                      <BriefcaseBusiness className="h-4 w-4" />
+                      {role}
+                      {commissionLevel && commissionLevel !== "0%" && (
+                        <span className="text-xs text-primary">• {commissionLevel} commission</span>
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="grid gap-2 text-sm sm:grid-cols-2">

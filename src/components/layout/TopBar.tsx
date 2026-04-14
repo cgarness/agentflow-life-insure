@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { AvatarSkeleton, NameSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -76,7 +77,7 @@ function timeAgo(dateStr: string): string {
 
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
-  const { user, profile, logout, isImpersonating, impersonatedUser } = useAuth();
+  const { user, profile, logout, isLoading, isImpersonating, impersonatedUser } = useAuth();
   const [viewAsOpen, setViewAsOpen] = useState(false);
   const [dialerOnCall, setDialerOnCall] = useState(false);
 
@@ -297,14 +298,27 @@ const TopBar: React.FC = () => {
 
           {/* User Avatar */}
           <div className="relative">
+            {isLoading || !profile ? (
+              <AvatarSkeleton size="sm" />
+            ) : (
             <button onClick={() => setUserDropdown(!userDropdown)} className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold hover:ring-2 hover:ring-primary/30 sidebar-transition">
-              {profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}
+              {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
             </button>
+            )}
             {userDropdown && (
               <div className="absolute right-0 top-full mt-2 w-48 bg-card border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-3 py-2 border-b">
-                  <p className="text-sm font-medium text-foreground">{profile?.first_name} {profile?.last_name}</p>
-                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  {isLoading || !profile ? (
+                    <div className="flex flex-col gap-1.5 py-0.5">
+                      <NameSkeleton />
+                      <NameSkeleton className="w-28 h-3" />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-foreground">{profile.first_name} {profile.last_name}</p>
+                      <p className="text-xs text-muted-foreground">{user?.email}</p>
+                    </>
+                  )}
                 </div>
                 <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
                 <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
