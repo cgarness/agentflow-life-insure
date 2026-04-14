@@ -1,4 +1,5 @@
 import React from "react";
+import { AvatarSkeleton, NameSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { 
   ChevronLeft, ChevronRight, Sun, Moon, ArrowLeft, ShieldAlert,
@@ -32,7 +33,7 @@ const MAIN_MENU = [
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { theme, setTheme } = useTheme();
-  const { profile } = useAuth();
+  const { profile, isLoading } = useAuth();
   const { branding } = useBranding();
   const { isSuperAdmin } = useOrganization();
   const location = useLocation();
@@ -81,12 +82,21 @@ const Sidebar: React.FC = () => {
     </button>
     {!collapsed && (
       <div className="flex items-center gap-3 px-3 py-2">
-        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">
-          {profile ? `${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}` : "??"}
-        </div>
-        <div className="min-w-0 font-medium truncate text-slate-100">
-          {profile ? `${profile.first_name} ${profile.last_name}` : "Guest"}
-        </div>
+        {isLoading || !profile ? (
+          <>
+            <AvatarSkeleton size="sm" className="shrink-0" />
+            <NameSkeleton className="w-24" />
+          </>
+        ) : (
+          <>
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+              {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
+            </div>
+            <div className="min-w-0 font-medium truncate text-slate-100">
+              {`${profile.first_name} ${profile.last_name}`}
+            </div>
+          </>
+        )}
       </div>
     )}
     <button onClick={toggle} className="flex items-center justify-center w-full py-2 text-slate-500 hover:text-slate-100 transition-colors">
