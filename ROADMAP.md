@@ -60,6 +60,26 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-14 | [DONE] Floating dialer minimize button + TopBar live-call indicator**
+  *What:* Added a minimize button (Minus icon) to the FloatingDialer panel header, left of the existing close (X) button. When clicked, the full panel collapses to a 240px compact strip showing the contact name (or "Dialer"), a pulsing green dot and call timer when `onCall` is true, a ChevronUp restore button, and a close button — all while keeping the panel mounted in the DOM so the Telnyx WebRTC client and call state are fully preserved. Added `destroyClient: telnyxDestroy` to the `useTelnyx()` destructure and updated the open/close `useEffect` to only destroy the Telnyx client on panel close when not mid-call (`if (!onCall) telnyxDestroy()`). Added a `useEffect` that dispatches `dialer-call-state-change` (CustomEvent with `{ onCall }`) on every `onCall` state change. Added a `useEffect` that resets `minimized` to `false` whenever `open` becomes false. In TopBar, added `dialerOnCall` state, a `useEffect` that listens to `dialer-call-state-change`, and conditional button rendering: when `dialerOnCall` is true the button switches to `bg-red-500`, uses `PhoneCall` with `animate-pulse`, shows "On Call", and adds an absolute `bg-green-400 animate-ping` dot; when false it reverts to the original `bg-green-500 / Phone / "Dialer"` style. No React Context, Zustand store, or Supabase changes. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Dialer Minimize Button & TopBar Live-Call Indicator (2026-04-14)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **New state — `FloatingDialer`** | `minimized: boolean` (init `false`) — controls whether compact strip or full panel is rendered |
+  | **New state — `TopBar`** | `dialerOnCall: boolean` (init `false`) — mirrors FloatingDialer's `onCall` via window event |
+  | **Event fired** | `window.dispatchEvent(new CustomEvent('dialer-call-state-change', { detail: { onCall } }))` — fired from FloatingDialer on every `onCall` change |
+  | **Event consumed** | TopBar `useEffect` adds/removes `dialer-call-state-change` listener; sets `dialerOnCall` from `detail.onCall` |
+  | **Minimize button** | `Minus` icon, `w-7 h-7 rounded-md` style, left of close X in panel header; sets `minimized(true)`, does NOT close panel |
+  | **Minimized strip** | `w-[240px]` panel, `px-3 py-2`, draggable; shows pulsing green dot + contact name / "Dialer" + call timer when on a call; ChevronUp restores, X closes |
+  | **Close guard** | `useEffect([open])` resets `minimized → false` whenever panel closes; `useEffect([open, onCall])` calls `telnyxDestroy()` on close only when `!onCall` |
+  | **TopBar Dialer button — idle** | `bg-green-500 hover:bg-green-600`, `Phone` icon, "Dialer" label, no dot |
+  | **TopBar Dialer button — on call** | `bg-red-500 hover:bg-red-600`, `PhoneCall animate-pulse` icon, "On Call" label, absolute `bg-green-400 animate-ping` dot |
+  | **What's next** | Voicemail drop button wiring; per-agent inbound SIP credential lookup; `dial_sessions` telemetry integration |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/add-dialer-minimize-button-mUX6B` |
+
 - **2026-04-13 | [DONE] Remove per-DID cooldown from caller ID selection**
   *What:* Deleted the 10-second `CALLER_ID_COOLDOWN_MS` cooldown gate from `isEligibleStrict` in `src/lib/caller-id-selection.ts`. Daily cap + LRU rotation are sufficient to prevent rapid-fire same-number dialing; the hard cooldown was unnecessarily restrictive. Removed `pastCooldown()` helper, `cooldownMs` field from `SelectCallerIdInput`, and replaced the constant with a comment. Updated `TelnyxContext.tsx` to drop the `CALLER_ID_COOLDOWN_MS` import and `cooldownMs` pass-through (keeping `didLastUsedAtRef` stamp intact for LRU ordering). Replaced stale cooldown-specific tests in `caller-id-selection.test.ts` with daily-cap tests. `tsc --noEmit` clean. *No schema changes.*
 
