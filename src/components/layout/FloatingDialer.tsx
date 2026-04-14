@@ -165,6 +165,7 @@ const FloatingDialer: React.FC = () => {
 
   // --- Call state ---
   const [onCall, setOnCall] = useState(false);
+  const onCallRef = useRef(false);
   const [callSeconds, setCallSeconds] = useState(0);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
 
@@ -227,6 +228,9 @@ const FloatingDialer: React.FC = () => {
     return () => clearInterval(timer);
   }, [onCall]);
 
+  // Keep onCallRef in sync so the open effect can read the current value without a dependency.
+  useEffect(() => { onCallRef.current = onCall; }, [onCall]);
+
   // Fire call state change event for TopBar live-call indicator
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('dialer-call-state-change', { detail: { onCall } }));
@@ -239,6 +243,7 @@ const FloatingDialer: React.FC = () => {
 
   // Open: ensure Telnyx is initialized (idempotent — will not disconnect an existing live client).
   // Close: destroy client only when not mid-call to preserve active call state.
+  // onCall is intentionally read via ref to avoid re-running init on every call state change.
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => setIsVisible(true), 0);
@@ -246,9 +251,10 @@ const FloatingDialer: React.FC = () => {
       return () => clearTimeout(t);
     } else {
       setIsVisible(false);
-      if (!onCall) telnyxDestroy();
+      if (!onCallRef.current) telnyxDestroy();
+      setMinimized(false);
     }
-  }, [open, telnyxInitialize, telnyxDestroy, onCall]);
+  }, [open, telnyxInitialize, telnyxDestroy]);
 
   // Fetch dispositions for post-call
   useEffect(() => {
