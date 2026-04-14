@@ -60,6 +60,22 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-14 | [DONE] Fix useEffect onCall dependency — double Telnyx init bug**
+  *What:* The `open` useEffect in `FloatingDialer.tsx` had `onCall` in its dependency array so that `telnyxDestroy()` could be guarded on close. This caused `telnyxInitialize()` to fire a second time whenever a call started, double-registering the Telnyx WebRTC client and breaking SIP registration. Fix: extracted a `onCallRef = useRef(false)` + a one-liner sync effect (`useEffect(() => { onCallRef.current = onCall; }, [onCall])`) so the `open` effect can read the current call state without `onCall` as a dependency. The `open` effect now only has `[open, telnyxInitialize, telnyxDestroy]` in its dep array, guaranteeing `telnyxInitialize()` fires exactly once per open toggle. The `dialer-call-state-change` dispatch effect is untouched. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Fix useEffect onCall dependency (2026-04-14)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Root cause** | `onCall` was in the `open` useEffect dep array; any call-state change re-ran the effect and re-called `telnyxInitialize()` mid-call |
+  | **Fix — new ref** | `const onCallRef = useRef(false)` declared alongside the `onCall` state (line 168) |
+  | **Fix — sync effect** | `useEffect(() => { onCallRef.current = onCall; }, [onCall])` — keeps ref current without adding `onCall` to the open effect |
+  | **Fix — open effect deps** | Changed from `[open, telnyxInitialize, telnyxDestroy, onCall]` → `[open, telnyxInitialize, telnyxDestroy]` |
+  | **Guard preserved** | `if (!onCallRef.current) telnyxDestroy()` in the `else` branch — identical semantics, zero double-init risk |
+  | **dialer-call-state-change** | Separate `useEffect([onCall])` untouched |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/fix-useeffect-oncall-dependency-xj6IT` |
+
 - **2026-04-14 | [DONE] Floating dialer minimize button + TopBar live-call indicator**
   *What:* Added a minimize button (Minus icon) to the FloatingDialer panel header, left of the existing close (X) button. When clicked, the full panel collapses to a 240px compact strip showing the contact name (or "Dialer"), a pulsing green dot and call timer when `onCall` is true, a ChevronUp restore button, and a close button — all while keeping the panel mounted in the DOM so the Telnyx WebRTC client and call state are fully preserved. Added `destroyClient: telnyxDestroy` to the `useTelnyx()` destructure and updated the open/close `useEffect` to only destroy the Telnyx client on panel close when not mid-call (`if (!onCall) telnyxDestroy()`). Added a `useEffect` that dispatches `dialer-call-state-change` (CustomEvent with `{ onCall }`) on every `onCall` state change. Added a `useEffect` that resets `minimized` to `false` whenever `open` becomes false. In TopBar, added `dialerOnCall` state, a `useEffect` that listens to `dialer-call-state-change`, and conditional button rendering: when `dialerOnCall` is true the button switches to `bg-red-500`, uses `PhoneCall` with `animate-pulse`, shows "On Call", and adds an absolute `bg-green-400 animate-ping` dot; when false it reverts to the original `bg-green-500 / Phone / "Dialer"` style. No React Context, Zustand store, or Supabase changes. `tsc --noEmit` clean. *No schema changes.*
 
