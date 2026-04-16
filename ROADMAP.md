@@ -60,6 +60,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-16 | [DONE] Hotfix: JSX syntax error in pagination footer (middot entity)**
+  *What:* The `·` literal middle-dot character in all three pagination footer `<p>` tags (Leads, Clients, Recruits) was causing a JSX parse error at build time. Replaced with `&middot;` HTML entity in `src/pages/Contacts.tsx`. `tsc --noEmit` clean. *No schema changes.*
+
 - **2026-04-16 | [DONE] Contacts page server-side pagination (50/page)**
   *What:* Replaced unbounded fetches on the Contacts page (Leads, Clients, Recruits tabs) with server-side pagination at 50 records per page. `leadsSupabaseApi.getAll`, `clientsSupabaseApi.getAll`, and `recruitsSupabaseApi.getAll` now return `{ data, totalCount }`. Added `page`/`pageSize` params to each API. Added `getById` to `clientsSupabaseApi` and `recruitsSupabaseApi` for deep-link fallback. Contacts.tsx gains page state, totalCount state, a filter-change reset effect, updated `fetchData` dependencies, and Previous/Next pagination footers for all three tables. Agents tab excluded (low-volume, separate users query). `tsc --noEmit` clean. *No schema changes.*
 
