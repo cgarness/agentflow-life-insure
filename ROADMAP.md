@@ -1378,3 +1378,11 @@ A terminal-grade technical architecture document (`docs/CAMPAIGN_AND_DIALER_ARCH
 
 ### What's Next
 This document should be the first file read by any agent tasking with "Dialer" or "Campaign" modifications. It serves as a guard against architectural regression during future SaaS graduation steps.
+
+---
+
+## 20. Work Log
+
+| Date | Status | Notes |
+|---|---|---|
+| 2026-04-16 | [DONE] | Hotfix: JSX pagination footer — template literal fix for Unicode separator |

@@ -1519,7 +1519,7 @@ const Contacts: React.FC = () => {
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <p className="text-xs text-muted-foreground">
-                  {leadsTotalCount} total &middot; Page {leadsPage + 1} of {Math.ceil(leadsTotalCount / PAGE_SIZE) || 1}
+                  {`${leadsTotalCount} total \u00B7 Page ${leadsPage + 1} of ${Math.ceil(leadsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled={leadsPage === 0} onClick={() => { setLeadsPage(p => p - 1); setSelectedIds(new Set()); }}>Previous</Button>
@@ -1605,7 +1605,7 @@ const Contacts: React.FC = () => {
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <p className="text-xs text-muted-foreground">
-                  {clientsTotalCount} total &middot; Page {clientsPage + 1} of {Math.ceil(clientsTotalCount / PAGE_SIZE) || 1}
+                  {`${clientsTotalCount} total \u00B7 Page ${clientsPage + 1} of ${Math.ceil(clientsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled={clientsPage === 0} onClick={() => { setClientsPage(p => p - 1); setSelectedClientIds(new Set()); }}>Previous</Button>
@@ -1660,7 +1660,7 @@ const Contacts: React.FC = () => {
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <p className="text-xs text-muted-foreground">
-                  {recruitsTotalCount} total &middot; Page {recruitsPage + 1} of {Math.ceil(recruitsTotalCount / PAGE_SIZE) || 1}
+                  {`${recruitsTotalCount} total \u00B7 Page ${recruitsPage + 1} of ${Math.ceil(recruitsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled={recruitsPage === 0} onClick={() => { setRecruitsPage(p => p - 1); setSelectedRecruitIds(new Set()); }}>Previous</Button>
