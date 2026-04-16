@@ -16,38 +16,56 @@ export const leadsSupabaseApi = {
     lastDisposition?: string;
     callableNow?: boolean;
     assignedAgentIds?: string[];
-  }): Promise<Lead[]> {
-    let query = supabase
-      .from("leads")
-      .select(`
-        *,
-        calls(status, created_at)
-      `)
-      .order("created_at", { ascending: false });
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ data: Lead[]; totalCount: number }> {
+    const page = filters?.page ?? 0;
+    const pageSize = filters?.pageSize ?? 50;
 
-    if (filters?.status) query = query.eq("status", filters.status);
-    if (filters?.source) query = query.eq("lead_source", filters.source);
-    if (filters?.state) query = query.eq("state", filters.state);
-    if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-      query = filters.assignedAgentIds.length === 1
-        ? query.eq("user_id", filters.assignedAgentIds[0])
-        : query.in("user_id", filters.assignedAgentIds);
-    }
-    
-    if (filters?.startDate) query = query.gte("created_at", filters.startDate);
-    if (filters?.endDate) query = query.lte("created_at", filters.endDate);
+    // Build a helper that applies all server-side filters to any query builder
+    const applyServerFilters = (q: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (filters?.status) q = q.eq("status", filters.status);
+      if (filters?.source) q = q.eq("lead_source", filters.source);
+      if (filters?.state) q = q.eq("state", filters.state);
+      if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+        q = filters.assignedAgentIds.length === 1
+          ? q.eq("user_id", filters.assignedAgentIds[0])
+          : q.in("user_id", filters.assignedAgentIds);
+      }
+      if (filters?.startDate) q = q.gte("created_at", filters.startDate);
+      if (filters?.endDate) q = q.lte("created_at", filters.endDate);
+      if (filters?.search) {
+        const s = filters.search;
+        q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
+      }
+      return q;
+    };
 
-    if (filters?.search) {
-      const q = filters.search;
-      query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`);
-    }
+    // Count query — server-side filters only, no range
+    const countQuery = applyServerFilters(
+      supabase.from("leads").select("id", { count: "exact", head: true })
+    );
+    const { count: totalCount, error: countError } = await countQuery;
+    if (countError) throw new Error(countError.message);
 
-    const { data, error } = await query;
+    // Two-pass fetch: over-fetch to absorb client-side filter shrinkage
+    // (timezones, attemptCounts, callableNow, lastDisposition are all client-side)
+    const batchSize = pageSize * 5;
+    const batchOffset = page * batchSize;
+    let dataQuery = applyServerFilters(
+      supabase
+        .from("leads")
+        .select(`*, calls(status, created_at)`)
+        .order("created_at", { ascending: false })
+    );
+    dataQuery = dataQuery.range(batchOffset, batchOffset + batchSize - 1);
+
+    const { data, error } = await dataQuery;
     if (error) throw new Error(error.message);
 
     let processedLeads = (data ?? []).map(rowToLead);
 
-    // Apply client-side filters for complex logic (timezones, attempt count, disposition)
+    // Client-side: timezones require getPrimaryTimezoneGroup state→tz logic
     if (filters?.timezones && filters.timezones.length > 0) {
       processedLeads = processedLeads.filter(l => {
         const group = getPrimaryTimezoneGroup(l.state);
@@ -55,26 +73,29 @@ export const leadsSupabaseApi = {
       });
     }
 
+    // Client-side: attemptCounts requires computed count from related calls rows
     if (filters?.attemptCounts && filters.attemptCounts.length > 0) {
       processedLeads = processedLeads.filter(l => {
         const count = l.attemptCount || 0;
         if (filters.attemptCounts?.includes("0") && count === 0) return true;
         if (filters.attemptCounts?.includes("1-3") && count >= 1 && count <= 3) return true;
         if (filters.attemptCounts?.includes("5+") && count >= 5) return true;
-        // Handle other possible ranges from UI if needed
         return false;
       });
     }
 
+    // Client-side: lastDisposition is derived from the most recent call row, not a stored column
+    // TODO: move to server when a last_disposition column exists on leads
     if (filters?.lastDisposition) {
       processedLeads = processedLeads.filter(l => l.lastDisposition === filters.lastDisposition);
     }
 
+    // Client-side: callableNow requires isCallableNow time-of-day logic
     if (filters?.callableNow) {
       processedLeads = processedLeads.filter(l => isCallableNow(l.state));
     }
 
-    return processedLeads;
+    return { data: processedLeads.slice(0, pageSize), totalCount: totalCount ?? 0 };
   },
 
   async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> { // eslint-disable-line @typescript-eslint/no-explicit-any

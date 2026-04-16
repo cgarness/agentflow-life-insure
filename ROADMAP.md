@@ -60,6 +60,29 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-16 | [DONE] Contacts page server-side pagination (50/page)**
+  *What:* Replaced unbounded fetches on the Contacts page (Leads, Clients, Recruits tabs) with server-side pagination at 50 records per page. `leadsSupabaseApi.getAll`, `clientsSupabaseApi.getAll`, and `recruitsSupabaseApi.getAll` now return `{ data, totalCount }`. Added `page`/`pageSize` params to each API. Added `getById` to `clientsSupabaseApi` and `recruitsSupabaseApi` for deep-link fallback. Contacts.tsx gains page state, totalCount state, a filter-change reset effect, updated `fetchData` dependencies, and Previous/Next pagination footers for all three tables. Agents tab excluded (low-volume, separate users query). `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Contacts Page Pagination (2026-04-16)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **supabase-contacts.ts** | `leadsSupabaseApi.getAll` — added `page`/`pageSize` params; two-pass fetch (batch `pageSize*5` at offset `page*pageSize*5`); separate count query; returns `{ data: Lead[]; totalCount: number }` |
+  | **lastDisposition** | Stays **client-side** — derived from most-recent `calls` join row, not a stored column on `leads`. TODO comment added for when `last_disposition` column exists. |
+  | **attemptCounts** | Stays **client-side** — requires computed count from related `calls` rows. |
+  | **timezones** | Stays **client-side** — requires `getPrimaryTimezoneGroup` state→tz mapping logic. |
+  | **callableNow** | Stays **client-side** — requires `isCallableNow` time-of-day logic. |
+  | **supabase-clients.ts** | `clientsSupabaseApi.getAll` — no client-side filters, uses `.range()` directly; returns `{ data: Client[]; totalCount: number }`. Added `getById`. |
+  | **supabase-recruits.ts** | `recruitsSupabaseApi.getAll` — no client-side filters, uses `.range()` directly; returns `{ data: Recruit[]; totalCount: number }`. Added `getById`. |
+  | **Contacts.tsx — state** | `PAGE_SIZE=50`; `leadsPage`, `clientsPage`, `recruitsPage` (0-indexed); `leadsTotalCount`, `clientsTotalCount`, `recruitsTotalCount` |
+  | **Contacts.tsx — filter reset** | `useEffect` watching all filter deps resets all three page states to 0 |
+  | **Contacts.tsx — fetchData** | Passes `page`/`pageSize` to each API; destructures `{ data, totalCount }`; page states in dep array |
+  | **Contacts.tsx — deep-link fallback** | After main fetch, if `pendingContactId` not found on current page, calls `getById` (leads → clients → recruits chain) and opens contact directly |
+  | **Contacts.tsx — UI** | Previous/Next footer added below each table (Leads, Clients, Recruits); shows "N total · Page X of Y"; clears selection on page change |
+  | **Two-pass note** | Over-fetch factor of 5 is a heuristic — pages with heavy client-side filtering may show fewer than 50 rows. Acceptable tradeoff until server-side disposition/timezone columns exist. |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/add-contacts-pagination-fP1ya` |
+
 - **2026-04-14 | [DONE] Dialer disposition actions — Supabase alignment (remove-from-campaign status)**
   *Verify:* Reviewed migrations + RLS vs `DialerPage` / `dialer-api` (no live DB run — Supabase CLI not available in this environment). *Bug:* **Remove from campaign** wrote `campaign_leads.status = 'removed'` while `getCampaignLeads` terminal filter used **`Removed`** only, so removed rows could reappear after reload. *Fix:* write **`Removed`**; check `{ error }` from update; add lowercase **`removed`** to `TERMINAL_STATUSES` in **`dialer-api.ts`** and **`DialerPage`** for legacy rows. Enterprise RPCs already excluded both spellings.
 

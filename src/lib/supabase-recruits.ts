@@ -6,31 +6,52 @@ export const recruitsSupabaseApi = {
         search?: string;
         state?: string;
         assignedAgentIds?: string[];
-    }): Promise<Recruit[]> {
-        let query = (supabase as any)
-            .from("recruits")
-            .select("*")
-            .order("created_at", { ascending: false });
-
+        page?: number;
+        pageSize?: number;
+    }): Promise<{ data: Recruit[]; totalCount: number }> {
         // Support both legacy string-only search and new filter object
         const filters = typeof searchOrFilters === "string"
             ? { search: searchOrFilters }
             : searchOrFilters;
 
-        if (filters?.search) {
-            const q = filters.search;
-            query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`);
-        }
-        if (filters?.state) query = query.eq("state", filters.state);
-        if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-            query = filters.assignedAgentIds.length === 1
-                ? query.eq("assigned_agent_id", filters.assignedAgentIds[0])
-                : query.in("assigned_agent_id", filters.assignedAgentIds);
-        }
+        const page = filters?.page ?? 0;
+        const pageSize = filters?.pageSize ?? 50;
+
+        const applyFilters = (q: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (filters?.search) {
+                const s = filters.search;
+                q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
+            }
+            if (filters?.state) q = q.eq("state", filters.state);
+            if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+                q = filters.assignedAgentIds.length === 1
+                    ? q.eq("assigned_agent_id", filters.assignedAgentIds[0])
+                    : q.in("assigned_agent_id", filters.assignedAgentIds);
+            }
+            return q;
+        };
+
+        const { count: totalCount, error: countError } = await applyFilters(
+            (supabase as any).from("recruits").select("id", { count: "exact", head: true })
+        );
+        if (countError) throw new Error(countError.message);
+
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        let query = applyFilters(
+            (supabase as any).from("recruits").select("*").order("created_at", { ascending: false })
+        );
+        query = query.range(from, to);
 
         const { data, error } = await query;
         if (error) throw new Error(error.message);
-        return (data ?? []).map(rowToRecruit);
+        return { data: (data ?? []).map(rowToRecruit), totalCount: totalCount ?? 0 };
+    },
+
+    async getById(id: string): Promise<Recruit> {
+        const { data, error } = await (supabase as any).from("recruits").select("*").eq("id", id).maybeSingle();
+        if (error) throw new Error(error.message);
+        return rowToRecruit(data);
     },
 
     async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Recruit> {
