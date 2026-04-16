@@ -238,6 +238,15 @@ const Contacts: React.FC = () => {
   const [downlineAgentIds, setDownlineAgentIds] = useState<string[]>([]);
   const [downlineAgents, setDownlineAgents] = useState<DownlineAgent[]>([]);
 
+  const PAGE_SIZE = 50;
+
+  const [leadsPage, setLeadsPage] = useState(0);
+  const [clientsPage, setClientsPage] = useState(0);
+  const [recruitsPage, setRecruitsPage] = useState(0);
+  const [leadsTotalCount, setLeadsTotalCount] = useState(0);
+  const [clientsTotalCount, setClientsTotalCount] = useState(0);
+  const [recruitsTotalCount, setRecruitsTotalCount] = useState(0);
+
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -263,7 +272,7 @@ const Contacts: React.FC = () => {
       // RLS hierarchical policies (Team Leader, Admin) return ALL accessible records.
       // FORCE filter for current user if they are an Agent to comply with visibility fix.
       let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
-      
+
       if (!agentIdFilter && user?.role === "Agent" && user?.id) {
         agentIdFilter = [user.id];
       }
@@ -280,6 +289,8 @@ const Contacts: React.FC = () => {
         attemptCounts: attemptCountFilters,
         lastDisposition: lastDispositionFilter,
         assignedAgentIds: agentIdFilter,
+        page: leadsPage,
+        pageSize: PAGE_SIZE,
       };
 
       const clientFilters = {
@@ -287,24 +298,36 @@ const Contacts: React.FC = () => {
         state: stateFilter,
         policyType: policyTypeFilter,
         assignedAgentIds: agentIdFilter,
+        page: clientsPage,
+        pageSize: PAGE_SIZE,
       };
 
       const recruitFilters = {
         search: searchQuery,
         state: stateFilter,
         assignedAgentIds: agentIdFilter,
+        page: recruitsPage,
+        pageSize: PAGE_SIZE,
       };
 
-      const [leadData, clientData, recruitData, agentData, stats] = await Promise.all([
-        leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); toast.error(`Failed to load leads: ${e.message}`); return []; }),
-        clientsSupabaseApi.getAll(clientFilters).catch(e => { console.error("Error fetching clients:", e); return []; }),
-        recruitsSupabaseApi.getAll(recruitFilters).catch(e => { console.error("Error fetching recruits:", e); return []; }),
+      const [leadResult, clientResult, recruitResult, agentData, stats] = await Promise.all([
+        leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); toast.error(`Failed to load leads: ${e.message}`); return { data: [] as Lead[], totalCount: 0 }; }),
+        clientsSupabaseApi.getAll(clientFilters).catch(e => { console.error("Error fetching clients:", e); return { data: [] as Client[], totalCount: 0 }; }),
+        recruitsSupabaseApi.getAll(recruitFilters).catch(e => { console.error("Error fetching recruits:", e); return { data: [] as Recruit[], totalCount: 0 }; }),
         usersApi.getAll({ search: searchQuery }).catch(e => { console.error("Error fetching agents:", e); return []; }),
         leadsSupabaseApi.getSourceStats().catch(e => { console.error("Error fetching lead stats:", e); return []; }),
       ]);
+
+      const leadData = leadResult.data;
+      const clientData = clientResult.data;
+      const recruitData = recruitResult.data;
+
       setLeads(leadData);
+      setLeadsTotalCount(leadResult.totalCount);
       setClients(clientData);
+      setClientsTotalCount(clientResult.totalCount);
       setRecruits(recruitData);
+      setRecruitsTotalCount(recruitResult.totalCount);
       setAgents(agentData);
       setSourceStats(stats);
 
@@ -328,14 +351,40 @@ const Contacts: React.FC = () => {
         const next = agentData.find((u) => u.id === prev.id);
         return next ?? prev;
       });
-      console.log(`fetchData: Load complete. Leads: ${leadData.length}, Clients: ${clientData.length}, Recruits: ${recruitData.length}`);
+
+      // Deep-link fallback: if pendingContactId is not in the current page, fetch directly by ID
+      const pendingId = pendingContactId.current;
+      if (pendingId) {
+        const inLeads = leadData.find(l => l.id === pendingId);
+        const inClients = clientData.find(c => c.id === pendingId);
+        const inRecruits = recruitData.find(r => r.id === pendingId);
+        if (!inLeads && !inClients && !inRecruits) {
+          // Try each contact type until one resolves
+          leadsSupabaseApi.getById(pendingId).then(res => {
+            setSelectedLead(res.lead);
+            pendingContactId.current = null;
+          }).catch(() => {
+            clientsSupabaseApi.getById(pendingId).then(client => {
+              setSelectedClient(client);
+              pendingContactId.current = null;
+            }).catch(() => {
+              recruitsSupabaseApi.getById(pendingId).then(recruit => {
+                setSelectedRecruit(recruit);
+                pendingContactId.current = null;
+              }).catch(() => { /* contact not found */ });
+            });
+          });
+        }
+      }
+
+      console.log(`fetchData: Load complete. Leads: ${leadData.length}/${leadResult.totalCount}, Clients: ${clientData.length}/${clientResult.totalCount}, Recruits: ${recruitData.length}/${recruitResult.totalCount}`);
     } catch (err: any) {
       console.error("fetchData: Failed to load contacts data:", err);
       toast.error(`Critical Error: ${err.message || "Failed to fetch contacts"}`);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds]);
+  }, [user?.id, isBuildingOrganization, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -732,6 +781,13 @@ const Contacts: React.FC = () => {
 
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Reset pages to 0 whenever any filter changes (not when page itself changes)
+  useEffect(() => {
+    setLeadsPage(0);
+    setClientsPage(0);
+    setRecruitsPage(0);
+  }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds]);
 
   // Fetch pipeline stage colors and names from settings
   useEffect(() => {
@@ -1461,6 +1517,15 @@ const Contacts: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <p className="text-xs text-muted-foreground">
+                  {leadsTotalCount} total &middot; Page {leadsPage + 1} of {Math.ceil(leadsTotalCount / PAGE_SIZE) || 1}
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={leadsPage === 0} onClick={() => { setLeadsPage(p => p - 1); setSelectedIds(new Set()); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={leadsPage >= Math.ceil(leadsTotalCount / PAGE_SIZE) - 1} onClick={() => { setLeadsPage(p => p + 1); setSelectedIds(new Set()); }}>Next</Button>
+                </div>
+              </div>
             )}
           </div>
         </>
@@ -1538,6 +1603,15 @@ const Contacts: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <p className="text-xs text-muted-foreground">
+                  {clientsTotalCount} total &middot; Page {clientsPage + 1} of {Math.ceil(clientsTotalCount / PAGE_SIZE) || 1}
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={clientsPage === 0} onClick={() => { setClientsPage(p => p - 1); setSelectedClientIds(new Set()); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={clientsPage >= Math.ceil(clientsTotalCount / PAGE_SIZE) - 1} onClick={() => { setClientsPage(p => p + 1); setSelectedClientIds(new Set()); }}>Next</Button>
+                </div>
+              </div>
             )}
           </div>
         </>
@@ -1583,6 +1657,15 @@ const Contacts: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 border-t">
+                <p className="text-xs text-muted-foreground">
+                  {recruitsTotalCount} total &middot; Page {recruitsPage + 1} of {Math.ceil(recruitsTotalCount / PAGE_SIZE) || 1}
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={recruitsPage === 0} onClick={() => { setRecruitsPage(p => p - 1); setSelectedRecruitIds(new Set()); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={recruitsPage >= Math.ceil(recruitsTotalCount / PAGE_SIZE) - 1} onClick={() => { setRecruitsPage(p => p + 1); setSelectedRecruitIds(new Set()); }}>Next</Button>
+                </div>
               </div>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-4 p-3">
