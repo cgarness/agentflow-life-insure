@@ -60,6 +60,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-16 | [DONE] Hotfix: structural JSX fix Contacts.tsx line 1520 — diagnosed and resolved root cause**
+  *What:* Three tabs (Leads, Clients, Recruits) had two sibling `<div>` elements inside a ternary expression arm without a fragment wrapper, causing esbuild "Expected ) but found className" at the pagination footer div. Wrapped each pair in `<>...</>`. `tsc --noEmit` clean, `npm run build` successful. *No schema changes.*
+
 - **2026-04-16 | [DONE] Hotfix: JSX syntax error in pagination footer (middot entity)**
   *What:* The `·` literal middle-dot character in all three pagination footer `<p>` tags (Leads, Clients, Recruits) was causing a JSX parse error at build time. Replaced with `&middot;` HTML entity in `src/pages/Contacts.tsx`. `tsc --noEmit` clean. *No schema changes.*
 

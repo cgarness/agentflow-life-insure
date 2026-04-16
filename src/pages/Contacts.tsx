@@ -1490,6 +1490,7 @@ const Contacts: React.FC = () => {
                 <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Lead</button>
               </div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
@@ -1526,6 +1527,7 @@ const Contacts: React.FC = () => {
                   <Button variant="outline" size="sm" disabled={leadsPage >= Math.ceil(leadsTotalCount / PAGE_SIZE) - 1} onClick={() => { setLeadsPage(p => p + 1); setSelectedIds(new Set()); }}>Next</Button>
                 </div>
               </div>
+              </>
             )}
           </div>
         </>
@@ -1579,6 +1581,7 @@ const Contacts: React.FC = () => {
                 <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Client</button>
               </div>
             ) : (
+              <>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
@@ -1612,6 +1615,7 @@ const Contacts: React.FC = () => {
                   <Button variant="outline" size="sm" disabled={clientsPage >= Math.ceil(clientsTotalCount / PAGE_SIZE) - 1} onClick={() => { setClientsPage(p => p + 1); setSelectedClientIds(new Set()); }}>Next</Button>
                 </div>
               </div>
+              </>
             )}
           </div>
         </>
@@ -1634,6 +1638,7 @@ const Contacts: React.FC = () => {
                 <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Recruit</button>
               </div>
             ) : view === "table" ? (
+              <>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
@@ -1667,6 +1672,7 @@ const Contacts: React.FC = () => {
                   <Button variant="outline" size="sm" disabled={recruitsPage >= Math.ceil(recruitsTotalCount / PAGE_SIZE) - 1} onClick={() => { setRecruitsPage(p => p + 1); setSelectedRecruitIds(new Set()); }}>Next</Button>
                 </div>
               </div>
+              </>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-4 p-3">
                 {Object.keys(recruitStageColors).map(s => {
