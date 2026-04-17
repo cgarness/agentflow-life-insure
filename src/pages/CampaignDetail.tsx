@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TagInput } from "@/components/shared/TagInput";
+import { CampaignHeatmap } from "@/components/campaigns/CampaignHeatmap";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -1118,39 +1119,6 @@ const CampaignDetail: React.FC = () => {
       {/* STATS TAB */}
       {tab === "Stats" && (
         <div className="space-y-4">
-          {/* Date Range Filter */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-muted-foreground">Date Range:</span>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className={cn("w-[150px] justify-start text-left font-normal", !statsDateFrom && "text-muted-foreground")}>
-                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                  {statsDateFrom ? format(statsDateFrom, "MMM d, yyyy") : "From"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar mode="single" selected={statsDateFrom} onSelect={setStatsDateFrom} initialFocus className="p-3 pointer-events-auto" />
-              </PopoverContent>
-            </Popover>
-            <span className="text-muted-foreground">—</span>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className={cn("w-[150px] justify-start text-left font-normal", !statsDateTo && "text-muted-foreground")}>
-                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                  {statsDateTo ? format(statsDateTo, "MMM d, yyyy") : "To"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar mode="single" selected={statsDateTo} onSelect={setStatsDateTo} initialFocus className="p-3 pointer-events-auto" />
-              </PopoverContent>
-            </Popover>
-            {(statsDateFrom || statsDateTo) && (
-              <Button variant="ghost" size="sm" onClick={() => { setStatsDateFrom(undefined); setStatsDateTo(undefined); }}>
-                <X className="h-3.5 w-3.5 mr-1" /> Clear
-              </Button>
-            )}
-          </div>
-
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: "Total Leads", value: campaign.total_leads },
@@ -1182,6 +1150,45 @@ const CampaignDetail: React.FC = () => {
               <p className="text-xs text-muted-foreground mb-1">Emails Sent</p>
               <p className="text-sm font-medium text-muted-foreground">Coming Soon</p>
             </div>
+          </div>
+
+          {/* Call Heatmaps */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CampaignHeatmap title="Calls Made" campaignId={id!} filter="all" />
+            <CampaignHeatmap title="Calls Answered" campaignId={id!} filter="answered" />
+          </div>
+
+          {/* Date Range Filter */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground">Date Range:</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("w-[150px] justify-start text-left font-normal", !statsDateFrom && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                  {statsDateFrom ? format(statsDateFrom, "MMM d, yyyy") : "From"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={statsDateFrom} onSelect={setStatsDateFrom} initialFocus className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            <span className="text-muted-foreground">—</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("w-[150px] justify-start text-left font-normal", !statsDateTo && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                  {statsDateTo ? format(statsDateTo, "MMM d, yyyy") : "To"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={statsDateTo} onSelect={setStatsDateTo} initialFocus className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            {(statsDateFrom || statsDateTo) && (
+              <Button variant="ghost" size="sm" onClick={() => { setStatsDateFrom(undefined); setStatsDateTo(undefined); }}>
+                <X className="h-3.5 w-3.5 mr-1" /> Clear
+              </Button>
+            )}
           </div>
 
           {/* Analytics Charts */}
