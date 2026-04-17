@@ -138,14 +138,53 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
   );
 };
 
+/**
+ * Same people you can load for User Management: RLS decides rows (no SQL organization_id filter).
+ * Then keep everyone in the current org **plus** anyone linked as upline/downline so managers
+ * with NULL or legacy org_id still appear (fixes missing middle nodes in the tree).
+ */
+function profilesForOrgTree(rows: { id: string; organization_id?: string | null; upline_id?: string | null }[], organizationId: string | null): typeof rows {
+  if (!organizationId) return rows;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const relevant = new Set<string>();
+  for (const r of rows) {
+    if (r.organization_id === organizationId) relevant.add(r.id);
+  }
+  let grew = true;
+  let guard = 0;
+  while (grew && guard++ < rows.length + 8) {
+    grew = false;
+    for (const r of rows) {
+      if (relevant.has(r.id)) continue;
+      const up = r.upline_id;
+      if (up && relevant.has(up)) {
+        relevant.add(r.id);
+        grew = true;
+      }
+    }
+  }
+  for (const id of [...relevant]) {
+    let cur: string | null | undefined = byId.get(id)?.upline_id;
+    let hops = 0;
+    while (cur && hops++ < 64) {
+      if (relevant.has(cur)) break;
+      const row = byId.get(cur);
+      if (!row) break;
+      relevant.add(cur);
+      cur = row.upline_id ?? null;
+    }
+  }
+  return rows.filter((r) => relevant.has(r.id));
+}
+
 const HierarchyTree: React.FC = () => {
   const { toast } = useToast();
-  const { organizationId } = useOrganization();
+  const { organizationId, isSuperAdmin } = useOrganization();
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchProfiles = useCallback(async () => {
-    if (!organizationId) {
+    if (!organizationId && !isSuperAdmin) {
       setProfiles([]);
       setLoading(false);
       return;
@@ -154,8 +193,10 @@ const HierarchyTree: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, email, role, upline_id, hierarchy_path, avatar_url")
-        .eq("organization_id", organizationId)
+        .select(
+          "id, first_name, last_name, email, role, status, organization_id, upline_id, hierarchy_path, avatar_url",
+        )
+        .neq("status", "Deleted")
         .order("created_at", { ascending: true });
       if (error) throw error;
       setProfiles(data || []);
@@ -164,21 +205,26 @@ const HierarchyTree: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, toast]);
+  }, [organizationId, isSuperAdmin, toast]);
 
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
 
+  const displayProfiles = useMemo(
+    () => profilesForOrgTree(profiles, organizationId),
+    [profiles, organizationId],
+  );
+
   const tree = useMemo(() => {
-    return buildProfileOrgForest(profiles) as ProfileNode[];
-  }, [profiles]);
+    return buildProfileOrgForest(displayProfiles) as ProfileNode[];
+  }, [displayProfiles]);
 
   const uniqueProfileCount = useMemo(
-    () => new Set(profiles.map((p) => p?.id).filter(Boolean) as string[]).size,
-    [profiles],
+    () => new Set(displayProfiles.map((p) => p?.id).filter(Boolean) as string[]).size,
+    [displayProfiles],
   );
-  const duplicateRows = profiles.length > uniqueProfileCount;
+  const duplicateRows = displayProfiles.length > uniqueProfileCount;
 
   return (
     <div className="relative overflow-x-auto rounded-2xl border border-primary/10 bg-gradient-to-b from-muted/30 via-card to-card p-6 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
