@@ -611,7 +611,6 @@ const CalendarPage: React.FC = () => {
               <ChevronRight className="w-4 h-4"/>
             </button>
           </div>
-          <button onClick={() => setCurrentDate(new Date())} className="px-3 py-2 text-[10px] font-bold bg-accent/50 border border-border rounded-lg hover:bg-accent transition-colors uppercase">Today</button>
           <button onClick={() => openSchedule()} className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
             <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
           </button>
