@@ -100,7 +100,7 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
       {hasChildren && (
         <div className="relative mt-0 flex w-full flex-col items-center">
           <div
-            className="h-7 w-px shrink-0 bg-gradient-to-b from-primary/50 via-primary/25 to-transparent"
+            className="h-8 w-0.5 shrink-0 rounded-full bg-gradient-to-b from-primary via-primary/80 to-primary/45"
             aria-hidden
           />
 
@@ -112,7 +112,7 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
           >
             {n > 1 && (
               <div
-                className="pointer-events-none absolute left-0 right-0 top-0 mx-auto h-px rounded-full bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
+                className="pointer-events-none absolute left-0 right-0 top-0 mx-auto h-0.5 rounded-full bg-primary/75 shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]"
                 style={{
                   left: `${100 / (2 * n)}%`,
                   width: `${(100 * (n - 1)) / n}%`,
@@ -125,7 +125,7 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
             {node.children.map((child) => (
               <div key={child.id} className="relative flex flex-col items-center pt-6">
                 <div
-                  className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-gradient-to-b from-primary/35 to-primary/10"
+                  className="absolute left-1/2 top-0 h-6 w-0.5 -translate-x-1/2 rounded-full bg-gradient-to-b from-primary/90 to-primary/50"
                   aria-hidden
                 />
                 <VisualOrgNode node={child} />
