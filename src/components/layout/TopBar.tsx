@@ -301,22 +301,55 @@ const TopBar: React.FC = () => {
             {isLoading || !profile ? (
               <AvatarSkeleton size="sm" />
             ) : (
-            <button onClick={() => setUserDropdown(!userDropdown)} className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold hover:ring-2 hover:ring-primary/30 sidebar-transition">
-              {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
+            <button
+              type="button"
+              onClick={() => setUserDropdown(!userDropdown)}
+              className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full bg-primary/20 text-primary ring-offset-background hover:ring-2 hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sidebar-transition"
+              aria-expanded={userDropdown}
+              aria-haspopup="menu"
+            >
+              {profile.avatar_url?.trim() ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={`${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "Profile"}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-xs font-bold">
+                  {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
+                </span>
+              )}
             </button>
             )}
             {userDropdown && (
               <div className="absolute right-0 top-full mt-2 w-48 bg-card border rounded-lg shadow-lg py-1 z-50">
-                <div className="px-3 py-2 border-b">
+                <div className="flex items-center gap-3 border-b px-3 py-2.5">
                   {isLoading || !profile ? (
-                    <div className="flex flex-col gap-1.5 py-0.5">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
                       <NameSkeleton />
                       <NameSkeleton className="w-28 h-3" />
                     </div>
                   ) : (
                     <>
-                      <p className="text-sm font-medium text-foreground">{profile.first_name} {profile.last_name}</p>
-                      <p className="text-xs text-muted-foreground">{user?.email}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {profile.first_name} {profile.last_name}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+                      </div>
+                      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-border/60 bg-muted ring-2 ring-primary/15">
+                        {profile.avatar_url?.trim() ? (
+                          <img
+                            src={profile.avatar_url}
+                            alt={`${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "Profile"}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-[11px] font-bold text-primary">
+                            {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
+                          </span>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>

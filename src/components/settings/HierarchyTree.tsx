@@ -13,6 +13,7 @@ interface ProfileNode {
   role: string | null;
   upline_id: string | null;
   hierarchy_path: string | null;
+  avatar_url: string | null;
   children: ProfileNode[];
 }
 
@@ -29,6 +30,23 @@ function displayName(node: ProfileNode): string {
   const n = [node.first_name, node.last_name].filter(Boolean).join(" ").trim();
   return n || node.email || "Unknown";
 }
+
+const MemberAvatar: React.FC<{ node: ProfileNode; className?: string }> = ({ node, className = "" }) => {
+  const ini = initials(node);
+  const url = (node.avatar_url || "").trim();
+  const label = displayName(node);
+  return (
+    <div
+      className={`relative mx-auto flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-inner ring-2 ring-primary/30 ${className}`}
+    >
+      {url ? (
+        <img src={url} alt={label} className="h-full w-full object-cover" />
+      ) : (
+        <span aria-hidden>{ini}</span>
+      )}
+    </div>
+  );
+};
 
 const RoleBadge: React.FC<{ role: string | null }> = ({ role }) => {
   const r = (role || "Agent").toLowerCase();
@@ -61,7 +79,6 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
   const n = node.children.length;
   const hasChildren = n > 0;
   const name = displayName(node);
-  const ini = initials(node);
 
   return (
     <div className="flex flex-col items-center">
@@ -71,9 +88,7 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
           aria-hidden
         />
         <div className="relative rounded-2xl border border-primary/20 bg-card/90 px-5 py-4 text-center shadow-lg shadow-primary/5 backdrop-blur-sm min-w-[168px] max-w-[220px]">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-inner ring-2 ring-primary/30">
-            {ini}
-          </div>
+          <MemberAvatar node={node} />
           <p className="mt-2.5 truncate text-sm font-semibold tracking-tight text-foreground" title={name}>
             {name}
           </p>
@@ -134,7 +149,7 @@ const HierarchyTree: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, email, role, upline_id, hierarchy_path")
+        .select("id, first_name, last_name, email, role, upline_id, hierarchy_path, avatar_url")
         .eq("organization_id", organizationId)
         .order("created_at", { ascending: true });
       if (error) throw error;
