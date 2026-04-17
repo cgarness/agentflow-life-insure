@@ -75,15 +75,48 @@ const RoleBadge: React.FC<{ role: string | null }> = ({ role }) => {
   );
 };
 
-/** Top-down org node: vertical stem, optional horizontal rail, child subtrees. */
+/** SVG T-junction: stem + horizontal + one drop per child; coords in 0–100 user space. */
+function OrgBranchSvg({ childCount }: { childCount: number }) {
+  if (childCount < 2) return null;
+  const centers = Array.from({ length: childCount }, (_, i) => ((i + 0.5) / childCount) * 100);
+  const xL = centers[0];
+  const xR = centers[childCount - 1];
+  const yJoin = 22;
+  const yDrop = 40;
+  const d = [
+    `M 50 0 L 50 ${yJoin}`,
+    `M ${xL} ${yJoin} L ${xR} ${yJoin}`,
+    ...centers.map((cx) => `M ${cx} ${yJoin} L ${cx} ${yDrop}`),
+  ].join(" ");
+  return (
+    <svg
+      className="pointer-events-none block h-full w-full overflow-visible text-primary"
+      viewBox="0 0 100 42"
+      preserveAspectRatio="none"
+      aria-hidden
+    >
+      <path
+        d={d}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="opacity-95"
+      />
+    </svg>
+  );
+}
+
+/** Top-down org node: stem + SVG fork (multi-child) so lines aren’t clipped or mis-measured. */
 const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
   const n = node.children.length;
   const hasChildren = n > 0;
   const name = displayName(node);
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative">
+    <div className="flex min-w-0 flex-col items-center overflow-visible">
+      <div className="relative overflow-visible">
         <div
           className="pointer-events-none absolute -inset-1 rounded-2xl bg-gradient-to-br from-primary/35 via-cyan-500/15 to-violet-500/20 opacity-70 blur-md"
           aria-hidden
@@ -98,39 +131,31 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
       </div>
 
       {hasChildren && (
-        <div className="relative mt-0 flex w-full flex-col items-center">
-          <div
-            className="h-8 w-0.5 shrink-0 rounded-full bg-gradient-to-b from-primary via-primary/80 to-primary/45"
-            aria-hidden
-          />
+        <div className="relative mt-0 flex min-w-0 flex-col items-center overflow-visible">
+          <div className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
 
-          <div
-            className="relative grid w-full max-w-full items-start justify-items-center gap-x-10 gap-y-14 pt-2"
-            style={{
-              gridTemplateColumns: n === 1 ? "minmax(140px,1fr)" : `repeat(${n}, minmax(140px, auto))`,
-            }}
-          >
+          {/* inline-flex so width = child row; SVG overlay matches row (fixes clipped / mis-sized T-lines) */}
+          <div className="relative inline-flex max-w-full flex-col items-center overflow-visible">
+            <div
+              className={`relative z-10 flex w-max max-w-full flex-row flex-wrap justify-center gap-x-12 gap-y-16 ${n > 1 ? "pt-11" : "pt-2"}`}
+            >
+              {node.children.map((child) => (
+                <div key={child.id} className="relative flex min-w-[168px] flex-col items-center overflow-visible">
+                  {n === 1 && (
+                    <div
+                      className="absolute left-1/2 top-0 z-0 h-6 w-0.5 -translate-x-1/2 rounded-full bg-primary"
+                      aria-hidden
+                    />
+                  )}
+                  <VisualOrgNode node={child} />
+                </div>
+              ))}
+            </div>
             {n > 1 && (
-              <div
-                className="pointer-events-none absolute left-0 right-0 top-0 mx-auto h-0.5 rounded-full bg-primary/75 shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]"
-                style={{
-                  left: `${100 / (2 * n)}%`,
-                  width: `${(100 * (n - 1)) / n}%`,
-                  maxWidth: "100%",
-                }}
-                aria-hidden
-              />
-            )}
-
-            {node.children.map((child) => (
-              <div key={child.id} className="relative flex flex-col items-center pt-6">
-                <div
-                  className="absolute left-1/2 top-0 h-6 w-0.5 -translate-x-1/2 rounded-full bg-gradient-to-b from-primary/90 to-primary/50"
-                  aria-hidden
-                />
-                <VisualOrgNode node={child} />
+              <div className="pointer-events-none absolute inset-0 z-0 overflow-visible">
+                <OrgBranchSvg childCount={n} />
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
@@ -227,7 +252,7 @@ const HierarchyTree: React.FC = () => {
   const duplicateRows = displayProfiles.length > uniqueProfileCount;
 
   return (
-    <div className="relative overflow-x-auto rounded-2xl border border-primary/10 bg-gradient-to-b from-muted/30 via-card to-card p-6 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
+    <div className="relative overflow-x-auto overflow-y-visible rounded-2xl border border-primary/10 bg-gradient-to-b from-muted/30 via-card to-card p-6 pb-8 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
       <div
         className="pointer-events-none absolute inset-0 z-0 rounded-2xl opacity-[0.35] dark:opacity-20"
         style={{
@@ -276,7 +301,7 @@ const HierarchyTree: React.FC = () => {
               upline was cleared — those people still appear here at the top.
             </p>
           )}
-          <div className="flex flex-row flex-wrap justify-center gap-16 pb-4 pt-2">
+          <div className="flex flex-row flex-wrap justify-center gap-16 overflow-visible pb-6 pt-2">
             {tree.map((root) => (
               <VisualOrgNode key={root.id} node={root} />
             ))}

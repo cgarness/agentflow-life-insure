@@ -306,6 +306,9 @@
 - **2026-04-17 | [DONE] Team hierarchy — connector line contrast**
   *What:* **`HierarchyTree.tsx`** — org chart stems and rails use **stronger primary** strokes (**`w-0.5` / `h-0.5`**, higher opacity gradients, light ring on the horizontal bar) so reporting lines read clearly on white backgrounds.
 
+- **2026-04-17 | [DONE] Team hierarchy — connector layout (clip + misalignment)**
+  *What:* Replaced **CSS grid + percentage** T-junction with an **overlay SVG** sized to the **child row** (`inline-flex` + `absolute inset-0`) so forks span the real column width; **overflow-visible** on tree wrappers and extra bottom padding on the panel so strokes are not cut off.
+
 - **2026-04-17 | [DONE] Edge Function — `spam-check-cron`**
   *What:* Service-role cron-style function recalculates **`phone_numbers`** spam / carrier reputation fields from **`calls`** (7d / 30d). **`supabase/config.toml`** — **`verify_jwt = false`** for scheduled invocations. Deploy with **`supabase functions deploy spam-check-cron`** when ready to wire pg_cron or external scheduler.
 
