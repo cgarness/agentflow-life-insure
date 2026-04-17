@@ -676,27 +676,36 @@ export type Database = {
       }
       carriers: {
         Row: {
+          contact_emails: Json
+          contact_phones: Json
           created_at: string
           id: string
           is_appointed: boolean | null
+          logo_url: string | null
           name: string
           organization_id: string | null
           portal_url: string | null
           updated_at: string
         }
         Insert: {
+          contact_emails?: Json
+          contact_phones?: Json
           created_at?: string
           id?: string
           is_appointed?: boolean | null
+          logo_url?: string | null
           name: string
           organization_id?: string | null
           portal_url?: string | null
           updated_at?: string
         }
         Update: {
+          contact_emails?: Json
+          contact_phones?: Json
           created_at?: string
           id?: string
           is_appointed?: boolean | null
+          logo_url?: string | null
           name?: string
           organization_id?: string | null
           portal_url?: string | null

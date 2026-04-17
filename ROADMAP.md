@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 14, 2026
+**Owner:** Chris Garness | **Last Updated:** April 17, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -33,6 +33,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260417120000` | `carriers_logo_and_contacts.sql` | Adds **`logo_url`** (TEXT) and JSONB **`contact_phones`** / **`contact_emails`** on **`public.carriers`** (arrays of `{label, value}` for labeled phone lines and emails). **Apply on Supabase** before using the expanded Settings → Carriers UI. |
 | `20260413200000` | `seed_area_code_mapping.sql` | Adds `UNIQUE (area_code)` constraint + seeds **324 US NANP area codes** across 51 jurisdictions (50 states + DC) into **`area_code_mapping`**. Activates the same-state fallback tier in `selectOutboundCallerId`. **Production:** applied to `jncvvsvckxhqgqvkppmj` (2026-04-13). |
 | `20260413190000` | `calls_realtime_publication.sql` | Adds **`public.calls`** to **`supabase_realtime`** (if absent) so clients can subscribe to inbound **`contact_id`** updates. |
 | `20260413230000` | `peek_inbound_call_identity.sql` | **`peek_inbound_call_identity`** (**`SECURITY DEFINER`**) returns ANI/CRM JSON for the signed-in org by **`telnyx_call_id`** or **`telnyx_call_control_id`** (client poll while ringing). |
@@ -285,6 +286,9 @@
   | **`src/lib/caller-id-selector.ts`** | **Deleted.** Was the pre-LRU legacy module; `selectCallerID` had no callers at time of deletion. |
   | **`TelnyxContext.tsx` — `getSmartCallerId`** | Delegates to `selectOutboundCallerId` from `caller-id-selection`; passes `getStateByAreaCode` (now also from `caller-id-selection`) as an injected dep. |
   | **`FloatingDialer.tsx`** | Imports `CALLER_ID_STICKY_MIN_DURATION_SEC` from `caller-id-selection` only. No changes needed. |
+
+- **2026-04-17 | [DONE] Settings — Carriers (logo + labeled phones & emails)**
+  *What:* Migration **`20260417120000`** adds **`logo_url`**, **`contact_phones`**, and **`contact_emails`** on **`carriers`**. **`Carriers.tsx`** — upload or paste logo URL; dynamic **Add phone** / **Add email** rows with labels (e.g. new business, contracting); list shows logo thumbnail and **`tel:`** / **`mailto:`** links. Helpers: **`carrierContactUtils.ts`**, **`CarrierContactsEditor.tsx`**. Types updated in **`src/integrations/supabase/types.ts`**.
 
 - **2026-04-14 | [DONE] Settings — Dispositions Manager (locked rows + Appointment Set + No Answer/DNC edit)**
   *What:* **`DispositionsManager.tsx`** — (1) **Reorder:** every disposition row is draggable (including `is_locked`); grip handle no longer dimmed for locked rows. (2) **Appointment Set:** modal treats **Appointment Set** as fully editable (name, color, required notes, callback / appointment schedulers, automation) while other locked rows still use the restricted form (rename + those sections hidden). (3) **No Answer / DNC:** edit control is disabled with a tooltip; delete remains blocked for all locked rows.
