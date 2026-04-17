@@ -39,7 +39,7 @@ const Sidebar: React.FC = () => {
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
       <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
         <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: branding.primaryColor || '#3B82F6' }}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-primary">
             {branding.logoUrl ? <img src={branding.logoUrl} className="w-full h-full object-cover rounded-lg" alt="L" /> : <span className="text-white font-bold text-sm">AF</span>}
           </div>
           {!collapsed && <span className="font-bold text-base text-sidebar-accent-foreground">{branding.companyName || "AgentFlow"}</span>}
