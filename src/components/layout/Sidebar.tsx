@@ -1,15 +1,12 @@
 import React from "react";
-import { AvatarSkeleton, NameSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { 
-  ChevronLeft, ChevronRight, Sun, Moon, ArrowLeft, ShieldAlert,
+import {
+  ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
   Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X
 } from "lucide-react";
-import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
-import { useAuth } from "@/contexts/AuthContext";
 import { useBranding } from "@/contexts/BrandingContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { SETTINGS_CONFIG } from "@/config/settingsConfig";
@@ -32,8 +29,6 @@ const MAIN_MENU = [
 
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
-  const { theme, setTheme } = useTheme();
-  const { profile, isLoading } = useAuth();
   const { branding } = useBranding();
   const { isSuperAdmin } = useOrganization();
   const location = useLocation();
@@ -60,7 +55,7 @@ const Sidebar: React.FC = () => {
               <div key={cat.label} className="mb-4">
                 {!collapsed && <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">{cat.label}</p>}
                 {cat.sections.map(s => (
-              <SettingsNavItem key={s.slug} icon={s.icon} label={s.label} collapsed={collapsed} isActive={searchParams.get("section") === s.slug || (!searchParams.get("section") && s.slug === "my-profile")} 
+              <SettingsNavItem key={s.slug} icon={s.icon} label={s.label} collapsed={collapsed} isActive={searchParams.get("section") === s.slug || (!searchParams.get("section") && s.slug === "my-profile")}
                 onClick={() => { setSearchParams({ section: s.slug }); setMobileOpen(false); }} />
             ))}
           </div>
@@ -68,37 +63,14 @@ const Sidebar: React.FC = () => {
       </>
     ) : (
       <>
-        {MAIN_MENU.map(item => <MainNavItem key={item.path} icon={item.icon} label={item.label} path={item.path} collapsed={collapsed} 
+        {MAIN_MENU.map(item => <MainNavItem key={item.path} icon={item.icon} label={item.label} path={item.path} collapsed={collapsed}
           isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))} onClick={() => setMobileOpen(false)} />)}
         {isSuperAdmin && <MainNavItem icon={ShieldAlert} label="Super Admin" path="/super-admin" collapsed={collapsed} isActive={location.pathname === "/super-admin"} variant="warning" onClick={() => setMobileOpen(false)} />}
       </>
     )}
   </nav>
 
-  <div className="border-t border-slate-800 p-3 space-y-3 shrink-0">
-    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm hover:bg-slate-800 sidebar-transition ${collapsed ? "justify-center" : ""}`}>
-      {theme === "dark" ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-400" />}
-      {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
-    </button>
-    {!collapsed && (
-      <div className="flex items-center gap-3 px-3 py-2">
-        {isLoading || !profile ? (
-          <>
-            <AvatarSkeleton size="sm" className="shrink-0" />
-            <NameSkeleton className="w-24" />
-          </>
-        ) : (
-          <>
-            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold shrink-0">
-              {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
-            </div>
-            <div className="min-w-0 font-medium truncate text-slate-100">
-              {`${profile.first_name} ${profile.last_name}`}
-            </div>
-          </>
-        )}
-      </div>
-    )}
+  <div className="border-t border-slate-800 p-3 shrink-0">
     <button onClick={toggle} className="flex items-center justify-center w-full py-2 text-slate-500 hover:text-slate-100 transition-colors">
       {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
     </button>

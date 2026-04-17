@@ -60,6 +60,25 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-17 | [DONE] Bugfix: Remove Dark Mode toggle and user profile section from left sidebar nav**
+  *What:* Removed the Dark Mode toggle button (moon/sun icon + label) and the user profile/avatar display (initials + full name) from the bottom of `src/components/layout/Sidebar.tsx`. Both elements were cluttering the nav chrome. Cleaned up all now-unused imports (`AvatarSkeleton`, `NameSkeleton`, `Sun`, `Moon`, `useTheme`, `useAuth`) and removed the corresponding variable declarations (`theme`, `setTheme`, `profile`, `isLoading`). Removed the `space-y-3` class from the bottom `<div>` since only the collapse toggle button remains. Dark mode state logic (`ThemeProvider` in App.tsx) and auth context untouched — functionality preserved for use elsewhere. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Sidebar Nav Clutter Removal (2026-04-17)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **File changed** | `src/components/layout/Sidebar.tsx` only |
+  | **Removed: Dark Mode toggle** | Lines 79–82 — `<button>` with `useTheme` toggle, `Sun`/`Moon` icons, "Light Mode"/"Dark Mode" label |
+  | **Removed: User profile block** | Lines 83–101 — `{!collapsed && ...}` block with `AvatarSkeleton`/`NameSkeleton` loading states and initials + name display |
+  | **Removed imports** | `AvatarSkeleton`, `NameSkeleton` (ProfileSkeleton); `Sun`, `Moon` (lucide-react); `useTheme` (next-themes); `useAuth` (AuthContext) |
+  | **Removed vars** | `theme`, `setTheme` from `useTheme()`; `profile`, `isLoading` from `useAuth()` |
+  | **Bottom div** | `space-y-3` class removed; collapse toggle button is now the sole child |
+  | **Dark mode state** | Untouched — `ThemeProvider` in `App.tsx` still wraps the app; TopBar theme toggle still works |
+  | **Auth/profile state** | Untouched — `useAuth` still provides profile to TopBar dropdown and AgentProfile page |
+  | **Component size** | 127 → 91 lines (well under 200-line limit) |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/remove-nav-sidebar-clutter-iIIoH` |
+
 - **2026-04-16 | [DONE] Hotfix: structural JSX fix Contacts.tsx line 1520 — diagnosed and resolved root cause**
   *What:* Three tabs (Leads, Clients, Recruits) had two sibling `<div>` elements inside a ternary expression arm without a fragment wrapper, causing esbuild "Expected ) but found className" at the pagination footer div. Wrapped each pair in `<>...</>`. `tsc --noEmit` clean, `npm run build` successful. *No schema changes.*
 
