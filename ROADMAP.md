@@ -60,6 +60,21 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-17 | [DONE] Bugfix: Scope Import History on CampaignDetail to campaign-only imports**
+  *What:* The Import History tab in `CampaignDetail.tsx` was showing all imports made by the current user across the platform (filtered by `agent_id`) instead of only imports tied to the specific campaign. Fixed in three parts: (1) Migration `20260417000000_add_campaign_id_to_import_history.sql` adds `campaign_id uuid REFERENCES campaigns(id) ON DELETE SET NULL` with `IF NOT EXISTS` guard. (2) `ImportCSVModal.doImport()` now inserts a row into `import_history` after a successful campaign import, including `campaign_id`, `agent_id`, `organization_id`, and all counts. Added `useAuth()` to the modal sub-component to access `user.id`. (3) `fetchImportHistory` in the main `CampaignDetail` component now filters `.eq("campaign_id", id)` instead of `.eq("agent_id", user.id)`, and its `useCallback` dep updated from `[user?.id]` to `[id]`. `src/integrations/supabase/types.ts` updated with `campaign_id` on all three `import_history` type shapes (Row/Insert/Update) plus a new FK Relationship entry. Contacts.tsx import flow untouched — it correctly omits `campaign_id`. *Migration: `20260417000000_add_campaign_id_to_import_history.sql`.*
+
+  ### Context Snapshot — Import History Campaign Scope Fix (2026-04-17)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Root cause** | `fetchImportHistory` filtered by `agent_id = user.id` — showed all platform imports, not campaign imports |
+  | **Migration** | `supabase/migrations/20260417000000_add_campaign_id_to_import_history.sql` — adds `campaign_id uuid REFERENCES campaigns(id) ON DELETE SET NULL` with `IF NOT EXISTS` |
+  | **fetchImportHistory** | `.eq("agent_id", user.id)` → `.eq("campaign_id", id)`; `useCallback` dep `[user?.id]` → `[id]` |
+  | **ImportCSVModal.doImport** | Added `useAuth()` inside sub-component; INSERT into `import_history` with `campaign_id`, `agent_id`, `organization_id`, `file_name`, `total_records`, `imported`, `duplicates`, `errors` after RPC succeeds |
+  | **types.ts** | `campaign_id: string \| null` added to Row/Insert/Update; FK relationship entry added |
+  | **Contacts.tsx** | Untouched — platform-level imports correctly omit `campaign_id` |
+  | **Branch** | `claude/fix-import-history-filter-RRVCE` |
+
 - **2026-04-17 | [DONE] Bugfix: Remove non-functional "Today" button from Calendar page header**
   *What:* Removed the inline `<button>` labeled "TODAY" (line 614 in `src/pages/CalendarPage.tsx`) that called `setCurrentDate(new Date())`. The button provided no perceptible feedback and created a confusing dead-end UX. The `setCurrentDate` state setter remains in use by the prev/next navigation controls — it was not removed. No shared components affected; button was inline JSX only. `tsc --noEmit` clean. *No schema changes.*
 
