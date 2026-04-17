@@ -3,7 +3,7 @@ import {
   Plus, Search, MoreHorizontal, X, ChevronDown,
   Shield, User as UserIcon, Users, Pencil, Ban, RefreshCw, Mail,
   Lock, Copy, Camera, ZoomIn, PhoneCall, ShieldCheck, TrendingUp,
-  Clock, Percent, Target, Eye
+  Clock, Percent, Target, Eye, Network,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
 import { useNavigate } from "react-router-dom";
 import TransferLeadsModal from "./TransferLeadsModal";
+import HierarchyTree from "./HierarchyTree";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
@@ -1423,14 +1424,22 @@ const UserManagement: React.FC = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-[400px] grid-cols-2 bg-muted/50 p-1 rounded-xl">
-          <TabsTrigger value="users" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
-            <Users className="w-4 h-4 mr-2" /> Team Members
-          </TabsTrigger>
-          <TabsTrigger value="invites" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm">
-            <Mail className="w-4 h-4 mr-2" /> Pending Invites
-          </TabsTrigger>
-        </TabsList>
+        <div className="w-full max-w-2xl overflow-x-auto">
+          <TabsList className="grid min-w-[min(100%,520px)] grid-cols-3 bg-muted/50 p-1 rounded-xl gap-0.5">
+            <TabsTrigger value="users" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm min-w-0 px-2 sm:px-3">
+              <Users className="w-4 h-4 mr-1.5 sm:mr-2 shrink-0" />
+              <span className="truncate">Team Members</span>
+            </TabsTrigger>
+            <TabsTrigger value="invites" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm min-w-0 px-2 sm:px-3">
+              <Mail className="w-4 h-4 mr-1.5 sm:mr-2 shrink-0" />
+              <span className="truncate">Pending Invites</span>
+            </TabsTrigger>
+            <TabsTrigger value="hierarchy" className="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm min-w-0 px-2 sm:px-3">
+              <Network className="w-4 h-4 mr-1.5 sm:mr-2 shrink-0" />
+              <span className="truncate">Team hierarchy</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="users" className="space-y-4 mt-6 animate-in fade-in-50 duration-500">
           {/* Search & Filters */}
@@ -1685,6 +1694,10 @@ const UserManagement: React.FC = () => {
               </div>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="hierarchy" className="space-y-4 mt-6 animate-in fade-in-50 duration-500">
+          <HierarchyTree />
         </TabsContent>
       </Tabs>
 
