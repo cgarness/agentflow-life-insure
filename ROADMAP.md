@@ -60,6 +60,21 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-17 | [DONE] Bugfix: Remove non-functional "Today" button from Calendar page header**
+  *What:* Removed the inline `<button>` labeled "TODAY" (line 614 in `src/pages/CalendarPage.tsx`) that called `setCurrentDate(new Date())`. The button provided no perceptible feedback and created a confusing dead-end UX. The `setCurrentDate` state setter remains in use by the prev/next navigation controls — it was not removed. No shared components affected; button was inline JSX only. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Calendar "Today" Button Removal (2026-04-17)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **File changed** | `src/pages/CalendarPage.tsx` only |
+  | **Removed** | Inline `<button onClick={() => setCurrentDate(new Date())} className="...bg-accent/50 border border-border...">Today</button>` (was line 614) |
+  | **`setCurrentDate` state** | Untouched — still used by ChevronLeft/ChevronRight navigation buttons |
+  | **Other controls** | View switcher, search input, Google Sync button, prev/next nav, Schedule button — all untouched |
+  | **Shared components** | None — button was inline JSX, not a shared component |
+  | **tsc** | Clean (no errors) |
+  | **Branch** | `claude/remove-calendar-today-button-dx5t2` |
+
 - **2026-04-17 | [DONE] Bugfix: Remove Dark Mode toggle and user profile section from left sidebar nav**
   *What:* Removed the Dark Mode toggle button (moon/sun icon + label) and the user profile/avatar display (initials + full name) from the bottom of `src/components/layout/Sidebar.tsx`. Both elements were cluttering the nav chrome. Cleaned up all now-unused imports (`AvatarSkeleton`, `NameSkeleton`, `Sun`, `Moon`, `useTheme`, `useAuth`) and removed the corresponding variable declarations (`theme`, `setTheme`, `profile`, `isLoading`). Removed the `space-y-3` class from the bottom `<div>` since only the collapse toggle button remains. Dark mode state logic (`ThemeProvider` in App.tsx) and auth context untouched — functionality preserved for use elsewhere. `tsc --noEmit` clean. *No schema changes.*
 
