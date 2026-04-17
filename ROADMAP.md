@@ -60,6 +60,25 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-17 | [DONE] Feature: CampaignHeatmap component on CampaignDetail Stats tab (Calls Made / Calls Answered)**
+  *What:* Added `src/components/campaigns/CampaignHeatmap.tsx` — a reusable 7-day (Mon–Sun) × 14-hour (8am–9pm) heatmap wired directly to the `calls` table via TanStack Query (`queryKey: ["campaignHeatmap", campaignId, filter]`, `staleTime: 5min`). Each cell bucketizes call count (0, 1–2, 3–5, 6–10, 11+) and fades through an accent color scale; primary-blue for "Calls Made" (all calls with `started_at` not null), emerald-500 for "Calls Answered" (adds `.gt("duration", 45)` filter). Radix `Tooltip` on hover shows `Day Hour — N calls`. Loading state renders skeleton grid (all cells `bg-muted/20`); empty state shows the 0-intensity grid plus "No call data yet". Legend strip (Less → More) below grid. Cells `w-4 h-4 sm:w-5 sm:h-5` to prevent mobile horizontal scroll. Rendered as a 2-column grid in `CampaignDetail.tsx` Stats tab between Channel Activity and the (relocated) date range filter. Date range filter was moved from the top of the Stats tab down to sit directly above the Analytics Charts it actually gates — layout now flows stats cards → channel activity → heatmaps → date range filter → charts → status breakdown. `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — CampaignHeatmap (2026-04-17)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **New file** | `src/components/campaigns/CampaignHeatmap.tsx` |
+  | **Props** | `{ title: string; campaignId: string; filter: "all" \| "answered" }` |
+  | **Grid** | 7 columns (Mon–Sun, Mon-first via `(getDay(d) + 6) % 7`) × 14 rows (hours 8–21) |
+  | **Buckets** | 0 → `bg-muted/40`; 1–2 → `/20`; 3–5 → `/40`; 6–10 → `/70`; 11+ → full |
+  | **Scales** | `bg-primary` for `filter="all"`; `bg-emerald-500` for `filter="answered"` |
+  | **Query** | `supabase.from("calls").select("started_at, duration").eq("campaign_id", campaignId).not("started_at", "is", null)` + `.gt("duration", 45)` when answered |
+  | **Tooltip** | Radix `Tooltip` from `@/components/ui/tooltip` — shows `{Day} {Hour} — N call(s)` |
+  | **Cell size** | `w-4 h-4 sm:w-5 sm:h-5 rounded-sm` to fit mobile without horizontal scroll |
+  | **CampaignDetail wire-up** | Rendered in Stats tab as `<div className="grid grid-cols-1 md:grid-cols-2 gap-4">` with two instances — placed after Channel Activity, before the (relocated) date range filter |
+  | **Date range filter** | Moved from top of Stats tab down to sit directly above the charts it filters |
+  | **Branch** | `claude/add-campaign-heatmap-78hKl` |
+
 - **2026-04-17 | [DONE] Bugfix: Scope Import History on CampaignDetail to campaign-only imports**
   *What:* The Import History tab in `CampaignDetail.tsx` was showing all imports made by the current user across the platform (filtered by `agent_id`) instead of only imports tied to the specific campaign. Fixed in three parts: (1) Migration `20260417000000_add_campaign_id_to_import_history.sql` adds `campaign_id uuid REFERENCES campaigns(id) ON DELETE SET NULL` with `IF NOT EXISTS` guard. (2) `ImportCSVModal.doImport()` now inserts a row into `import_history` after a successful campaign import, including `campaign_id`, `agent_id`, `organization_id`, and all counts. Added `useAuth()` to the modal sub-component to access `user.id`. (3) `fetchImportHistory` in the main `CampaignDetail` component now filters `.eq("campaign_id", id)` instead of `.eq("agent_id", user.id)`, and its `useCallback` dep updated from `[user?.id]` to `[id]`. `src/integrations/supabase/types.ts` updated with `campaign_id` on all three `import_history` type shapes (Row/Insert/Update) plus a new FK Relationship entry. Contacts.tsx import flow untouched — it correctly omits `campaign_id`. *Migration: `20260417000000_add_campaign_id_to_import_history.sql`.*
 
