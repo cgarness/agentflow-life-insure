@@ -62,6 +62,23 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-17 | [DONE] Bugfix: Org chart connector lines — thickness and top-of-card anchor**
+  *What:* Fixed `src/components/settings/HierarchyTree.tsx` — two issues in the Team Structure visual on the User Management settings page. (1) **Thickness**: SVG `strokeWidth` reduced from `2.5` → `1` with `vectorEffect="non-scaling-stroke"` so strokes render as 1px hairlines regardless of SVG scaling; div stems changed from `w-0.5` (2px) + `bg-primary` → `w-px` + `bg-primary/20`; SVG color class changed from `text-primary` → `text-primary/20` for a subtle hairline. (2) **Anchor point**: Root cause was the SVG overlay using `absolute inset-0` which caused it to span the full container height (connector zone + all child card heights), making `yDrop=40` in `viewBox="0 0 100 42"` land in the middle of the cards rather than at their tops. Fixed by changing the SVG container to `absolute top-0 left-0 right-0 h-8` so it occupies only the 32px connector zone; child row padding changed from `pt-11` → `pt-8` to match; SVG paths updated to draw horizontal bar at `y=0` and drops from `y=0` to `y=100` (full height of the 32px zone = exact top of child cards). Single-child connector changed from `absolute left-1/2 top-0 ... w-0.5 bg-primary` (overlapping card) → in-flow `h-6 w-px bg-primary/20 shrink-0` (stacked above card). `tsc --noEmit` clean. *No schema changes.*
+
+  ### Context Snapshot — Org Chart Connector Fix (2026-04-17)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **File** | `src/components/settings/HierarchyTree.tsx` |
+  | **SVG thickness** | `strokeWidth={2.5}` → `strokeWidth={1}` + `vectorEffect="non-scaling-stroke"` |
+  | **SVG color** | `text-primary` → `text-primary/20` |
+  | **Div stems** | `w-0.5 rounded-full bg-primary` → `w-px bg-primary/20` |
+  | **SVG container** | `absolute inset-0` (full height) → `absolute top-0 left-0 right-0 h-8` (connector zone only) |
+  | **SVG viewBox** | `0 0 100 42` with internal stem + yJoin=22/yDrop=40 → `0 0 100 100` horizontal at y=0, drops y=0→100 |
+  | **Child row padding** | `pt-11` (multi) / `pt-2` (single) → `pt-8` (multi) / `pt-0` (single) |
+  | **Single-child stub** | `absolute left-1/2 top-0 z-0 h-6 w-0.5 -translate-x-1/2 bg-primary` → `h-6 w-px shrink-0 bg-primary/20` (in-flow) |
+  | **Branch** | `claude/fix-org-chart-connectors-fYim2` |
+
 - **2026-04-17 | [DONE] Feature: CampaignHeatmap component on CampaignDetail Stats tab (Calls Made / Calls Answered)**
   *What:* Added `src/components/campaigns/CampaignHeatmap.tsx` — a reusable 7-day (Mon–Sun) × 14-hour (8am–9pm) heatmap wired directly to the `calls` table via TanStack Query (`queryKey: ["campaignHeatmap", campaignId, filter]`, `staleTime: 5min`). Each cell bucketizes call count (0, 1–2, 3–5, 6–10, 11+) and fades through an accent color scale; primary-blue for "Calls Made" (all calls with `started_at` not null), emerald-500 for "Calls Answered" (adds `.gt("duration", 45)` filter). Radix `Tooltip` on hover shows `Day Hour — N calls`. Loading state renders skeleton grid (all cells `bg-muted/20`); empty state shows the 0-intensity grid plus "No call data yet". Legend strip (Less → More) below grid. Cells `w-4 h-4 sm:w-5 sm:h-5` to prevent mobile horizontal scroll. Rendered as a 2-column grid in `CampaignDetail.tsx` Stats tab between Channel Activity and the (relocated) date range filter. Date range filter was moved from the top of the Stats tab down to sit directly above the Analytics Charts it actually gates — layout now flows stats cards → channel activity → heatmaps → date range filter → charts → status breakdown. `tsc --noEmit` clean. *No schema changes.*
 

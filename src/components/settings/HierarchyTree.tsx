@@ -75,23 +75,20 @@ const RoleBadge: React.FC<{ role: string | null }> = ({ role }) => {
   );
 };
 
-/** SVG T-junction: stem + horizontal + one drop per child; coords in 0–100 user space. */
+/** SVG T-junction: horizontal bar at top + one drop per child to bottom of connector zone. */
 function OrgBranchSvg({ childCount }: { childCount: number }) {
   if (childCount < 2) return null;
   const centers = Array.from({ length: childCount }, (_, i) => ((i + 0.5) / childCount) * 100);
   const xL = centers[0];
   const xR = centers[childCount - 1];
-  const yJoin = 22;
-  const yDrop = 40;
   const d = [
-    `M 50 0 L 50 ${yJoin}`,
-    `M ${xL} ${yJoin} L ${xR} ${yJoin}`,
-    ...centers.map((cx) => `M ${cx} ${yJoin} L ${cx} ${yDrop}`),
+    `M ${xL} 0 L ${xR} 0`,
+    ...centers.map((cx) => `M ${cx} 0 L ${cx} 100`),
   ].join(" ");
   return (
     <svg
-      className="pointer-events-none block h-full w-full overflow-visible text-primary"
-      viewBox="0 0 100 42"
+      className="pointer-events-none block h-full w-full overflow-visible text-primary/20"
+      viewBox="0 0 100 100"
       preserveAspectRatio="none"
       aria-hidden
     >
@@ -99,10 +96,9 @@ function OrgBranchSvg({ childCount }: { childCount: number }) {
         d={d}
         fill="none"
         stroke="currentColor"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="opacity-95"
+        strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
+        strokeLinecap="square"
       />
     </svg>
   );
@@ -132,18 +128,17 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
 
       {hasChildren && (
         <div className="relative mt-0 flex min-w-0 flex-col items-center overflow-visible">
-          <div className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+          <div className="h-6 w-px shrink-0 bg-primary/20" aria-hidden />
 
-          {/* inline-flex so width = child row; SVG overlay matches row (fixes clipped / mis-sized T-lines) */}
           <div className="relative inline-flex max-w-full flex-col items-center overflow-visible">
             <div
-              className={`relative z-10 flex w-max max-w-full flex-row flex-wrap justify-center gap-x-12 gap-y-16 ${n > 1 ? "pt-11" : "pt-2"}`}
+              className={`relative z-10 flex w-max max-w-full flex-row flex-wrap justify-center gap-x-12 gap-y-16 ${n > 1 ? "pt-8" : "pt-0"}`}
             >
               {node.children.map((child) => (
                 <div key={child.id} className="relative flex min-w-[168px] flex-col items-center overflow-visible">
                   {n === 1 && (
                     <div
-                      className="absolute left-1/2 top-0 z-0 h-6 w-0.5 -translate-x-1/2 rounded-full bg-primary"
+                      className="h-6 w-px shrink-0 bg-primary/20"
                       aria-hidden
                     />
                   )}
@@ -152,7 +147,7 @@ const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
               ))}
             </div>
             {n > 1 && (
-              <div className="pointer-events-none absolute inset-0 z-0 overflow-visible">
+              <div className="pointer-events-none absolute top-0 left-0 right-0 h-8 z-0 overflow-visible">
                 <OrgBranchSvg childCount={n} />
               </div>
             )}
