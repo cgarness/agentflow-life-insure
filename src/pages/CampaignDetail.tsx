@@ -329,6 +329,7 @@ const ImportCSVModal: React.FC<{
   campaignId: string;
   onImported: () => void;
 }> = ({ open, onClose, campaignId, onImported }) => {
+  const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [step, setStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
@@ -434,6 +435,16 @@ const ImportCSVModal: React.FC<{
           toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
         } else {
           const result = data as unknown as { added: number; skipped: number; skipped_ids: string[] };
+          await supabase.from("import_history").insert({
+            campaign_id: campaignId,
+            agent_id: user?.id ?? null,
+            organization_id: organizationId,
+            file_name: file?.name ?? "",
+            total_records: rows.length,
+            imported: result.added,
+            duplicates: result.skipped,
+            errors: leadsToProcess.length - processedLeads.length,
+          } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           if (result.skipped > 0) {
             toast.success(`${result.added} leads imported, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
           } else {
@@ -689,15 +700,14 @@ const CampaignDetail: React.FC = () => {
   }, []);
 
   const fetchImportHistory = useCallback(async () => {
-    if (!user?.id) return;
+    if (!id) return;
     setImportHistoryLoading(true);
     setImportHistoryError(false);
 
-    // TODO: Add campaign_id column to import_history table and filter by campaign here
     const { data, error } = await supabase
       .from("import_history")
       .select("id, file_name, total_records, imported, duplicates, errors, agent_id, created_at")
-      .eq("agent_id", user.id)
+      .eq("campaign_id", id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -727,7 +737,7 @@ const CampaignDetail: React.FC = () => {
     }
 
     setImportHistoryLoading(false);
-  }, [user?.id]);
+  }, [id]);
 
   useEffect(() => { fetchCampaign(); fetchLeads(); fetchAgents(); }, [fetchCampaign, fetchLeads, fetchAgents]);
   useEffect(() => { if (tab === "Import History") fetchImportHistory(); }, [tab, fetchImportHistory]);

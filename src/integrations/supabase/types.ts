@@ -1550,6 +1550,7 @@ export type Database = {
       import_history: {
         Row: {
           agent_id: string | null
+          campaign_id: string | null
           created_at: string | null
           duplicates: number
           errors: number
@@ -1562,6 +1563,7 @@ export type Database = {
         }
         Insert: {
           agent_id?: string | null
+          campaign_id?: string | null
           created_at?: string | null
           duplicates?: number
           errors?: number
@@ -1574,6 +1576,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string | null
+          campaign_id?: string | null
           created_at?: string | null
           duplicates?: number
           errors?: number
@@ -1585,6 +1588,13 @@ export type Database = {
           total_records?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "import_history_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "import_history_organization_id_fkey"
             columns: ["organization_id"]
