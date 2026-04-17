@@ -1,24 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import {
-  ChevronRight, ChevronDown, Users, GripVertical, Crown,
-  Shield, User, Paintbrush, Loader2, RefreshCw,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import React, { useEffect, useCallback, useMemo, useState } from "react";
+import { Crown, Shield, User, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogDescription, DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useOrganization } from "@/hooks/useOrganization";
 import { supabase } from "@/integrations/supabase/client";
 
-// ---- Types ----
 interface ProfileNode {
   id: string;
   first_name: string | null;
@@ -30,229 +16,117 @@ interface ProfileNode {
   children: ProfileNode[];
 }
 
-// ---- Role Badge ----
+function initials(node: ProfileNode): string {
+  const a = (node.first_name || "").trim().charAt(0);
+  const b = (node.last_name || "").trim().charAt(0);
+  if (a && b) return `${a}${b}`.toUpperCase();
+  if (a) return a.toUpperCase();
+  const e = (node.email || "?").charAt(0).toUpperCase();
+  return e || "?";
+}
+
+function displayName(node: ProfileNode): string {
+  const n = [node.first_name, node.last_name].filter(Boolean).join(" ").trim();
+  return n || node.email || "Unknown";
+}
+
 const RoleBadge: React.FC<{ role: string | null }> = ({ role }) => {
   const r = (role || "Agent").toLowerCase();
-  if (r === "admin") return <Badge className="bg-blue-600/20 text-blue-400 border-blue-600/30 gap-1"><Crown className="w-3 h-3" />{role}</Badge>;
-  if (r === "team leader") return <Badge className="bg-emerald-600/20 text-emerald-400 border-emerald-600/30 gap-1"><Shield className="w-3 h-3" />{role}</Badge>;
-  return <Badge variant="secondary" className="gap-1"><User className="w-3 h-3" />{role || "Agent"}</Badge>;
+  if (r === "admin") {
+    return (
+      <Badge className="mt-2 border border-sky-400/40 bg-sky-500/15 text-sky-300 shadow-[0_0_12px_rgba(56,189,248,0.25)] gap-1 font-medium tracking-wide">
+        <Crown className="h-3 w-3" />
+        {role}
+      </Badge>
+    );
+  }
+  if (r === "team leader") {
+    return (
+      <Badge className="mt-2 border border-emerald-400/40 bg-emerald-500/15 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.2)] gap-1 font-medium tracking-wide">
+        <Shield className="h-3 w-3" />
+        {role}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="mt-2 border border-border/60 bg-muted/40 gap-1 font-medium">
+      <User className="h-3 w-3" />
+      {role || "Agent"}
+    </Badge>
+  );
 };
 
-// ---- Tree Node (recursive) ----
-const TreeNode: React.FC<{
-  node: ProfileNode;
-  depth: number;
-  onDrop: (draggedId: string, newParentId: string) => void;
-  onSelectBranch: (node: ProfileNode) => void;
-}> = ({ node, depth, onDrop, onSelectBranch }) => {
-  const [expanded, setExpanded] = useState(depth < 2);
-  const [dragOver, setDragOver] = useState(false);
-  const hasChildren = node.children.length > 0;
-  const displayName = [node.first_name, node.last_name].filter(Boolean).join(" ") || node.email || "Unknown";
-  const descendantCount = countDescendants(node);
+/** Top-down org node: vertical stem, optional horizontal rail, child subtrees. */
+const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
+  const n = node.children.length;
+  const hasChildren = n > 0;
+  const name = displayName(node);
+  const ini = initials(node);
 
   return (
-    <div className="select-none">
-      <div
-        className={`flex items-center gap-2 py-2 px-3 rounded-lg transition-all cursor-pointer group ${
-          dragOver ? "bg-primary/10 ring-2 ring-primary/30" : "hover:bg-muted/50"
-        }`}
-        style={{ paddingLeft: `${depth * 24 + 12}px` }}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", node.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          const draggedId = e.dataTransfer.getData("text/plain");
-          if (draggedId && draggedId !== node.id) {
-            onDrop(draggedId, node.id);
-          }
-        }}
-      >
-        <GripVertical className="w-4 h-4 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab" />
-
-        {/* Expand/collapse toggle */}
-        <button
-          onClick={() => hasChildren && setExpanded(!expanded)}
-          className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
-            hasChildren ? "hover:bg-muted" : ""
-          }`}
-        >
-          {hasChildren ? (
-            expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
-          ) : (
-            <span className="w-4" />
-          )}
-        </button>
-
-        {/* Name & Role */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <span className="font-medium truncate">{displayName}</span>
+    <div className="flex flex-col items-center">
+      <div className="relative">
+        <div
+          className="pointer-events-none absolute -inset-1 rounded-2xl bg-gradient-to-br from-primary/35 via-cyan-500/15 to-violet-500/20 opacity-70 blur-md"
+          aria-hidden
+        />
+        <div className="relative rounded-2xl border border-primary/20 bg-card/90 px-5 py-4 text-center shadow-lg shadow-primary/5 backdrop-blur-sm min-w-[168px] max-w-[220px]">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-inner ring-2 ring-primary/30">
+            {ini}
+          </div>
+          <p className="mt-2.5 truncate text-sm font-semibold tracking-tight text-foreground" title={name}>
+            {name}
+          </p>
           <RoleBadge role={node.role} />
-          {descendantCount > 0 && (
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-              {descendantCount} report{descendantCount !== 1 ? "s" : ""}
-            </span>
-          )}
         </div>
-
-        {/* Actions */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="opacity-0 group-hover:opacity-100 transition-opacity h-7 px-2 gap-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectBranch(node);
-          }}
-        >
-          <Paintbrush className="w-3 h-3" />
-          <span className="text-xs">Paint</span>
-        </Button>
       </div>
 
-      {/* Children */}
-      {expanded && hasChildren && (
-        <div>
-          {node.children.map((child) => (
-            <TreeNode
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              onDrop={onDrop}
-              onSelectBranch={onSelectBranch}
-            />
-          ))}
+      {hasChildren && (
+        <div className="relative mt-0 flex w-full flex-col items-center">
+          <div
+            className="h-7 w-px shrink-0 bg-gradient-to-b from-primary/50 via-primary/25 to-transparent"
+            aria-hidden
+          />
+
+          <div
+            className="relative grid w-full max-w-full items-start justify-items-center gap-x-10 gap-y-14 pt-2"
+            style={{
+              gridTemplateColumns: n === 1 ? "minmax(140px,1fr)" : `repeat(${n}, minmax(140px, auto))`,
+            }}
+          >
+            {n > 1 && (
+              <div
+                className="pointer-events-none absolute left-0 right-0 top-0 mx-auto h-px rounded-full bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
+                style={{
+                  left: `${100 / (2 * n)}%`,
+                  width: `${(100 * (n - 1)) / n}%`,
+                  maxWidth: "100%",
+                }}
+                aria-hidden
+              />
+            )}
+
+            {node.children.map((child) => (
+              <div key={child.id} className="relative flex flex-col items-center pt-6">
+                <div
+                  className="absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 bg-gradient-to-b from-primary/35 to-primary/10"
+                  aria-hidden
+                />
+                <VisualOrgNode node={child} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-function countDescendants(node: ProfileNode): number {
-  let count = node.children.length;
-  for (const child of node.children) {
-    count += countDescendants(child);
-  }
-  return count;
-}
-
-// ---- Permission Painting Dialog ----
-const PermissionPaintDialog: React.FC<{
-  open: boolean;
-  node: ProfileNode | null;
-  onClose: () => void;
-}> = ({ open, node, onClose }) => {
-  const { toast } = useToast();
-  const [setting, setSetting] = useState("lead_source");
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  if (!node) return null;
-
-  const descendantIds = collectIds(node);
-  const displayName = [node.first_name, node.last_name].filter(Boolean).join(" ") || "Unknown";
-
-  const handleApply = async () => {
-    setSaving(true);
-    try {
-      // Example: batch-update a field on all descendant profiles
-      if (setting === "campaign_assignment" && value) {
-        // Assign all descendants to a campaign
-        for (const id of descendantIds) {
-          await supabase
-            .from("profiles")
-            .update({ team_id: value } as any)
-            .eq("id", id);
-        }
-        toast({
-          title: "Permission painted",
-          description: `Applied team assignment to ${descendantIds.length} user(s) under ${displayName}.`,
-        });
-      } else {
-        toast({
-          title: "Applied to branch",
-          description: `Setting "${setting}" applied to ${descendantIds.length} user(s).`,
-        });
-      }
-      onClose();
-    } catch (e: any) {
-      toast({ title: "Failed to apply", description: e.message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Permission Painting</DialogTitle>
-          <DialogDescription>
-            Apply a setting to <strong>{displayName}</strong> and all{" "}
-            <strong>{descendantIds.length}</strong> descendant(s).
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label>Setting to Apply</Label>
-            <Select value={setting} onValueChange={setSetting}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lead_source">Lead Source Access</SelectItem>
-                <SelectItem value="campaign_assignment">Campaign Assignment</SelectItem>
-                <SelectItem value="dialer_script">Dialer Script</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Value</Label>
-            <input
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="Enter value to apply..."
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleApply} disabled={saving} className="gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paintbrush className="w-4 h-4" />}
-            Apply to {descendantIds.length} user(s)
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-function collectIds(node: ProfileNode): string[] {
-  const ids: string[] = [node.id];
-  for (const child of node.children) {
-    ids.push(...collectIds(child));
-  }
-  return ids;
-}
-
-// ---- Main Component ----
 const HierarchyTree: React.FC = () => {
   const { toast } = useToast();
   const { organizationId } = useOrganization();
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [paintTarget, setPaintTarget] = useState<ProfileNode | null>(null);
 
   const fetchProfiles = useCallback(async () => {
     if (!organizationId) return;
@@ -276,17 +150,14 @@ const HierarchyTree: React.FC = () => {
     fetchProfiles();
   }, [fetchProfiles]);
 
-  // Build tree from flat list
   const tree = useMemo(() => {
     const map = new Map<string, ProfileNode>();
     const roots: ProfileNode[] = [];
 
-    // Create nodes
     for (const p of profiles) {
       map.set(p.id, { ...p, children: [] });
     }
 
-    // Link children to parents
     for (const p of profiles) {
       const node = map.get(p.id)!;
       if (p.upline_id && map.has(p.upline_id)) {
@@ -299,71 +170,48 @@ const HierarchyTree: React.FC = () => {
     return roots;
   }, [profiles]);
 
-  // Handle drag-and-drop reassignment
-  const handleDrop = async (draggedId: string, newParentId: string) => {
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ upline_id: newParentId } as any)
-        .eq("id", draggedId);
-      if (error) throw error;
-      toast({ title: "Reassigned", description: "Agent has been moved to the new manager." });
-      fetchProfiles(); // Refresh to pick up DB-recalculated hierarchy_path
-    } catch (e: any) {
-      toast({ title: "Reassignment failed", description: e.message, variant: "destructive" });
-    }
-  };
-
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Users className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">Agency Hierarchy</CardTitle>
-            <span className="text-xs text-muted-foreground">
-              {profiles.length} member{profiles.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchProfiles} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </Button>
-        </div>
-        <p className="text-sm text-muted-foreground mt-1">
-          Drag agents to reassign them. Click "Paint" to apply settings to an entire branch.
-        </p>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : tree.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            No team members found in this organization.
-          </div>
-        ) : (
-          <div className="space-y-0.5">
-            {tree.map((root) => (
-              <TreeNode
-                key={root.id}
-                node={root}
-                depth={0}
-                onDrop={handleDrop}
-                onSelectBranch={setPaintTarget}
-              />
-            ))}
-          </div>
-        )}
-      </CardContent>
-
-      <PermissionPaintDialog
-        open={!!paintTarget}
-        node={paintTarget}
-        onClose={() => setPaintTarget(null)}
+    <div className="relative overflow-x-auto rounded-2xl border border-primary/10 bg-gradient-to-b from-muted/30 via-card to-card p-6 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
+      <div
+        className="pointer-events-none absolute inset-0 z-0 rounded-2xl opacity-[0.35] dark:opacity-20"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% 0%, hsl(var(--primary) / 0.12), transparent 45%), radial-gradient(circle at 80% 100%, hsl(280 60% 50% / 0.08), transparent 40%)",
+        }}
+        aria-hidden
       />
-    </Card>
+
+      <div className="relative z-10 mb-6 flex flex-col gap-1 border-b border-border/40 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-foreground">
+            <Sparkles className="h-5 w-5 text-primary" aria-hidden />
+            <h4 className="text-lg font-semibold tracking-tight">Team structure</h4>
+          </div>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            How your agency is organized today. Reporting lines follow each person&apos;s manager in the system.
+          </p>
+        </div>
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          {profiles.length} member{profiles.length !== 1 ? "s" : ""}
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="relative z-10 flex min-h-[200px] items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary/60" aria-label="Loading" />
+        </div>
+      ) : tree.length === 0 ? (
+        <div className="relative z-10 py-16 text-center text-sm text-muted-foreground">
+          No team members in this organization yet.
+        </div>
+      ) : (
+        <div className="relative z-10 flex flex-row flex-wrap justify-center gap-16 pb-4 pt-2">
+          {tree.map((root) => (
+            <VisualOrgNode key={root.id} node={root} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 
