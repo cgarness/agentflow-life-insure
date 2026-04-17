@@ -64,3 +64,7 @@ verify_jwt = false
 # must be false — otherwise Supabase returns 401 Invalid JWT before the handler runs.
 [functions.dialer-start-call]
 verify_jwt = false
+
+# Invoked by Supabase cron or service role; uses SUPABASE_SERVICE_ROLE_KEY inside handler.
+[functions.spam-check-cron]
+verify_jwt = false

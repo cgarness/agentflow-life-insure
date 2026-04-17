@@ -33,7 +33,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
-| `20260417120000` | `carriers_logo_and_contacts.sql` | Adds **`logo_url`** (TEXT) and JSONB **`contact_phones`** / **`contact_emails`** on **`public.carriers`** (arrays of `{label, value}` for labeled phone lines and emails). **Apply on Supabase** before using the expanded Settings → Carriers UI. |
+| `20260417120000` | `carriers_logo_and_contacts.sql` | Adds **`logo_url`** (TEXT) and JSONB **`contact_phones`** / **`contact_emails`** on **`public.carriers`** (arrays of `{label, value}` for labeled phone lines and emails). **Production (2026-04-17):** CLI **`migration repair`** removed orphan remote-only version rows, marked **`20260405100000`–`20260414120000`** as **applied** (they were already live under old timestamps), then **`supabase db push --yes`** applied **`20260417000000`** + **`20260417120000`**. |
 | `20260413200000` | `seed_area_code_mapping.sql` | Adds `UNIQUE (area_code)` constraint + seeds **324 US NANP area codes** across 51 jurisdictions (50 states + DC) into **`area_code_mapping`**. Activates the same-state fallback tier in `selectOutboundCallerId`. **Production:** applied to `jncvvsvckxhqgqvkppmj` (2026-04-13). |
 | `20260413190000` | `calls_realtime_publication.sql` | Adds **`public.calls`** to **`supabase_realtime`** (if absent) so clients can subscribe to inbound **`contact_id`** updates. |
 | `20260413230000` | `peek_inbound_call_identity.sql` | **`peek_inbound_call_identity`** (**`SECURITY DEFINER`**) returns ANI/CRM JSON for the signed-in org by **`telnyx_call_id`** or **`telnyx_call_control_id`** (client poll while ringing). |
@@ -287,8 +287,14 @@
   | **`TelnyxContext.tsx` — `getSmartCallerId`** | Delegates to `selectOutboundCallerId` from `caller-id-selection`; passes `getStateByAreaCode` (now also from `caller-id-selection`) as an injected dep. |
   | **`FloatingDialer.tsx`** | Imports `CALLER_ID_STICKY_MIN_DURATION_SEC` from `caller-id-selection` only. No changes needed. |
 
+- **2026-04-17 | [DONE] Supabase migration history aligned + `db push` restored**
+  *What:* **`supabase migration repair --status reverted`** on **23** remote-only version IDs (dashboard/hosted names not present in repo). **`migration repair --status applied`** for **`20260405100000`–`20260414120000`** so history matches schema already on **`jncvvsvckxhqgqvkppmj`**. **`supabase db push --yes`** then applied **`20260417000000`** and **`20260417120000`**. *Caution:* if prod schema ever drifted from those files, re-verify with **`migration list`** and spot-check critical objects (e.g. **`dialer_lead_locks`**).
+
 - **2026-04-17 | [DONE] Settings — Carriers (logo + labeled phones & emails)**
   *What:* Migration **`20260417120000`** adds **`logo_url`**, **`contact_phones`**, and **`contact_emails`** on **`carriers`**. **`Carriers.tsx`** — upload or paste logo URL; dynamic **Add phone** / **Add email** rows with labels (e.g. new business, contracting); list shows logo thumbnail and **`tel:`** / **`mailto:`** links. Helpers: **`carrierContactUtils.ts`**, **`CarrierContactsEditor.tsx`**. Types updated in **`src/integrations/supabase/types.ts`**.
+
+- **2026-04-17 | [DONE] Edge Function — `spam-check-cron`**
+  *What:* Service-role cron-style function recalculates **`phone_numbers`** spam / carrier reputation fields from **`calls`** (7d / 30d). **`supabase/config.toml`** — **`verify_jwt = false`** for scheduled invocations. Deploy with **`supabase functions deploy spam-check-cron`** when ready to wire pg_cron or external scheduler.
 
 - **2026-04-14 | [DONE] Settings — Dispositions Manager (locked rows + Appointment Set + No Answer/DNC edit)**
   *What:* **`DispositionsManager.tsx`** — (1) **Reorder:** every disposition row is draggable (including `is_locked`); grip handle no longer dimmed for locked rows. (2) **Appointment Set:** modal treats **Appointment Set** as fully editable (name, color, required notes, callback / appointment schedulers, automation) while other locked rows still use the restricted form (rename + those sections hidden). (3) **No Answer / DNC:** edit control is disabled with a tooltip; delete remains blocked for all locked rows.
