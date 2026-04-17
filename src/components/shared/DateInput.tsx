@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useBranding } from "@/contexts/BrandingContext";
 
 interface DateInputProps {
   value?: string; // Expects YYYY-MM-DD
@@ -24,7 +23,6 @@ const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: currentYear + 20 - 1900 + 1 }, (_, i) => 1900 + i);
 
 export const DateInput: React.FC<DateInputProps> = ({ value, onChange, className, placeholder, required }) => {
-  const { branding } = useBranding();
   const [inputValue, setInputValue] = React.useState("");
   const [open, setOpen] = React.useState(false);
 
@@ -37,13 +35,7 @@ export const DateInput: React.FC<DateInputProps> = ({ value, onChange, className
     return new Date();
   });
 
-  // Map settings to date-fns format tokens
-  const formatMap: Record<string, string> = {
-    "MM/DD/YYYY": "MM/dd/yyyy",
-    "DD/MM/YYYY": "dd/MM/yyyy",
-    "YYYY-MM-DD": "yyyy-MM-dd",
-  };
-  const displayFormat = formatMap[branding.dateFormat] || "MM/dd/yyyy";
+  const displayFormat = "MM/dd/yyyy";
 
   // Sync text input when prop value changes
   React.useEffect(() => {
@@ -66,11 +58,7 @@ export const DateInput: React.FC<DateInputProps> = ({ value, onChange, className
     let val = e.target.value;
     // Auto-insert separators as the user types forward
     if (val.length > inputValue.length) {
-      if (branding.dateFormat === "YYYY-MM-DD") {
-        if (val.length === 4 || val.length === 7) val += "-";
-      } else {
-        if (val.length === 2 || val.length === 5) val += "/";
-      }
+      if (val.length === 2 || val.length === 5) val += "/";
     }
     setInputValue(val);
 

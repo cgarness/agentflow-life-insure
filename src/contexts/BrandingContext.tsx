@@ -9,10 +9,9 @@ export interface BrandingState {
     faviconUrl: string | null;
     faviconName: string | null;
     timezone: string;
-    dateFormat: string;
     timeFormat: string;
-    primaryColor: string;
     companyPhone: string;
+    websiteUrl: string;
 }
 
 const DEFAULTS: BrandingState = {
@@ -22,13 +21,10 @@ const DEFAULTS: BrandingState = {
     faviconUrl: null,
     faviconName: null,
     timezone: "America/Chicago",
-    dateFormat: "MM/DD/YYYY",
     timeFormat: "12",
-    primaryColor: "#3B82F6",
     companyPhone: "",
+    websiteUrl: "",
 };
-
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000000";
 
 interface BrandingContextType {
     branding: BrandingState;
@@ -45,12 +41,31 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [branding, setBranding] = useState<BrandingState>({ ...DEFAULTS });
     const [isLoading, setIsLoading] = useState(true);
 
-    const refreshBranding = async () => {
+    const refreshBranding = useCallback(async () => {
         try {
+            const { data: authData } = await supabase.auth.getUser();
+            const userId = authData.user?.id;
+            if (!userId) {
+                applyBrandingToDocument(DEFAULTS);
+                return;
+            }
+
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('organization_id')
+                .eq('id', userId)
+                .maybeSingle();
+
+            const orgId = profile?.organization_id;
+            if (!orgId) {
+                applyBrandingToDocument(DEFAULTS);
+                return;
+            }
+
             const { data, error } = await supabase
                 .from('company_settings')
                 .select('*')
-                .eq('id', SINGLETON_ID)
+                .eq('organization_id', orgId)
                 .maybeSingle();
 
             if (error) throw error;
@@ -63,10 +78,9 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     faviconUrl: data.favicon_url,
                     faviconName: data.favicon_name,
                     timezone: data.timezone || DEFAULTS.timezone,
-                    dateFormat: data.date_format || DEFAULTS.dateFormat,
                     timeFormat: data.time_format || DEFAULTS.timeFormat,
-                    primaryColor: data.primary_color || DEFAULTS.primaryColor,
                     companyPhone: data.company_phone || DEFAULTS.companyPhone,
+                    websiteUrl: (data as { website_url?: string | null }).website_url || DEFAULTS.websiteUrl,
                 };
                 setBranding(loadedState);
                 applyBrandingToDocument(loadedState);
@@ -78,31 +92,25 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
         refreshBranding();
-    }, []);
+    }, [refreshBranding]);
 
     const formatDateTime = useCallback((date: string | Date | null | undefined, options?: { hideTime?: boolean; hideDate?: boolean }) => {
         if (!date) return "";
         const d = typeof date === 'string' ? parseISO(date) : date;
         if (!isValid(d)) return typeof date === 'string' ? date : "";
 
-        const dateFormatMap: Record<string, string> = {
-            "MM/DD/YYYY": "MM/dd/yyyy",
-            "DD/MM/YYYY": "dd/MM/yyyy",
-            "YYYY-MM-DD": "yyyy-MM-dd",
-        };
-
-        const dFormat = dateFormatMap[branding.dateFormat] || "MM/dd/yyyy";
+        const dFormat = "MM/dd/yyyy";
         const tFormat = branding.timeFormat === "12" ? "h:mm a" : "HH:mm";
 
         if (options?.hideTime) return dateFnsFormat(d, dFormat);
         if (options?.hideDate) return dateFnsFormat(d, tFormat);
-        
+
         return dateFnsFormat(d, `${dFormat} ${tFormat}`);
-    }, [branding.dateFormat, branding.timeFormat]);
+    }, [branding.timeFormat]);
 
     const formatDate = useCallback((date: string | Date | null | undefined) => {
         return formatDateTime(date, { hideTime: true });
@@ -127,12 +135,9 @@ export const useBranding = () => {
     return context;
 };
 
-// Helper function to update the DOM based on branding
 function applyBrandingToDocument(branding: BrandingState) {
-    // Update document title
     document.title = branding.companyName || "AgentFlow";
 
-    // Update favicon
     if (branding.faviconUrl) {
         let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
         if (!link) {
@@ -142,19 +147,4 @@ function applyBrandingToDocument(branding: BrandingState) {
         }
         link.href = branding.faviconUrl;
     }
-
-    // Set CSS Variables for primary colors
-    // To handle shadcn UI correctly, we need the HSL value for the primary variable
-    // For simplicity here, we'll try applying the raw hex color directly to
-    // the specific elements that need it, or standard CSS vars.
-    // In a more robust system you'd convert HEX to HSL and set --primary.
-
-    // Example for a direct style override on root (if using simple variables):
-    const root = document.documentElement;
-    // If your design system uses hex for primary:
-    // root.style.setProperty('--primary', branding.primaryColor);
-
-    // For shadcn (which uses HSL), we can inject a style block if needed,
-    // but let's provide the raw hex value as a special theme variable for now.
-    root.style.setProperty('--brand-primary', branding.primaryColor);
 }
