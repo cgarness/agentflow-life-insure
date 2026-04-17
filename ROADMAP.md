@@ -296,6 +296,9 @@
 - **2026-04-17 | [DONE] Settings — User Management: Team hierarchy tab**
   *What:* **`UserManagement.tsx`** — third tab **Team hierarchy** embeds **`HierarchyTree`**. **`HierarchyTree.tsx`** — read-only **top-down org visualization** (gradient node cards, connector lines, glass-style panel); loads from **`profiles.upline_id`** + **`avatar_url`** on nodes; **TopBar** header button and profile menu header show **`profiles.avatar_url`** when set (else initials). Responsive three-column **`TabsList`** (**Team Members** / **Pending Invites** / **Team hierarchy**).
 
+- **2026-04-17 | [DONE] Team hierarchy — tree build hardening**
+  *What:* **`buildProfileOrgForest`** in **`src/lib/profile-org-tree.ts`** — dedupe rows by **`id`**, skip **self-`upline_id`**, and treat **cyclic upline chains** as extra top-level cards (avoids infinite React recursion and “missing” users when data is inconsistent). **`HierarchyTree`** — no stuck spinner when **`organization_id`** is briefly unset; member count uses **unique ids**; note when **multiple roots** or **duplicate rows**. Vitest: **`profile-org-tree.test.ts`**.
+
 - **2026-04-17 | [DONE] Edge Function — `spam-check-cron`**
   *What:* Service-role cron-style function recalculates **`phone_numbers`** spam / carrier reputation fields from **`calls`** (7d / 30d). **`supabase/config.toml`** — **`verify_jwt = false`** for scheduled invocations. Deploy with **`supabase functions deploy spam-check-cron`** when ready to wire pg_cron or external scheduler.
 

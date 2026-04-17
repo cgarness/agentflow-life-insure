@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useOrganization } from "@/hooks/useOrganization";
 import { supabase } from "@/integrations/supabase/client";
+import { buildProfileOrgForest } from "@/lib/profile-org-tree";
 
 interface ProfileNode {
   id: string;
@@ -144,7 +145,11 @@ const HierarchyTree: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchProfiles = useCallback(async () => {
-    if (!organizationId) return;
+    if (!organizationId) {
+      setProfiles([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -166,24 +171,14 @@ const HierarchyTree: React.FC = () => {
   }, [fetchProfiles]);
 
   const tree = useMemo(() => {
-    const map = new Map<string, ProfileNode>();
-    const roots: ProfileNode[] = [];
-
-    for (const p of profiles) {
-      map.set(p.id, { ...p, children: [] });
-    }
-
-    for (const p of profiles) {
-      const node = map.get(p.id)!;
-      if (p.upline_id && map.has(p.upline_id)) {
-        map.get(p.upline_id)!.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
-
-    return roots;
+    return buildProfileOrgForest(profiles) as ProfileNode[];
   }, [profiles]);
+
+  const uniqueProfileCount = useMemo(
+    () => new Set(profiles.map((p) => p?.id).filter(Boolean) as string[]).size,
+    [profiles],
+  );
+  const duplicateRows = profiles.length > uniqueProfileCount;
 
   return (
     <div className="relative overflow-x-auto rounded-2xl border border-primary/10 bg-gradient-to-b from-muted/30 via-card to-card p-6 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
@@ -206,9 +201,17 @@ const HierarchyTree: React.FC = () => {
             How your agency is organized today. Reporting lines follow each person&apos;s manager in the system.
           </p>
         </div>
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {profiles.length} member{profiles.length !== 1 ? "s" : ""}
-        </p>
+        <div className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          <p>
+            {uniqueProfileCount} member{uniqueProfileCount !== 1 ? "s" : ""}
+            {duplicateRows ? ` (${profiles.length} rows)` : ""}
+          </p>
+          {duplicateRows && (
+            <p className="mt-1 max-w-xs text-[10px] font-normal normal-case text-amber-600 dark:text-amber-400">
+              Duplicate profile rows for the same user id; chart shows one card per person.
+            </p>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -220,10 +223,18 @@ const HierarchyTree: React.FC = () => {
           No team members in this organization yet.
         </div>
       ) : (
-        <div className="relative z-10 flex flex-row flex-wrap justify-center gap-16 pb-4 pt-2">
-          {tree.map((root) => (
-            <VisualOrgNode key={root.id} node={root} />
-          ))}
+        <div className="relative z-10 space-y-4">
+          {tree.length > 1 && (
+            <p className="mx-auto max-w-2xl text-center text-xs text-muted-foreground">
+              More than one top-level person usually means someone&apos;s manager is not on this chart (outside your access) or
+              upline was cleared — those people still appear here at the top.
+            </p>
+          )}
+          <div className="flex flex-row flex-wrap justify-center gap-16 pb-4 pt-2">
+            {tree.map((root) => (
+              <VisualOrgNode key={root.id} node={root} />
+            ))}
+          </div>
         </div>
       )}
     </div>
