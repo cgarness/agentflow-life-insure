@@ -1830,6 +1830,8 @@ export type Database = {
       }
       message_templates: {
         Row: {
+          attachments: Json
+          category: string | null
           content: string
           created_at: string
           id: string
@@ -1840,6 +1842,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          attachments?: Json
+          category?: string | null
           content: string
           created_at?: string
           id?: string
@@ -1850,6 +1854,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          attachments?: Json
+          category?: string | null
           content?: string
           created_at?: string
           id?: string

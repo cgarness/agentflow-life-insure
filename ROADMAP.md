@@ -1540,4 +1540,17 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-18 | [DONE] | **Template Modal Enhancement — 7 features:** merge fields + emoji pickers (popovers), email attachments (private `template-attachments` bucket + signed URLs), SMS segment counter, live preview with sample life-insurance data, duplicate row action, category tags + filter. Migration `20260418_enhance_message_templates.sql`. List split: `EmailSMSTemplates.tsx` + `TemplatesListView.tsx` / `TemplatesFiltersRow.tsx`; modal in `TemplateModal.tsx` + hooks/utils. |
 | 2026-04-16 | [DONE] | Hotfix: JSX pagination footer — template literal fix for Unicode separator |
+
+### Context Snapshot — 2026-04-18 — Template Modal Enhancement
+
+**What was built:** Add/Edit template experience moved to `TemplateModal.tsx` with toolbar (merge fields, attach, emoji), Zod-validated form including optional `attachments` JSON and nullable `category`, SMS character/segment counter, preview toggle (email card + SMS bubble), and category filter on the list.
+
+**Files touched / added:** `EmailSMSTemplates.tsx`, `TemplateModal.tsx`, `TemplatesListView.tsx`, `TemplatesFiltersRow.tsx`, `MergeFieldsPopover.tsx`, `EmojiPickerPopover.tsx`, `TemplatePreviewPanel.tsx`, `TemplateSmsCounter.tsx`, `TemplateAttachmentChips.tsx`, `messageTemplateTypes.ts`, `templateCategories.ts`, `templateMergeData.ts`, `templateModalSchema.ts`, `templateAttachmentUtils.ts`, `useTemplateModalForm.ts`, `useTemplateFileAttachments.ts`, `saveMessageTemplate.ts`, `src/integrations/supabase/types.ts` (`message_templates` row), migration `supabase/migrations/20260418_enhance_message_templates.sql`.
+
+**Storage:** Bucket **`template-attachments`** (private, 5MB limit, PDF/PNG/JPEG/DOCX). Object path `{organization_id}/{timestamp}_{filename}`. RLS on `storage.objects`: first path segment must match `profiles.organization_id` for the signed-in user.
+
+**Deviations:** Spec mentioned “three new columns”; the provided SQL added **two** (`attachments`, `category`) — shipped as written. Bucket creation is in the migration (not client-side). `TemplateModal` props use `organizationId: string | null` so save stays disabled if org is missing.
+
+**Test next:** Run migration on Supabase; confirm storage policies allow upload/delete for an org member; create/edit email with attachments and signed link open; SMS counter near 160/70 boundaries; duplicate + category filter; preview token replacement.
