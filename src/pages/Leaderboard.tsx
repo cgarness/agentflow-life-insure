@@ -26,6 +26,8 @@ interface AgentStats {
   appointmentsSet: number;
   talkTime: number;
   conversionRate: number;
+  /** Win (`wins` rows) count in the last 7 days — TV / “recent wins” column */
+  recentWins7d: number;
   rank: number;
   prevRank: number | null;
 }
@@ -177,7 +179,7 @@ const Leaderboard: React.FC = () => {
       const talkTime = agentCalls.reduce((s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0), 0);
       const appointmentsSet = appts.filter(a => a.created_by === p.id).length;
       const conversionRate = callsMade > 0 ? (policiesSold / callsMade) * 100 : 0;
-      return { ...p, callsMade, policiesSold, appointmentsSet, talkTime, conversionRate, rank: 0, prevRank: null as number | null };
+      return { ...p, callsMade, policiesSold, appointmentsSet, talkTime, conversionRate, recentWins7d: 0, rank: 0, prevRank: null as number | null };
     });
   }, []);
 
@@ -220,6 +222,18 @@ const Leaderboard: React.FC = () => {
     }
     currentStats.forEach(a => prevRanksRef.current.set(a.id, a.rank));
 
+    const sevenStart = subDays(new Date(), 7).toISOString();
+    const { data: wins7dRows } = await supabase.from("wins").select("agent_id").gte("created_at", sevenStart);
+    const wins7dByAgent = new Map<string, number>();
+    for (const row of wins7dRows || []) {
+      const aid = row.agent_id;
+      if (!aid) continue;
+      wins7dByAgent.set(aid, (wins7dByAgent.get(aid) ?? 0) + 1);
+    }
+    currentStats.forEach(a => {
+      a.recentWins7d = wins7dByAgent.get(a.id) ?? 0;
+    });
+
     setAgents(currentStats);
     setLoading(false);
 
@@ -246,6 +260,14 @@ const Leaderboard: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchWins(); }, [fetchWins]);
+
+  useEffect(() => {
+    if (tvMode) document.body.dataset.tvMode = "true";
+    else delete document.body.dataset.tvMode;
+    return () => {
+      delete document.body.dataset.tvMode;
+    };
+  }, [tvMode]);
 
   // Real-time subscriptions
   useEffect(() => {

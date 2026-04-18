@@ -919,6 +919,7 @@ export type Database = {
           favicon_name: string | null
           favicon_url: string | null
           id: string
+          leaderboard_tv_banner_text: string | null
           logo_name: string | null
           logo_url: string | null
           organization_id: string | null
@@ -935,6 +936,7 @@ export type Database = {
           favicon_name?: string | null
           favicon_url?: string | null
           id?: string
+          leaderboard_tv_banner_text?: string | null
           logo_name?: string | null
           logo_url?: string | null
           organization_id?: string | null
@@ -951,6 +953,7 @@ export type Database = {
           favicon_name?: string | null
           favicon_url?: string | null
           id?: string
+          leaderboard_tv_banner_text?: string | null
           logo_name?: string | null
           logo_url?: string | null
           organization_id?: string | null

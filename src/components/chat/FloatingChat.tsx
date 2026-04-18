@@ -39,6 +39,10 @@ type View = "groups" | "chat" | "newGroup";
 export default function FloatingChat() {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
+  /** Leaderboard TV fullscreen sets `document.body.dataset.tvMode = "true"` — hide chat bubble so it does not cover the display. */
+  const [tvModeActive, setTvModeActive] = useState(() =>
+    typeof document !== "undefined" && document.body?.dataset?.tvMode === "true"
+  );
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("groups");
   const [groups, setGroups] = useState<ChatGroup[]>([]);
@@ -95,6 +99,19 @@ export default function FloatingChat() {
       setAllUsers(data as UserProfile[]);
     }
   }, []);
+
+  useEffect(() => {
+    const el = document.body;
+    const sync = () => setTvModeActive(el.dataset.tvMode === "true");
+    const mo = new MutationObserver(sync);
+    mo.observe(el, { attributes: true, attributeFilter: ["data-tv-mode"] });
+    sync();
+    return () => mo.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (tvModeActive) setOpen(false);
+  }, [tvModeActive]);
 
   useEffect(() => {
     if (open && user) {
@@ -232,6 +249,8 @@ export default function FloatingChat() {
     const d = new Date(iso);
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
+
+  if (tvModeActive) return null;
 
   return (
     <>
