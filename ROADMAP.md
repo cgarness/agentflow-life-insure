@@ -64,6 +64,36 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Twilio Migration Phase 5 — Recording Status Callback**
+  *What:* Built `twilio-recording-status` with a download-upload-delete pipeline. When Twilio finishes a call recording (both outbound call recordings from Phase 3 and inbound voicemail recordings from Phase 4), it POSTs to this function. The function downloads the MP3 from Twilio, uploads it to the `call-recordings` Supabase Storage bucket, updates the `calls` row with the storage path, and then deletes the Twilio copy to avoid ongoing storage charges. Not deployed yet.
+  *File created:*
+  - `supabase/functions/twilio-recording-status/index.ts` — single-file handler. Validates `X-Twilio-Signature` (HMAC-SHA1, same helper pattern as Phases 3 & 4). Skips non-`completed` recording statuses. Looks up the `calls` row by `twilio_call_sid = CallSid` to get `id` and `organization_id`. Downloads `RecordingUrl + ".mp3"` with Basic auth (`TWILIO_ACCOUNT_SID:TWILIO_AUTH_TOKEN`). Uploads MP3 bytes to the `call-recordings` bucket at `{org_id}/{YYYYMMDD}/{CallSid}.mp3` using the service role client (`upsert: true`, `contentType: audio/mpeg`). If no `calls` row is found, uses `"unmatched"` as the org folder and skips DB updates. Updates `calls.recording_storage_path`, `calls.recording_duration`, and `calls.recording_url = 'storage:{path}'` (the `storage:` prefix tells the frontend to use signed URLs instead of a proxy). DELETEs the recording from Twilio via the REST API after confirmed upload. Each of the four failure points (download, upload, DB update, Twilio delete) is handled independently: download/upload failures set `recording_url` to sentinel values (`__recording_failed__` / `__recording_upload_failed__`) and return 200 without deleting from Twilio; DB update failure is logged but does not block Twilio cleanup; Twilio delete failure is non-fatal (recording is already safely stored). All paths return 200 + empty TwiML so Twilio never retries. All logs prefixed `[twilio-recording-status]`.
+  *Config:* Added `[functions.twilio-recording-status]` to `supabase/config.toml` with `verify_jwt = false`.
+  *Env vars required (set as Edge Function secrets before deploy):* `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+
+  ### Context Snapshot — Twilio Migration Phase 5 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Function built** | `supabase/functions/twilio-recording-status/index.ts` (single file) |
+  | **Method / auth** | `POST` only. `verify_jwt = false`. Twilio HMAC-SHA1 signature validated identically to Phases 3 & 4 (Web Crypto HMAC-SHA1, constant-time compare, URL from `X-Forwarded-Proto` + `X-Forwarded-Host`). |
+  | **Trigger source** | Both outbound call recordings (set via `recordingStatusCallback` in Phase 3 `twilio-voice-webhook`) and inbound voicemail recordings (set via `recordingStatusCallback` on `<Record>` in Phase 4 `twilio-voice-inbound`). Handled identically by this function — `CallSid` is the unifying key. |
+  | **Storage bucket** | `call-recordings` (private, created in Phase 1 migration `20260418170006`). RLS policies `call_recordings_insert_own_org` + `call_recordings_select_own_org` scoped by `{org_id}` first path segment. |
+  | **Storage path format** | `{organization_id}/{YYYYMMDD}/{CallSid}.mp3` — e.g. `a1b2c3d4-e5f6.../20260418/CA1234567890.mp3`. If no `calls` row found: `unmatched/{YYYYMMDD}/{CallSid}.mp3`. |
+  | **recording_url prefix convention** | `storage:{storagePath}` — the `storage:` prefix signals to the frontend (Phase 6+) that it should generate a Supabase Storage signed URL rather than call the `recording-proxy` edge function. |
+  | **Calls row lookup** | `SELECT id, organization_id FROM calls WHERE twilio_call_sid = CallSid` via `.maybeSingle()`. If no row found, logs a warning, uses `"unmatched"` folder, and skips all DB updates — recording is still cleaned up from Twilio after upload. |
+  | **Failure point 1 — download** | `fetch(RecordingUrl + ".mp3", { Authorization: Basic ... })`. On non-OK HTTP → update `calls.recording_url = '__recording_failed__'`, return 200. Do NOT delete from Twilio. |
+  | **Failure point 2 — upload** | `supabase.storage.from("call-recordings").upload(path, bytes, ...)`. On error → update `calls.recording_url = '__recording_upload_failed__'`, return 200. Do NOT delete from Twilio. |
+  | **Failure point 3 — DB update** | `UPDATE calls SET recording_storage_path, recording_duration, recording_url WHERE twilio_call_sid = CallSid`. On error → logged, continue. Twilio delete still proceeds (recording is safely in storage). |
+  | **Failure point 4 — Twilio delete** | `DELETE https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}` with Basic auth. On error (except 404) → logged as warning, return 200. Recording is already safely in Supabase Storage. |
+  | **Non-completed status events** | If `RecordingStatus !== 'completed'`, log and return 200 immediately. No pipeline steps run. |
+  | **MP3 format** | Appending `.mp3` to `RecordingUrl` requests MP3 from Twilio instead of WAV — significantly smaller file size at equivalent quality for telephony audio. |
+  | **CORS** | Allow all; `x-twilio-signature` allow-listed; OPTIONS preflight handled. |
+  | **Error behavior** | Signature mismatch → 403 + empty TwiML. Missing env vars → 500 + empty TwiML. All other errors → 200 + empty TwiML (never trigger a Twilio retry). |
+  | **config.toml** | `[functions.twilio-recording-status] verify_jwt = false` added. |
+  | **Deployment status** | NOT YET DEPLOYED — batched with other Twilio functions. |
+  | **Next phase** | Phase 6: Frontend SDK swap (replace Telnyx WebRTC SDK with Twilio.js in `TelnyxContext.tsx` / dialer components). |
+
 - **2026-04-18 | [DONE] Twilio Migration Phase 4 — Inbound Voice Webhook**
   *What:* Built `twilio-voice-inbound` with configurable routing (assigned / all-ring fully implemented; round-robin stubbed to `assigned` until online presence tracking lands), inbound contact auto-lookup on ANI (`From`) across `leads` → `clients` → `recruits` with exact-then-fuzzy-last10 match scoped by `organization_id`, voicemail fallback after a 30-second Dial timeout, and conditional call/voicemail recording gated by `phone_settings.recording_enabled`. Not deployed yet.
   *File created:*
