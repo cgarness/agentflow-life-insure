@@ -64,6 +64,40 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Twilio Migration Phase 6 — Frontend SDK Swap**
+  *What:* Created `src/lib/twilio-voice.ts` replacing `src/lib/telnyx.ts` as the core browser telephony library. Installed `@twilio/voice-sdk` (v2.18.1), removed `@telnyx/webrtc`. Exports: `initTwilioDevice`, `fetchTwilioToken`, `twilioMakeCall`, `twilioHangUp`, `twilioHangUpAll`, `twilioAnswerCall`, `twilioRejectCall`, `destroyTwilioDevice`, incoming-call pub/sub (`subscribeIncomingCall` / `subscribeToIncomingCalls` / `unsubscribeFromIncomingCalls`), Call utilities (`getCallSid` / `getCallDirection` / `getCallStatus`), identity/token/device getters, `checkMicrophonePermission`, and type re-exports `TwilioCall` / `TwilioDevice`. Token auto-refresh wired via `device.on('tokenWillExpire')`. `telnyx.ts` NOT removed (Phase 13 cleanup).
+  *Files changed:*
+  - `src/lib/twilio-voice.ts` (new) — Device singleton + pub/sub; mirrors telnyx.ts external contract so Phase 7 `TwilioContext` rewrite is a localized swap. Device constructed with `{ edge: 'ashburn-gll', closeProtection: true, codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU] }`.
+  - `package.json` — added `@twilio/voice-sdk ^2.18.1`, removed `@telnyx/webrtc ^2.25.24`.
+  - `package-lock.json` — regenerated.
+  *Does NOT touch:* `src/contexts/TelnyxContext.tsx` (Phase 7), `src/components/layout/FloatingDialer.tsx`, `src/pages/DialerPage.tsx`, any other component. `TelnyxContext.tsx` will have import errors until Phase 7.
+  *No env changes required on frontend:* Twilio browser SDK only needs the auth'd Supabase session to call the `twilio-token` Edge Function — no public SID/Key env vars. The `VITE_TELNYX_SIP_USERNAME` / `VITE_TELNYX_SIP_PASSWORD` env vars can be removed as part of Phase 13 cleanup.
+
+  ### Context Snapshot — Twilio Migration Phase 6 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **File created** | `src/lib/twilio-voice.ts` (≈220 lines) |
+  | **File NOT touched** | `src/lib/telnyx.ts` still exists — Phase 13 removes it. `TelnyxContext.tsx` still imports from `@telnyx/webrtc` which is now uninstalled → **will fail to compile/run until Phase 7**. |
+  | **SDK version** | `@twilio/voice-sdk ^2.18.1` (installed); `@telnyx/webrtc` uninstalled |
+  | **Device config** | `edge: 'ashburn-gll'` (Twilio global low-latency edge), `closeProtection: true` (beforeunload prompt during active call), `codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU]`. NOTE: `Codec` enum lives on `Call.Codec` in SDK v2.18.1 — task spec's `Device.Codec` reference was corrected. |
+  | **Token fetch** | `supabase.functions.invoke<{ token, identity, expires_in }>('twilio-token')`. Caches `currentToken` + `currentIdentity` at module scope. |
+  | **Token auto-refresh** | `device.on('tokenWillExpire', async)` → `fetchTwilioToken()` → `device.updateToken(token)`. Twilio SDK fires ~30 s before token expiry (TTL is 14 400 s / 4 h). Failures logged, no retry (next fire will try again). |
+  | **Device lifecycle** | `initTwilioDevice()` is idempotent (returns cached device when `state === Registered`); concurrent calls deduped via in-flight `registering` promise. `destroyTwilioDevice()` unregisters + destroys + clears module state (for agent logout). |
+  | **Incoming call pub/sub** | `Set<IncomingSubscriber>` at module scope. `device.on('incoming', (call) => dispatchIncoming({ call, rawNotification: call }))`. API mirrors telnyx.ts: `subscribeIncomingCall(cb)` returns teardown fn; `subscribeToIncomingCalls` / `unsubscribeFromIncomingCalls` provided as aliases. |
+  | **makeCall contract** | `twilioMakeCall({ to, callerId, callRowId, orgId })` → `device.connect({ params: { To, CallerId, CallRowId, OrgId } })`. These surface at `twilio-voice-webhook` as custom parameters matching Phase 3 expectations. Throws if device not `Registered`. |
+  | **Hangup** | `twilioHangUp(call)` → `call.disconnect()`; `twilioHangUpAll()` → `device.disconnectAll()`. |
+  | **Answer / Reject** | `twilioAnswerCall(call)` → `call.accept()`; `twilioRejectCall(call)` → `call.reject()`. Replaces the Telnyx `call.answer()` pattern. |
+  | **Direction normalization** | Twilio SDK uses uppercase `INCOMING` / `OUTGOING`; `getCallDirection(call)` returns lowercase `inbound` / `outbound`. |
+  | **Mic permission** | `checkMicrophonePermission()` probes via `navigator.mediaDevices.getUserMedia({ audio: true })` then immediately stops tracks. NOT a prerequisite for calls — Twilio SDK handles mic acquisition internally on `device.connect()` / `call.accept()`. Purely a UX warning hook (different from Telnyx where manual mic prep was required). |
+  | **Type re-exports** | `export type { Call as TwilioCall, Device as TwilioDevice } from '@twilio/voice-sdk'` so Phase 7 `TwilioContext` can type state without a second SDK import. |
+  | **Module-level getters** | `getCurrentIdentity()`, `getCurrentToken()`, `getTwilioDevice()` for debugging / UI display. |
+  | **Call state machine delta** | Telnyx filtered a single `telnyx.notification` stream on `call.direction` + `call.state`. Twilio emits targeted events (`incoming`, `error`, `registered`, `tokenWillExpire`) at Device level and per-call events (`accept`, `disconnect`, `cancel`, `reject`, `error`) at Call level. Per-call state tracking moves into `TwilioContext` in Phase 7. |
+  | **Downstream breakage (expected)** | `TelnyxContext.tsx` imports `@telnyx/webrtc` which is now uninstalled + references `src/lib/telnyx.ts` functions that still exist but reference a missing package. The app will fail to build/run until Phase 7 rewrites the Context against `twilio-voice.ts`. |
+  | **TypeScript** | `twilio-voice.ts` itself produces **zero** TS errors (`tsc --noEmit`). Pre-existing errors elsewhere in the tree (type drift from Phase 1 column renames) remain until Phase 12 regenerates types. |
+  | **Not yet done** | Phase 7 (TwilioContext rewrite). Phase 11 (inbound-call-claim update). Phase 12 (regen types). Phase 13 (remove `src/lib/telnyx.ts` + `VITE_TELNYX_SIP_*` env vars + `telnyxNotificationBranch.ts` + `telnyxInboundCaller.ts`). |
+  | **Next phase** | Phase 7: rewrite `src/contexts/TelnyxContext.tsx` → `TwilioContext.tsx` on top of this library. |
+
 - **2026-04-18 | [DONE] Twilio Migration Phase 5 — Recording Status Callback**
   *What:* Built `twilio-recording-status` with a download-upload-delete pipeline. When Twilio finishes a call recording (both outbound call recordings from Phase 3 and inbound voicemail recordings from Phase 4), it POSTs to this function. The function downloads the MP3 from Twilio, uploads it to the `call-recordings` Supabase Storage bucket, updates the `calls` row with the storage path, and then deletes the Twilio copy to avoid ongoing storage charges. Not deployed yet.
   *File created:*
