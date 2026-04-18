@@ -18,7 +18,7 @@ export async function saveMessageTemplate(input: SaveMessageTemplateInput): Prom
     type: input.type,
     subject: input.type === "email" ? input.subject : null,
     content: input.content,
-    attachments: input.type === "email" ? input.attachments : [],
+    attachments: input.attachments,
     category: input.category,
     updated_at: new Date().toISOString(),
   };

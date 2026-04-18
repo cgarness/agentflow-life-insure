@@ -46,7 +46,7 @@ export function useTemplateModalForm(
       setFormSubject(editTarget.subject || "");
       setFormContent(editTarget.content);
       setFormCategory(editTarget.category);
-      setFormAttachments(editTarget.type === "email" ? editTarget.attachments : []);
+      setFormAttachments(editTarget.attachments);
       setFormErrors({});
     } else {
       setFormName("");
@@ -89,11 +89,10 @@ export function useTemplateModalForm(
 
   const handleTypeChange = (v: "email" | "sms") => {
     setFormType(v);
-    if (v === "sms") setFormAttachments([]);
   };
 
   const handleSave = async () => {
-    const attachmentsPayload = formType === "email" ? formAttachments : [];
+    const attachmentsPayload = formAttachments;
     const parsed = templateFormSchema.safeParse({
       name: formName,
       content: formContent,

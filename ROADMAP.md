@@ -1543,6 +1543,7 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-18 | [DONE] | **Templates modal UX:** SMS templates can attach files (stored like email); header `pr-12` so close control clears Preview. |
 | 2026-04-18 | [DONE] | **Template Modal Enhancement — 7 features:** merge fields + emoji pickers (popovers), email attachments (private `template-attachments` bucket + signed URLs), SMS segment counter, live preview with sample life-insurance data, duplicate row action, category tags + filter. Migration `20260418_enhance_message_templates.sql`. List split: `EmailSMSTemplates.tsx` + `TemplatesListView.tsx` / `TemplatesFiltersRow.tsx`; modal in `TemplateModal.tsx` + hooks/utils. |
 | 2026-04-16 | [DONE] | Hotfix: JSX pagination footer — template literal fix for Unicode separator |
 

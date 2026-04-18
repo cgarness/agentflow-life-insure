@@ -27,9 +27,9 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
-        <DialogHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-          <DialogTitle>{editTarget ? "Edit Template" : "Add Template"}</DialogTitle>
-          <div className="flex items-center gap-2">
+        <DialogHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pr-12 sm:pr-14">
+          <DialogTitle className="min-w-0 flex-1 pr-2 text-left">{editTarget ? "Edit Template" : "Add Template"}</DialogTitle>
+          <div className="flex shrink-0 items-center gap-2">
             <Badge variant={f.formType === "email" ? "default" : "secondary"} className="uppercase text-[10px] tracking-wider">
               {f.formType}
             </Badge>
@@ -108,30 +108,31 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
             <div className="space-y-1.5">
               <div className="flex flex-wrap gap-1">
                 <MergeFieldsPopover onInsert={f.insertAtCursor} />
-                {f.formType === "email" && (
-                  <>
-                    <input
-                      ref={f.fileInputRef}
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      className="hidden"
-                      multiple
-                      onChange={f.handleFileChange}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 text-xs"
-                      onClick={() => f.fileInputRef.current?.click()}
-                    >
-                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                      Attach
-                    </Button>
-                  </>
-                )}
+                <input
+                  ref={f.fileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  multiple
+                  onChange={f.handleFileChange}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => f.fileInputRef.current?.click()}
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  Attach
+                </Button>
                 <EmojiPickerPopover onInsert={f.insertAtCursor} />
               </div>
+              {f.formType === "sms" && (
+                <p className="text-xs text-muted-foreground">
+                  SMS is sent as text only; attachments are saved with this template for your own reference (for example a rate sheet or call script).
+                </p>
+              )}
               <label className="block text-sm font-medium text-foreground">Message Content</label>
               <textarea
                 ref={f.contentRef}
@@ -149,7 +150,9 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
                   f.formErrors.content ? "border-destructive focus-visible:ring-destructive" : "border-input"
                 }`}
               />
-              {f.formType === "email" && <TemplateAttachmentChips attachments={f.formAttachments} onRemove={f.removeAttachment} />}
+              {f.formAttachments.length > 0 && (
+                <TemplateAttachmentChips attachments={f.formAttachments} onRemove={f.removeAttachment} />
+              )}
               {f.formType === "sms" && <TemplateSmsCounter content={f.formContent} />}
             </div>
           </div>
