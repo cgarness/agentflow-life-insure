@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Trophy, X, Settings } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
@@ -85,11 +85,9 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
   const [settingsRowId, setSettingsRowId] = useState<string | null>(null);
   const [customBanner, setCustomBanner] = useState<string | null>(null);
   const [bannerDraft, setBannerDraft] = useState("");
-  const [showChrome, setShowChrome] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingBanner, setSavingBanner] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
-  const mouseTimer = useRef<ReturnType<typeof setTimeout>>();
   const settingsOpenRef = useRef(false);
 
   const { profile } = useAuth();
@@ -151,32 +149,18 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
       });
   }, [organizationId]);
 
-  const handleMouseMove = useCallback(() => {
-    setShowChrome(true);
-    if (mouseTimer.current) clearTimeout(mouseTimer.current);
-    mouseTimer.current = setTimeout(() => {
-      if (!settingsOpenRef.current) setShowChrome(false);
-    }, 3000);
-  }, []);
-
-  useEffect(() => {
-    if (settingsOpen) {
-      if (mouseTimer.current) clearTimeout(mouseTimer.current);
-      setShowChrome(true);
-    }
-  }, [settingsOpen]);
-
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onExit();
+      if (e.key !== "Escape") return;
+      if (settingsOpenRef.current) {
+        setSettingsOpen(false);
+        return;
+      }
+      onExit();
     };
     document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousemove", handleMouseMove);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [onExit, handleMouseMove]);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onExit]);
 
   const saveBanner = async () => {
     if (!canEditBanner || !settingsRowId) {
@@ -225,23 +209,30 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
   const tickerText = customBanner?.trim() ? customBanner.trim() : winsTicker;
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-background flex flex-col min-h-0 overflow-hidden" onMouseMove={handleMouseMove}>
-      <div
-        className={`absolute top-3 left-3 right-3 z-50 flex items-center justify-between gap-2 pointer-events-none transition-opacity duration-300 ${showChrome || settingsOpen ? "opacity-100" : "opacity-0"}`}
-      >
-        <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+    <div className="fixed inset-0 z-[9999] bg-background flex flex-col min-h-0 overflow-hidden">
+      {/* Toolbar in document flow (not overlapping header). Popover default z-[100] sits under this layer — force higher z on content. */}
+      <div className="shrink-0 relative z-[10001] flex h-12 items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-3 backdrop-blur-sm">
+        <Popover modal={false} open={settingsOpen} onOpenChange={setSettingsOpen}>
           <PopoverTrigger asChild>
             <Button
               type="button"
               variant="secondary"
               size="icon"
-              className="pointer-events-auto h-9 w-9 rounded-lg shadow-md bg-card/90 backdrop-blur border border-border"
+              className="h-9 w-9 shrink-0 rounded-lg border border-border bg-card shadow-sm"
               aria-label="TV display options"
+              aria-expanded={settingsOpen}
             >
               <Settings className="w-4 h-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-80 sm:w-96 p-4" align="start" sideOffset={8} onCloseAutoFocus={e => e.preventDefault()}>
+          <PopoverContent
+            className="z-[10020] w-80 max-h-[min(85vh,32rem)] overflow-y-auto p-4 sm:w-96"
+            align="start"
+            side="bottom"
+            sideOffset={8}
+            collisionPadding={12}
+            onCloseAutoFocus={e => e.preventDefault()}
+          >
             <div className="space-y-4">
               <div>
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Viewing metric</Label>
@@ -315,7 +306,7 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
           type="button"
           variant="secondary"
           size="icon"
-          className="pointer-events-auto h-9 w-9 rounded-lg shadow-md bg-card/90 backdrop-blur border border-border"
+          className="h-9 w-9 shrink-0 rounded-lg border border-border bg-card shadow-sm"
           onClick={onExit}
           aria-label="Exit TV mode"
         >
@@ -323,20 +314,21 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
         </Button>
       </div>
 
-      <header className="text-center shrink-0 border-b border-border/40 px-4 py-2.5 pt-14 sm:pt-12">
-        <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">{companyName}</h1>
-        <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+      <header className="shrink-0 border-b border-border/40 bg-background px-4 py-3 text-center">
+        <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">{companyName}</h1>
+        <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
           {format(clock, "EEEE, MMMM d, yyyy")} · {format(clock, "h:mm:ss a")}
         </p>
-        <p className={`text-xs font-medium text-primary mt-1 transition-opacity duration-400 ${transitioning ? "opacity-0" : "opacity-100"}`}>
+        <p className={`mt-2 text-xs font-medium text-primary transition-opacity duration-400 ${transitioning ? "opacity-0" : "opacity-100"}`}>
           Ranked by: {metric}
         </p>
       </header>
 
       <div
-        className={`shrink-0 flex items-end justify-center px-4 md:px-6 pt-2 pb-2 max-h-[min(260px,30vh)] min-h-0 transition-opacity duration-400 ${transitioning ? "opacity-0" : "opacity-100"}`}
+        className={`shrink-0 px-4 pb-3 pt-3 transition-opacity duration-400 md:px-6 ${transitioning ? "opacity-0" : "opacity-100"}`}
+        style={{ maxHeight: "min(240px, 28vh)" }}
       >
-        <div className="grid grid-cols-3 gap-3 md:gap-5 w-full max-w-4xl items-end">
+        <div className="mx-auto grid h-full w-full max-w-4xl grid-cols-3 items-end gap-3 md:gap-4">
           {[top3[1], top3[0], top3[2]].filter(Boolean).map((a, idx) => {
             if (!a) return <div key={idx} />;
             const rank = idx === 0 ? 2 : idx === 1 ? 1 : 3;
@@ -347,7 +339,7 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
             return (
               <div
                 key={a.id}
-                className={`bg-gradient-to-b ${mc.gradient} rounded-xl border border-border/40 px-3 py-4 md:px-4 md:py-5 text-center ${isMid ? "md:scale-[1.03] z-[1] shadow-md" : ""}`}
+                className={`rounded-xl border border-border/40 bg-gradient-to-b px-3 py-3 text-center shadow-sm md:px-4 md:py-4 ${mc.gradient} ${isMid ? "ring-2 ring-amber-400/50 ring-offset-2 ring-offset-background" : ""}`}
               >
                 <div className={`inline-flex items-center justify-center mb-2 ${isMid ? "animate-tv-trophy-shimmer" : ""}`}>
                   <Trophy className={`${isMid ? "w-10 h-10 md:w-11 md:h-11" : "w-8 h-8"} ${mc.trophyColor}`} />

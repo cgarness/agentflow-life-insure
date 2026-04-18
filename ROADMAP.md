@@ -64,6 +64,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Leaderboard TV: fix overlap + settings popover z-index**
+  *What:* **`TVMode.tsx`** — replaced absolute fade chrome with a **fixed-height top toolbar** in normal flow so header/podium do not stack under each other; removed **center-card scale** (replaced with **ring** for #1). **Settings** popover: **`modal={false}`**, **`PopoverContent` `z-[10020]`** so it renders above the **`z-[9999]`** TV layer; **`side="bottom"`** + collision padding. **Escape** closes popover first, then exits TV. *No schema changes.* `tsc --noEmit` clean.
+
 - **2026-04-18 | [DONE] Pipeline stages: remove `is_positive` / `isPositive` (soft removal)**
   *What:* Dropped the redundant “Positive” flag from app types, `pipelineSupabaseApi` create/update mapping, Contact Management pipeline UI (inline row + modal), and Master Admin pipeline table/edit fields. Removed “Closed Won” / “Licensed & Onboarding” positive-lock props and logic. **`pipeline_stages.is_positive` column left in the database** (inserts omit the field so the DB default applies). `convert_to_client` unchanged. `tsc --noEmit` clean.
 
