@@ -325,10 +325,10 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
       </header>
 
       <div
-        className={`shrink-0 px-4 pb-3 pt-3 transition-opacity duration-400 md:px-6 ${transitioning ? "opacity-0" : "opacity-100"}`}
-        style={{ maxHeight: "min(240px, 28vh)" }}
+        className={`shrink-0 border-b border-border/50 bg-muted/5 px-4 pb-6 pt-4 transition-opacity duration-400 md:px-6 ${transitioning ? "opacity-0" : "opacity-100"}`}
+        style={{ maxHeight: "min(220px, 26vh)" }}
       >
-        <div className="mx-auto grid h-full w-full max-w-4xl grid-cols-3 items-end gap-3 md:gap-4">
+        <div className="mx-auto grid w-full max-w-5xl grid-cols-3 gap-3 md:gap-4">
           {[top3[1], top3[0], top3[2]].filter(Boolean).map((a, idx) => {
             if (!a) return <div key={idx} />;
             const rank = idx === 0 ? 2 : idx === 1 ? 1 : 3;
@@ -339,7 +339,7 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
             return (
               <div
                 key={a.id}
-                className={`rounded-xl border border-border/40 bg-gradient-to-b px-3 py-3 text-center shadow-sm md:px-4 md:py-4 ${mc.gradient} ${isMid ? "ring-2 ring-amber-400/50 ring-offset-2 ring-offset-background" : ""}`}
+                className={`rounded-xl border border-border/40 bg-gradient-to-b px-3 py-3 text-center shadow-sm md:px-4 md:py-4 ${mc.gradient} ${isMid ? "ring-2 ring-amber-500/70" : ""}`}
               >
                 <div className={`inline-flex items-center justify-center mb-2 ${isMid ? "animate-tv-trophy-shimmer" : ""}`}>
                   <Trophy className={`${isMid ? "w-10 h-10 md:w-11 md:h-11" : "w-8 h-8"} ${mc.trophyColor}`} />
@@ -364,58 +364,72 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
         </div>
       </div>
 
-      <div className={`flex-1 min-h-0 overflow-auto px-4 md:px-6 pb-14 transition-opacity duration-400 ${transitioning ? "opacity-0" : "opacity-100"}`}>
-        <table className="w-full text-sm md:text-base border-collapse">
-          <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border shadow-sm">
-            <tr className="text-muted-foreground">
-              <th className="text-left py-2.5 px-2 md:px-3 font-medium w-12 md:w-14">Rank</th>
-              <th className="text-left py-2.5 font-medium">Agent</th>
-              <th className="text-right py-2.5 font-medium whitespace-nowrap">Calls</th>
-              <th className="text-right py-2.5 font-medium whitespace-nowrap">Policies</th>
-              <th
-                className="text-right py-2.5 font-medium whitespace-nowrap hidden sm:table-cell"
-                title="Policies closed (wins) in the last 7 days"
-              >
-                Recent wins
-              </th>
-              <th className="text-right py-2.5 font-medium whitespace-nowrap">Appts</th>
-              <th className="text-right py-2.5 font-medium whitespace-nowrap hidden md:table-cell">Talk</th>
-              <th className="text-right py-2.5 pr-2 md:pr-3 font-medium whitespace-nowrap hidden lg:table-cell">Conv %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rest.map((a, i) => {
-              const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
-              return (
-                <tr key={a.id} className="border-b border-border/50 last:border-0">
-                  <td className="py-2.5 px-2 md:px-3 font-bold text-foreground">{i + 4}</td>
-                  <td className="py-2.5 min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <LeaderboardAgentAvatar
-                        avatarUrl={a.avatar_url}
-                        initials={initials}
-                        alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
-                        className="h-8 w-8 shrink-0"
-                        fallbackClassName="text-xs"
-                      />
-                      <span className="font-medium text-foreground truncate">
-                        {a.first_name} {a.last_name?.[0]}.
-                        {renderFireIcon(a.id)}
-                      </span>
-                      <span className="flex gap-0.5 shrink-0">{renderBadgeIcons(a.id, 2)}</span>
-                    </div>
-                  </td>
-                  <td className="py-2.5 text-right text-foreground tabular-nums">{a.callsMade}</td>
-                  <td className="py-2.5 text-right text-foreground font-medium tabular-nums">{a.policiesSold}</td>
-                  <td className="py-2.5 text-right text-foreground tabular-nums hidden sm:table-cell">{a.recentWins7d}</td>
-                  <td className="py-2.5 text-right text-foreground tabular-nums">{a.appointmentsSet}</td>
-                  <td className="py-2.5 text-right text-foreground tabular-nums hidden md:table-cell">{(a.talkTime / 3600).toFixed(1)}h</td>
-                  <td className="py-2.5 text-right text-foreground tabular-nums hidden lg:table-cell pr-2 md:pr-3">{a.conversionRate.toFixed(1)}%</td>
+      <div className={`flex-1 min-h-0 overflow-auto px-4 pb-16 pt-3 transition-opacity duration-400 md:px-6 ${transitioning ? "opacity-0" : "opacity-100"}`}>
+        <div className="mx-auto max-w-6xl rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center border-b border-border bg-accent/40 px-4 py-2.5">
+            <h3 className="text-sm font-semibold text-foreground">Full Rankings</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm md:text-base">
+              <thead>
+                <tr className="border-b border-border bg-muted/30 text-muted-foreground">
+                  <th className="w-14 py-3 pl-4 pr-2 text-left font-medium">Rank</th>
+                  <th className="py-3 pr-4 text-left font-medium">Agent</th>
+                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Calls</th>
+                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Policies</th>
+                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Appts</th>
+                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Talk Time</th>
+                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Conv %</th>
+                  <th
+                    className="py-3 pr-4 pl-2 text-right font-medium whitespace-nowrap text-foreground/90"
+                    title="Policies closed (wins) in the last 7 days"
+                  >
+                    Recent wins
+                  </th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {rest.map((a, i) => {
+                  const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
+                  return (
+                    <tr key={a.id} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
+                      <td className="py-3 pl-4 pr-2 font-bold text-foreground">{i + 4}</td>
+                      <td className="py-3 pr-4 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <LeaderboardAgentAvatar
+                            avatarUrl={a.avatar_url}
+                            initials={initials}
+                            alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
+                            className="h-8 w-8 shrink-0"
+                            fallbackClassName="text-xs"
+                          />
+                          <span className="font-medium text-foreground truncate">
+                            {a.first_name} {a.last_name?.[0]}.
+                            {renderFireIcon(a.id)}
+                          </span>
+                          <span className="flex gap-0.5 shrink-0">{renderBadgeIcons(a.id, 2)}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{a.callsMade}</td>
+                      <td className="py-3 px-2 text-right font-medium tabular-nums text-foreground">{a.policiesSold}</td>
+                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{a.appointmentsSet}</td>
+                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{(a.talkTime / 3600).toFixed(1)} hrs</td>
+                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{a.conversionRate.toFixed(1)}%</td>
+                      <td className="py-3 pr-4 pl-2 text-right font-medium tabular-nums text-foreground">{a.recentWins7d}</td>
+                    </tr>
+                  );
+                })}
+                {rest.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                      All agents shown in podium above
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div className="shrink-0 h-11 border-t border-border/40 bg-card/95 backdrop-blur flex items-center overflow-hidden">

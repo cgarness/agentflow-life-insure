@@ -64,6 +64,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Leaderboard TV: Full Rankings table parity + Recent wins right**
+  *What:* **`TVMode.tsx`** — TV table wrapped like desktop (**“Full Rankings”** bar + card). Column order matches the main rankings grid: **Rank, Agent, Calls, Policies, Appts, Talk Time, Conv %**, with **Recent wins** as the **last (rightmost)** column. Podium block: **`border-b`**, **`pb-6`**, capped height (**`min(220px, 26vh)`**), **`max-w-5xl`** grid, ring-only highlight for #1 — reduces overlap with the table header. Horizontal scroll via **`min-w-[640px]`** on small widths. *No schema changes.* `tsc --noEmit` clean.
+
 - **2026-04-18 | [DONE] Leaderboard TV: fix overlap + settings popover z-index**
   *What:* **`TVMode.tsx`** — replaced absolute fade chrome with a **fixed-height top toolbar** in normal flow so header/podium do not stack under each other; removed **center-card scale** (replaced with **ring** for #1). **Settings** popover: **`modal={false}`**, **`PopoverContent` `z-[10020]`** so it renders above the **`z-[9999]`** TV layer; **`side="bottom"`** + collision padding. **Escape** closes popover first, then exits TV. *No schema changes.* `tsc --noEmit` clean.
 
