@@ -68,3 +68,10 @@ verify_jwt = false
 # Invoked by Supabase cron or service role; uses SUPABASE_SERVICE_ROLE_KEY inside handler.
 [functions.spam-check-cron]
 verify_jwt = false
+
+# Twilio webhooks — authenticated via X-Twilio-Signature HMAC-SHA1, not Supabase JWT.
+[functions.twilio-voice-webhook]
+verify_jwt = false
+
+[functions.twilio-voice-status]
+verify_jwt = false
