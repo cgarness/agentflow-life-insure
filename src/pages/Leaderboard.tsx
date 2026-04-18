@@ -25,7 +25,6 @@ interface AgentStats {
   appointmentsSet: number;
   talkTime: number;
   conversionRate: number;
-  goalProgress: number;
   rank: number;
   prevRank: number | null;
 }
@@ -139,7 +138,6 @@ const Leaderboard: React.FC = () => {
   const [agents, setAgents] = useState<AgentStats[]>([]);
   const [wins, setWins] = useState<Win[]>([]);
   const [loading, setLoading] = useState(true);
-  const [goals, setGoals] = useState<Record<string, number>>({});
   const [scorecardAgent, setScorecardAgent] = useState<{ id: string; first_name: string; last_name: string } | null>(null);
 
   // Badges & Fire
@@ -149,7 +147,6 @@ const Leaderboard: React.FC = () => {
   // Rank change animations
   const [rankAnimations, setRankAnimations] = useState<Map<string, "up" | "down">>(new Map());
   const prevRanksRef = useRef<Map<string, number>>(new Map());
-  const prevAgentsRef = useRef<Map<string, string>>(new Map());
 
   // TV Mode
   const [tvMode, setTvMode] = useState(false);
@@ -179,28 +176,15 @@ const Leaderboard: React.FC = () => {
       const talkTime = agentCalls.reduce((s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0), 0);
       const appointmentsSet = appts.filter(a => a.created_by === p.id).length;
       const conversionRate = callsMade > 0 ? (policiesSold / callsMade) * 100 : 0;
-      return { ...p, callsMade, policiesSold, appointmentsSet, talkTime, conversionRate, goalProgress: 0, rank: 0, prevRank: null as number | null };
+      return { ...p, callsMade, policiesSold, appointmentsSet, talkTime, conversionRate, rank: 0, prevRank: null as number | null };
     });
   }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const dbPeriod = period === "Today" ? "daily" : period === "This Week" ? "weekly" : "monthly";
-
-    const [profilesRes, goalsRes] = await Promise.all([
-      supabase.from("profiles").select("id, first_name, last_name, avatar_url, role").eq("status", "Active"),
-      supabase.from("goals").select("metric, target_value").eq("period", dbPeriod),
-    ]);
-
-    const allProfiles = profilesRes.data || [];
-    const goalsMap: Record<string, number> = {};
-    (goalsRes.data || []).forEach(g => { 
-      // Handle both simple "calls" and "daily_calls" style metrics
-      const key = g.metric.replace(/^(daily_|weekly_|monthly_)/, "");
-      goalsMap[key] = g.target_value; 
-    });
-    setGoals(goalsMap);
+    const { data: profileRows } = await supabase.from("profiles").select("id, first_name, last_name, avatar_url, role").eq("status", "Active");
+    const allProfiles = profileRows || [];
 
     const range = getPeriodRange(period);
     const prevRange = getPrevPeriodRange(period);
@@ -211,17 +195,6 @@ const Leaderboard: React.FC = () => {
     ]);
 
     const key = metricKey(metric);
-
-    // Goal progress
-    currentStats.forEach(a => {
-      const goalsCount = Object.keys(goalsMap).length;
-      if (goalsCount === 0) { a.goalProgress = 0; return; }
-      let hit = 0;
-      if (goalsMap.calls && a.callsMade >= goalsMap.calls) hit++;
-      if (goalsMap.policies && a.policiesSold >= goalsMap.policies) hit++;
-      if (goalsMap.appointments && a.appointmentsSet >= goalsMap.appointments) hit++;
-      a.goalProgress = Math.round((hit / goalsCount) * 100);
-    });
 
     // Sort and rank
     currentStats.sort((a, b) => (b[key] as number) - (a[key] as number));
@@ -252,7 +225,7 @@ const Leaderboard: React.FC = () => {
     // Compute badges & fire status (non-blocking)
     const agentIds = currentStats.map(a => a.id);
     const [bdg, fire] = await Promise.all([
-      computeBadges(agentIds, goalsMap, currentStats),
+      computeBadges(agentIds, currentStats),
       computeFireStatus(agentIds),
     ]);
     setBadgesMap(bdg);
@@ -450,14 +423,6 @@ const Leaderboard: React.FC = () => {
                       <span>{a.callsMade} calls</span>
                       <span>{a.appointmentsSet} appts</span>
                     </div>
-                    {a.goalProgress > 0 && (
-                      <div className="mt-3">
-                        <div className="w-full h-2 rounded-full bg-accent overflow-hidden">
-                          <div className={`h-full rounded-full ${a.goalProgress >= 100 ? "bg-success" : a.goalProgress >= 70 ? "bg-primary" : "bg-warning"}`} style={{ width: `${Math.min(a.goalProgress, 100)}%` }} />
-                        </div>
-                        <span className="text-xs text-muted-foreground mt-1">{a.goalProgress}% of goal</span>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -482,7 +447,6 @@ const Leaderboard: React.FC = () => {
                       <th className="text-right py-3 font-medium hidden lg:table-cell">Appts</th>
                       <th className="text-right py-3 font-medium hidden xl:table-cell">Talk Time</th>
                       <th className="text-right py-3 font-medium hidden lg:table-cell">Conv %</th>
-                      <th className="text-right py-3 font-medium">Goal</th>
                       <th className="text-right py-3 px-4 font-medium w-20"></th>
                     </tr>
                   </thead>
@@ -516,14 +480,6 @@ const Leaderboard: React.FC = () => {
                           <td className="py-3 text-right text-foreground hidden lg:table-cell">{a.appointmentsSet}</td>
                           <td className="py-3 text-right text-foreground hidden xl:table-cell">{(a.talkTime / 3600).toFixed(1)} hrs</td>
                           <td className="py-3 text-right text-foreground hidden lg:table-cell">{a.conversionRate.toFixed(1)}%</td>
-                          <td className="py-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <div className="w-16 h-1.5 rounded-full bg-accent overflow-hidden">
-                                <div className={`h-full rounded-full ${a.goalProgress >= 50 ? "bg-success" : a.goalProgress >= 30 ? "bg-warning" : "bg-destructive"}`} style={{ width: `${Math.min(a.goalProgress, 100)}%` }} />
-                              </div>
-                              <span className="text-xs text-muted-foreground w-8 text-right">{a.goalProgress}%</span>
-                            </div>
-                          </td>
                           <td className="py-3 px-4 text-right">
                             {(isAdmin || isMe) && (
                               <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => openScorecard(a)}>Scorecard</Button>
@@ -533,7 +489,7 @@ const Leaderboard: React.FC = () => {
                       );
                     })}
                     {restAgents.length === 0 && (
-                      <tr><td colSpan={9} className="py-8 text-center text-muted-foreground">All agents shown in podium above</td></tr>
+                      <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">All agents shown in podium above</td></tr>
                     )}
                   </tbody>
                 </table>

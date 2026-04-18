@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { startOfMonth, subDays, format, startOfDay } from "date-fns";
 
@@ -16,20 +15,9 @@ export interface AgentFireStatus {
   avgCalls: number;
 }
 
-const BADGE_DEFS: Badge[] = [
-  { id: "onfire", label: "On Fire", icon: "🔥", color: "bg-orange-500/10 text-orange-600 border-orange-500/20", description: "Made calls on 5+ consecutive days" },
-  { id: "closer", label: "Closer", icon: "⭐", color: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20", description: "Sold 10+ policies this month" },
-  { id: "dialer", label: "Dialer", icon: "📞", color: "bg-blue-500/10 text-blue-600 border-blue-500/20", description: "Made 500+ calls this month" },
-  { id: "perfect_week", label: "Perfect Week", icon: "✅", color: "bg-green-500/10 text-green-600 border-green-500/20", description: "Hit 100% of all goals this week" },
-  { id: "rising_star", label: "Rising Star", icon: "📈", color: "bg-purple-500/10 text-purple-600 border-purple-500/20", description: "Rank improved by 3+ positions" },
-  { id: "first_blood", label: "First Blood", icon: "🎯", color: "bg-teal-500/10 text-teal-600 border-teal-500/20", description: "Made their first ever sale" },
-  { id: "top_performer", label: "Top Performer", icon: "👑", color: "bg-yellow-500/10 text-yellow-700 border-yellow-500/20", description: "Ranked #1 for 3+ consecutive weeks" },
-];
-
 export async function computeBadges(
   agentIds: string[],
-  goalsMap: Record<string, number>,
-  agentStats: { id: string; callsMade: number; policiesSold: number; appointmentsSet: number; rank: number; prevRank: number | null; goalProgress: number }[]
+  agentStats: { id: string; callsMade: number; policiesSold: number; appointmentsSet: number; rank: number; prevRank: number | null }[]
 ): Promise<Map<string, Badge[]>> {
   const result = new Map<string, Badge[]>();
   if (agentIds.length === 0) return result;
@@ -80,12 +68,7 @@ export async function computeBadges(
       badges.push({ id: "dialer", label: "Dialer", icon: "📞", color: "bg-blue-500/10 text-blue-600 border-blue-500/20", description: `${monthCalls.length} calls this month` });
     }
 
-    // 4. Perfect Week
-    if (stats.goalProgress >= 100) {
-      badges.push({ id: "perfect_week", label: "Perfect Week", icon: "✅", color: "bg-green-500/10 text-green-600 border-green-500/20", description: "All goals met this week" });
-    }
-
-    // 5. Rising Star (rank improved by 3+)
+    // 4. Rising Star (rank improved by 3+)
     if (stats.prevRank !== null && (stats.prevRank - stats.rank) >= 3) {
       badges.push({ id: "rising_star", label: "Rising Star", icon: "📈", color: "bg-purple-500/10 text-purple-600 border-purple-500/20", description: `Climbed ${stats.prevRank - stats.rank} positions` });
     }
@@ -96,7 +79,7 @@ export async function computeBadges(
       badges.push({ id: "first_blood", label: "First Blood", icon: "🎯", color: "bg-teal-500/10 text-teal-600 border-teal-500/20", description: "First ever policy sold!" });
     }
 
-    // 7. Top Performer (ranked #1 for 3+ consecutive weeks)
+    // 6. Top Performer (ranked #1 for 3+ consecutive weeks)
     const agentScorecards = scorecards.filter(s => s.agent_id === agentId);
     // Simple check: find if they had the most policies_sold in 3 consecutive weeks
     let consecutiveTop = 0;

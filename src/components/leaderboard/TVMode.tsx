@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Trophy, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge as BadgeType, AgentFireStatus } from "./useLeaderboardBadges";
-import { formatDistanceToNow, format } from "date-fns";
+import { format } from "date-fns";
 
 type Metric = "Policies Sold" | "Calls Made" | "Appointments Set" | "Talk Time";
 const METRICS: Metric[] = ["Policies Sold", "Calls Made", "Appointments Set", "Talk Time"];
@@ -16,7 +16,6 @@ interface AgentStats {
   appointmentsSet: number;
   talkTime: number;
   conversionRate: number;
-  goalProgress: number;
   rank: number;
 }
 
@@ -194,7 +193,6 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
               <th className="text-right py-3 font-medium">Policies</th>
               <th className="text-right py-3 font-medium">Appts</th>
               <th className="text-right py-3 font-medium">Talk Time</th>
-              <th className="text-right py-3 px-4 font-medium">Goal</th>
             </tr>
           </thead>
           <tbody>
@@ -217,14 +215,6 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
                   <td className="py-4 text-right text-foreground text-lg font-medium">{a.policiesSold}</td>
                   <td className="py-4 text-right text-foreground text-lg">{a.appointmentsSet}</td>
                   <td className="py-4 text-right text-foreground text-lg">{(a.talkTime / 3600).toFixed(1)} hrs</td>
-                  <td className="py-4 px-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-20 h-2 rounded-full bg-accent overflow-hidden">
-                        <div className={`h-full rounded-full ${a.goalProgress >= 50 ? "bg-success" : a.goalProgress >= 30 ? "bg-warning" : "bg-destructive"}`} style={{ width: `${Math.min(a.goalProgress, 100)}%` }} />
-                      </div>
-                      <span className="text-sm text-muted-foreground">{a.goalProgress}%</span>
-                    </div>
-                  </td>
                 </tr>
               );
             })}
