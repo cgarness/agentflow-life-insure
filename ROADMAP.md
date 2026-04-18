@@ -64,6 +64,41 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Twilio Migration Phase 3 — Outbound Voice Webhook + Status Callback**
+  *What:* Built `twilio-voice-webhook` (TwiML routing for outbound calls with conditional recording) and `twilio-voice-status` (call lifecycle DB updates for ringing/connected/completed/failed). Both validate the Twilio webhook via HMAC-SHA1 over the URL + sorted form params using `TWILIO_AUTH_TOKEN`. Neither deployed yet.
+  *Files created:*
+  - `supabase/functions/twilio-voice-webhook/index.ts` — POST handler; parses `application/x-www-form-urlencoded`; returns `<Response><Dial callerId=…><Number>…</Number></Dial></Response>` TwiML with `action` pointing at `twilio-voice-status`. When `phone_settings.recording_enabled !== false`, adds `record="record-from-answer-dual"` + `recordingStatusCallback` pointing at `twilio-recording-status` (Phase 5); otherwise those attributes are omitted entirely. Updates the `calls` row keyed by `CallRowId` (custom param) with `twilio_call_sid = CallSid` and `status = 'ringing'`. Fallback path: if `CallRowId` is missing, inserts a new outbound `calls` row and resolves `organization_id` from `phone_numbers` by the `From` / `CallerId` caller ID.
+  - `supabase/functions/twilio-voice-status/index.ts` — POST handler; maps `CallStatus` to DB writes on the `calls` row matching `twilio_call_sid`:
+    - `ringing` → `status='ringing'`, set `started_at = now()` if null
+    - `in-progress` → `status='connected'`
+    - `completed` → `status='completed'`, `duration = CallDuration` (or computed from `started_at`), `ended_at = now()`
+    - `busy` → `status='completed'`, `outcome='busy'`, `ended_at = now()`
+    - `no-answer` → `status='no-answer'`, `ended_at = now()`
+    - `failed` / `canceled` → `status='failed'`, `provider_error_code = SipResponseCode` (if present), `ended_at = now()`
+    Always responds `200` with empty TwiML so Twilio does not retry.
+  *Config:* Added `[functions.twilio-voice-webhook]` and `[functions.twilio-voice-status]` to `supabase/config.toml` with `verify_jwt = false` — Twilio does not send a Supabase JWT; authentication is the signature.
+  *Env vars required (set as Edge Function secrets before deploy):* `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (signature validation), `TWILIO_TWIML_APP_SID` (reference), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+
+  ### Context Snapshot — Twilio Migration Phase 3 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Functions built** | `supabase/functions/twilio-voice-webhook/index.ts`, `supabase/functions/twilio-voice-status/index.ts` |
+  | **TwiML structure (recording ON)** | `<Response><Dial callerId="{From}" action="{twilio-voice-status URL}" method="POST" record="record-from-answer-dual" recordingStatusCallback="{twilio-recording-status URL}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Number>{To}</Number></Dial></Response>` |
+  | **TwiML structure (recording OFF)** | Same as above but `record` + `recordingStatusCallback*` attributes omitted entirely (not just empty) |
+  | **Content-Type** | `text/xml` on every response (including 200/403/500). JSON is never returned — malformed TwiML would silently drop the call. |
+  | **Signature validation** | HMAC-SHA1 (Web Crypto) over `fullUrl + sortedKeys.map(k => k + params[k]).join('')`, base64-encoded, constant-time compared to `X-Twilio-Signature`. URL built from `X-Forwarded-Proto` + `X-Forwarded-Host` + request path. Helper is duplicated in both files — no shared import (Edge Function isolation). |
+  | **Recording toggle** | `phone_settings.recording_enabled` read by resolved `organization_id` (falls back to first row). `recording_enabled !== false` → recording attributes included. Matches existing `isRecordingEnabled` pattern in `telnyx-webhook` / `start-call-recording`. |
+  | **Organization resolution** | Primary: `OrgId` custom param from browser SDK. Fallback: `phone_numbers.organization_id` lookup on the `From` / `CallerId` number (tries raw, `+1XXXXXXXXXX`, `1XXXXXXXXXX` variants). |
+  | **Status → DB mapping** | ringing→`status=ringing`+started_at; in-progress→`status=connected`; completed→`status=completed`+duration+ended_at; busy→`status=completed`+`outcome=busy`+ended_at; no-answer→`status=no-answer`+ended_at; failed/canceled→`status=failed`+`provider_error_code`+ended_at |
+  | **Column name note** | All writes use the Phase 1 renamed columns: `twilio_call_sid` (keyed on), `provider_error_code`. No references to the old `telnyx_*` columns anywhere in these two functions. |
+  | **Error behavior** | Signature mismatch → `403` + empty TwiML. DB errors → logged and `200` + TwiML (so Twilio does not retry-flood). All logs prefixed `[twilio-voice-webhook]` / `[twilio-voice-status]`. |
+  | **Fallback calls row creation** | If webhook arrives without `CallRowId`, the function inserts a new `calls` row with `direction='outbound'`, `twilio_call_sid`, `from_number`, `to_number`, `status='ringing'`, resolved `organization_id`, `started_at=now()`. |
+  | **CORS** | Standard allow-all + `x-twilio-signature` allow-listed. OPTIONS preflight handled (safety only — Twilio never preflights). |
+  | **config.toml** | Both functions registered with `verify_jwt = false` under a comment explaining authentication is via the Twilio signature. |
+  | **Deployment status** | NOT YET DEPLOYED — batched with later Twilio functions. |
+  | **Next phase** | Phase 4: `twilio-voice-inbound` (inbound PSTN → WebRTC client routing). |
+
 - **2026-04-18 | [DONE] Twilio Migration Phase 2 — twilio-token Edge Function**
   *What:* Built Access Token generator with VoiceGrant for browser SDK auth. Generates and persists `twilio_client_identity` on `profiles`. JWT built manually using Web Crypto API (HMAC-SHA256) for Deno compatibility — the Node.js `twilio` npm package cannot be used in Supabase Edge Functions.
   *File created:* `supabase/functions/twilio-token/index.ts`
