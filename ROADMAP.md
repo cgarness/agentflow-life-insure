@@ -64,6 +64,34 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Twilio Migration Phase 1 — DB Schema Migration**
+  *What:* Renamed Telnyx columns to Twilio/provider-agnostic names on `calls`, `messages`, `profiles`. Added Twilio columns to `phone_numbers` and `phone_settings`. Created `call-recordings` storage bucket with org-scoped RLS. Updated `peek_inbound_call_identity` RPC.
+  *Migrations created:*
+  - `20260418170001_rename_calls_telnyx_columns.sql` — `telnyx_call_control_id` → `twilio_call_sid`, `telnyx_call_id` → `provider_session_id`, `telnyx_error_code` → `provider_error_code`; added `recording_storage_path TEXT`, `recording_duration INTEGER`
+  - `20260418170002_rename_messages_telnyx_columns.sql` — `telnyx_message_id` → `provider_message_id`
+  - `20260418170003_rename_profiles_sip_username.sql` — `sip_username` → `twilio_client_identity`
+  - `20260418170004_add_twilio_columns_phone_numbers.sql` — added `twilio_sid TEXT`, `trust_hub_status TEXT DEFAULT 'pending'`, `shaken_stir_attestation TEXT`
+  - `20260418170005_add_twilio_columns_phone_settings.sql` — added `trust_hub_profile_sid TEXT`, `shaken_stir_enabled BOOLEAN DEFAULT true`
+  - `20260418170006_create_call_recordings_bucket.sql` — `call-recordings` bucket (private), RLS policies `call_recordings_insert_own_org` + `call_recordings_select_own_org` scoped by `{org_id}` first path segment
+  - `20260418170007_update_peek_inbound_call_identity_rpc.sql` — DROP + CREATE `peek_inbound_call_identity(text,text)` with new column names; supersedes all three prior `20260413230000`/`240000`/`250000` versions
+
+  ### Context Snapshot — Twilio Migration Phase 1 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Renamed columns — calls** | `telnyx_call_control_id` → `twilio_call_sid`, `telnyx_call_id` → `provider_session_id`, `telnyx_error_code` → `provider_error_code` |
+  | **New columns — calls** | `recording_storage_path TEXT`, `recording_duration INTEGER` |
+  | **Renamed columns — messages** | `telnyx_message_id` → `provider_message_id` |
+  | **Renamed columns — profiles** | `sip_username` → `twilio_client_identity` |
+  | **New columns — phone_numbers** | `twilio_sid TEXT`, `trust_hub_status TEXT DEFAULT 'pending'`, `shaken_stir_attestation TEXT` |
+  | **New columns — phone_settings** | `trust_hub_profile_sid TEXT`, `shaken_stir_enabled BOOLEAN DEFAULT true` |
+  | **Storage bucket** | `call-recordings` (private); path `{org_id}/{date}/{filename}`; RLS via `profiles.organization_id` of caller |
+  | **RPC updated** | `peek_inbound_call_identity(p_provider_session_id, p_twilio_call_sid)` — column refs updated; fallback to latest ringing inbound in last 6 min preserved |
+  | **telnyx_settings table** | NOT dropped — deferred to Phase 13 (cleanup phase) |
+  | **⚠ Downstream breakage until Phase 6-7 (frontend)** | `TelnyxContext.tsx` references `telnyx_call_id`, `telnyx_call_control_id` in selects/updates. `dialer-api.ts` and `FullScreenContactView.tsx` reference `telnyx_call_control_id`. `CallRecordingLibrary.tsx` also references it. These will produce runtime errors until frontend is updated. |
+  | **⚠ Downstream breakage until Phase 11 (inbound-call-claim)** | `telnyx-webhook` edge function writes `telnyx_call_id` and `telnyx_call_control_id` — will fail on insert until Phase 11. |
+  | **⚠ TypeScript errors until Phase 12 (types regen)** | `src/integrations/supabase/types.ts` still declares old column names. All files that import these types will show TS errors until `supabase gen types` is re-run. Affected files: `TelnyxContext.tsx`, `dialer-api.ts`, `FullScreenContactView.tsx`, `CallRecordingLibrary.tsx`. |
+
 - **2026-04-18 | [DONE] Leaderboard TV: Full Rankings table parity + Recent wins right**
   *What:* **`TVMode.tsx`** — TV table wrapped like desktop (**“Full Rankings”** bar + card). Column order matches the main rankings grid: **Rank, Agent, Calls, Policies, Appts, Talk Time, Conv %**, with **Recent wins** as the **last (rightmost)** column. Podium block: **`border-b`**, **`pb-6`**, capped height (**`min(220px, 26vh)`**), **`max-w-5xl`** grid, ring-only highlight for #1 — reduces overlap with the table header. Horizontal scroll via **`min-w-[640px]`** on small widths. *No schema changes.* `tsc --noEmit` clean.
 
