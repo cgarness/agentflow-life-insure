@@ -78,3 +78,9 @@ verify_jwt = false
 
 [functions.twilio-voice-inbound]
 verify_jwt = false
+
+# Twilio recording status callback — authenticated via X-Twilio-Signature HMAC-SHA1.
+# Downloads the recording from Twilio, uploads to call-recordings Storage bucket,
+# updates the calls row, and deletes the Twilio copy to avoid storage charges.
+[functions.twilio-recording-status]
+verify_jwt = false
