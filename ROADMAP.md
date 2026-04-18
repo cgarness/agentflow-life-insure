@@ -63,6 +63,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Pipeline stages: remove `is_positive` / `isPositive` (soft removal)**
+  *What:* Dropped the redundant “Positive” flag from app types, `pipelineSupabaseApi` create/update mapping, Contact Management pipeline UI (inline row + modal), and Master Admin pipeline table/edit fields. Removed “Closed Won” / “Licensed & Onboarding” positive-lock props and logic. **`pipeline_stages.is_positive` column left in the database** (inserts omit the field so the DB default applies). `convert_to_client` unchanged. `tsc --noEmit` clean.
+
 - **2026-04-18 | [DONE] Leaderboard: remove goals from page**
   *What:* Removed `goals` table fetch, goal progress bars, and the “Goal” column from `Leaderboard.tsx`; removed the goal column from `TVMode.tsx`. Updated `computeBadges` in `useLeaderboardBadges.ts` (dropped unused `goalsMap` argument and the “Perfect Week” badge that depended on goal progress). `AgentScorecardModal` weekly goals UI unchanged. *No schema changes.* `tsc --noEmit` clean.
 

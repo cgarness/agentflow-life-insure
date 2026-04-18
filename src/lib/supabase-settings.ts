@@ -9,7 +9,6 @@ function rowToStage(row: any): PipelineStage {
     id: row.id,
     name: row.name,
     color: row.color,
-    isPositive: row.is_positive,
     isDefault: row.is_default,
     convertToClient: row.convert_to_client || false,
     order: row.sort_order,
@@ -42,7 +41,6 @@ export const pipelineSupabaseApi = {
       .insert({
         name: data.name,
         color: data.color,
-        is_positive: data.isPositive,
         is_default: data.isDefault,
         convert_to_client: data.convertToClient,
         sort_order: data.order,
@@ -58,7 +56,6 @@ export const pipelineSupabaseApi = {
     const payload: any = {};
     if (data.name !== undefined) payload.name = data.name;
     if (data.color !== undefined) payload.color = data.color;
-    if (data.isPositive !== undefined) payload.is_positive = data.isPositive;
     if (typeof data.isDefault === 'boolean') payload.is_default = data.isDefault;
     if (typeof data.convertToClient === 'boolean') payload.convert_to_client = data.convertToClient;
     if (data.order !== undefined) payload.sort_order = data.order;

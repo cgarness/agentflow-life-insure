@@ -290,7 +290,6 @@ export interface PipelineStage {
   id: string;
   name: string;
   color: string;
-  isPositive: boolean;
   isDefault: boolean;
   convertToClient: boolean;
   order: number;
