@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Trophy, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import { Badge as BadgeType, AgentFireStatus } from "./useLeaderboardBadges";
 import { format } from "date-fns";
 
@@ -11,6 +12,7 @@ interface AgentStats {
   id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   callsMade: number;
   policiesSold: number;
   appointmentsSet: number;
@@ -165,9 +167,13 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
                 <div className={`inline-flex items-center justify-center mb-3 ${rank === 1 ? "animate-tv-trophy-shimmer" : ""}`}>
                   <Trophy className={`${rank === 1 ? "w-14 h-14" : "w-10 h-10"} ${mc.trophyColor}`} />
                 </div>
-                <div className={`${rank === 1 ? "w-24 h-24 text-3xl" : "w-18 h-18 text-2xl"} rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center mx-auto mb-3`}>
-                  {initials}
-                </div>
+                <LeaderboardAgentAvatar
+                  avatarUrl={a.avatar_url}
+                  initials={initials}
+                  alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
+                  className={`mx-auto mb-3 ${rank === 1 ? "h-24 w-24" : "h-16 w-16"}`}
+                  fallbackClassName={rank === 1 ? "text-3xl" : "text-2xl"}
+                />
                 <h3 className={`font-bold text-foreground ${rank === 1 ? "text-2xl" : "text-xl"}`}>
                   {a.first_name} {a.last_name?.[0]}.
                   {renderFireIcon(a.id)}
@@ -203,7 +209,13 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
                   <td className="py-4 px-4 font-bold text-foreground text-lg">{i + 4}</td>
                   <td className="py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center">{initials}</div>
+                      <LeaderboardAgentAvatar
+                        avatarUrl={a.avatar_url}
+                        initials={initials}
+                        alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
+                        className="h-9 w-9"
+                        fallbackClassName="text-sm"
+                      />
                       <span className="font-medium text-foreground text-lg">
                         {a.first_name} {a.last_name?.[0]}.
                         {renderFireIcon(a.id)}
