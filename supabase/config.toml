@@ -75,3 +75,6 @@ verify_jwt = false
 
 [functions.twilio-voice-status]
 verify_jwt = false
+
+[functions.twilio-voice-inbound]
+verify_jwt = false
