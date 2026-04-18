@@ -64,6 +64,26 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] Twilio Migration Phase 2 — twilio-token Edge Function**
+  *What:* Built Access Token generator with VoiceGrant for browser SDK auth. Generates and persists `twilio_client_identity` on `profiles`. JWT built manually using Web Crypto API (HMAC-SHA256) for Deno compatibility — the Node.js `twilio` npm package cannot be used in Supabase Edge Functions.
+  *File created:* `supabase/functions/twilio-token/index.ts`
+  *Env vars required (set as Edge Function secrets):* `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID`
+
+  ### Context Snapshot — Twilio Migration Phase 2 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Function built** | `supabase/functions/twilio-token/index.ts` |
+  | **Token TTL** | 4 hours (14 400 s) — standard for Twilio browser SDK sessions |
+  | **JWT header** | `{ alg: 'HS256', typ: 'JWT', cty: 'twilio-fpa;v=1' }` — `cty` is required; Twilio rejects tokens without it |
+  | **VoiceGrant** | `incoming.allow = true` + `outgoing.application_sid = TWILIO_TWIML_APP_SID` |
+  | **Identity format** | `agent_{userId.slice(0,8)}_{4 random hex chars}` — generated once, persisted to `profiles.twilio_client_identity` |
+  | **Identity column** | `profiles.twilio_client_identity` (renamed from `sip_username` in Phase 1) |
+  | **CORS** | Allows all origins; `POST` + `OPTIONS`; headers: `authorization, x-client-info, apikey, content-type` |
+  | **Auth** | Requires valid Supabase JWT (`Authorization: Bearer …`); returns 401 if missing/invalid |
+  | **Deployment status** | NOT YET DEPLOYED — will be deployed as a batch with other Twilio functions |
+  | **Next phase** | Phase 3: `twilio-voice-webhook` (inbound/outbound call event handler) |
+
 - **2026-04-18 | [DONE] Twilio Migration Phase 1 — DB Schema Migration**
   *What:* Renamed Telnyx columns to Twilio/provider-agnostic names on `calls`, `messages`, `profiles`. Added Twilio columns to `phone_numbers` and `phone_settings`. Created `call-recordings` storage bucket with org-scoped RLS. Updated `peek_inbound_call_identity` RPC.
   *Migrations created:*
