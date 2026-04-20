@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useTwilio } from "@/contexts/TwilioContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 
 export type ModalType =
   | "callbacks"

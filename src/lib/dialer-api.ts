@@ -272,11 +272,11 @@ export async function getLeadHistory(
  * createCall — Creates a call record in the `calls` table.
  *
  * **IMPORTANT**: For the main dialer flow (DialerPage, FloatingDialer),
- * call creation is now consolidated into `TelnyxContext.makeCall` via
+ * call creation is now consolidated into `TwilioContext.makeCall` via
  * `MakeCallOptions`. This function is retained ONLY for the legacy
  * `AutoDialer.dialNext()` path and should NOT be used for new code.
  *
- * @see TelnyxContext.makeCall for the canonical single-entry-point call creation.
+ * @see TwilioContext.makeCall for the canonical single-entry-point call creation.
  */
 export async function createCall(data: {
   contact_id: string;

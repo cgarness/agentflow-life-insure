@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { StatData } from "@/hooks/useDashboardStats";
-import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 
 interface GoalProgressWidgetProps {
   userId: string;

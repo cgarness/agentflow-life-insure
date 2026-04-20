@@ -1,5 +1,5 @@
 /**
- * Twilio Voice SDK wrapper — replaces `src/lib/telnyx.ts` as the core browser
+ * Twilio Voice SDK wrapper — core browser
  * telephony library. Owns Device lifecycle, token fetch/refresh, and the
  * incoming-call pub/sub that TwilioContext consumes (Phase 7).
  */
@@ -47,7 +47,7 @@ export function clearIncomingCallHandlers(): void {
 
 /**
  * Subscribe to inbound (ringing) Twilio call notifications.
- * Returns a teardown function — matches the telnyx.ts pub/sub contract.
+ * Returns a teardown function — matches the prior pub/sub contract used by TwilioContext.
  */
 export function subscribeIncomingCall(cb: IncomingSubscriber): () => void {
   incomingSubscribers.add(cb);

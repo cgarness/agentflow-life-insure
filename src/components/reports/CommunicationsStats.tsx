@@ -67,7 +67,7 @@ const CommunicationsStats: React.FC<Props> = ({ calls, compCalls, range, loading
         {/* SMS placeholder */}
         <div className="bg-accent/30 rounded-lg p-4 opacity-60 flex items-center gap-3">
           <MessageSquare className="w-4 h-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground flex-1">SMS analytics available when Telnyx SMS is configured</span>
+          <span className="text-xs text-muted-foreground flex-1">SMS analytics available when Twilio SMS is configured</span>
           <Lock className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
         {/* Email placeholder */}

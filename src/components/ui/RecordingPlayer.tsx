@@ -38,9 +38,7 @@ function readDurationFromAudioEl(audio: HTMLAudioElement | null): number {
   return 0;
 }
 
-/**
- * Fetches call recordings from Storage (browser-recorded WebM) or via `recording-proxy` (Telnyx).
- */
+/** Fetches call recordings from Supabase Storage (`recording_storage_path` or legacy `storage:` URL on `recording_url`). */
 export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
   callId,
   compact = false,
@@ -95,16 +93,23 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
     try {
       const { data: callRow } = await supabase
         .from("calls")
-        .select("recording_url")
+        .select("recording_url, recording_storage_path")
         .eq("id", callId)
         .maybeSingle();
 
-      const recUrl: string | null = callRow?.recording_url;
+      const recUrl: string | null = callRow?.recording_url ?? null;
+      const storagePathCol: string | null = callRow?.recording_storage_path ?? null;
+
+      let storagePath: string | null = null;
+      if (storagePathCol?.trim()) {
+        storagePath = storagePathCol.trim();
+      } else if (recUrl?.startsWith("storage:call-recordings/")) {
+        storagePath = recUrl.replace("storage:call-recordings/", "");
+      }
 
       let blob: Blob;
 
-      if (recUrl?.startsWith("storage:call-recordings/")) {
-        const storagePath = recUrl.replace("storage:call-recordings/", "");
+      if (storagePath) {
         const { data: b, error: dlErr } = await supabase.storage
           .from("call-recordings")
           .download(storagePath);
@@ -116,35 +121,10 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
         }
         blob = b;
       } else {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          setError("Not authenticated");
-          fetchedRef.current = false;
-          setLoading(false);
-          return null;
-        }
-
-        const resp = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/recording-proxy`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session.access_token}`,
-              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-            },
-            body: JSON.stringify({ call_id: callId }),
-          }
-        );
-
-        if (!resp.ok) {
-          const errBody = await resp.json().catch(() => null);
-          setError(errBody?.error || "No recording found");
-          fetchedRef.current = false;
-          setLoading(false);
-          return null;
-        }
-        blob = await resp.blob();
+        setError("Recording not available");
+        fetchedRef.current = false;
+        setLoading(false);
+        return null;
       }
 
       const decodedDur = await getDurationFromBlob(blob);
@@ -237,7 +217,7 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
-    // Browser recordings are WebM; Telnyx proxy returns MPEG audio — browsers still accept .webm or use generic name
+    // Browser recordings are WebM; Twilio pipeline may use other encodings — generic extension
     a.download = `recording-${callId}.webm`;
     a.rel = "noopener";
     a.click();

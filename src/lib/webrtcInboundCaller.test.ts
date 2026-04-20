@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   resolveInboundCallerRawNumber,
   buildOrgDidLast10Set,
-  telnyxCallControlIdsEqual,
+  providerCallSidsEqual,
   isCallsRowInboundDirection,
   isCallsRowOutboundDirection,
-} from "./telnyxInboundCaller";
+} from "./webrtcInboundCaller";
 
 describe("resolveInboundCallerRawNumber", () => {
   it("uses options.remoteCallerNumber when present", () => {
@@ -45,16 +45,16 @@ describe("buildOrgDidLast10Set", () => {
   });
 });
 
-describe("telnyxCallControlIdsEqual", () => {
+describe("providerCallSidsEqual", () => {
   it("matches ids with or without v3: prefix", () => {
     const bare = "Pb5PxRu5ZSFAXZEfJXiRXgoUS3Ooog1ZeyI2ovRSzJu_ddfJCTFCg";
-    expect(telnyxCallControlIdsEqual(`v3:${bare}`, bare)).toBe(true);
-    expect(telnyxCallControlIdsEqual(`v3:${bare}`, `v3:${bare}`)).toBe(true);
+    expect(providerCallSidsEqual(`v3:${bare}`, bare)).toBe(true);
+    expect(providerCallSidsEqual(`v3:${bare}`, `v3:${bare}`)).toBe(true);
   });
 
   it("returns false for empty or unrelated ids", () => {
-    expect(telnyxCallControlIdsEqual("", "abc")).toBe(false);
-    expect(telnyxCallControlIdsEqual("a", "b")).toBe(false);
+    expect(providerCallSidsEqual("", "abc")).toBe(false);
+    expect(providerCallSidsEqual("a", "b")).toBe(false);
   });
 });
 

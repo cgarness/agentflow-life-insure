@@ -36,8 +36,8 @@ Every architectural decision must support SaaS graduation:
 *   **Ownership**: Leads must always have a valid `user_id` and `organization_id`.
 *   **Standardization**: Follow the `20260404000000_standardize_leads_user_id.sql` pattern for all future contact-based tables.
 
-### 4. Telephony Security (Telnyx WebRTC)
-*   **Dialer model**: **Single-leg WebRTC** only—outbound calls are initiated from the browser via the Telnyx WebRTC SDK (`newCall`). Do not reintroduce **two-legged** flows (server REST dial to the customer + SIP bridge/transfer back to the agent) unless Chris explicitly requests it.
+### 4. Telephony Security (Twilio Voice.js / WebRTC)
+*   **Dialer model**: **Single-leg WebRTC** only—outbound calls are initiated from the browser via the Twilio Voice.js SDK (`device.connect`). Do not reintroduce **two-legged** flows (server REST dial to the customer + SIP bridge/transfer back to the agent) unless Chris explicitly requests it.
 *   **Zero-Exposure**: API Keys, Secret Keys, and App-IDs must reside in **Supabase Vault** or Edge Secrets.
 *   **WebRTC Guard**: Telephony initialization must be gated behind a valid Supabase Auth session.
 *   **Audit Behavior**: Current system is a 1-line sequential dialer; do not attempt multi-line logic without specific instructions.

@@ -34,7 +34,7 @@ import {
   SortAsc,
 } from "lucide-react";
 import { cn, getStatusColorStyle } from "@/lib/utils";
-import { isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
+import { isVoiceSdkInboundDirection } from "@/lib/voiceSdkNotificationBranch";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -697,7 +697,7 @@ export default function DialerPage() {
     resolve();
   }, [currentLead, selectedCallerNumber, getSmartCallerId, localPresenceEnabled]);
 
-  // ── Owned phone numbers (removed local fetching, now using TelnyxContext) ──
+  // ── Owned phone numbers (removed local fetching, now using TwilioContext) ──
   const lastUsedCallerId = useRef<string>("");
 
   /* --- effects for syncing query data to state if needed --- */
@@ -1190,7 +1190,7 @@ export default function DialerPage() {
     }
   }, [organizationId]);
 
-  /** Refetch timeline for a lead when Telnyx delivers `recording_url` after wrap-up (no isAdvancing guard). */
+  /** Refetch timeline for a lead when the voice pipeline delivers `recording_url` after wrap-up (no isAdvancing guard). */
   const refreshHistoryForLeadQuiet = useCallback(
     async (leadId: string, campaignLeadId?: string | null) => {
       try {
@@ -1554,7 +1554,7 @@ export default function DialerPage() {
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
     lastUsedCallerId.current = callerNumber;
-    // Consolidated: MakeCallOptions passes all metadata to TelnyxContext.makeCall
+    // Consolidated: MakeCallOptions passes all metadata to TwilioContext.makeCall
     // where the single call record is created.
     const opts: MakeCallOptions = {
       contactId: contactId || null,
@@ -1691,7 +1691,7 @@ export default function DialerPage() {
 
   useEffect(() => {
     if (twilioCallState === "incoming") wasInboundSessionRef.current = true;
-    if (twilioCallState === "active" && isTelnyxSdkInboundDirection(twilioCurrentCall?.direction)) {
+    if (twilioCallState === "active" && isVoiceSdkInboundDirection(twilioCurrentCall?.direction)) {
       wasInboundSessionRef.current = true;
     }
     if (twilioCallState === "idle") wasInboundSessionRef.current = false;
@@ -2103,11 +2103,11 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockMode, selectedCampaignId]);
 
-  // ── Telnyx answer → start claim timer (Team/Open only) ──
+  // ── Inbound answer → start claim timer (Team/Open only) ──
   useEffect(() => {
     if (!lockMode || !currentLead) return;
     if (twilioCallState === "active") {
-      if (isTelnyxSdkInboundDirection(twilioCurrentCall?.direction)) {
+      if (isVoiceSdkInboundDirection(twilioCurrentCall?.direction)) {
         setClaimRingActive(false);
         return;
       }
@@ -2126,7 +2126,7 @@ export default function DialerPage() {
   }, [twilioCallState, lockMode, currentLead?.id]);
 
   /* --- caller ID selection --- */
-  // Redundant helper removed, now using getSmartCallerId from TelnyxContext
+  // Redundant helper removed, now using getSmartCallerId from TwilioContext
 
   /* --- call handlers --- */
 
@@ -3293,8 +3293,8 @@ export default function DialerPage() {
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
         <DialerActions
-          telnyxCallState={twilioCallState}
-          telnyxCallDuration={twilioCallDuration}
+          voiceCallState={twilioCallState}
+          voiceCallDuration={twilioCallDuration}
           claimRingActive={claimRingActive}
           campaignType={campaignType}
           campaignId={selectedCampaignId || ""}

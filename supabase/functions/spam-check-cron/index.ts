@@ -46,13 +46,13 @@ Deno.serve(async (req) => {
       try {
         const { data: calls7d } = await supabase
           .from('calls')
-          .select('id, sip_response_code, shaken_stir, telnyx_error_code, quality_percentage, mos')
+          .select('id, sip_response_code, shaken_stir, provider_error_code, quality_percentage, mos')
           .eq('caller_id_used', phone.phone_number)
           .gte('started_at', sevenDaysAgo);
 
         const { data: calls30d } = await supabase
           .from('calls')
-          .select('id, sip_response_code, shaken_stir, telnyx_error_code')
+          .select('id, sip_response_code, shaken_stir, provider_error_code')
           .eq('caller_id_used', phone.phone_number)
           .gte('started_at', thirtyDaysAgo);
 
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
           : 0;
 
         const d51Count = calls30d?.filter((c: any) =>
-          c.telnyx_error_code === 'D51'
+          c.provider_error_code === 'D51'
         ).length || 0;
 
         // Quality averages
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
         }
 
         const carrierReputationData = {
-          source: 'telnyx_cdr',
+          source: 'sip_cdr',
           method: 'SIP 603/608 rejection rate + SHAKEN/STIR attestation',
           last_updated: now.toISOString(),
           calls_needed_for_score: callsNeeded,

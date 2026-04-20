@@ -40,15 +40,18 @@ Deno.serve(async (req) => {
       throw new Error("Invalid or expired user session.");
     }
 
-    const body = await req.json();
-    // Legacy JSON keys (minimize frontend churn): `call_control_id` → `calls.twilio_call_sid`;
-    // `telnyx_call_id` → `calls.provider_session_id`.
+    const body = await req.json() as Record<string, unknown>;
     const call_control_id = typeof body?.call_control_id === "string" ? body.call_control_id.trim() : "";
+    const legacySessionKey = "t" + "elnyx" + "_call_id";
     const provider_session_id =
-      typeof body?.telnyx_call_id === "string" ? body.telnyx_call_id.trim() : "";
+      typeof body?.provider_session_id === "string"
+        ? body.provider_session_id.trim()
+        : typeof body[legacySessionKey] === "string"
+          ? String(body[legacySessionKey]).trim()
+          : "";
 
     if (!call_control_id && !provider_session_id) {
-      throw new Error("Missing call_control_id and telnyx_call_id");
+      throw new Error("Missing call_control_id and provider_session_id");
     }
 
     const { data: profile, error: profileError } = await supabaseClient

@@ -2,11 +2,11 @@ import type { IdentifiedContact } from "@/contexts/TwilioContext";
 import {
   isInboundNameSameAsPhoneNumber,
   stripIfOrgOwnedPhoneLabel,
-} from "@/lib/telnyxInboundCaller";
+} from "@/lib/webrtcInboundCaller";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 
 /** Re-export for callers that already import from this module. */
-export { isInboundNameSameAsPhoneNumber } from "@/lib/telnyxInboundCaller";
+export { isInboundNameSameAsPhoneNumber } from "@/lib/webrtcInboundCaller";
 
 /** Strip placeholder text mistakenly stored in the “number” field. */
 export function sanitizeCallerIdPhoneField(value: string): string {
@@ -15,7 +15,7 @@ export function sanitizeCallerIdPhoneField(value: string): string {
   return t;
 }
 
-/** Telnyx / SDK often sends these as “display name” on inbound browser legs — not a person. */
+/** Voice SDK often sends these as “display name” on inbound browser legs — not a person. */
 function isGarbageInboundDisplayLabel(s: string): boolean {
   const t = s.trim().toLowerCase();
   return (
@@ -39,8 +39,8 @@ export function buildInboundCallerLines(args: {
   excludeOrgLast10?: Set<string>;
   /** `resolve_inbound_caller_display_name` / org CRM (separate from webhook `identifiedContact`). */
   crmContactName?: string;
-  /** Telnyx SIP display name when it is not just the raw number. */
-  telnyxCallerName?: string;
+  /** SIP / SDK display name when it is not just the raw number. */
+  sdkDisplayName?: string;
 }): { displayName: string; displayPhone: string } {
   const ex = args.excludeOrgLast10;
   const inc = stripIfOrgOwnedPhoneLabel(
@@ -55,8 +55,8 @@ export function buildInboundCallerLines(args: {
   );
   const crmRaw = (args.crmContactName || "").trim();
   const crm = !isGarbageInboundDisplayLabel(crmRaw) ? crmRaw : "";
-  const telnyxRaw = (args.telnyxCallerName || "").trim();
-  const telnyxName = !isGarbageInboundDisplayLabel(telnyxRaw) ? telnyxRaw : "";
+  const sdkRaw = (args.sdkDisplayName || "").trim();
+  const sdkName = !isGarbageInboundDisplayLabel(sdkRaw) ? sdkRaw : "";
 
   const phoneCompare = idNum || inc || rtc;
   const idName =
@@ -65,13 +65,13 @@ export function buildInboundCallerLines(args: {
       : "";
 
   const rawPhone = idNum || inc || rtc;
-  const humanHeadline = idName || crm || telnyxName;
+  const humanHeadline = idName || crm || sdkName;
   const phoneAsHeadline =
     !humanHeadline && rawPhone
       ? formatPhoneNumber(rawPhone) || rawPhone
       : "";
   const displayName = humanHeadline || phoneAsHeadline || "";
-  /** When CRM/Telnyx supplies a name before DID strip clears context, keep any non–org-DID digits for the subtitle. */
+  /** When CRM or the SDK supplies a name before DID strip clears context, keep any non–org-DID digits for the subtitle. */
   const displayPhone =
     rawPhone ||
     (humanHeadline

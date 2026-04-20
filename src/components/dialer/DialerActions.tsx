@@ -17,8 +17,8 @@ interface Disposition {
 }
 
 interface DialerActionsProps {
-  telnyxCallState: string;
-  telnyxCallDuration: number;
+  voiceCallState: string;
+  voiceCallDuration: number;
   claimRingActive: boolean;
   campaignType: string;
   campaignId: string;
@@ -63,8 +63,8 @@ interface DialerActionsProps {
 }
 
 export const DialerActions: React.FC<DialerActionsProps> = ({
-  telnyxCallState,
-  telnyxCallDuration,
+  voiceCallState,
+  voiceCallDuration,
   claimRingActive,
   campaignType,
   lockMode,
@@ -113,14 +113,14 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
     <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
       {/* Top Actions: Hang Up / Skip / Call */}
       <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
-        {telnyxCallState === "active" || telnyxCallState === "dialing" || telnyxCallState === "incoming" ? (
+        {voiceCallState === "active" || voiceCallState === "dialing" || voiceCallState === "incoming" ? (
           <button
             onClick={onHangUp}
             className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90 shadow-lg shadow-destructive/20"
           >
             <PhoneOff className="w-4 h-4" />
             <span className="leading-none">Hang Up</span>
-            <span className="font-mono text-[9px] opacity-80">{fmtDuration(telnyxCallDuration)}</span>
+            <span className="font-mono text-[9px] opacity-80">{fmtDuration(voiceCallDuration)}</span>
           </button>
         ) : (
           <div className="relative">
@@ -144,7 +144,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
         )}
         <button
           onClick={onSkip}
-          disabled={telnyxCallState === "active" || telnyxCallState === "dialing" || telnyxCallState === "incoming"}
+          disabled={voiceCallState === "active" || voiceCallState === "dialing" || voiceCallState === "incoming"}
           className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ArrowRight className="w-4 h-4" />

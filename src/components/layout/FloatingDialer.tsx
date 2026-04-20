@@ -12,7 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
 import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
-import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { CALLER_ID_STICKY_MIN_DURATION_SEC } from "@/lib/caller-id-selection";
 import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
 import { DialerCallPhaseLabel } from "@/components/layout/DialerCallPhaseLabel";
 import {
   useInboundCallerDisplayLines,
-  telnyxUsefulIncomingDisplayName,
+  usefulIncomingSdkDisplayName,
 } from "@/hooks/useInboundCallerDisplayLines";
 
 interface ContactResult {
@@ -241,7 +241,7 @@ const FloatingDialer: React.FC = () => {
     if (!open) setMinimized(false);
   }, [open]);
 
-  // Open: ensure Telnyx is initialized (idempotent — will not disconnect an existing live client).
+  // Open: ensure the voice client is initialized (idempotent — will not disconnect an existing live client).
   // Close: destroy client only when not mid-call to preserve active call state.
   // onCall is intentionally read via ref to avoid re-running init on every call state change.
   useEffect(() => {
@@ -424,7 +424,7 @@ const FloatingDialer: React.FC = () => {
         availableNumbers.find((n) => n.is_default)?.phone_number || availableNumbers[0].phone_number;
     }
 
-    // Consolidated call creation: TelnyxContext.makeCall handles call record creation.
+    // Consolidated call creation: TwilioContext.makeCall handles call record creation.
     if (!contactId) {
       void proceedWithCall(destinationNumber, finalCallerId);
       return;
@@ -584,7 +584,7 @@ const FloatingDialer: React.FC = () => {
     selectedContact
       ? `${selectedContact.first_name} ${selectedContact.last_name}`
       : crmContactName ||
-        telnyxUsefulIncomingDisplayName(incomingCallerName, incomingCallerNumber) ||
+        usefulIncomingSdkDisplayName(incomingCallerName, incomingCallerNumber) ||
         incomingCallerNumber ||
         dialedNumber;
 
@@ -596,7 +596,7 @@ const FloatingDialer: React.FC = () => {
     twilioStatus === 'error' ? '#ef4444' : '#94a3b8';
   const shouldPulse = twilioStatus === 'ready' || twilioStatus === 'connecting';
 
-  /** Outbound calls are blocked until Telnyx SIP registration completes (matches TelnyxContext.makeCall gates). */
+  /** Outbound calls are blocked until the voice client is registered (matches TwilioContext.makeCall gates). */
   const canPlaceCall = twilioIsReady && twilioStatus !== 'error';
 
   return (

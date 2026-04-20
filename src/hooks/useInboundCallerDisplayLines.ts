@@ -1,16 +1,16 @@
 import { useMemo } from "react";
 import { useTwilio } from "@/contexts/TwilioContext";
 import { buildInboundCallerLines } from "@/components/layout/inboundCallerDisplay";
-import { buildOrgDidLast10Set, extractWebrtcInboundRemoteNumber } from "@/lib/telnyxInboundCaller";
+import { buildOrgDidLast10Set, extractWebrtcInboundRemoteNumber } from "@/lib/webrtcInboundCaller";
 
-export function telnyxUsefulIncomingDisplayName(incomingName: string, incomingNumber: string): string {
+export function usefulIncomingSdkDisplayName(incomingName: string, incomingNumber: string): string {
   const name = incomingName.trim();
   if (!name) return "";
-  if (isTelnyxNameJustTheNumber(name, incomingNumber)) return "";
+  if (isSdkNameJustTheNumber(name, incomingNumber)) return "";
   return name;
 }
 
-function isTelnyxNameJustTheNumber(name: string, number: string): boolean {
+function isSdkNameJustTheNumber(name: string, number: string): boolean {
   const n = name.trim();
   if (!n) return true;
   const nd = number.replace(/\D/g, "");
@@ -37,10 +37,10 @@ export function useInboundCallerDisplayLines(opts?: { onCall?: boolean }) {
     lastCallDirection,
   } = useTwilio();
 
-  const telnyxUsefulCallerName = useMemo(() => {
+  const usefulSdkCallerName = useMemo(() => {
     const name = incomingCallerName.trim();
     if (!name) return "";
-    if (isTelnyxNameJustTheNumber(name, incomingCallerNumber)) return "";
+    if (isSdkNameJustTheNumber(name, incomingCallerNumber)) return "";
     return name;
   }, [incomingCallerName, incomingCallerNumber]);
 
@@ -65,7 +65,7 @@ export function useInboundCallerDisplayLines(opts?: { onCall?: boolean }) {
         webrtcRemoteRaw: webrtcInboundRaw,
         excludeOrgLast10: inboundExcludeSet,
         crmContactName,
-        telnyxCallerName: telnyxUsefulCallerName,
+        sdkDisplayName: usefulSdkCallerName,
       }),
     [
       identifiedContact,
@@ -73,7 +73,7 @@ export function useInboundCallerDisplayLines(opts?: { onCall?: boolean }) {
       webrtcInboundRaw,
       inboundExcludeSet,
       crmContactName,
-      telnyxUsefulCallerName,
+      usefulSdkCallerName,
     ],
   );
 }

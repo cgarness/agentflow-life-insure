@@ -23,7 +23,7 @@ export function normalizePhoneNumber(phone: string): string {
   if (!phone) return "";
   const cleaned = phone.replace(/\D/g, "");
   
-  // If it's a 10-digit US number, return with leading 1 for raw numeric Telnyx format
+  // If it's a 10-digit US number, return with leading 1 for raw numeric carrier format
   if (cleaned.length === 10) {
     return `1${cleaned}`;
   }

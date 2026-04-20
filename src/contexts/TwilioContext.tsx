@@ -17,17 +17,18 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
+import { isVoiceSdkInboundDirection } from "@/lib/voiceSdkNotificationBranch";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import {
+  OUTBOUND_CALL_DIRECTIONS,
   buildOrgDidLast10Set,
   isCallsRowInboundDirection,
   isInboundNameSameAsPhoneNumber,
   last10Digits,
+  providerCallSidsEqual,
   resolveInboundCallerRawNumber,
   stripIfOrgOwnedPhoneLabel,
-  telnyxCallControlIdsEqual,
-} from "@/lib/telnyxInboundCaller";
+} from "@/lib/webrtcInboundCaller";
 import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
@@ -43,10 +44,9 @@ import {
   CALLER_ID_STICKY_MIN_DURATION_SEC,
   selectOutboundCallerId,
 } from "@/lib/caller-id-selection";
-import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
 
 /** Mic capture for WebRTC: AEC/NS/AGC + 48 kHz mono where the browser supports it. */
-const TELNYX_MIC_CAPTURE: MediaStreamConstraints = {
+const VOICE_MIC_CAPTURE: MediaStreamConstraints = {
   audio: {
     echoCancellation: true,
     noiseSuppression: true,
@@ -104,7 +104,7 @@ function extractIncomingCallerDisplay(
   return { number: String(num || "").trim(), name: String(name || "").trim() };
 }
 
-type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
+type VoiceClientStatus = "idle" | "connecting" | "ready" | "error";
 export type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
 
 /** CRM-backed identity for inbound calls (from `calls` row / webhook + Realtime). */
@@ -135,7 +135,7 @@ export type SmartCallerIdOptions = {
 };
 
 export interface TwilioContextValue {
-  status: TelnyxStatus;
+  status: VoiceClientStatus;
   errorMessage: string | null;
   currentCall: any | null;
   callState: CallState;
@@ -192,7 +192,7 @@ export const useTwilio = (): TwilioContextValue => {
 };
 
 export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [status, setStatus] = useState<TelnyxStatus>("idle");
+  const [status, setStatus] = useState<VoiceClientStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [currentCall, setCurrentCall] = useState<any>(null);
   const [callState, setCallState] = useState<CallState>("idle");
@@ -213,7 +213,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Org default from `phone_settings.api_secret` JSON (`local_presence_enabled`). */
   const [orgLocalPresenceEnabled, setOrgLocalPresenceEnabled] = useState(true);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
-    return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
+    return typeof window !== "undefined" ? localStorage.getItem("voice_manual_caller_id") || "" : "";
   });
 
   const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
@@ -253,9 +253,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     if (typeof window !== "undefined") {
       if (selectedCallerNumber) {
-        localStorage.setItem("telnyx_manual_caller_id", selectedCallerNumber);
+        localStorage.setItem("voice_manual_caller_id", selectedCallerNumber);
       } else {
-        localStorage.removeItem("telnyx_manual_caller_id");
+        localStorage.removeItem("voice_manual_caller_id");
       }
     }
   }, [selectedCallerNumber]);
@@ -276,14 +276,14 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const deviceRef = useRef<Device | null>(null);
-  /** True only after `telnyx.ready` for the current client — avoids placing calls when React status is stale or socket is half-open. */
+  /** True only after `registered` (Twilio Device) for the current client — avoids placing calls when React status is stale or socket is half-open. */
   const twilioVoiceReadyRef = useRef(false);
   /** Prevents overlapping initializeClient runs (eager app load + floating dialer open). */
   const initializeInFlightRef = useRef(false);
-  /** Set on `telnyx.ready` so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
+  /** Set on `registered` (Twilio Device) so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
   const twilioVoiceOrgIdRef = useRef<string | null>(null);
   const callRef = useRef<any>(null);
-  /** Last Telnyx envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
+  /** Last inbound notification envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
   const lastInboundNotificationRef = useRef<unknown>(undefined);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
@@ -293,8 +293,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const activeCallIdRef = useRef<string | null>(null);
   const activeCallControlIdRef = useRef<string | null>(null);
   /** One DB sync of call SIDs per outbound call (webhooks + recording depend on `calls.twilio_call_sid`). */
-  const telnyxIdsDbSyncedRef = useRef(false);
-  /** Prevents duplicate start-call-recording invocations per call. */
+  const callIdsDbSyncedRef = useRef(false);
+  /** Prevents duplicate browser-side recording starts per call. */
   const recordingStartedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
   const activeLeadIdRef = useRef<string | null>(null);
@@ -306,7 +306,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingAudioCtxRef = useRef<AudioContext | null>(null);
 
-  // Prevents double processing of call-end state across hangUp(), telnyx.error, and telnyx.notification handlers.
+  // Prevents double processing of call-end state across hangUp(), Device `error`, and per-call events handlers.
   // Reset at the start of each new call (makeCall); set when the first handler processes the end.
   const endStateProcessedRef = useRef(false);
 
@@ -315,10 +315,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Ensure a hidden <audio> element exists for remote audio playback
   const getRemoteAudioElement = useCallback(() => {
     if (remoteAudioRef.current) return remoteAudioRef.current;
-    let el = document.getElementById("telnyx-remote-audio") as HTMLAudioElement | null;
+    let el = document.getElementById("twilio-remote-audio") as HTMLAudioElement | null;
     if (!el) {
       el = document.createElement("audio");
-      el.id = "telnyx-remote-audio";
+      el.id = "twilio-remote-audio";
       el.autoplay = true;
       el.setAttribute("playsinline", "true");
       document.body.appendChild(el);
@@ -451,7 +451,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (cancelled) return;
 
       if (error) {
-        console.warn("[TelnyxContext] resolve_inbound_caller_display_name:", error.message);
+        console.warn("[TwilioContext] resolve_inbound_caller_display_name:", error.message);
         setCrmContactName("");
         return;
       }
@@ -498,41 +498,14 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIncomingCallerName(name);
   }, [callState, incomingCallerNumber, inboundCallerExcludeOrg]);
 
-  /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
-  const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
-    try {
-      const { data: { session } } = await supabase.auth.refreshSession();
-      if (!session?.access_token) return false;
-
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          call_id: callId,
-          call_control_id: callControlId,
-        }),
-      });
-      return resp.ok;
-    } catch {
-      return false;
-    }
-  }, []);
-
   /**
    * Service-role claim so the agent can see the row under RLS (`calls.agent_id`).
    * Retries for several seconds: `call.initiated` webhook often lands after the first SDK notification.
    */
   const claimInboundCall = useCallback(
-    async (controlId: string, telnyxCallSessionId?: string | null): Promise<string | null> => {
+    async (controlId: string, providerSessionId?: string | null): Promise<string | null> => {
       const cc = controlId?.trim() ?? "";
-      const sid = telnyxCallSessionId?.trim() ?? "";
+      const sid = providerSessionId?.trim() ?? "";
       if (!cc && !sid) return null;
 
       const maxAttempts = 18;
@@ -554,7 +527,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           },
           body: JSON.stringify({
             ...(cc ? { call_control_id: cc } : {}),
-            ...(sid ? { telnyx_call_id: sid } : {}),
+            ...(sid ? { provider_session_id: sid } : {}),
           }),
         });
 
@@ -633,7 +606,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             .eq("organization_id", organizationId)
             .maybeSingle();
           if (error) {
-            console.warn("[TelnyxContext] identifiedContact client fetch:", error.message);
+            console.warn("[TwilioContext] identifiedContact client fetch:", error.message);
             return;
           }
           if (data) {
@@ -652,7 +625,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             .eq("organization_id", organizationId)
             .maybeSingle();
           if (error) {
-            console.warn("[TelnyxContext] identifiedContact lead fetch:", error.message);
+            console.warn("[TwilioContext] identifiedContact lead fetch:", error.message);
             return;
           }
           if (data) {
@@ -716,7 +689,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   /**
    * Webhook writes `calls.caller_id_used` shortly after ring; client SELECT/Realtime can miss
-   * if Telnyx session/control ids are not aligned yet. Poll SECURITY DEFINER RPC until row appears.
+   * if Voice session / CallSid ids are not aligned yet. Poll SECURITY DEFINER RPC until row appears.
    */
   useEffect(() => {
     if (callState !== "incoming" || !organizationId) return;
@@ -741,7 +714,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (cancelled || error) {
         if (error) {
-          console.warn("[TelnyxContext] peek_inbound_call_identity:", error.message);
+          console.warn("[TwilioContext] peek_inbound_call_identity:", error.message);
         }
         return;
       }
@@ -841,7 +814,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const cc = String(row.twilio_call_sid || "");
           const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
           const localCc = activeCallControlIdRef.current?.trim() || "";
-          const controlMatch = Boolean(cc && localCc && telnyxCallControlIdsEqual(cc, localCc));
+          const controlMatch = Boolean(cc && localCc && providerCallSidsEqual(cc, localCc));
           const unassignedRing =
             (rowAgent == null || rowAgent === "") && (sessionMatch || controlMatch);
           const assignedMine = rowAgent === authUserId;
@@ -1010,7 +983,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           .maybeSingle();
 
         if (error) {
-          console.warn('[TelnyxContext] Orphan call check failed:', error.message);
+          console.warn('[TwilioContext] Orphan call check failed:', error.message);
           return;
         }
 
@@ -1021,7 +994,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (data.status === 'ringing' && data.started_at) {
           const age = Date.now() - new Date(data.started_at).getTime();
           if (age > STALE_RINGING_THRESHOLD_MS) {
-            console.warn(`[TelnyxContext] Stale ringing call ${data.id} (${Math.round(age / 1000)}s old). Auto-cleaning to failed.`);
+            console.warn(`[TwilioContext] Stale ringing call ${data.id} (${Math.round(age / 1000)}s old). Auto-cleaning to failed.`);
             await supabase
               .from('calls')
               .update({ status: 'failed', updated_at: new Date().toISOString() })
@@ -1031,11 +1004,11 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         // Silent recovery: after refresh, WebRTC cannot restore audio — same as tapping Hang Up.
-        // Finalizes the DB row (and best-effort Telnyx) so ghost "connected" rows do not loop forever.
-        const edgeOk = await requestDialerHangup(data.id, data.twilio_call_sid);
-        if (edgeOk) {
-          console.log(`[TelnyxContext] Orphan row ${data.id} finalized via dialer-hangup (silent refresh recovery).`);
-          return;
+        // Best-effort SDK teardown + finalize the DB row so ghost "connected" rows do not loop forever.
+        try {
+          twilioHangUpAll();
+        } catch {
+          /* no-op */
         }
 
         const endedAt = new Date().toISOString();
@@ -1052,44 +1025,56 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           .eq('agent_id', profile.id);
 
         if (!clientErr) {
-          console.log(`[TelnyxContext] Orphan row ${data.id} finalized via client update (Edge fallback).`);
+          console.log(`[TwilioContext] Orphan row ${data.id} finalized via client update (silent refresh recovery).`);
           return;
         }
 
-        console.warn(`[TelnyxContext] Orphaned active call detected: ${data.id} (status=${data.status}). Surfacing recovery UI.`);
+        console.warn(`[TwilioContext] Orphaned active call detected: ${data.id} (status=${data.status}). Surfacing recovery UI.`);
         setOrphanCall(data as OrphanCall);
       } catch (err) {
-        console.warn('[TelnyxContext] Exception in orphan call check:', err);
+        console.warn('[TwilioContext] Exception in orphan call check:', err);
       }
     };
 
     checkOrphanedCalls();
-  }, [profile?.id, organizationId, requestDialerHangup]);
+  }, [profile?.id, organizationId]);
 
   const hangUpOrphan = useCallback(async () => {
     if (!orphanCall) return;
 
     try {
-      const ok = await requestDialerHangup(orphanCall.id, orphanCall.twilio_call_sid);
-      if (ok) {
-        console.log(`[TelnyxContext] Orphaned call ${orphanCall.id} terminated successfully.`);
-        toast.success('Orphaned call terminated.');
+      try {
+        twilioHangUpAll();
+      } catch {
+        /* no-op */
+      }
+      const endedAt = new Date().toISOString();
+      const startedMs = orphanCall.started_at ? new Date(orphanCall.started_at).getTime() : Date.now();
+      const durationSec = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
+      const { error } = await supabase
+        .from("calls")
+        .update({
+          status: "completed",
+          ended_at: endedAt,
+          duration: durationSec,
+        })
+        .eq("id", orphanCall.id)
+        .eq("agent_id", profile.id);
+
+      if (error) {
+        console.warn("[TwilioContext] Orphan hangup DB update failed:", error.message);
+        toast.warning("Call may have already ended.");
       } else {
-        const { data: { session } } = await supabase.auth.refreshSession();
-        if (!session?.access_token) {
-          toast.error('Session expired. Please log in again.');
-        } else {
-          console.warn(`[TelnyxContext] Orphan hangup request failed`);
-          toast.warning('Call may have already ended.');
-        }
+        console.log(`[TwilioContext] Orphaned call ${orphanCall.id} terminated successfully.`);
+        toast.success("Orphaned call terminated.");
       }
     } catch (err) {
-      console.error('[TelnyxContext] Error hanging up orphan call:', err);
-      toast.error('Failed to terminate orphaned call.');
+      console.error("[TwilioContext] Error hanging up orphan call:", err);
+      toast.error("Failed to terminate orphaned call.");
     } finally {
       setOrphanCall(null);
     }
-  }, [orphanCall, requestDialerHangup]);
+  }, [orphanCall, profile?.id]);
 
   const dismissOrphanCall = useCallback(() => {
     setOrphanCall(null);
@@ -1217,7 +1202,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Background log to the analytical table, non-blocking
     insertCallLog(duration, leadId).catch(console.warn);
 
-    console.log(`[TelnyxContext] Finalizing call record ${callId} with duration ${duration}s`);
+    console.log(`[TwilioContext] Finalizing call record ${callId} with duration ${duration}s`);
 
     try {
       const { error } = await supabase
@@ -1230,10 +1215,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .eq('id', callId);
 
       if (error) {
-        console.error("[TelnyxContext] Error finalizing call record:", error);
+        console.error("[TwilioContext] Error finalizing call record:", error);
       }
     } catch (err) {
-      console.error("[TelnyxContext] Exception during call finalization:", err);
+      console.error("[TwilioContext] Exception during call finalization:", err);
     }
   }, []);
 
@@ -1241,7 +1226,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const callId = activeCallIdRef.current;
     const controlId = activeCallControlIdRef.current;
 
-    console.log("[TelnyxContext] Initiating dual-layer hangup.", { callId, controlId });
+    console.log("[TwilioContext] Initiating hangup.", { callId, controlId });
 
     endStateProcessedRef.current = true;
 
@@ -1252,7 +1237,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     
     // Check if we are in the middle of a dial initiation (Race Condition handling)
     if (callStateRef.current === "dialing" && !controlId && callId) {
-      console.log("[TelnyxContext] Hangup requested during dialing; latching pending abort for:", callId);
+      console.log("[TwilioContext] Hangup requested during dialing; latching pending abort for:", callId);
       pendingAbortCallIdRef.current = callId;
     }
 
@@ -1261,7 +1246,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       remoteAudioRef.current.srcObject = null;
     }
 
-    // Layer 1: Local WebRTC Hangup leg
     if (callRef.current) {
       try {
         twilioHangUp(callRef.current as TwilioCall);
@@ -1270,34 +1254,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       callRef.current = null;
     }
-
-    // Layer 2: Secure Server-Side Hangup via Edge Function (awaited — ensures PSTN leg is terminated)
-    if (callId) {
-      try {
-        const { data: { session } } = await supabase.auth.refreshSession();
-        if (session?.access_token) {
-          const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-          const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-          const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${session.access_token}`,
-              "apikey": SUPABASE_ANON_KEY,
-            },
-            body: JSON.stringify({
-              call_id: callId,
-              call_control_id: controlId
-            }),
-          });
-          if (!resp.ok) {
-            console.error(`[TelnyxContext] Edge hangup returned HTTP ${resp.status} for call ${callId}. PSTN leg may still be alive.`);
-          }
-        }
-      } catch (err) {
-        console.error("[TelnyxContext] Edge hangup fetch failed — PSTN leg may still be alive:", err);
-      }
+    try {
+      twilioHangUpAll();
+    } catch {
+      /* no-op */
     }
 
     // Immediate cleanup of local states — no delay so wrap-up UI can take over
@@ -1326,11 +1286,11 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const answerIncomingCall = useCallback(async () => {
     if (callStateRef.current !== "incoming") return;
     const call = callRef.current as TwilioCall | null;
-    if (!call || !isTelnyxSdkInboundDirection(getCallDirection(call))) return;
+    if (!call || !isVoiceSdkInboundDirection(getCallDirection(call))) return;
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
+      stream = await navigator.mediaDevices.getUserMedia(VOICE_MIC_CAPTURE);
     } catch (err) {
       console.error("[TwilioContext] Mic denied for answer:", err);
       toast.error("Microphone access is required to answer.");
@@ -1352,7 +1312,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const rowId = await claimInboundCall("", sid);
         if (rowId) {
           activeCallIdRef.current = rowId;
-          telnyxIdsDbSyncedRef.current = true;
+          callIdsDbSyncedRef.current = true;
           setInboundClaimedCallRowId(rowId);
         }
       })();
@@ -1364,7 +1324,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isDialingRef.current = true;
 
     try {
-      await twilioAnswerCall(call, { rtcConstraints: TELNYX_MIC_CAPTURE });
+      await twilioAnswerCall(call, { rtcConstraints: VOICE_MIC_CAPTURE });
       try {
         call.mute(false);
       } catch {
@@ -1396,7 +1356,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
       timeoutId = setTimeout(async () => {
         const twilioCall = callRef.current as TwilioCall | null;
-        if (twilioCall && isTelnyxSdkInboundDirection(getCallDirection(twilioCall))) {
+        if (twilioCall && isVoiceSdkInboundDirection(getCallDirection(twilioCall))) {
           return;
         }
         const st = twilioCall?.status?.();
@@ -1423,7 +1383,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
           }
 
-          // Poll up to 3s (6 × 500ms) for the call_control_id to arrive via telnyx.notification.
+          // Poll up to 3s (6 × 500ms) for the call_control_id to arrive from the voice SDK.
           // The ID comes asynchronously and may not be present at exact timeout time.
           if (!activeCallControlIdRef.current) {
             console.warn("[RingTimeout] call_control_id not yet available — polling up to 3s before hanging up...");
@@ -1483,7 +1443,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         duration_sec: typeof data.duration === "number" ? data.duration : 0,
       };
     } catch (e) {
-      console.warn("[TelnyxContext] queryStickyOutboundCaller:", e);
+      console.warn("[TwilioContext] queryStickyOutboundCaller:", e);
       return null;
     }
   }, []);
@@ -1552,8 +1512,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const syncIdsToRow = () => {
         const rowId = activeCallIdRef.current;
         const sid = getCallSid(call) ?? "";
-        if (!rowId || !sid || telnyxIdsDbSyncedRef.current) return;
-        telnyxIdsDbSyncedRef.current = true;
+        if (!rowId || !sid || callIdsDbSyncedRef.current) return;
+        callIdsDbSyncedRef.current = true;
         activeCallControlIdRef.current = sid;
         void supabase
           .from("calls")
@@ -1565,7 +1525,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           .eq("id", rowId)
           .then(({ error: syncErr }) => {
             if (syncErr) {
-              telnyxIdsDbSyncedRef.current = false;
+              callIdsDbSyncedRef.current = false;
               console.warn("[TwilioContext] Failed to sync CallSid to calls row:", syncErr.message);
             }
           });
@@ -1608,7 +1568,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
 
       call.on("ringing", () => {
-        if (!isTelnyxSdkInboundDirection(getCallDirection(call))) {
+        if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
           setCallState("dialing");
         }
       });
@@ -1648,7 +1608,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         finalizeEnded();
       });
 
-      if (isTelnyxSdkInboundDirection(getCallDirection(call))) {
+      if (isVoiceSdkInboundDirection(getCallDirection(call))) {
         setLastCallDirection("inbound");
         const sid = getCallSid(call) ?? "";
         inboundSdkSessionIdRef.current = sid;
@@ -1671,7 +1631,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             if (!claimedId || callRef.current !== snap) return;
             activeCallIdRef.current = claimedId;
             setInboundClaimedCallRowId(claimedId);
-            telnyxIdsDbSyncedRef.current = true;
+            callIdsDbSyncedRef.current = true;
           })();
         }
       } else {
@@ -1729,7 +1689,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       try {
-        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
+        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(VOICE_MIC_CAPTURE);
       } catch {
         /* mic optional at registration */
       }
@@ -1850,7 +1810,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions): Promise<string | undefined> => {
     if (isDialingRef.current) {
-      console.warn("[TelnyxContext] makeCall blocked — already dialing (execution lock).");
+      console.warn("[TwilioContext] makeCall blocked — already dialing (execution lock).");
       toast.error("A call is already starting. Please wait.");
       return undefined;
     }
@@ -1870,7 +1830,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         status === "connecting"
           ? "Phone is still connecting. Wait until the dialer shows Ready."
           : "Phone is not connected yet. Wait a few seconds or tap retry in the dialer header.";
-      console.warn("[TelnyxContext] makeCall blocked — SIP not registered. Status:", status);
+      console.warn("[TwilioContext] makeCall blocked — SIP not registered. Status:", status);
       toast.error(msg);
       return undefined;
     }
@@ -1886,7 +1846,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         status === "connecting"
           ? "Phone is still connecting, please wait."
           : "Dialer is not connected. Check your credentials in Settings.";
-      console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
+      console.warn("Voice client not ready, cannot make call. Status:", status);
       toast.error(msg);
       return undefined;
     }
@@ -1905,7 +1865,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (stale) {
       const { data: { session: refreshed }, error: refreshErr } = await supabase.auth.refreshSession();
       if (!refreshed?.access_token || refreshErr) {
-        console.warn("[TelnyxContext] Call blocked: No active auth session.", refreshErr || getErr);
+        console.warn("[TwilioContext] Call blocked: No active auth session.", refreshErr || getErr);
         toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
         return undefined;
       }
@@ -1913,7 +1873,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (!session?.access_token) {
-      console.warn("[TelnyxContext] Call blocked: No active session after refresh check.");
+      console.warn("[TwilioContext] Call blocked: No active session after refresh check.");
       toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
       return undefined;
     }
@@ -1930,7 +1890,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
-      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
+      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(VOICE_MIC_CAPTURE);
     } catch (err) {
       console.error("Microphone permission denied:", err);
       setStatus("error");
@@ -1981,7 +1941,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       activeCallIdRef.current = callRecord.id;
       activeCallControlIdRef.current = null;
-      telnyxIdsDbSyncedRef.current = false;
+      callIdsDbSyncedRef.current = false;
       recordingStartedRef.current = false;
 
       if (!getTwilioDevice()) {
@@ -2007,7 +1967,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .rpc("increment_phone_number_daily_usage", { p_phone_e164: callerIdUsed })
         .then(({ error: incErr }) => {
           if (incErr) {
-            console.warn("[TelnyxContext] increment_phone_number_daily_usage:", incErr.message);
+            console.warn("[TwilioContext] increment_phone_number_daily_usage:", incErr.message);
           }
         });
 
@@ -2034,7 +1994,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Network resilience: Auto-reconnect if internet blips
   useEffect(() => {
     const handleOnline = () => {
-      console.log("[TelnyxContext] Network restored. Re-initializing client...");
+      console.log("[TwilioContext] Network restored. Re-initializing client...");
       setConnectionDropped(false);
       if (status === "error" || !deviceRef.current) {
          // Add a tiny delay to ensure socket is actually ready
@@ -2043,7 +2003,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
     
     const handleOffline = () => {
-       console.warn("[TelnyxContext] Network connectivity lost.");
+       console.warn("[TwilioContext] Network connectivity lost.");
        setStatus("error");
        setErrorMessage("Internet connection lost. Call may have dropped. Waiting to reconnect...");
        // Instead of calling hangUp() which bypasses wrap-up, transition to "ended" state.

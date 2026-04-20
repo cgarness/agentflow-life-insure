@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 
 export interface StatData {
   callsToday: number;

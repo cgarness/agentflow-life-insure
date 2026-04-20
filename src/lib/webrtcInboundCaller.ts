@@ -1,6 +1,6 @@
 /**
  * Inbound WebRTC: ANI may appear on `remoteCallerNumber` or the notification envelope.
- * Never use `options.callerNumber` for inbound — it is usually *your* Telnyx / SIP caller ID, not the customer.
+ * Never use `options.callerNumber` for inbound — it is usually *your* agency caller ID, not the customer.
  */
 
 function digitLen(s: string): number {
@@ -12,13 +12,13 @@ export function last10Digits(s: string): string | null {
   return d.length >= 10 ? d.slice(-10) : null;
 }
 
-/** `calls.direction` / Telnyx payloads may use `inbound` or legacy `incoming`. */
+/** `calls.direction` / provider payloads may use `inbound` or legacy `incoming`. */
 export function isCallsRowInboundDirection(direction: unknown): boolean {
   const d = String(direction ?? "").toLowerCase();
   return d === "inbound" || d === "incoming";
 }
 
-/** Stored on `calls.direction` for power-dialer legs (`telnyx-webhook` normalizes Telnyx `outgoing` → `outbound`). */
+/** Stored on `calls.direction` for power-dialer legs (voice webhook may normalize `outgoing` → `outbound`). */
 export const OUTBOUND_CALL_DIRECTIONS = ["outbound", "outgoing"] as const;
 
 export function isCallsRowOutboundDirection(direction: unknown): boolean {
@@ -26,8 +26,8 @@ export function isCallsRowOutboundDirection(direction: unknown): boolean {
   return d === "outbound" || d === "outgoing";
 }
 
-/** Telnyx JS SDK often prefixes `call_control_id` with `v3:` while webhooks may omit it. */
-export function telnyxCallControlIdsEqual(a: string, b: string): boolean {
+/** Some SDKs prefix call control ids with `v3:` while webhooks may omit it. */
+export function providerCallSidsEqual(a: string, b: string): boolean {
   const ta = (a || "").trim();
   const tb = (b || "").trim();
   if (!ta || !tb) return false;
@@ -39,7 +39,7 @@ export function telnyxCallControlIdsEqual(a: string, b: string): boolean {
 
 /**
  * If `label` is a phone whose last-10 matches an org-owned DID, return "" — the WebRTC SDK
- * often reports the destination (your Telnyx number) as "remote" on inbound browser legs.
+ * often reports the destination (your outbound number) as "remote" on inbound browser legs.
  */
 export function stripIfOrgOwnedPhoneLabel(
   label: string,
@@ -53,7 +53,7 @@ export function stripIfOrgOwnedPhoneLabel(
 }
 
 /**
- * True when `name` is empty or matches the caller’s digits (Telnyx / DB often duplicate ANI as “name”).
+ * True when `name` is empty or matches the caller’s digits (carrier / DB often duplicate ANI as “name”).
  */
 export function isInboundNameSameAsPhoneNumber(name: string, callerPhone: string): boolean {
   const n = name.trim();
@@ -102,7 +102,6 @@ export function resolveInboundCallerRawNumber(
     cands.push({ v: t, p: priority, excluded });
   };
 
-  // Remote party only — do NOT add opts.callerNumber (agency DID on inbound legs).
   add(opts.remoteCallerNumber, 0);
   add(call?.remoteCallerNumber, 1);
 
@@ -119,7 +118,6 @@ export function resolveInboundCallerRawNumber(
       const co = c.options as Record<string, unknown> | undefined;
       if (co) {
         add(co.remoteCallerNumber, 5);
-        // skip co.callerNumber — same as opts.callerNumber semantics on inbound
       }
       add(c.remoteCallerNumber, 6);
     }

@@ -430,17 +430,17 @@ export type Database = {
           outcome: string | null
           pdd_seconds: number | null
           quality_percentage: number | null
-          recording_url: string | null
-          recording_storage_path: string | null
           recording_duration: number | null
+          recording_storage_path: string | null
+          recording_url: string | null
           shaken_stir: string | null
           sip_response_code: number | null
           started_at: string | null
           status: string | null
-          twilio_call_sid: string | null
-          provider_session_id: string | null
           provider_error_code: string | null
+          provider_session_id: string | null
           transcript: Json | null
+          twilio_call_sid: string | null
           updated_at: string | null
         }
         Insert: {
@@ -470,17 +470,17 @@ export type Database = {
           outcome?: string | null
           pdd_seconds?: number | null
           quality_percentage?: number | null
-          recording_url?: string | null
-          recording_storage_path?: string | null
           recording_duration?: number | null
+          recording_storage_path?: string | null
+          recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
-          twilio_call_sid?: string | null
-          provider_session_id?: string | null
           provider_error_code?: string | null
+          provider_session_id?: string | null
           transcript?: Json | null
+          twilio_call_sid?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -510,17 +510,17 @@ export type Database = {
           outcome?: string | null
           pdd_seconds?: number | null
           quality_percentage?: number | null
-          recording_url?: string | null
-          recording_storage_path?: string | null
           recording_duration?: number | null
+          recording_storage_path?: string | null
+          recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
-          twilio_call_sid?: string | null
-          provider_session_id?: string | null
           provider_error_code?: string | null
+          provider_session_id?: string | null
           transcript?: Json | null
+          twilio_call_sid?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -2240,9 +2240,6 @@ export type Database = {
           shaken_stir_a_count: number
           shaken_stir_rate: number
           shaken_stir_unavailable_count: number
-          shaken_stir_attestation: string | null
-          trust_hub_status: string | null
-          twilio_sid: string | null
           spam_checked_at: string | null
           spam_score: number | null
           spam_status: string | null
@@ -2276,9 +2273,6 @@ export type Database = {
           shaken_stir_a_count?: number
           shaken_stir_rate?: number
           shaken_stir_unavailable_count?: number
-          shaken_stir_attestation?: string | null
-          trust_hub_status?: string | null
-          twilio_sid?: string | null
           spam_checked_at?: string | null
           spam_score?: number | null
           spam_status?: string | null
@@ -2312,9 +2306,6 @@ export type Database = {
           shaken_stir_a_count?: number
           shaken_stir_rate?: number
           shaken_stir_unavailable_count?: number
-          shaken_stir_attestation?: string | null
-          trust_hub_status?: string | null
-          twilio_sid?: string | null
           spam_checked_at?: string | null
           spam_score?: number | null
           spam_status?: string | null
@@ -2348,9 +2339,7 @@ export type Database = {
           recording_enabled: boolean | null
           recording_retention_days: number | null
           ring_timeout: number | null
-          shaken_stir_enabled: boolean | null
           transcription_enabled: boolean | null
-          trust_hub_profile_sid: string | null
           updated_at: string | null
         }
         Insert: {
@@ -2367,9 +2356,7 @@ export type Database = {
           recording_enabled?: boolean | null
           recording_retention_days?: number | null
           ring_timeout?: number | null
-          shaken_stir_enabled?: boolean | null
           transcription_enabled?: boolean | null
-          trust_hub_profile_sid?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -2386,9 +2373,7 @@ export type Database = {
           recording_enabled?: boolean | null
           recording_retention_days?: number | null
           ring_timeout?: number | null
-          shaken_stir_enabled?: boolean | null
           transcription_enabled?: boolean | null
-          trust_hub_profile_sid?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -2479,7 +2464,7 @@ export type Database = {
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
-          twilio_client_identity: string | null
+          sip_username: string | null
           sms_notifications_enabled: boolean | null
           status: string
           team_id: string | null
@@ -2518,7 +2503,7 @@ export type Database = {
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
-          twilio_client_identity?: string | null
+          sip_username?: string | null
           sms_notifications_enabled?: boolean | null
           status?: string
           team_id?: string | null
@@ -2557,7 +2542,7 @@ export type Database = {
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
-          twilio_client_identity?: string | null
+          sip_username?: string | null
           sms_notifications_enabled?: boolean | null
           status?: string
           team_id?: string | null
@@ -2791,47 +2776,6 @@ export type Database = {
             columns: ["parent_team_id"]
             isOneToOne: false
             referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      telnyx_settings: {
-        Row: {
-          api_key: string | null
-          call_control_app_id: string | null
-          connection_id: string | null
-          id: string
-          organization_id: string | null
-          sip_password: string | null
-          sip_username: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          api_key?: string | null
-          call_control_app_id?: string | null
-          connection_id?: string | null
-          id?: string
-          organization_id?: string | null
-          sip_password?: string | null
-          sip_username?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          api_key?: string | null
-          call_control_app_id?: string | null
-          connection_id?: string | null
-          id?: string
-          organization_id?: string | null
-          sip_password?: string | null
-          sip_username?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "telnyx_settings_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: true
-            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -3147,7 +3091,7 @@ export type Database = {
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
-          twilio_client_identity: string | null
+          sip_username: string | null
           sms_notifications_enabled: boolean | null
           status: string
           team_id: string | null
@@ -3167,7 +3111,7 @@ export type Database = {
         }
       }
       peek_inbound_call_identity: {
-        Args: { p_provider_session_id?: string; p_twilio_call_sid?: string }
+        Args: { p_twilio_call_sid?: string; p_provider_session_id?: string }
         Returns: Json
       }
       release_all_agent_locks: {

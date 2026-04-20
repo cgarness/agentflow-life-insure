@@ -24,27 +24,6 @@ verify_jwt = false
 [functions.google-calendar-inbound-sync]
 verify_jwt = false
 
-[functions.telnyx-token]
-verify_jwt = false
-
-[functions.telnyx-buy-number]
-verify_jwt = false
-
-[functions.telnyx-search-numbers]
-verify_jwt = false
-
-[functions.telnyx-check-connection]
-verify_jwt = false
-
-[functions.telnyx-sync-numbers]
-verify_jwt = false
-
-[functions.telnyx-webhook]
-verify_jwt = false
-
-[functions.recording-proxy]
-verify_jwt = false
-
 [functions.daily-briefing]
 verify_jwt = false
 
@@ -54,15 +33,7 @@ verify_jwt = false
 [functions.send-invite-email]
 verify_jwt = false
 
-[functions.dialer-hangup]
-verify_jwt = false
-
 [functions.inbound-call-claim]
-verify_jwt = false
-
-# Custom JWT validation inside the function (anonClient.auth.getUser). Gateway verify_jwt
-# must be false — otherwise Supabase returns 401 Invalid JWT before the handler runs.
-[functions.dialer-start-call]
 verify_jwt = false
 
 # Invoked by Supabase cron or service role; uses SUPABASE_SERVICE_ROLE_KEY inside handler.

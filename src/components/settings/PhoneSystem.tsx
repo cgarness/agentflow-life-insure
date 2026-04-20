@@ -7,15 +7,15 @@ const PhoneSystem: React.FC = () => {
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold text-foreground">Phone System</h3>
-      <Tabs defaultValue="telnyx" className="w-full">
+      <Tabs defaultValue="phone" className="w-full">
         <TabsList className="w-full justify-start">
-          <TabsTrigger value="telnyx">Telnyx & Numbers</TabsTrigger>
+          <TabsTrigger value="phone">Phone & Numbers</TabsTrigger>
           <TabsTrigger value="voicemail">Voicemail Drops</TabsTrigger>
           <TabsTrigger value="routing">Inbound Routing</TabsTrigger>
           <TabsTrigger value="dialer">Predictive Dialer</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="telnyx">
+        <TabsContent value="phone">
           <PhoneSettings />
         </TabsContent>
 
