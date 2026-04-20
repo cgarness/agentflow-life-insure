@@ -64,10 +64,26 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] | Twilio Migration Phase 14 — Trust Hub Registration**
+  *What:* Built **`twilio-trust-hub`** Edge Function with **`register`** (6-step Trust Hub API flow: Customer Profile → End User → attach → Twilio Address → Supporting Document → attach → Evaluation / submit for review), **`check-status`**, and **`assign-numbers`** actions. **`supabase/config.toml`**: **`verify_jwt = true`**. Phone settings **`trust_hub_profile_sid`** is set on successful submit; partial failures persist SIDs in **`phone_settings.api_secret`** JSON under **`trust_hub_registration_draft`** for safe retries. **`PhoneSettings`** Trust Hub area: full Zod-validated registration form (Admin / Super Admin only), Twilio status polling, **Assign active numbers** after **`twilio-approved`**, per-number assignment feedback. Policy SID **`RNdfbf3fae0e1107f8aded0e7cead80bf5`** is Twilio’s public US A2P Trust Hub policy constant used for profile create + evaluation. **`check-status`** is allowed for any org member; **`register`** / **`assign-numbers`** require Admin or Super Admin (matches org-level telephony ownership).
+  *Files:* **`supabase/functions/twilio-trust-hub/index.ts`**, **`supabase/config.toml`**, **`src/components/settings/PhoneSettings.tsx`**, **`src/components/settings/phone/TrustHubSection.tsx`**, **`src/components/settings/phone/TrustHubRegistrationPanel.tsx`**, **`src/components/settings/phone/trustHubRegistrationSchema.ts`**, **`src/components/settings/phone/trustHubTypes.ts`**, **`src/components/settings/phone/phoneSettingsSecretJson.ts`** (draft key preserved in bundle parser).
+  *Next:* Phase 15 — smoke test plan (end-to-end Twilio calling + Trust Hub verification in staging).
+
+  ### Context Snapshot — Twilio Migration Phase 14 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Edge actions** | **`register`**, **`check-status`**, **`assign-numbers`** (POST JSON body **`action`**) |
+  | **Registration flow** | Create **CustomerProfiles** → **EndUsers** (`customer_profile_business_information`) → channel assignment → **Addresses** (2010 API) → **SupportingDocuments** (`customer_profile_address` + `address_sids`) → channel assignment → **Evaluations** (submit for review) |
+  | **Approval timing** | Twilio review typically **1–5 business days**; UI polls via **`check-status`** |
+  | **Number assignment** | Requires profile status **`twilio-approved`**; assigns **PN** SIDs to the profile and sets **`phone_numbers.trust_hub_status = approved`** per success |
+  | **Business fields** | Legal name, business type, EIN, US address, contact name/email/E.164 phone, optional website |
+  | **Phase 15** | Smoke test plan — dial path, inbound, SMS send, Trust Hub status after Twilio approval |
+
 - **2026-04-18 | [DONE] | Twilio Migration Phase 13 — Full Telnyx Cleanup**
   *What:* Deleted legacy **Telnyx** Edge Functions (**`telnyx-webhook`**, **`telnyx-token`**, **`telnyx-buy-number`**, **`telnyx-search-numbers`**, **`telnyx-sync-numbers`**, **`telnyx-sms`**, **`telnyx-check-connection`**), removed dead **`dialer-start-call`**, **`start-call-recording`**, **`dialer-hangup`**, **`recording-proxy`**, stripped matching **`supabase/config.toml`** entries. Deleted **`src/contexts/TelnyxContext.tsx`**, **`src/lib/telnyx.ts`**, and renamed inbound helper modules to **`src/lib/webrtcInboundCaller.ts`** + **`src/lib/voiceSdkNotificationBranch.ts`** (with tests). Added migration **`20260418170010_drop_telnyx_settings.sql`**. **`TwilioContext`**: removed **`dialer-hangup`** fetches (SDK **`twilioHangUp` / `twilioHangUpAll`** + client DB finalize for orphans); **`inbound-call-claim`** accepts **`provider_session_id`** with string-built legacy session key only in the Edge handler; **`RecordingPlayer`** uses Storage paths only; **`spam-check-cron`** uses **`provider_error_code`**. Regenerated then re-aligned **`src/integrations/supabase/types.ts`** (drops **`telnyx_settings`**, Phase 1 column names). **`grep` `telnyx` over `src/` and `supabase/functions/`** returns **zero** matches (lowercase).
   *Manual (Chris):* Remove Supabase Edge secrets **`TELNYX_PUBLIC_KEY`**, **`TELNYX_API_KEY`** if still present. Remove any local **`VITE_TELNYX_SIP_USERNAME`** / **`VITE_TELNYX_SIP_PASSWORD`** from env files (none were in repo templates). **`.env`**: renamed **`NOTION_PAGE_TELNYX_GUIDE`** → **`NOTION_PAGE_TELEPHONY_GUIDE`** (same page id).
-  *Next:* Phase 14 — Trust Hub Edge Function.
+  *Next:* Phase 15 — smoke test plan (post–Trust Hub registration).
 
   ### Context Snapshot — Twilio Migration Phase 13 (2026-04-18)
 

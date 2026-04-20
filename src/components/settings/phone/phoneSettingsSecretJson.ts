@@ -7,11 +7,20 @@ export const TWILIO_API_KEY_SECRET_JSON_KEY = "twilio_api_key_secret" as const;
 
 export type InboundRoutingStrategy = "assigned" | "all-ring" | "round-robin";
 
+/** Saved by Edge Function `twilio-trust-hub` when registration fails mid-flight (retry-safe). */
+export type TrustHubRegistrationDraft = {
+  customer_profile_sid?: string;
+  end_user_sid?: string;
+  supporting_document_sid?: string;
+  address_sid?: string;
+};
+
 export type PhoneSettingsSecretBundle = {
   local_presence_enabled?: boolean;
   inbound_routing?: InboundRoutingStrategy;
   voicemail_enabled?: boolean;
   [TWILIO_API_KEY_SECRET_JSON_KEY]?: string;
+  trust_hub_registration_draft?: TrustHubRegistrationDraft | null;
 };
 
 const DEFAULT_ROUTING: InboundRoutingStrategy = "assigned";
@@ -38,6 +47,11 @@ export function parsePhoneSettingsSecretBundle(
         inbound_routing: routing,
         voicemail_enabled: b.voicemail_enabled !== false,
         [TWILIO_API_KEY_SECRET_JSON_KEY]: b[TWILIO_API_KEY_SECRET_JSON_KEY] ?? "",
+        ...(b.trust_hub_registration_draft &&
+        typeof b.trust_hub_registration_draft === "object" &&
+        !Array.isArray(b.trust_hub_registration_draft)
+          ? { trust_hub_registration_draft: b.trust_hub_registration_draft as TrustHubRegistrationDraft }
+          : {}),
       };
     }
   } catch {

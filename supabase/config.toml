@@ -65,3 +65,7 @@ verify_jwt = false
 # Outbound SMS — JWT from the logged-in agent; Twilio credentials read from phone_settings.
 [functions.twilio-sms]
 verify_jwt = true
+
+# Trust Hub — JWT; Admin/Super Admin only for register/assign; Twilio credentials from phone_settings.
+[functions.twilio-trust-hub]
+verify_jwt = true

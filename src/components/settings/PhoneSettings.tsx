@@ -1,5 +1,6 @@
 import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useOrganization } from "@/hooks/useOrganization";
 import { TwilioCredentialsSection } from "./phone/TwilioCredentialsSection";
 import { TrustHubSection } from "./phone/TrustHubSection";
 import { InboundRoutingSection } from "./phone/InboundRoutingSection";
@@ -13,6 +14,8 @@ import { formatPhone, usePhoneSettingsController } from "./phone/usePhoneSetting
  */
 const PhoneSettings: React.FC = () => {
   const s = usePhoneSettingsController();
+  const { role, isSuperAdmin } = useOrganization();
+  const canManageTrustHub = isSuperAdmin || role === "Admin" || role === "Super Admin";
 
   if (s.loading) {
     return (
@@ -53,6 +56,8 @@ const PhoneSettings: React.FC = () => {
         onShakenStirChange={(v) => void s.handleShakenStirChange(v)}
         numbers={s.numbers}
         formatPhone={formatPhone}
+        canManageTrustHub={canManageTrustHub}
+        onTrustHubRefresh={s.fetchData}
       />
 
       <InboundRoutingSection
