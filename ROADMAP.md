@@ -64,6 +64,18 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] | Twilio Migration Phase 11 — inbound-call-claim Column Update**
+  *What:* Updated **`supabase/functions/inbound-call-claim/index.ts`** so all **`calls`** lookups and patches use **`twilio_call_sid`** and **`provider_session_id`** (Phase 1 renames) instead of **`telnyx_call_control_id`** / **`telnyx_call_id`**. Renamed **`normalizeTelnyxCallControlId`** → **`normalizeCallSid`** with Twilio-oriented comments and the same optional **`vN:`** strip as a safety net. Request JSON still accepts legacy keys **`call_control_id`** and **`telnyx_call_id`** (maps to the new columns — no **`TwilioContext.tsx`** change). Log prefixes are provider-agnostic (**`call_sid`**, **`session_id`**). Not deployed yet.
+
+  ### Context Snapshot — Twilio Migration Phase 11 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **`calls` columns in queries/updates** | **`.eq("twilio_call_sid", …)`** (exact match + align patch); **`.select("…, twilio_call_sid")`** + **`normalizeCallSid(row.twilio_call_sid)`** (flex match); **`.eq("provider_session_id", …)`** (session fallback). **`update({ twilio_call_sid: call_control_id, … })`** when claiming via session id with a client sid present. |
+  | **Request body keys** | **Unchanged (legacy):** **`call_control_id`**, **`telnyx_call_id`** — documented in-file as mapping to **`twilio_call_sid`** / **`provider_session_id`**. |
+  | **`TwilioContext.tsx`** | **Not modified** — it already POSTs **`call_control_id`** / **`telnyx_call_id`**; no key mismatch. |
+  | **Next** | Phase 12 — TypeScript types regeneration (Supabase client types vs **`calls`** column renames). |
+
 - **2026-04-18 | [DONE] | Twilio Migration Phase 10 — SMS Migration**
   *What:* Built **`twilio-sms`** Edge Function using Twilio Messages API (`POST .../Accounts/{AccountSid}/Messages.json`) with per-org **`phone_settings`** credentials; validates **`from`** against org **`phone_numbers`**; inserts **`messages`** with **`provider_message_id`** (Phase 1 rename), **`organization_id`**, **`created_by`**, optional **`lead_id`** / CRM link; logs **`contact_activities`** when **`contact_id`** + **`contact_type`** are sent. Updated frontend SMS send from **`telnyx-sms`** → **`twilio-sms`** with **`VITE_SUPABASE_URL`**-relative URL, **`from`**, E.164 **`to`**, and contact metadata. **`supabase/config.toml`**: **`verify_jwt = true`**. Not deployed yet.
 
@@ -75,7 +87,7 @@
   | **Frontend** | `src/components/contacts/FullScreenContactView.tsx` (invoke URL + body: `to`, `from`, `body`, `contact_id`, `contact_type`, legacy `lead_id`); `src/utils/phoneUtils.ts` — **`toE164Plus`**. |
   | **`messages` columns written** | `direction`, `body`, `from_number`, `to_number`, `status` (Twilio), `provider_message_id` (SM… sid), `organization_id`, `created_by`, `sent_at`, optional **`lead_id`** (polymorphic contact id for existing UI queries). |
   | **Inbound SMS** | Not implemented — receiving replies would need a future **`twilio-sms-webhook`** (or similar) Edge Function; purchased numbers already point **`SmsUrl`** at **`.../twilio-sms`**, which today only accepts authenticated agent POSTs. |
-  | **Next** | Phase 11 — inbound-call-claim column update (per migration plan). |
+  | **Next** | Phase 12 — regenerate Supabase TypeScript types (Phase 1 column renames across the app). |
 
 - **2026-04-18 | [DONE] Twilio Migration Phase 6 — Frontend SDK Swap**
   *What:* Created `src/lib/twilio-voice.ts` replacing `src/lib/telnyx.ts` as the core browser telephony library. Installed `@twilio/voice-sdk` (v2.18.1), removed `@telnyx/webrtc`. Exports: `initTwilioDevice`, `fetchTwilioToken`, `twilioMakeCall`, `twilioHangUp`, `twilioHangUpAll`, `twilioAnswerCall`, `twilioRejectCall`, `destroyTwilioDevice`, incoming-call pub/sub (`subscribeIncomingCall` / `subscribeToIncomingCalls` / `unsubscribeFromIncomingCalls`), Call utilities (`getCallSid` / `getCallDirection` / `getCallStatus`), identity/token/device getters, `checkMicrophonePermission`, and type re-exports `TwilioCall` / `TwilioDevice`. Token auto-refresh wired via `device.on('tokenWillExpire')`. `telnyx.ts` NOT removed (Phase 13 cleanup).
@@ -108,7 +120,7 @@
   | **Call state machine delta** | Telnyx filtered a single `telnyx.notification` stream on `call.direction` + `call.state`. Twilio emits targeted events (`incoming`, `error`, `registered`, `tokenWillExpire`) at Device level and per-call events (`accept`, `disconnect`, `cancel`, `reject`, `error`) at Call level. Per-call state tracking moves into `TwilioContext` in Phase 7. |
   | **Downstream breakage (expected)** | `TelnyxContext.tsx` imports `@telnyx/webrtc` which is now uninstalled + references `src/lib/telnyx.ts` functions that still exist but reference a missing package. The app will fail to build/run until Phase 7 rewrites the Context against `twilio-voice.ts`. |
   | **TypeScript** | `twilio-voice.ts` itself produces **zero** TS errors (`tsc --noEmit`). Pre-existing errors elsewhere in the tree (type drift from Phase 1 column renames) remain until Phase 12 regenerates types. |
-  | **Not yet done** | Phase 7 (TwilioContext rewrite). Phase 11 (inbound-call-claim update). Phase 12 (regen types). Phase 13 (remove `src/lib/telnyx.ts` + `VITE_TELNYX_SIP_*` env vars + `telnyxNotificationBranch.ts` + `telnyxInboundCaller.ts`). |
+  | **Not yet done** | Phase 7 (TwilioContext rewrite). Phase 12 (regen types). Phase 13 (remove `src/lib/telnyx.ts` + `VITE_TELNYX_SIP_*` env vars + `telnyxNotificationBranch.ts` + `telnyxInboundCaller.ts`). |
   | **Next phase** | Phase 7: rewrite `src/contexts/TelnyxContext.tsx` → `TwilioContext.tsx` on top of this library. |
 
 - **2026-04-18 | [DONE] Twilio Migration Phase 5 — Recording Status Callback**
@@ -252,7 +264,7 @@
   | **RPC updated** | `peek_inbound_call_identity(p_provider_session_id, p_twilio_call_sid)` — column refs updated; fallback to latest ringing inbound in last 6 min preserved |
   | **telnyx_settings table** | NOT dropped — deferred to Phase 13 (cleanup phase) |
   | **⚠ Downstream breakage until Phase 6-7 (frontend)** | `TelnyxContext.tsx` references `telnyx_call_id`, `telnyx_call_control_id` in selects/updates. `dialer-api.ts` and `FullScreenContactView.tsx` reference `telnyx_call_control_id`. `CallRecordingLibrary.tsx` also references it. These will produce runtime errors until frontend is updated. |
-  | **⚠ Downstream breakage until Phase 11 (inbound-call-claim)** | `telnyx-webhook` edge function writes `telnyx_call_id` and `telnyx_call_control_id` — will fail on insert until Phase 11. |
+  | **⚠ Legacy `telnyx-webhook` vs renamed `calls` columns** | If still in use, ensure inserts/updates use **`twilio_call_sid`** / **`provider_session_id`**. **Phase 11** updated **`inbound-call-claim`** only (claim path aligned with Phase 1). |
   | **⚠ TypeScript errors until Phase 12 (types regen)** | `src/integrations/supabase/types.ts` still declares old column names. All files that import these types will show TS errors until `supabase gen types` is re-run. Affected files: `TelnyxContext.tsx`, `dialer-api.ts`, `FullScreenContactView.tsx`, `CallRecordingLibrary.tsx`. |
 - **2026-04-18 | [DONE] Twilio Migration Phase 7 - TwilioContext rewrite + consumer migration**
   *What:* Extended **src/lib/twilio-voice.ts** (optional initTwilioDevice callbacks, clearIncomingCallHandlers, async twilioAnswerCall with rtcConstraints, subscribeToIncomingCalls wrapper). Replaced mounted telephony with **src/contexts/TwilioContext.tsx** (TwilioProvider, useTwilio) on Twilio Voice.js while preserving prior context behavior. **TelnyxContext.tsx** is a thin deprecated re-export (no telnyx webrtc). Consumers: App, DialerPage, FloatingDialer, IncomingCallModal, DashboardDetailModal, DialerCallPhaseLabel, inboundCallerDisplay, InboundCallIdentity, useInboundCallerDisplayLines, useDialerStateMachine. DialerPage: telephony renames only. Token: **twilio-token** Edge Function. tsc and vite build clean. Next: Phase 8 Phone Settings UI.
@@ -285,7 +297,7 @@
 - **2026-04-18 | [DONE] | Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring**
   *What:* Built **`twilio-search-numbers`** (area code / locality / state search against Twilio Available Local Numbers) and **`twilio-buy-number`** (purchase via Incoming Phone Numbers API, auto-set voice + SMS + status webhooks, insert `phone_numbers` with `twilio_sid` and `trust_hub_status = pending`). **`NumberManagementSection`** re-enabled search and buy (invokes both functions), shows **Twilio SID** column and existing **Trust Hub** badges, soft **Release** (DB `status = released` only) with tooltip on released rows. **`supabase/config.toml`**: `verify_jwt = true` for both functions. Not deployed yet.
   *Files:* `supabase/functions/twilio-search-numbers/index.ts`, `supabase/functions/twilio-buy-number/index.ts`, `supabase/config.toml`, `src/components/settings/phone/NumberManagementSection.tsx`.
-  *Next:* Phase 11 — inbound-call-claim column update (see migration plan).
+  *Next:* Phase 12 — TypeScript types regeneration (`supabase gen types`).
 
   ### Context Snapshot — Twilio Migration Phase 9 (2026-04-18)
 

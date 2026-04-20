@@ -6,8 +6,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-/** Telnyx WebRTC ids may use v3: prefix; webhook rows may not — compare without prefix. */
-function normalizeTelnyxCallControlId(id: string): string {
+/**
+ * Twilio Call Sids are plain strings (typically `CA…`); no `vN:` prefix.
+ * Keeps a small strip for any legacy rows that still used prefixed control ids.
+ */
+function normalizeCallSid(id: string): string {
   return id.trim().replace(/^v[0-9]+:/i, "");
 }
 
@@ -38,10 +41,13 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
+    // Legacy JSON keys (minimize frontend churn): `call_control_id` → `calls.twilio_call_sid`;
+    // `telnyx_call_id` → `calls.provider_session_id`.
     const call_control_id = typeof body?.call_control_id === "string" ? body.call_control_id.trim() : "";
-    const telnyx_call_id = typeof body?.telnyx_call_id === "string" ? body.telnyx_call_id.trim() : "";
+    const provider_session_id =
+      typeof body?.telnyx_call_id === "string" ? body.telnyx_call_id.trim() : "";
 
-    if (!call_control_id && !telnyx_call_id) {
+    if (!call_control_id && !provider_session_id) {
       throw new Error("Missing call_control_id and telnyx_call_id");
     }
 
@@ -63,24 +69,24 @@ Deno.serve(async (req) => {
       const { data, error: fetchError } = await supabaseClient
         .from("calls")
         .select("id, agent_id")
-        .eq("telnyx_call_control_id", call_control_id)
+        .eq("twilio_call_sid", call_control_id)
         .in("direction", ["inbound", "incoming"])
         .maybeSingle();
 
       if (fetchError) {
-        console.error("[inbound-call-claim] Fetch by control_id error:", fetchError);
+        console.error("[inbound-call-claim] Fetch by call_sid error:", fetchError);
         throw new Error(fetchError.message);
       }
       existing = data;
     }
 
-    // WebRTC leg control id often differs from PSTN row; match normalized id or single recent ring.
+    // Browser/SDK call id often differs from the row written by the voice webhook; match normalized sid or single recent ring.
     if (!existing && call_control_id) {
-      const ccNorm = normalizeTelnyxCallControlId(call_control_id);
+      const ccNorm = normalizeCallSid(call_control_id);
       const since = new Date(Date.now() - 6 * 60 * 1000).toISOString();
       const { data: recent, error: recentErr } = await supabaseClient
         .from("calls")
-        .select("id, agent_id, telnyx_call_control_id")
+        .select("id, agent_id, twilio_call_sid")
         .eq("organization_id", organizationId)
         .in("direction", ["inbound", "incoming"])
         .eq("status", "ringing")
@@ -93,8 +99,7 @@ Deno.serve(async (req) => {
       } else if (recent?.length) {
         const flex = recent.find(
           (row) =>
-            row.telnyx_call_control_id &&
-            normalizeTelnyxCallControlId(row.telnyx_call_control_id) === ccNorm,
+            row.twilio_call_sid && normalizeCallSid(row.twilio_call_sid) === ccNorm,
         );
         if (flex) {
           existing = { id: flex.id, agent_id: flex.agent_id };
@@ -105,25 +110,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!existing && telnyx_call_id) {
+    if (!existing && provider_session_id) {
       const { data, error: fetchSessionErr } = await supabaseClient
         .from("calls")
         .select("id, agent_id")
-        .eq("telnyx_call_id", telnyx_call_id)
+        .eq("provider_session_id", provider_session_id)
         .in("direction", ["inbound", "incoming"])
         .maybeSingle();
 
       if (fetchSessionErr) {
-        console.error("[inbound-call-claim] Fetch by telnyx_call_id error:", fetchSessionErr);
+        console.error("[inbound-call-claim] Fetch by session_id error:", fetchSessionErr);
         throw new Error(fetchSessionErr.message);
       }
       existing = data;
 
-      // Align control id when webhook row had session first or IDs diverged slightly.
+      // Align call sid when the webhook row had session first or ids diverged between legs.
       if (existing && call_control_id) {
         await supabaseClient
           .from("calls")
-          .update({ telnyx_call_control_id: call_control_id, updated_at: new Date().toISOString() })
+          .update({ twilio_call_sid: call_control_id, updated_at: new Date().toISOString() })
           .eq("id", existing.id);
       }
     }
