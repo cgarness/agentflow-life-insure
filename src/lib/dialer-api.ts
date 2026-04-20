@@ -176,7 +176,7 @@ export async function getLeadHistory(
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, telnyx_call_control_id");
+    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, twilio_call_sid");
 
   if (campaignLeadId) {
     callsQuery = callsQuery.or(
@@ -235,7 +235,7 @@ export async function getLeadHistory(
     const raw = c as any;
     const hasRecording =
       (raw.recording_url && raw.recording_url !== '__recording_pending__') ||
-      (raw.telnyx_call_control_id && (c.duration ?? 0) > 0) ||
+      (raw.twilio_call_sid && (c.duration ?? 0) > 0) ||
       (raw.recording_url?.startsWith('storage:'));
     return {
       id: c.id,

@@ -112,7 +112,7 @@ export type IdentifiedContact = { name: string; number: string; type?: string };
 
 interface OrphanCall {
   id: string;
-  telnyx_call_control_id: string | null;
+  twilio_call_sid: string | null;
   contact_id: string | null;
   caller_id_used: string | null;
   started_at: string | null;
@@ -226,7 +226,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [inboundClaimedCallRowId, setInboundClaimedCallRowId] = useState<string | null>(null);
   const incomingCallerNumberRef = useRef("");
   const incomingCallerNameRef = useRef("");
-  /** Telnyx session id for the current inbound SDK call — matches `calls.telnyx_call_id` from webhook. */
+  /** Inbound SDK session id — matches `calls.provider_session_id` from webhook. */
   const inboundSdkSessionIdRef = useRef("");
   useEffect(() => {
     incomingCallerNumberRef.current = incomingCallerNumber;
@@ -292,7 +292,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const activeCallIdRef = useRef<string | null>(null);
   const activeCallControlIdRef = useRef<string | null>(null);
-  /** One DB sync of Telnyx IDs per outbound call (webhooks + recording depend on `calls.telnyx_call_control_id`). */
+  /** One DB sync of call SIDs per outbound call (webhooks + recording depend on `calls.twilio_call_sid`). */
   const telnyxIdsDbSyncedRef = useRef(false);
   /** Prevents duplicate start-call-recording invocations per call. */
   const recordingStartedRef = useRef(false);
@@ -735,8 +735,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ticks += 1;
 
       const { data, error } = await supabase.rpc("peek_inbound_call_identity", {
-        p_telnyx_session_id: sid || null,
-        p_call_control_id: cc || null,
+        p_provider_session_id: sid || null,
+        p_twilio_call_sid: cc || null,
       });
 
       if (cancelled || error) {
@@ -837,8 +837,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (!isCallsRowInboundDirection(row.direction)) return;
 
           const rowAgent = row.agent_id as string | null | undefined;
-          const sid = String(row.telnyx_call_id || "");
-          const cc = String(row.telnyx_call_control_id || "");
+          const sid = String(row.provider_session_id || "");
+          const cc = String(row.twilio_call_sid || "");
           const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
           const localCc = activeCallControlIdRef.current?.trim() || "";
           const controlMatch = Boolean(cc && localCc && telnyxCallControlIdsEqual(cc, localCc));
@@ -880,7 +880,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const run = async () => {
       const selectCols =
-        "contact_id, contact_name, contact_phone, caller_id_used, contact_type, direction, organization_id, agent_id, telnyx_call_id, telnyx_call_control_id";
+        "contact_id, contact_name, contact_phone, caller_id_used, contact_type, direction, organization_id, agent_id, provider_session_id, twilio_call_sid";
 
       let row: Record<string, unknown> | null = null;
 
@@ -902,7 +902,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             .select(selectCols)
             .eq("organization_id", organizationId)
             .in("direction", ["inbound", "incoming"])
-            .eq("telnyx_call_id", sid)
+            .eq("provider_session_id", sid)
             .maybeSingle();
           row = (data as Record<string, unknown>) ?? null;
         }
@@ -916,7 +916,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             .select(selectCols)
             .eq("organization_id", organizationId)
             .in("direction", ["inbound", "incoming"])
-            .eq("telnyx_call_control_id", cc)
+            .eq("twilio_call_sid", cc)
             .maybeSingle();
           row = (data as Record<string, unknown>) ?? null;
         }
@@ -924,8 +924,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (!row && (inboundSdkSessionIdRef.current || activeCallControlIdRef.current)) {
         const { data: peek } = await supabase.rpc("peek_inbound_call_identity", {
-          p_telnyx_session_id: inboundSdkSessionIdRef.current?.trim() || null,
-          p_call_control_id: activeCallControlIdRef.current?.trim() || null,
+          p_provider_session_id: inboundSdkSessionIdRef.current?.trim() || null,
+          p_twilio_call_sid: activeCallControlIdRef.current?.trim() || null,
         });
         if (peek && typeof peek === "object" && !Array.isArray(peek)) {
           const j = peek as Record<string, unknown>;
@@ -1002,7 +1002,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         const { data, error } = await supabase
           .from('calls')
-          .select('id, telnyx_call_control_id, contact_id, caller_id_used, started_at, status')
+          .select('id, twilio_call_sid, contact_id, caller_id_used, started_at, status')
           .eq('agent_id', profile.id)
           .in('status', ['ringing', 'connected'])
           .order('created_at', { ascending: false })
@@ -1032,7 +1032,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Silent recovery: after refresh, WebRTC cannot restore audio — same as tapping Hang Up.
         // Finalizes the DB row (and best-effort Telnyx) so ghost "connected" rows do not loop forever.
-        const edgeOk = await requestDialerHangup(data.id, data.telnyx_call_control_id);
+        const edgeOk = await requestDialerHangup(data.id, data.twilio_call_sid);
         if (edgeOk) {
           console.log(`[TelnyxContext] Orphan row ${data.id} finalized via dialer-hangup (silent refresh recovery).`);
           return;
@@ -1070,7 +1070,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!orphanCall) return;
 
     try {
-      const ok = await requestDialerHangup(orphanCall.id, orphanCall.telnyx_call_control_id);
+      const ok = await requestDialerHangup(orphanCall.id, orphanCall.twilio_call_sid);
       if (ok) {
         console.log(`[TelnyxContext] Orphaned call ${orphanCall.id} terminated successfully.`);
         toast.success('Orphaned call terminated.');
@@ -1558,8 +1558,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         void supabase
           .from("calls")
           .update({
-            telnyx_call_control_id: sid,
-            telnyx_call_id: sid,
+            twilio_call_sid: sid,
+            provider_session_id: sid,
             updated_at: new Date().toISOString(),
           } as Record<string, unknown>)
           .eq("id", rowId)

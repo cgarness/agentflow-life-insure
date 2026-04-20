@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 18, 2026
+**Owner:** Chris Garness | **Last Updated:** April 20, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -63,6 +63,12 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-20 | [DONE] | Twilio Migration Phase 12 — Types Regeneration + TS Error Sweep**
+  *What:* Ran **`npx supabase gen types typescript --project-id jncvvsvckxhqgqvkppmj`** into **`src/integrations/supabase/types.ts`**. Linked DB introspection still showed **pre–Phase 1** `calls` / `messages` / `profiles` columns (and **`supabase db push`** is blocked: remote-only migration **`20260418180637`** not present locally; Phase 1 files **`20260418170001`–`07`** show as **not applied** on remote in **`supabase migration list --linked`**). Manually aligned the generated **`types.ts`** blocks to **Phase 1** (renamed columns + **`recording_storage_path`** / **`recording_duration`** on **`calls`**; **`phone_numbers`** / **`phone_settings`** additions; **`peek_inbound_call_identity`** arg names **`p_provider_session_id`** / **`p_twilio_call_sid`**). Stripped CLI upgrade text accidentally appended to **`types.ts`**. Updated all **`src/`** Supabase column string literals and row field access for **`twilio_call_sid`**, **`provider_session_id`**, **`peek_inbound_call_identity`** RPC keys. **`inbound-call-claim`** JSON body keys **`call_control_id`** / **`telnyx_call_id`** unchanged (Phase 11 contract). **`npm run build`** passes; **`npx tsc --noEmit`** (root project references) passes zero errors. *Note:* **`npx tsc --noEmit -p tsconfig.app.json`** still reports **pre-existing** strict issues unrelated to Phase 1 column names (e.g. **`telnyx.ts`** missing **`@telnyx/webrtc`**, **`useLeadLock`** RPC names, **`FullScreenContactView`** **`Mic`** import).
+  *Files touched:* **`src/integrations/supabase/types.ts`**, **`src/contexts/TwilioContext.tsx`**, **`src/lib/dialer-api.ts`**, **`src/components/contacts/FullScreenContactView.tsx`**, **`src/components/settings/CallRecordingLibrary.tsx`**. **`src/lib/types.ts`**: no **`telnyx_*`** / **`sip_username`** references — unchanged.
+  *Surprisingly not broken (already aligned or unused here):* **`DialerPage.tsx`**, **`RecordingPlayer.tsx`**, **`PhoneSettings.tsx`**, **`TelnyxContext.tsx`** (re-export shim only).
+  *Next:* Phase 13 — cleanup (remove legacy **`telnyx.ts`**, env vars, dead Telnyx paths); resolve remote/local migration history so **`db push`** can apply **`20260418170001`–`07`** to production and future **`gen types`** matches DB without manual patches.
 
 - **2026-04-18 | [DONE] | Twilio Migration Phase 11 — inbound-call-claim Column Update**
   *What:* Updated **`supabase/functions/inbound-call-claim/index.ts`** so all **`calls`** lookups and patches use **`twilio_call_sid`** and **`provider_session_id`** (Phase 1 renames) instead of **`telnyx_call_control_id`** / **`telnyx_call_id`**. Renamed **`normalizeTelnyxCallControlId`** → **`normalizeCallSid`** with Twilio-oriented comments and the same optional **`vN:`** strip as a safety net. Request JSON still accepts legacy keys **`call_control_id`** and **`telnyx_call_id`** (maps to the new columns — no **`TwilioContext.tsx`** change). Log prefixes are provider-agnostic (**`call_sid`**, **`session_id`**). Not deployed yet.

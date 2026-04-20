@@ -17,7 +17,7 @@ interface CallRow {
   duration: number | null;
   disposition_name: string | null;
   recording_url: string | null;
-  telnyx_call_control_id: string | null;
+  twilio_call_sid: string | null;
   contact_name: string | null;
   contact_phone: string | null;
   agent_id: string | null;
@@ -91,7 +91,7 @@ const CallRecordingLibrary: React.FC = () => {
     setLoading(true);
     let query = supabase
       .from("calls")
-      .select("id, created_at, duration, disposition_name, recording_url, telnyx_call_control_id, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
+      .select("id, created_at, duration, disposition_name, recording_url, twilio_call_sid, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
       .gt("duration", 0)
       .order("created_at", { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -281,7 +281,7 @@ const CallRecordingLibrary: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {(c.recording_url || c.telnyx_call_control_id) ? (
+                        {(c.recording_url || c.twilio_call_sid) ? (
                           <RecordingPlayer callId={c.id} compact className="w-48" />
                         ) : (
                           <span className="text-muted-foreground text-xs">No recording</span>

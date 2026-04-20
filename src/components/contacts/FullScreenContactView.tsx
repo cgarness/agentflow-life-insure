@@ -432,7 +432,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         supabase
           .from("calls")
           .select(
-            "id, direction, duration, disposition_name, recording_url, telnyx_call_control_id, started_at, created_at, caller_id_used"
+            "id, direction, duration, disposition_name, recording_url, twilio_call_sid, started_at, created_at, caller_id_used"
           )
           .eq("contact_id", myId)
           .order("created_at", { ascending: false })
@@ -996,7 +996,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                               {item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
                             </span>
 
-                            {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && (
+                            {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.twilio_call_sid && item.duration > 0)) && (
                               <button 
                                 onClick={(e) => { e.stopPropagation(); toggleRecording(item.id); }}
                                 className={`p-1 rounded-full transition-all ml-auto ${
@@ -1011,7 +1011,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         </div>
 
                         {/* Integrated Recording Player */}
-                        {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.telnyx_call_control_id && item.duration > 0)) && expandedRecordings[item.id] && (
+                        {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.twilio_call_sid && item.duration > 0)) && expandedRecordings[item.id] && (
                           <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
                             <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
                               <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
