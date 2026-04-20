@@ -132,7 +132,8 @@ export async function initTwilioDevice(opts?: InitTwilioDeviceOptions): Promise<
     const { token } = await fetchTwilioToken();
 
     const device = new Device(token, {
-      edge: "ashburn-gll",
+      edge: "ashburn",
+      region: "us1",
       closeProtection: true,
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
     });
