@@ -67,6 +67,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Sticky caller ID — minimum conversation seconds (30 → 45)**
+  *What:* **`CALLER_ID_STICKY_MIN_DURATION_SEC`** in **`src/lib/caller-id-selection.ts`** is now **45** so Smart Caller ID reuse only applies after **`duration >= 45`** seconds on the last outbound to the contact (filters quick hangups / short machine answers). **`TwilioContext`** already passes this constant into **`selectOutboundCallerId`**; no duplicate inline threshold. **`FloatingDialer`** prior-call warning uses the same export (**`.gte("duration", ...)`**).
+  *Files:* **`src/lib/caller-id-selection.ts`**, **`ROADMAP.md`**.
+
 - **2026-04-20 | [DONE] | Power dialer ring timeout source + Twilio timer cancel on answer**
   *What:* Outbound ring seconds now resolve **campaign `ring_timeout_seconds` → `phone_settings.ring_timeout` → 25s** (was easy to show **`Setting timer for 15s`** from org settings while the dialer page used a different ref). **`DialerPage`** sync pushes the merged value into **`TwilioContext`** via **`applyDialSessionRingTimeout`**, keeps **`ringTimeoutRef`** aligned for strict hangup + deferred no-answer dispose, clears the override on unmount, and refreshes after saving Calling Settings. **`TwilioContext`** uses org baseline + optional dial-session override, clears the outbound ring **`setTimeout`** on **`accept`** (belt-and-suspenders with effect cleanup), and skips the timeout toast when the dialer owns the session (avoids duplicate toasts). **Migration:** **`campaigns.ring_timeout_seconds`** (nullable).
   *Files:* **`supabase/migrations/20260420180000_campaigns_ring_timeout_seconds.sql`**, **`src/integrations/supabase/types.ts`**, **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.

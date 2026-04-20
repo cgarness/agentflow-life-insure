@@ -6,7 +6,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 // Cooldown removed — daily cap + LRU handles rotation
-export const CALLER_ID_STICKY_MIN_DURATION_SEC = 30;
+export const CALLER_ID_STICKY_MIN_DURATION_SEC = 45;
 export const DEFAULT_DAILY_CALL_LIMIT = 100;
 
 export interface CallerIdPhoneRow {
