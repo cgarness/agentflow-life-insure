@@ -251,6 +251,28 @@ export function getTwilioDevice(): Device | null {
 }
 
 /**
+ * Locates the HTML audio element Twilio Voice.js injects for remote playback
+ * (srcObject = remote MediaStream, typically autoplay). Used for browser-side
+ * recording via captureStream().
+ */
+export function findTwilioRemoteAudioElement(): HTMLAudioElement | null {
+  if (typeof document === "undefined") return null;
+  const nodes = document.querySelectorAll("audio");
+  for (let i = 0; i < nodes.length; i++) {
+    const element = nodes[i];
+    if (!(element instanceof HTMLAudioElement)) continue;
+    const src = element.srcObject;
+    if (!(src instanceof MediaStream) || src.getAudioTracks().length === 0) {
+      continue;
+    }
+    if (element.autoplay === true || !element.paused) {
+      return element;
+    }
+  }
+  return null;
+}
+
+/**
  * Probes microphone permission so the UI can surface a warning. The Twilio SDK
  * itself handles mic acquisition during device.connect() / call.accept() — this
  * is purely an informational check, NOT a prerequisite for placing a call.

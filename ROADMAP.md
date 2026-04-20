@@ -66,6 +66,18 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Browser recording — Twilio remote audio via DOM captureStream**
+  *What:* Twilio Voice.js v2 does not expose `getRemoteStream()` / `remoteStream` on the Call object; remote audio plays through an SDK-owned HTML audio element. Recording now finds that element (`findTwilioRemoteAudioElement`), captures it with `captureStream()` / `mozCaptureStream()`, retries up to three times with 500ms spacing, and delays `startRecording` by 1s after `accept` so the element exists. Firefox / policy cases without `captureStream` log a single skip message. After upload, the client verifies the `calls` row returns `recording_storage_path` and `recording_url` from a follow-up select.
+  *Files:* **`src/lib/twilio-voice.ts`**, **`src/lib/browser-recording.ts`**, **`src/contexts/TwilioContext.tsx`**, **`ROADMAP.md`**.
+
+  ### Context Snapshot — Twilio browser recording DOM fix (2026-04-20)
+
+  | File | Change |
+  | :--- | :--- |
+  | **`src/lib/twilio-voice.ts`** | New **`findTwilioRemoteAudioElement()`**: scans `document.querySelectorAll('audio')` for a `srcObject` **`MediaStream`** with audio tracks where **`autoplay`** or the element is playing (`!paused`). |
+  | **`src/lib/browser-recording.ts`** | Removed Call-object / `remoteAudioRef` stream extraction; **`acquireRemoteStreamFromTwilioAudio()`** uses the finder + **`captureStream`** / **`mozCaptureStream`** with retries; **`BrowserRecordingMedia`** is mic-only; **`uploadCallRecording`** verifies DB fields via **`.select(...).maybeSingle()`** after update. |
+  | **`src/contexts/TwilioContext.tsx`** | On **`accept`**, **`startBrowserCallRecording`** runs inside **`setTimeout(..., 1000)`** and passes only **`agentMicStream`** (snapshot at accept). |
+
 - **2026-04-20 | [DONE] | Twilio Post-Migration Fixes**
   *What:* Removed legacy Telnyx-era custom inbound WAV/Web Audio ringtone (Twilio Voice.js handles inbound ring audio). Fixed power-dialer ring-timeout enforcement when Twilio disconnects before `phone_settings.ring_timeout` elapses (defer no-answer dispose for the remainder). Implemented browser-side recording via **`src/lib/browser-recording.ts`** (Web Audio mix + MediaRecorder, Storage path **`{org_id}/{YYYYMMDD}/{call_id}.webm`**, **`calls.recording_storage_path`** + **`recording_url`**). Broadened TwilioContext ring-timeout hangup so it is not gated on SDK `status() === pending|ringing` only. Fixed dialer queue **Ready** badge to the current lead and the immediate next lead only. Removed server-side Twilio **`Dial`** recording attributes from **`twilio-voice-webhook`** (cost + callbacks unreliable — redeploy Edge function).
   *Files:* **`src/lib/incomingCallAlerts.ts`**, **`src/lib/incomingRingWavBase64.ts`** (deleted), **`src/lib/browser-recording.ts`** (new), **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/dialer/QueuePanel.tsx`**, **`src/components/dialer/IncomingCallModal.tsx`**, **`src/components/layout/FloatingDialer.tsx`**, **`supabase/functions/twilio-voice-webhook/index.ts`**, **`ROADMAP.md`**.

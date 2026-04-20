@@ -2,15 +2,13 @@
  * Browser-side call recording: mix agent mic + remote party audio via Web Audio API,
  * record with MediaRecorder, upload to Supabase Storage.
  *
- * Falls back across Twilio Voice.js stream APIs and the SDK's remote <audio> element.
+ * Remote audio is read from the Twilio Voice.js remote playback element via captureStream().
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { findTwilioRemoteAudioElement } from "./twilio-voice";
 
 export type BrowserRecordingMedia = {
-  twilioCall: unknown;
-  /** Twilio SDK remote playback element (see TwilioContext `remoteAudioRef`). */
-  remoteAudioElement?: HTMLAudioElement | null;
   /** Prefer the Twilio Device mic stream to avoid a second getUserMedia when possible. */
   agentMicStream?: MediaStream | null;
 };
@@ -27,40 +25,59 @@ function yyyymmdd(d: Date): string {
   return `${y}${m}${day}`;
 }
 
-function pickRemoteStream(call: unknown, remoteEl?: HTMLAudioElement | null): MediaStream | null {
-  const c = call as {
-    getRemoteStream?: () => MediaStream | undefined;
-    remoteStream?: MediaStream;
-  } | null;
-  if (!c) return null;
-  try {
-    if (typeof c.getRemoteStream === "function") {
-      const s = c.getRemoteStream();
-      if (s && s.getAudioTracks().length > 0) return s;
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+type AudioWithCapture = HTMLAudioElement & {
+  captureStream?: (frameRate?: number) => MediaStream;
+  mozCaptureStream?: () => MediaStream;
+};
+
+/**
+ * Finds Twilio's remote HTML audio element, then captures its output as a MediaStream.
+ * Retries because the element may appear shortly after call accept.
+ */
+async function acquireRemoteStreamFromTwilioAudio(): Promise<MediaStream | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await delay(500);
     }
-  } catch {
-    /* ignore */
-  }
-  if (c.remoteStream && c.remoteStream.getAudioTracks().length > 0) return c.remoteStream;
-
-  const el = remoteEl;
-  if (el?.srcObject instanceof MediaStream) {
-    const s = el.srcObject as MediaStream;
-    if (s.getAudioTracks().length > 0) return s;
-  }
-
-  const cap = el && typeof (el as HTMLAudioElement & { captureStream?: (fps?: number) => MediaStream }).captureStream === "function"
-    ? (el as HTMLAudioElement & { captureStream: (fps?: number) => MediaStream }).captureStream.bind(el)
-    : null;
-  if (cap) {
-    try {
-      const s = cap();
-      if (s && s.getAudioTracks().length > 0) return s;
-    } catch {
-      /* captureStream may throw if restricted */
+    const audioEl = findTwilioRemoteAudioElement();
+    if (!audioEl) {
+      continue;
     }
+
+    const el = audioEl as AudioWithCapture;
+    if (typeof el.captureStream === "function") {
+      try {
+        const s = el.captureStream();
+        if (s && s.getAudioTracks().length > 0) {
+          return s;
+        }
+      } catch {
+        /* captureStream may throw (e.g. cross-origin / browser policy) */
+      }
+      continue;
+    }
+
+    if (typeof el.mozCaptureStream === "function") {
+      try {
+        const s = el.mozCaptureStream();
+        if (s && s.getAudioTracks().length > 0) {
+          return s;
+        }
+      } catch {
+        /* same as captureStream */
+      }
+      continue;
+    }
+
+    console.warn("[Recording] captureStream not supported — skipping");
+    return null;
   }
 
+  console.warn("[Recording] No remote stream available — skipping browser recording.");
   return null;
 }
 
@@ -87,24 +104,22 @@ function stopAcquiredLocal(): void {
 }
 
 /**
- * Start mixing + recording. Pass Twilio call + optional remote audio element and mic stream.
+ * Start mixing + recording. Remote audio is discovered in the DOM (Twilio SDK playback).
  */
 export async function startRecording(
   _callId: string,
   _orgId: string,
   media: BrowserRecordingMedia | null,
 ): Promise<void> {
-  void _callId;
   void _orgId;
   stopRecording();
 
-  if (!media?.twilioCall || typeof window === "undefined") return;
+  if (!_callId || typeof window === "undefined") return;
 
-  const remote = pickRemoteStream(media.twilioCall, media.remoteAudioElement ?? null);
-  const local = await pickLocalStream(media.agentMicStream ?? null);
+  const remote = await acquireRemoteStreamFromTwilioAudio();
+  const local = await pickLocalStream(media?.agentMicStream ?? null);
 
   if (!remote) {
-    console.warn("[Recording] No remote stream available — skipping browser recording.");
     stopAcquiredLocal();
     return;
   }
@@ -202,17 +217,31 @@ export async function uploadCallRecording(callId: string, orgId: string, blob: B
   }
 
   const storageToken = `storage:call-recordings/${path}`;
-  const { error: updateErr } = await supabase
+  const { data: updatedRow, error: updateErr } = await supabase
     .from("calls")
     .update({
       recording_storage_path: path,
       recording_url: storageToken,
     } as Record<string, unknown>)
-    .eq("id", callId);
+    .eq("id", callId)
+    .select("recording_storage_path, recording_url")
+    .maybeSingle();
 
   if (updateErr) {
     console.error("[Recording] Failed to update calls row:", updateErr);
     return;
   }
+
+  if (
+    !updatedRow ||
+    typeof (updatedRow as { recording_storage_path?: string }).recording_storage_path !== "string" ||
+    typeof (updatedRow as { recording_url?: string }).recording_url !== "string"
+  ) {
+    console.warn(
+      "[Recording] Upload succeeded but calls row verification failed (missing recording_storage_path or recording_url).",
+    );
+    return;
+  }
+
   console.log("[Recording] Uploaded and saved:", path);
 }

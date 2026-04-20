@@ -1505,11 +1505,12 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const rowId = activeCallIdRef.current ?? "";
           const orgForRec =
             (profile as { organization_id?: string | null })?.organization_id || organizationId || "";
-          void startBrowserCallRecording(rowId, orgForRec, {
-            twilioCall: call,
-            remoteAudioElement: remoteAudioRef.current,
-            agentMicStream: mediaStreamRef.current,
-          });
+          const micSnap = mediaStreamRef.current;
+          setTimeout(() => {
+            void startBrowserCallRecording(rowId, orgForRec, {
+              agentMicStream: micSnap,
+            });
+          }, 1000);
         }
       });
 
