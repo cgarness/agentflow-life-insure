@@ -111,68 +111,21 @@ async function resolveOrgFromPhoneNumber(
   return null;
 }
 
-async function isRecordingEnabled(
-  supabase: ReturnType<typeof createClient>,
-  organizationId: string | null,
-): Promise<boolean> {
-  try {
-    if (organizationId) {
-      const { data, error } = await supabase
-        .from("phone_settings")
-        .select("recording_enabled")
-        .eq("organization_id", organizationId)
-        .maybeSingle();
-      if (error) {
-        console.error("[twilio-voice-webhook] recording_enabled lookup failed:", error.message);
-        return true;
-      }
-      if (data == null) return true;
-      return data.recording_enabled !== false;
-    }
-    const { data } = await supabase
-      .from("phone_settings")
-      .select("recording_enabled")
-      .limit(1)
-      .maybeSingle();
-    return data?.recording_enabled !== false;
-  } catch (err) {
-    console.error("[twilio-voice-webhook] recording check exception:", err);
-    return true;
-  }
-}
-
 function buildStatusCallbackUrl(req: Request): string {
   const proto = req.headers.get("x-forwarded-proto") ?? "https";
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
   return `${proto}://${host}/functions/v1/twilio-voice-status`;
 }
 
-function buildRecordingStatusUrl(req: Request): string {
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  return `${proto}://${host}/functions/v1/twilio-recording-status`;
-}
-
-function buildDialTwiml(
-  toNumber: string,
-  callerId: string,
-  statusCallbackUrl: string,
-  recordingEnabled: boolean,
-  recordingCallbackUrl: string,
-): string {
+function buildDialTwiml(toNumber: string, callerId: string, statusCallbackUrl: string): string {
   const safeTo = xmlEscape(toNumber);
   const safeCaller = xmlEscape(callerId);
   const safeAction = xmlEscape(statusCallbackUrl);
-  const safeRec = xmlEscape(recordingCallbackUrl);
-
-  const recordAttrs = recordingEnabled
-    ? ` record="record-from-answer-dual" recordingStatusCallback="${safeRec}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"`
-    : "";
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
-    `<Dial callerId="${safeCaller}" action="${safeAction}" method="POST"${recordAttrs}>` +
+    `<Dial callerId="${safeCaller}" action="${safeAction}" method="POST">` +
     `<Number>${safeTo}</Number>` +
     `</Dial>` +
     `</Response>`
@@ -235,8 +188,6 @@ Deno.serve(async (req) => {
       organizationId = await resolveOrgFromPhoneNumber(supabase, outboundCallerId);
     }
 
-    const recordingEnabled = await isRecordingEnabled(supabase, organizationId);
-
     if (callRowId) {
       const { error: updateError } = await supabase
         .from("calls")
@@ -274,15 +225,8 @@ Deno.serve(async (req) => {
     }
 
     const statusCallbackUrl = buildStatusCallbackUrl(req);
-    const recordingCallbackUrl = buildRecordingStatusUrl(req);
 
-    const twiml = buildDialTwiml(
-      toNumber,
-      outboundCallerId,
-      statusCallbackUrl,
-      recordingEnabled,
-      recordingCallbackUrl,
-    );
+    const twiml = buildDialTwiml(toNumber, outboundCallerId, statusCallbackUrl);
 
     return new Response(twiml, { status: 200, headers: twimlHeaders });
   } catch (err) {

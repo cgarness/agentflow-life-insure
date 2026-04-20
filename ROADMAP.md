@@ -21,7 +21,7 @@
 - **State**: 1-Line WebRTC Dialer (**Twilio Voice.js**) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
 - **Recent update (2026-04-20):** Production **`db push`** applied the Twilio Phase 1 migration pack (after **`migration repair --status reverted 20260418180637`** cleared an orphan remote-only history row). All Twilio voice/SMS/Trust Hub functions plus **`inbound-call-claim`** were redeployed to **`jncvvsvckxhqgqvkppmj`** (webhook deploys used **`--no-verify-jwt`**).
 - **Features**: Smart Caller ID (local / same-state / LRU rotation, daily usage cap via RPC), Ring Timeout, mandatory dispositions, inbound answer/decline on Floating Dialer. **Inbound routing** is handled by **Twilio** TwiML webhooks (`twilio-voice-inbound`, `twilio-voice-webhook`) plus org **`phone_settings`** credentials — PSTN → browser agent path. (Answering Machine Detection was removed — bridge on answer only.)
-- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), voicemail. **Inbound:** Webhook + Realtime populate **`calls.contact_id`**; floating dialer shows **`identifiedContact`**. **Inbound browser UX:** one-time **Enable alerts & ringtone** unlocks **Web Notifications** + **Web Audio**; see `src/lib/incomingCallAlerts.ts`.
+- **Next Up**: Optimize campaign refresh logic and integrate `dial_sessions` to track agent efficiency in real-time. Replace shared SIP target with **per-agent** credential lookup; optional richer inbound routing (settings UI), voicemail. **Inbound:** Webhook + Realtime populate **`calls.contact_id`**; floating dialer shows **`identifiedContact`**. **Inbound browser UX:** one-time **Enable desktop alerts** unlocks **Web Notifications** (Twilio plays inbound ringtone in-browser); see `src/lib/incomingCallAlerts.ts`.
 
 ### 💼 SaaS & Infrastructure `[PLANNED — CRITICAL]`
 - **State**: Entirely missing billing and SaaS partitioning layer.
@@ -65,6 +65,23 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-20 | [DONE] | Twilio Post-Migration Fixes**
+  *What:* Removed legacy Telnyx-era custom inbound WAV/Web Audio ringtone (Twilio Voice.js handles inbound ring audio). Fixed power-dialer ring-timeout enforcement when Twilio disconnects before `phone_settings.ring_timeout` elapses (defer no-answer dispose for the remainder). Implemented browser-side recording via **`src/lib/browser-recording.ts`** (Web Audio mix + MediaRecorder, Storage path **`{org_id}/{YYYYMMDD}/{call_id}.webm`**, **`calls.recording_storage_path`** + **`recording_url`**). Broadened TwilioContext ring-timeout hangup so it is not gated on SDK `status() === pending|ringing` only. Fixed dialer queue **Ready** badge to the current lead and the immediate next lead only. Removed server-side Twilio **`Dial`** recording attributes from **`twilio-voice-webhook`** (cost + callbacks unreliable — redeploy Edge function).
+  *Files:* **`src/lib/incomingCallAlerts.ts`**, **`src/lib/incomingRingWavBase64.ts`** (deleted), **`src/lib/browser-recording.ts`** (new), **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/dialer/QueuePanel.tsx`**, **`src/components/dialer/IncomingCallModal.tsx`**, **`src/components/layout/FloatingDialer.tsx`**, **`supabase/functions/twilio-voice-webhook/index.ts`**, **`ROADMAP.md`**.
+
+  ### Context Snapshot — Twilio Post-Migration Fixes (2026-04-20)
+
+  | File | Change |
+  | :--- | :--- |
+  | **`src/lib/incomingCallAlerts.ts`** | Removed embedded WAV + HTMLAudio/Web Audio ring; kept desktop notifications + prefs + **`primeIncomingCallAudio`**; **`startIncomingRingtone` / `stopIncomingRingtone`** are no-ops. |
+  | **`src/lib/incomingRingWavBase64.ts`** | Deleted (no longer bundled). |
+  | **`src/lib/browser-recording.ts`** | New: resolve remote audio (Twilio stream / **`remoteAudio`** **`srcObject`** / **`captureStream`** fallback), mix with agent mic, **`MediaRecorder`**, **`uploadCallRecording`** with dated Storage path + DB columns. |
+  | **`src/contexts/TwilioContext.tsx`** | Recording via **`browser-recording`** on **`accept`**; ring-timeout hangup uses **`callStateRef === "dialing"`**; inbound alert toasts no longer promise a custom ringtone. |
+  | **`src/pages/DialerPage.tsx`** | **`outboundDialStartedAtRef`** + deferred no-answer dispose so auto-advance waits full ring timeout after early **`ended`**. |
+  | **`src/components/dialer/QueuePanel.tsx`** | **Ready** badge only for **`tier === 3`** on **current** or **next** queue row (not all retry-eligible leads). |
+  | **`IncomingCallModal.tsx`**, **`FloatingDialer.tsx`** | Copy: desktop alerts / Twilio ringtone (no custom AgentFlow ring). |
+  | **`supabase/functions/twilio-voice-webhook/index.ts`** | **`Dial`** TwiML: no **`record`** / **`recordingStatusCallback`**; removed unused recording-enabled DB branch for TwiML. **Redeploy:** **`npx supabase functions deploy twilio-voice-webhook --no-verify-jwt`**. |
 
 - **2026-04-20 | [DONE] | Twilio Edge webhook signature URL (Supabase proxy fix)**
   *What:* **`twilio-voice-webhook`**, **`twilio-voice-status`**, **`twilio-voice-inbound`**, and **`twilio-recording-status`** validated Twilio signatures using **`Host` / `X-Forwarded-*`**-reconstructed URLs, which can differ from the public **`*.supabase.co/functions/v1/...`** URL Twilio signs. Each function’s **`validateTwilioSignature`** now uses the fixed production base **`https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/<function-name>`** plus **`new URL(req.url).search`** so query strings still match. Redeployed all four with **`--no-verify-jwt`**.

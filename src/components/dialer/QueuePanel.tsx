@@ -190,6 +190,7 @@ export default function QueuePanel({
         displayQueue.map(({ lead, originalIndex }) => {
           const isCurrent = originalIndex === currentLeadIndex;
           const isPast = originalIndex < currentLeadIndex;
+          const isNextInQueue = originalIndex === currentLeadIndex + 1;
           const now = new Date();
           const tier = getLeadTier(lead as CampaignLead, now);
           const isPending = tier === 4 && !isCurrent && !isPast;
@@ -251,7 +252,7 @@ export default function QueuePanel({
                       Callback Due
                     </span>
                   )}
-                  {!isCurrent && !isPast && tier === 3 && (
+                  {!isPast && tier === 3 && (isCurrent || isNextInQueue) && (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 shrink-0">
                       Ready
                     </span>

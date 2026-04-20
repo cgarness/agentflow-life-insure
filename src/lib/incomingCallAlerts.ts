@@ -1,15 +1,10 @@
 /**
- * Desktop notifications + optional ringtone for inbound WebRTC calls.
- * Browsers require a user gesture before Notification.requestPermission() and reliable audio.
+ * Desktop notifications for inbound WebRTC calls.
+ * Incoming ring audio is handled by the Twilio Voice SDK (no custom browser ringtone).
  */
-
-import { INCOMING_RING_WAV_BASE64_CHUNKS } from "./incomingRingWavBase64";
 
 const PREFS_KEY = "agentflow_incoming_call_alerts_v1";
 const AUDIO_PRIMED_KEY = "agentflow_incoming_audio_primed";
-
-/** Inline WAV (no network fetch) — loops via `HTMLAudioElement.loop`. */
-const INCOMING_RING_DATA_URI = `data:audio/wav;base64,${INCOMING_RING_WAV_BASE64_CHUNKS.join("")}`;
 
 export type IncomingCallAlertsPrefs = {
   /** User clicked "Enable" (one-time setup). */
@@ -114,23 +109,6 @@ export async function enableIncomingCallAlertsFromUserGesture(): Promise<{
 }
 
 let lastNotification: Notification | null = null;
-/** Repeating ring cadence — Web Audio fallback if HTMLAudioElement play is blocked. */
-let ringRepeatIntervalId: number | null = null;
-let ringStopRequested = false;
-let htmlRingEl: HTMLAudioElement | null = null;
-
-function getHtmlRingElement(): HTMLAudioElement | null {
-  if (typeof window === "undefined") return null;
-  if (!htmlRingEl) {
-    const a = new Audio();
-    a.preload = "auto";
-    a.loop = true;
-    a.src = INCOMING_RING_DATA_URI;
-    a.volume = 0.28;
-    htmlRingEl = a;
-  }
-  return htmlRingEl;
-}
 
 export function closeIncomingDesktopNotification(): void {
   try {
@@ -169,105 +147,8 @@ export function showIncomingDesktopNotification(title: string, body: string): vo
   }
 }
 
-function playRingBurst(ctx: AudioContext): void {
-  const duration = 1.9;
-  const now = ctx.currentTime;
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0.0001, now);
-  master.gain.exponentialRampToValueAtTime(0.12, now + 0.04);
-  master.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-  master.connect(ctx.destination);
+/** Legacy Telnyx-era hook — Twilio Voice.js plays inbound ringtone; no custom browser audio. */
+export function startIncomingRingtone(): void {}
 
-  const freqs = [440, 480];
-  for (const hz of freqs) {
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(hz, now);
-    osc.connect(master);
-    osc.start(now);
-    osc.stop(now + duration);
-  }
-}
-
-function playIncomingRingBurst(ctx: AudioContext): void {
-  if (ringStopRequested) return;
-  const play = () => {
-    if (ringStopRequested) return;
-    try {
-      playRingBurst(ctx);
-    } catch {
-      /* ignore */
-    }
-  };
-  try {
-    void ctx.resume().then(play, play);
-  } catch {
-    play();
-  }
-}
-
-function stopHtmlRing(): void {
-  const el = htmlRingEl;
-  if (!el) return;
-  try {
-    el.pause();
-    el.currentTime = 0;
-  } catch {
-    /* ignore */
-  }
-}
-
-function startOscillatorFallback(): void {
-  const ctx = getOrCreateAudioContext();
-  if (!ctx) return;
-  ringStopRequested = false;
-  playIncomingRingBurst(ctx);
-  ringRepeatIntervalId = window.setInterval(() => {
-    playIncomingRingBurst(ctx);
-  }, 6000);
-}
-
-export function startIncomingRingtone(): void {
-  const prefs = loadIncomingCallAlertsPrefs();
-  if (prefs.ringtone === false) return;
-
-  stopIncomingRingtone();
-  ringStopRequested = false;
-
-  const play = (): void => {
-    const el = getHtmlRingElement();
-    if (el) {
-      try {
-        el.currentTime = 0;
-        void el.play().then(
-          () => {
-            /* HTML loop handles repetition */
-          },
-          (e: unknown) => {
-            console.warn("Autoplay blocked:", e);
-            startOscillatorFallback();
-          },
-        );
-        return;
-      } catch (err) {
-        console.warn("[incomingCallAlerts] HTML ring error; using Web Audio fallback:", err);
-      }
-    }
-    startOscillatorFallback();
-  };
-
-  // Ring does not require "Enable alerts" — only the ringtone pref.
-  // Always attempt playback immediately; browsers often block until a user gesture — priming runs in parallel
-  // so the next ring after opening the dialer is more likely to succeed.
-  void primeIncomingCallAudio();
-  play();
-}
-
-export function stopIncomingRingtone(): void {
-  ringStopRequested = true;
-  stopHtmlRing();
-  if (ringRepeatIntervalId !== null) {
-    clearInterval(ringRepeatIntervalId);
-    ringRepeatIntervalId = null;
-  }
-}
+/** Legacy hook — no custom audio to stop. */
+export function stopIncomingRingtone(): void {}

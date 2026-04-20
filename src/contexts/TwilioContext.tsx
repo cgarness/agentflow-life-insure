@@ -39,6 +39,11 @@ import {
   isIncomingAudioPrimed,
   getDesktopNotificationPermission,
 } from "@/lib/incomingCallAlerts";
+import {
+  startRecording as startBrowserCallRecording,
+  stopRecording as stopBrowserCallRecording,
+  uploadCallRecording,
+} from "@/lib/browser-recording";
 import { getStateByAreaCode } from "@/lib/caller-id-selection";
 import {
   CALLER_ID_STICKY_MIN_DURATION_SEC,
@@ -300,11 +305,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const activeLeadIdRef = useRef<string | null>(null);
   /** LRU for outbound DIDs (E.164 → last used epoch ms). */
   const didLastUsedAtRef = useRef<Map<string, number>>(new Map());
-
-  // Browser-side call recording (MediaRecorder)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordingChunksRef = useRef<Blob[]>([]);
-  const recordingAudioCtxRef = useRef<AudioContext | null>(null);
 
   // Prevents double processing of call-end state across hangUp(), Device `error`, and per-call events handlers.
   // Reset at the start of each new call (makeCall); set when the first handler processes the end.
@@ -779,15 +779,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       startIncomingRingtone();
     }
     if (notificationPermission === "granted") {
-      toast.success("Desktop alerts and ringtone are on for inbound calls.");
+      toast.success("Desktop alerts are on for inbound calls. Twilio plays the ringtone in your browser.");
     } else if (notificationPermission === "denied") {
       toast.message(
-        "Ringtone is on for this browser. Allow notifications in your browser settings if you also want pop-up alerts."
+        "Allow notifications in your browser settings if you want desktop pop-ups. Twilio still rings incoming calls in this tab."
       );
     } else if (!audioPrimed) {
-      toast.error("Could not unlock call sounds. Try again or check browser audio permissions.");
+      toast.error("Could not unlock audio for this browser. Try again or check browser permissions.");
     } else {
-      toast.success("Inbound ringtone enabled.");
+      toast.success("Inbound alerts enabled.");
     }
   }, []);
 
@@ -1102,93 +1102,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  const startBrowserRecording = useCallback((call: any) => {
-    try {
-      const remoteStream: MediaStream | undefined =
-        (typeof call?.getRemoteStream === "function" ? call.getRemoteStream() : undefined) ||
-        call?.remoteStream;
-      const localStream: MediaStream | undefined = call?.localStream ?? mediaStreamRef.current ?? undefined;
-      if (!remoteStream) {
-        console.warn("[Recording] No remote stream available — skipping browser recording");
-        return;
-      }
-
-      const ctx = new AudioContext();
-      recordingAudioCtxRef.current = ctx;
-      const dest = ctx.createMediaStreamDestination();
-
-      const remoteSrc = ctx.createMediaStreamSource(remoteStream);
-      remoteSrc.connect(dest);
-
-      if (localStream && localStream.getAudioTracks().length > 0) {
-        const localSrc = ctx.createMediaStreamSource(localStream);
-        localSrc.connect(dest);
-      }
-
-      recordingChunksRef.current = [];
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(dest.stream, { mimeType });
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordingChunksRef.current.push(e.data);
-      };
-      recorder.start(1000);
-      mediaRecorderRef.current = recorder;
-      console.log("[Recording] Browser recording started:", mimeType);
-    } catch (err) {
-      console.warn("[Recording] Failed to start browser recording:", err);
-    }
-  }, []);
-
-  const stopBrowserRecording = useCallback((): Blob | null => {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      try { recorder.stop(); } catch { /* may already be stopped */ }
-    }
-    mediaRecorderRef.current = null;
-
-    if (recordingAudioCtxRef.current) {
-      try { recordingAudioCtxRef.current.close(); } catch { /* ignore */ }
-      recordingAudioCtxRef.current = null;
-    }
-
-    const chunks = recordingChunksRef.current;
-    recordingChunksRef.current = [];
-    if (chunks.length === 0) return null;
-
-    const blob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
-    console.log("[Recording] Browser recording stopped. Size:", (blob.size / 1024).toFixed(1), "KB");
-    return blob;
-  }, []);
-
-  const uploadRecording = useCallback(async (callId: string, blob: Blob) => {
-    try {
-      const orgId = profile?.organization_id || "unknown";
-      const ext = blob.type.includes("webm") ? "webm" : "ogg";
-      const path = `${orgId}/${callId}.${ext}`;
-
-      console.log("[Recording] Uploading to storage:", path);
-      const { error: uploadErr } = await supabase.storage
-        .from("call-recordings")
-        .upload(path, blob, { contentType: blob.type, upsert: true });
-
-      if (uploadErr) {
-        console.error("[Recording] Upload failed:", uploadErr);
-        return;
-      }
-
-      await supabase
-        .from("calls")
-        .update({ recording_url: `storage:call-recordings/${path}` } as any)
-        .eq("id", callId);
-
-      console.log("[Recording] Uploaded and saved:", path);
-    } catch (err) {
-      console.error("[Recording] Upload exception:", err);
-    }
-  }, [profile?.organization_id]);
-
   const finalizeCallRecord = useCallback(async (duration: number) => {
     if (!activeCallIdRef.current) return;
 
@@ -1359,47 +1272,47 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (twilioCall && isVoiceSdkInboundDirection(getCallDirection(twilioCall))) {
           return;
         }
-        const st = twilioCall?.status?.();
-        if (twilioCall && (st === "pending" || st === "ringing")) {
-          console.log(
-            `[RingTimeout] ${ringTimeout}s reached without agent leg active.`,
-            { callId: activeCallIdRef.current, controlId: activeCallControlIdRef.current }
-          );
-
-          // PSTN leg can already be "connected" in Supabase (webhook) while WebRTC is still
-          // ringing — do not tear down a live customer call.
-          const rowId = activeCallIdRef.current;
-          if (rowId) {
-            const { data: row } = await supabase
-              .from("calls")
-              .select("status")
-              .eq("id", rowId)
-              .maybeSingle();
-            if (row?.status === "connected") {
-              console.log(
-                "[RingTimeout] Skipping hangup — call row is connected (customer answered; agent audio still connecting)."
-              );
-              return;
-            }
-          }
-
-          // Poll up to 3s (6 × 500ms) for the call_control_id to arrive from the voice SDK.
-          // The ID comes asynchronously and may not be present at exact timeout time.
-          if (!activeCallControlIdRef.current) {
-            console.warn("[RingTimeout] call_control_id not yet available — polling up to 3s before hanging up...");
-            let waited = 0;
-            while (!activeCallControlIdRef.current && waited < 3000) {
-              await new Promise<void>(resolve => setTimeout(resolve, 500));
-              waited += 500;
-            }
-            console.log(
-              `[RingTimeout] Poll complete (${waited}ms). controlId=${activeCallControlIdRef.current ?? "still null"}`
-            );
-          }
-
-          toast.info(`Call timed out after ${ringTimeout}s without answer.`);
-          hangUp();
+        if (callStateRef.current !== "dialing") {
+          console.log("[RingTimeout] Skipping hangup — call state is no longer dialing.");
+          return;
         }
+
+        console.log(`[RingTimeout] ${ringTimeout}s reached.`, {
+          callId: activeCallIdRef.current,
+          controlId: activeCallControlIdRef.current,
+        });
+
+        // PSTN leg can already be "connected" in Supabase (webhook) while WebRTC is still
+        // ringing — do not tear down a live customer call.
+        const rowId = activeCallIdRef.current;
+        if (rowId) {
+          const { data: row } = await supabase
+            .from("calls")
+            .select("status")
+            .eq("id", rowId)
+            .maybeSingle();
+          if (row?.status === "connected") {
+            console.log(
+              "[RingTimeout] Skipping hangup — call row is connected (customer answered; agent audio still connecting)."
+            );
+            return;
+          }
+        }
+
+        if (!activeCallControlIdRef.current) {
+          console.warn("[RingTimeout] CallSid not yet available — polling up to 3s before hanging up...");
+          let waited = 0;
+          while (!activeCallControlIdRef.current && waited < 3000) {
+            await new Promise<void>(resolve => setTimeout(resolve, 500));
+            waited += 500;
+          }
+          console.log(
+            `[RingTimeout] Poll complete (${waited}ms). controlId=${activeCallControlIdRef.current ?? "still null"}`
+          );
+        }
+
+        toast.info(`Call timed out after ${ringTimeout}s without answer.`);
+        hangUp();
       }, ringTimeout * 1000);
     }
 
@@ -1540,9 +1453,11 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           timerRef.current = null;
         }
         const recordingCallId = activeCallIdRef.current;
-        const recordingBlob = stopBrowserRecording();
+        const recordingBlob = stopBrowserCallRecording();
+        const orgForUpload =
+          (profile as { organization_id?: string | null })?.organization_id || organizationId || "unknown";
         if (recordingBlob && recordingCallId) {
-          void uploadRecording(recordingCallId, recordingBlob);
+          void uploadCallRecording(recordingCallId, orgForUpload, recordingBlob);
         }
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -1587,7 +1502,14 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         syncIdsToRow();
         if (!recordingStartedRef.current) {
           recordingStartedRef.current = true;
-          startBrowserRecording(call);
+          const rowId = activeCallIdRef.current ?? "";
+          const orgForRec =
+            (profile as { organization_id?: string | null })?.organization_id || organizationId || "";
+          void startBrowserCallRecording(rowId, orgForRec, {
+            twilioCall: call,
+            remoteAudioElement: remoteAudioRef.current,
+            agentMicStream: mediaStreamRef.current,
+          });
         }
       });
 
@@ -1644,9 +1566,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clearIncomingDisplay,
       finalizeCallRecord,
       organizationId,
-      startBrowserRecording,
-      stopBrowserRecording,
-      uploadRecording,
+      profile?.organization_id,
     ],
   );
 
@@ -1735,9 +1655,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     finalizeCallRecord,
     organizationId,
     profile?.id,
-    startBrowserRecording,
-    stopBrowserRecording,
-    uploadRecording,
     wireTwilioCall,
   ]);
 

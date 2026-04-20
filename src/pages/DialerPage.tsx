@@ -444,6 +444,9 @@ export default function DialerPage() {
   /** Auto-dial pause after each new lead (ms); synced from `campaigns.dial_delay_seconds`. */
   const [dialDelayMs, setDialDelayMs] = useState(2000);
   const ringTimeoutRef = useRef<number>(30); // local default, updated via DB
+  /** Outbound only: when Twilio entered `dialing` (used to honor full ring timeout on early SDK disconnect). */
+  const outboundDialStartedAtRef = useRef<number | null>(null);
+  const deferredNoAnswerDisposeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
   // DNC warning
@@ -1690,6 +1693,24 @@ export default function DialerPage() {
   }, [twilioCallState]);
 
   useEffect(() => {
+    if (twilioCallState !== "dialing") return;
+    if (deferredNoAnswerDisposeTimerRef.current) {
+      clearTimeout(deferredNoAnswerDisposeTimerRef.current);
+      deferredNoAnswerDisposeTimerRef.current = null;
+    }
+    outboundDialStartedAtRef.current = Date.now();
+  }, [twilioCallState]);
+
+  useEffect(() => {
+    return () => {
+      if (deferredNoAnswerDisposeTimerRef.current) {
+        clearTimeout(deferredNoAnswerDisposeTimerRef.current);
+        deferredNoAnswerDisposeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (twilioCallState === "incoming") wasInboundSessionRef.current = true;
     if (twilioCallState === "active" && isVoiceSdkInboundDirection(twilioCurrentCall?.direction)) {
       wasInboundSessionRef.current = true;
@@ -1809,26 +1830,42 @@ export default function DialerPage() {
       const wasAnswered = callWasAnswered.current;
 
       // ── Ring timeout / no answer path — auto-disposition silently ──
+      // Twilio can emit `disconnect` before the org ring-timeout window elapses; wait the remainder
+      // so auto-dial does not advance early while the PSTN leg may still be ringing.
       if (!wasAnswered) {
-        isAutoDispositioningRef.current = true;
+        const ringSec = ringTimeoutRef.current;
+        const startedAt = outboundDialStartedAtRef.current ?? Date.now();
+        const elapsed = Date.now() - startedAt;
+        const remainingMs = Math.max(0, ringSec * 1000 - elapsed);
 
-        console.log("[DialerPage] Call ended without being answered — auto-dispositioning as No Answer.");
-        const noAnswerDisp = dispositions.find(d =>
-          d.name.toLowerCase() === 'no answer'
-        ) || dispositions.find(d =>
-          d.name.toLowerCase().includes('no answer')
-        );
+        const runNoAnswerDispose = () => {
+          deferredNoAnswerDisposeTimerRef.current = null;
+          isAutoDispositioningRef.current = true;
+          try {
+            console.log("[DialerPage] Call ended without being answered — auto-dispositioning as No Answer.");
+            const noAnswerDisp =
+              dispositions.find((d) => d.name.toLowerCase() === "no answer") ||
+              dispositions.find((d) => d.name.toLowerCase().includes("no answer"));
 
-        try {
-          if (noAnswerDisp) {
-            handleAutoDispose(noAnswerDisp);
-          } else {
-            console.warn('[DialerPage] No "No Answer" disposition found — advancing without disposition.');
-            handleAdvance();
+            if (noAnswerDisp) {
+              handleAutoDispose(noAnswerDisp);
+            } else {
+              console.warn('[DialerPage] No "No Answer" disposition found — advancing without disposition.');
+              handleAdvance();
+            }
+          } finally {
+            callWasAnswered.current = false;
+            isAutoDispositioningRef.current = false;
           }
-        } finally {
-          callWasAnswered.current = false;
-          isAutoDispositioningRef.current = false;
+        };
+
+        if (remainingMs > 0) {
+          console.log(
+            `[DialerPage] No-answer dispose deferred ${remainingMs}ms to honor ring timeout (${ringSec}s).`,
+          );
+          deferredNoAnswerDisposeTimerRef.current = setTimeout(runNoAnswerDispose, remainingMs);
+        } else {
+          runNoAnswerDispose();
         }
         return;
       }

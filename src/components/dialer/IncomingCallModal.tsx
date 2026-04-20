@@ -77,7 +77,7 @@ const IncomingCallModal = () => {
               className="w-full text-xs"
               onClick={() => void enableIncomingCallAlerts()}
             >
-              Enable ringtone &amp; desktop alert (recommended)
+              Enable desktop alerts (recommended)
             </Button>
           )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-center">
