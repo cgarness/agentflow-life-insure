@@ -90,3 +90,7 @@ verify_jwt = false
 # updates the calls row, and deletes the Twilio copy to avoid storage charges.
 [functions.twilio-recording-status]
 verify_jwt = false
+
+# Outbound SMS — JWT from the logged-in agent; Twilio credentials read from phone_settings.
+[functions.twilio-sms]
+verify_jwt = true

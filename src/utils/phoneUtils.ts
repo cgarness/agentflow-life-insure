@@ -8,6 +8,17 @@
  * Normalizes a phone number to E.164 format.
  * Strips all non-digits and ensures +1 prefix for 10-digit US numbers.
  */
+/** E.164 with leading + (US NANP when 10/11 digits). For Twilio API To/From fields. */
+export function toE164Plus(phone: string): string {
+  const raw = (phone || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("+")) return raw;
+  const cleaned = raw.replace(/\D/g, "");
+  if (cleaned.length === 10) return `+1${cleaned}`;
+  if (cleaned.length === 11 && cleaned.startsWith("1")) return `+${cleaned}`;
+  return cleaned ? `+${cleaned}` : "";
+}
+
 export function normalizePhoneNumber(phone: string): string {
   if (!phone) return "";
   const cleaned = phone.replace(/\D/g, "");

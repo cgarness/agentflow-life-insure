@@ -1887,7 +1887,7 @@ export type Database = {
           organization_id: string | null
           sent_at: string | null
           status: string
-          telnyx_message_id: string | null
+          provider_message_id: string | null
           to_number: string
         }
         Insert: {
@@ -1901,7 +1901,7 @@ export type Database = {
           organization_id?: string | null
           sent_at?: string | null
           status?: string
-          telnyx_message_id?: string | null
+          provider_message_id?: string | null
           to_number: string
         }
         Update: {
@@ -1915,7 +1915,7 @@ export type Database = {
           organization_id?: string | null
           sent_at?: string | null
           status?: string
-          telnyx_message_id?: string | null
+          provider_message_id?: string | null
           to_number?: string
         }
         Relationships: [

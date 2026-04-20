@@ -19,7 +19,7 @@ import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
-import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
+import { formatPhoneNumber, normalizePhoneNumber, toE164Plus } from "@/utils/phoneUtils";
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { calculateAge } from "@/utils/dateUtils";
@@ -586,14 +586,27 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   const handleSendMessage = async () => {
     if (!composeText.trim() || !contact.phone) return;
+    if (!fromNumber.trim()) {
+      toast.error("Select an agency number to send from.");
+      return;
+    }
     setMessageSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { toast.error("You must be logged in to send messages"); setMessageSending(false); return; }
-      const res = await fetch(`https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/telnyx-sms`, {
+      const base = import.meta.env.VITE_SUPABASE_URL as string;
+      const res = await fetch(`${base}/functions/v1/twilio-sms`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ to: contact.phone, body: composeText.trim(), subject: composeTab === "Email" ? emailSubject.trim() : undefined, lead_id: contact.id }),
+        body: JSON.stringify({
+          to: toE164Plus(contact.phone),
+          from: toE164Plus(fromNumber),
+          body: composeText.trim(),
+          contact_id: contact.id,
+          contact_type: type,
+          subject: composeTab === "Email" ? emailSubject.trim() : undefined,
+          lead_id: contact.id,
+        }),
       });
       const result = await res.json();
       if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }

@@ -64,6 +64,19 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-18 | [DONE] | Twilio Migration Phase 10 — SMS Migration**
+  *What:* Built **`twilio-sms`** Edge Function using Twilio Messages API (`POST .../Accounts/{AccountSid}/Messages.json`) with per-org **`phone_settings`** credentials; validates **`from`** against org **`phone_numbers`**; inserts **`messages`** with **`provider_message_id`** (Phase 1 rename), **`organization_id`**, **`created_by`**, optional **`lead_id`** / CRM link; logs **`contact_activities`** when **`contact_id`** + **`contact_type`** are sent. Updated frontend SMS send from **`telnyx-sms`** → **`twilio-sms`** with **`VITE_SUPABASE_URL`**-relative URL, **`from`**, E.164 **`to`**, and contact metadata. **`supabase/config.toml`**: **`verify_jwt = true`**. Not deployed yet.
+
+  ### Context Snapshot — Twilio Migration Phase 10 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Function** | `supabase/functions/twilio-sms/index.ts` — POST, JWT; form-encoded Twilio body; Basic auth `account_sid:auth_token` from **`phone_settings`** for the user’s org. |
+  | **Frontend** | `src/components/contacts/FullScreenContactView.tsx` (invoke URL + body: `to`, `from`, `body`, `contact_id`, `contact_type`, legacy `lead_id`); `src/utils/phoneUtils.ts` — **`toE164Plus`**. |
+  | **`messages` columns written** | `direction`, `body`, `from_number`, `to_number`, `status` (Twilio), `provider_message_id` (SM… sid), `organization_id`, `created_by`, `sent_at`, optional **`lead_id`** (polymorphic contact id for existing UI queries). |
+  | **Inbound SMS** | Not implemented — receiving replies would need a future **`twilio-sms-webhook`** (or similar) Edge Function; purchased numbers already point **`SmsUrl`** at **`.../twilio-sms`**, which today only accepts authenticated agent POSTs. |
+  | **Next** | Phase 11 — inbound-call-claim column update (per migration plan). |
+
 - **2026-04-18 | [DONE] Twilio Migration Phase 6 — Frontend SDK Swap**
   *What:* Created `src/lib/twilio-voice.ts` replacing `src/lib/telnyx.ts` as the core browser telephony library. Installed `@twilio/voice-sdk` (v2.18.1), removed `@telnyx/webrtc`. Exports: `initTwilioDevice`, `fetchTwilioToken`, `twilioMakeCall`, `twilioHangUp`, `twilioHangUpAll`, `twilioAnswerCall`, `twilioRejectCall`, `destroyTwilioDevice`, incoming-call pub/sub (`subscribeIncomingCall` / `subscribeToIncomingCalls` / `unsubscribeFromIncomingCalls`), Call utilities (`getCallSid` / `getCallDirection` / `getCallStatus`), identity/token/device getters, `checkMicrophonePermission`, and type re-exports `TwilioCall` / `TwilioDevice`. Token auto-refresh wired via `device.on('tokenWillExpire')`. `telnyx.ts` NOT removed (Phase 13 cleanup).
   *Files changed:*
@@ -272,7 +285,7 @@
 - **2026-04-18 | [DONE] | Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring**
   *What:* Built **`twilio-search-numbers`** (area code / locality / state search against Twilio Available Local Numbers) and **`twilio-buy-number`** (purchase via Incoming Phone Numbers API, auto-set voice + SMS + status webhooks, insert `phone_numbers` with `twilio_sid` and `trust_hub_status = pending`). **`NumberManagementSection`** re-enabled search and buy (invokes both functions), shows **Twilio SID** column and existing **Trust Hub** badges, soft **Release** (DB `status = released` only) with tooltip on released rows. **`supabase/config.toml`**: `verify_jwt = true` for both functions. Not deployed yet.
   *Files:* `supabase/functions/twilio-search-numbers/index.ts`, `supabase/functions/twilio-buy-number/index.ts`, `supabase/config.toml`, `src/components/settings/phone/NumberManagementSection.tsx`.
-  *Next:* Phase 10 — SMS migration (`twilio-sms` webhook; purchased numbers already point SMS URL at `{functions}/twilio-sms`).
+  *Next:* Phase 11 — inbound-call-claim column update (see migration plan).
 
   ### Context Snapshot — Twilio Migration Phase 9 (2026-04-18)
 
@@ -282,7 +295,7 @@
   | **DB** | On successful Twilio purchase: insert `phone_numbers` (`phone_number`, `twilio_sid` PN*, `friendly_name`, `status = active`, `organization_id`, `trust_hub_status = pending`, `area_code`, `spam_status = Unknown`). |
   | **Release** | UI **Release number** only sets **`phone_numbers.status = released`** (and clears default / assignment); **no** Twilio release API — tooltip directs admins to Twilio Console. |
   | **Scoping** | `organization_id` from **`profiles`** for the JWT user; Twilio credentials and inserts are always for that org. |
-  | **Not done** | Deploy Edge Functions + secrets; Phase 10 `twilio-sms` handler. |
+  | **Not done** | Deploy Edge Functions + secrets to production; inbound SMS webhook (post–Phase 10). |
 
 - **2026-04-18 | [DONE] Leaderboard TV: Full Rankings table parity + Recent wins right**
   *What:* **`TVMode.tsx`** — TV table wrapped like desktop (**“Full Rankings”** bar + card). Column order matches the main rankings grid: **Rank, Agent, Calls, Policies, Appts, Talk Time, Conv %**, with **Recent wins** as the **last (rightmost)** column. Podium block: **`border-b`**, **`pb-6`**, capped height (**`min(220px, 26vh)`**), **`max-w-5xl`** grid, ring-only highlight for #1 — reduces overlap with the table header. Horizontal scroll via **`min-w-[640px]`** on small widths. *No schema changes.* `tsc --noEmit` clean.
