@@ -46,11 +46,9 @@ async function validateTwilioSignature(
   const signature = req.headers.get("x-twilio-signature");
   if (!signature) return false;
 
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  if (!host) return false;
-  const path = new URL(req.url).pathname + new URL(req.url).search;
-  const fullUrl = `${proto}://${host}${path}`;
+  const fullUrl =
+    "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/twilio-voice-webhook" +
+    new URL(req.url).search;
 
   const sortedKeys = Object.keys(params).sort();
   let signingString = fullUrl;

@@ -32,11 +32,9 @@ async function validateTwilioSignature(
   const signature = req.headers.get("x-twilio-signature");
   if (!signature) return false;
 
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  if (!host) return false;
-  const url = new URL(req.url);
-  const fullUrl = `${proto}://${host}${url.pathname}${url.search}`;
+  const fullUrl =
+    "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/twilio-recording-status" +
+    new URL(req.url).search;
 
   const sortedKeys = Object.keys(params).sort();
   let signingString = fullUrl;
