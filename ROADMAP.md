@@ -254,6 +254,20 @@
   | **DB** | twilio_call_sid / provider_session_id per Phase 1 |
   | **tsc / build** | Clean |
 
+- **2026-04-18 | [DONE] | Twilio Migration Phase 8 — PhoneSettings UI Rewrite**
+  *What:* Replaced Telnyx credential fields with Twilio Account SID, Auth Token, API Key SID/secret, TwiML App SID; saves to `phone_settings` with `provider = 'twilio'`. Added Trust Hub status display, SHAKEN/STIR toggle, inbound routing strategy (`assigned` / `all-ring`, round-robin disabled with tooltip), voicemail toggle, recording toggle. Number list preserved; Telnyx search/purchase/sync invocations removed; purchase/search/sync controls disabled with tooltip pending Phase 9. Test connection calls `twilio-token`. Extracted `src/components/settings/phone/*` (credentials, trust, inbound, local presence, number management, secret JSON helpers, controller hook). Next: Phase 9 number-management Edge Functions.
+
+  ### Context Snapshot — Twilio Migration Phase 8 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Removed (UI + data)** | Telnyx API Key, Connection ID, Call Control App ID, SIP username/password; all `telnyx_settings` reads/writes; `telnyx-token` test; `telnyx-search-numbers`, `telnyx-buy-number`, `telnyx-sync-numbers` invocations |
+  | **Twilio columns** | `account_sid`, `auth_token`, `api_key` (API Key SID), `application_sid` (TwiML App), `recording_enabled`, `trust_hub_profile_sid`, `shaken_stir_enabled` on `phone_settings` |
+  | **`api_secret` JSON bundle** | `local_presence_enabled`, `inbound_routing`, `voicemail_enabled`, plus `twilio_api_key_secret` for the Twilio API Key **secret** (same TEXT column as legacy JSON flags — dedicated columns/TODO in code until migrations) |
+  | **Trust Hub** | Profile SID read-only display; per-number `shaken_stir_attestation` / `trust_hub_status` badges in Trust section + numbers table; registration automation deferred to Phase 14 |
+  | **Inbound routing** | Stored in JSON until `phone_settings.inbound_routing` exists; Edge `twilio-voice-inbound` still reads column first — align in a later DB phase |
+  | **Test connection** | `supabase.functions.invoke('twilio-token')` — validates token path (function currently uses deployment Twilio env; per-org secret testing may follow Edge changes) |
+  | **Next** | Phase 9 — Twilio number search, purchase, sync Edge Functions + re-enable controls |
 
 - **2026-04-18 | [DONE] Leaderboard TV: Full Rankings table parity + Recent wins right**
   *What:* **`TVMode.tsx`** — TV table wrapped like desktop (**“Full Rankings”** bar + card). Column order matches the main rankings grid: **Rank, Agent, Calls, Policies, Appts, Talk Time, Conv %**, with **Recent wins** as the **last (rightmost)** column. Podium block: **`border-b`**, **`pb-6`**, capped height (**`min(220px, 26vh)`**), **`max-w-5xl`** grid, ring-only highlight for #1 — reduces overlap with the table header. Horizontal scroll via **`min-w-[640px]`** on small widths. *No schema changes.* `tsc --noEmit` clean.
@@ -1734,6 +1748,7 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-18 | [DONE] | **Twilio Migration Phase 8 — PhoneSettings UI Rewrite:** Replaced Telnyx credential fields with Twilio Account SID, Auth Token, API Key, TwiML App SID. Added Trust Hub status display, SHAKEN/STIR toggle, inbound routing strategy selector (`assigned` / `all-ring`, round-robin disabled), voicemail toggle, recording toggle. Number management UI preserved but purchase/search disabled pending Phase 9. |
 | 2026-04-18 | [DONE] | **Templates modal UX:** SMS templates can attach files (stored like email); header `pr-12` so close control clears Preview. |
 | 2026-04-18 | [DONE] | **Template Modal Enhancement — 7 features:** merge fields + emoji pickers (popovers), email attachments (private `template-attachments` bucket + signed URLs), SMS segment counter, live preview with sample life-insurance data, duplicate row action, category tags + filter. Migration `20260418_enhance_message_templates.sql`. List split: `EmailSMSTemplates.tsx` + `TemplatesListView.tsx` / `TemplatesFiltersRow.tsx`; modal in `TemplateModal.tsx` + hooks/utils. |
 | 2026-04-16 | [DONE] | Hotfix: JSX pagination footer — template literal fix for Unicode separator |
