@@ -34,6 +34,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260420180000` | `campaigns_ring_timeout_seconds.sql` | Adds nullable **`ring_timeout_seconds`** on **`public.campaigns`** for per-campaign outbound ring timeout; **`NOTIFY pgrst, 'reload schema'`**. |
 | `2026-04-20 (ops)` | Production **`db push`** + Edge redeploys | Orphan remote migration **`20260418180637`** marked reverted (**`npx supabase migration repair --status reverted 20260418180637`**). **`npx supabase db push --yes`** applied **`20260418170001`–`07`**, **`20260418170010`**, **`20260418_enhance_message_templates`**. Twilio + **`inbound-call-claim`** Edge Functions redeployed to **`jncvvsvckxhqgqvkppmj`**. |
 | `20260418160000` | `leaderboard_tv_banner_team_leader_update.sql` | Adds **`leaderboard_tv_banner_text`** on `company_settings` (optional TV ticker override). New RLS policy **`company_settings_team_leader_update`**: **Team Leader** / **Team Lead** may **UPDATE** their org’s `company_settings` row (Admins unchanged via existing **`company_settings_write`**). `NOTIFY pgrst, 'reload schema'`. |
 | `20260417000001` | `company_settings_rls.sql` | Ensures **`organization_id`** (FK → `organizations`) + **`website_url`** columns on `company_settings`; adds `UNIQUE (organization_id)`; drops legacy "allow all" RLS; installs **`company_settings_select`** (org-read for authed users) and **`company_settings_write`** (Super Admin OR `role='Admin'` within the org) via `is_super_admin()` / `get_org_id()` / `get_user_role()`; `NOTIFY pgrst, 'reload schema'`. Locks Company Branding to org scope + Admin-only edits. |
@@ -65,6 +66,19 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-20 | [DONE] | Power dialer ring timeout source + Twilio timer cancel on answer**
+  *What:* Outbound ring seconds now resolve **campaign `ring_timeout_seconds` → `phone_settings.ring_timeout` → 25s** (was easy to show **`Setting timer for 15s`** from org settings while the dialer page used a different ref). **`DialerPage`** sync pushes the merged value into **`TwilioContext`** via **`applyDialSessionRingTimeout`**, keeps **`ringTimeoutRef`** aligned for strict hangup + deferred no-answer dispose, clears the override on unmount, and refreshes after saving Calling Settings. **`TwilioContext`** uses org baseline + optional dial-session override, clears the outbound ring **`setTimeout`** on **`accept`** (belt-and-suspenders with effect cleanup), and skips the timeout toast when the dialer owns the session (avoids duplicate toasts). **Migration:** **`campaigns.ring_timeout_seconds`** (nullable).
+  *Files:* **`supabase/migrations/20260420180000_campaigns_ring_timeout_seconds.sql`**, **`src/integrations/supabase/types.ts`**, **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
+  ### Context Snapshot — Ring timeout campaign + cancel on accept (2026-04-20)
+
+  | File | Change |
+  | :--- | :--- |
+  | **`supabase/migrations/20260420180000_campaigns_ring_timeout_seconds.sql`** | Adds nullable **`ring_timeout_seconds`** on **`campaigns`**; PostgREST **`NOTIFY`**. |
+  | **`src/integrations/supabase/types.ts`** | **`campaigns`** Row / Insert / Update include **`ring_timeout_seconds`**. |
+  | **`src/contexts/TwilioContext.tsx`** | **`phoneBaselineRing`** + **`dialSessionRingOverride`** → **`ringTimeout`**; **`applyDialSessionRingTimeout`**; org **`phone_settings`** baseline default **25s**; outbound ring timer ref cleared on **`accept`**; timeout toast suppressed when dialer session active. |
+  | **`src/pages/DialerPage.tsx`** | **`resolveOutboundRingSeconds`**, sync + save path push merged seconds to context and **`ringTimeoutRef`**; unmount clears dial-session override. |
 
 - **2026-04-20 | [DONE] | Browser recording — Twilio remote audio via DOM captureStream**
   *What:* Twilio Voice.js v2 does not expose `getRemoteStream()` / `remoteStream` on the Call object; remote audio plays through an SDK-owned HTML audio element. Recording now finds that element (`findTwilioRemoteAudioElement`), captures it with `captureStream()` / `mozCaptureStream()`, retries up to three times with 500ms spacing, and delays `startRecording` by 1s after `accept` so the element exists. Firefox / policy cases without `captureStream` log a single skip message. After upload, the client verifies the `calls` row returns `recording_storage_path` and `recording_url` from a follow-up select.

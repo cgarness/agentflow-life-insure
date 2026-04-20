@@ -220,6 +220,22 @@ const fallbackStatusColors: Record<string, string> = {
   "APPPINTMENT SET": "#9333EA",
 };
 
+const DEFAULT_OUTBOUND_RING_SEC = 25;
+
+/** Campaign `ring_timeout_seconds` first, then org `phone_settings.ring_timeout`, then 25s. */
+function resolveOutboundRingSeconds(
+  campaignRingSeconds: number | null | undefined,
+  phoneRingSeconds: number | null | undefined,
+): number {
+  if (typeof campaignRingSeconds === "number" && !Number.isNaN(campaignRingSeconds) && campaignRingSeconds > 0) {
+    return campaignRingSeconds;
+  }
+  if (typeof phoneRingSeconds === "number" && !Number.isNaN(phoneRingSeconds) && phoneRingSeconds > 0) {
+    return phoneRingSeconds;
+  }
+  return DEFAULT_OUTBOUND_RING_SEC;
+}
+
 /* ─── Component ─── */
 
 export default function DialerPage() {
@@ -308,6 +324,7 @@ export default function DialerPage() {
     initializeClient: twilioInitialize,
     destroyClient: twilioDestroy,
     getSmartCallerId,
+    applyDialSessionRingTimeout: twilioApplyDialSessionRingTimeout,
   } = useTwilio();
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
@@ -443,7 +460,7 @@ export default function DialerPage() {
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
   /** Auto-dial pause after each new lead (ms); synced from `campaigns.dial_delay_seconds`. */
   const [dialDelayMs, setDialDelayMs] = useState(2000);
-  const ringTimeoutRef = useRef<number>(30); // local default, updated via DB
+  const ringTimeoutRef = useRef<number>(DEFAULT_OUTBOUND_RING_SEC); // synced with TwilioContext + campaign / phone_settings
   /** Outbound only: when Twilio entered `dialing` (used to honor full ring timeout on early SDK disconnect). */
   const outboundDialStartedAtRef = useRef<number | null>(null);
   const deferredNoAnswerDisposeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -469,7 +486,7 @@ export default function DialerPage() {
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
-  const [ringTimeoutValue, setRingTimeoutValue] = useState(30);
+  const [ringTimeoutValue, setRingTimeoutValue] = useState(DEFAULT_OUTBOUND_RING_SEC);
 
   // ── Queue sort / filter / preview ──
   type QueueSortKey = 'smart' | 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
@@ -1982,6 +1999,15 @@ export default function DialerPage() {
       console.error("Save error:", { campaignError, phoneError });
     } else {
       toast.success("Calling settings saved");
+      const { data: ringRow } = await supabase
+        .from("campaigns")
+        .select("ring_timeout_seconds")
+        .eq("id", effectiveCampaignId)
+        .maybeSingle();
+      const cr = (ringRow as { ring_timeout_seconds?: number | null } | null)?.ring_timeout_seconds;
+      const mergedAfterSave = resolveOutboundRingSeconds(cr, ringTimeoutValue);
+      ringTimeoutRef.current = mergedAfterSave;
+      twilioApplyDialSessionRingTimeout(mergedAfterSave);
       setCallingSettingsOpen(false);
       setSettingsCampaignId(null);
     }
@@ -2034,6 +2060,17 @@ export default function DialerPage() {
         setDialDelayMs(2000);
       }
 
+      const { data: ringCampaignRow, error: ringCampaignErr } = await supabase
+        .from("campaigns")
+        .select("ring_timeout_seconds")
+        .eq("id", selectedCampaignId)
+        .maybeSingle();
+
+      const campaignRing =
+        !ringCampaignErr && ringCampaignRow
+          ? (ringCampaignRow as { ring_timeout_seconds?: number | null }).ring_timeout_seconds
+          : null;
+
       // 2. Fetch Global Phone Settings
       const { data: phoneData } = await supabase
         .from("phone_settings")
@@ -2041,9 +2078,10 @@ export default function DialerPage() {
         .eq("organization_id", organizationId)
         .maybeSingle();
 
-      if (phoneData) {
-        ringTimeoutRef.current = phoneData.ring_timeout ?? 30;
-      }
+      const phoneRing = phoneData?.ring_timeout;
+      const effectiveRing = resolveOutboundRingSeconds(campaignRing, phoneRing);
+      ringTimeoutRef.current = effectiveRing;
+      twilioApplyDialSessionRingTimeout(effectiveRing);
     };
 
     syncSettings();
@@ -2053,7 +2091,13 @@ export default function DialerPage() {
     return () => {
       // Cleanup
     };
-  }, [selectedCampaignId, organizationId, twilioInitialize]);
+  }, [selectedCampaignId, organizationId, twilioInitialize, twilioApplyDialSessionRingTimeout]);
+
+  useEffect(() => {
+    return () => {
+      twilioApplyDialSessionRingTimeout(null);
+    };
+  }, [twilioApplyDialSessionRingTimeout]);
 
   const memoizedCheckHours = useCallback(
     (state: string) => checkCallingHours(state, callingHoursStart, callingHoursEnd),

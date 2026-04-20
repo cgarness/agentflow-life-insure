@@ -687,6 +687,7 @@ export type Database = {
           name: string
           organization_id: string | null
           retry_interval_hours: number | null
+          ring_timeout_seconds: number | null
           status: string
           tags: Json | null
           total_leads: number | null
@@ -710,6 +711,7 @@ export type Database = {
           name: string
           organization_id?: string | null
           retry_interval_hours?: number | null
+          ring_timeout_seconds?: number | null
           status?: string
           tags?: Json | null
           total_leads?: number | null
@@ -733,6 +735,7 @@ export type Database = {
           name?: string
           organization_id?: string | null
           retry_interval_hours?: number | null
+          ring_timeout_seconds?: number | null
           status?: string
           tags?: Json | null
           total_leads?: number | null

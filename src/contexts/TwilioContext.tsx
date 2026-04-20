@@ -150,6 +150,11 @@ export interface TwilioContextValue {
   defaultCallerNumber: string;
   isReady: boolean;
   ringTimeout: number;
+  /**
+   * DialerPage pushes the merged outbound ring seconds (campaign → phone_settings → default).
+   * Pass `null` when leaving the dialer so org `phone_settings` baseline applies elsewhere.
+   */
+  applyDialSessionRingTimeout: (seconds: number | null) => void;
   orphanCall: OrphanCall | null;
   connectionDropped: boolean;
   incomingCallerNumber: string;
@@ -214,7 +219,26 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isOnHold, setIsOnHold] = useState(false);
   const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
   const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
-  const [ringTimeout, setRingTimeout] = useState(30);
+  const [phoneBaselineRing, setPhoneBaselineRing] = useState(25);
+  /** Merged seconds from DialerPage (campaign + org); null = use org baseline only. */
+  const [dialSessionRingOverride, setDialSessionRingOverride] = useState<number | null>(null);
+  /** True while DialerPage owns merged ring policy (suppress duplicate timeout toast here). */
+  const dialerRingSessionActiveRef = useRef(false);
+  const ringTimeout = useMemo(() => {
+    if (dialSessionRingOverride != null && dialSessionRingOverride > 0) return dialSessionRingOverride;
+    if (phoneBaselineRing > 0) return phoneBaselineRing;
+    return 25;
+  }, [dialSessionRingOverride, phoneBaselineRing]);
+
+  const applyDialSessionRingTimeout = useCallback((seconds: number | null) => {
+    if (seconds == null || (typeof seconds === "number" && (Number.isNaN(seconds) || seconds <= 0))) {
+      dialerRingSessionActiveRef.current = false;
+      setDialSessionRingOverride(null);
+      return;
+    }
+    dialerRingSessionActiveRef.current = true;
+    setDialSessionRingOverride(seconds);
+  }, []);
   /** Org default from `phone_settings.api_secret` JSON (`local_presence_enabled`). */
   const [orgLocalPresenceEnabled, setOrgLocalPresenceEnabled] = useState(true);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
@@ -291,6 +315,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Last inbound notification envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
   const lastInboundNotificationRef = useRef<unknown>(undefined);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  /** Outbound ring-timeout timer — cleared on `accept` so answered calls are never torn down by this timer. */
+  const outboundRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -378,9 +404,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .eq("organization_id", organizationId)
       .maybeSingle()
       .then(({ data }) => {
-        if (data?.ring_timeout) {
-          setRingTimeout(data.ring_timeout);
-        }
+        const rt = data?.ring_timeout;
+        setPhoneBaselineRing(typeof rt === "number" && !Number.isNaN(rt) && rt > 0 ? rt : 25);
         try {
           const flags = data?.api_secret ? JSON.parse(String(data.api_secret)) : {};
           setOrgLocalPresenceEnabled(flags.local_presence_enabled !== false);
@@ -1311,14 +1336,20 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           );
         }
 
-        toast.info(`Call timed out after ${ringTimeout}s without answer.`);
+        if (!dialerRingSessionActiveRef.current) {
+          toast.info(`Call timed out after ${ringTimeout}s without answer.`);
+        }
         hangUp();
       }, ringTimeout * 1000);
+      outboundRingTimerRef.current = timeoutId;
     }
 
     return () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
+      }
+      if (outboundRingTimerRef.current === timeoutId) {
+        outboundRingTimerRef.current = null;
       }
     };
   }, [callState, ringTimeout, hangUp]);
@@ -1489,6 +1520,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       call.on("accept", () => {
+        if (outboundRingTimerRef.current) {
+          clearTimeout(outboundRingTimerRef.current);
+          outboundRingTimerRef.current = null;
+        }
         try {
           call.mute?.(false);
         } catch {
@@ -1972,6 +2007,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         defaultCallerNumber,
         isReady,
         ringTimeout,
+        applyDialSessionRingTimeout,
         orphanCall,
         connectionDropped,
         incomingCallerNumber,
