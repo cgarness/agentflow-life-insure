@@ -70,6 +70,12 @@ verify_jwt = false
 verify_jwt = false
 
 # Twilio webhooks — authenticated via X-Twilio-Signature HMAC-SHA1, not Supabase JWT.
+[functions.twilio-search-numbers]
+verify_jwt = true
+
+[functions.twilio-buy-number]
+verify_jwt = true
+
 [functions.twilio-voice-webhook]
 verify_jwt = false
 

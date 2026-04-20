@@ -269,6 +269,21 @@
   | **Test connection** | `supabase.functions.invoke('twilio-token')` — validates token path (function currently uses deployment Twilio env; per-org secret testing may follow Edge changes) |
   | **Next** | Phase 9 — Twilio number search, purchase, sync Edge Functions + re-enable controls |
 
+- **2026-04-18 | [DONE] | Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring**
+  *What:* Built **`twilio-search-numbers`** (area code / locality / state search against Twilio Available Local Numbers) and **`twilio-buy-number`** (purchase via Incoming Phone Numbers API, auto-set voice + SMS + status webhooks, insert `phone_numbers` with `twilio_sid` and `trust_hub_status = pending`). **`NumberManagementSection`** re-enabled search and buy (invokes both functions), shows **Twilio SID** column and existing **Trust Hub** badges, soft **Release** (DB `status = released` only) with tooltip on released rows. **`supabase/config.toml`**: `verify_jwt = true` for both functions. Not deployed yet.
+  *Files:* `supabase/functions/twilio-search-numbers/index.ts`, `supabase/functions/twilio-buy-number/index.ts`, `supabase/config.toml`, `src/components/settings/phone/NumberManagementSection.tsx`.
+  *Next:* Phase 10 — SMS migration (`twilio-sms` webhook; purchased numbers already point SMS URL at `{functions}/twilio-sms`).
+
+  ### Context Snapshot — Twilio Migration Phase 9 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Functions** | `twilio-search-numbers` — POST, JWT; reads per-org `account_sid` / `auth_token` from `phone_settings`; GET Twilio `.../AvailablePhoneNumbers/US/Local.json`. `twilio-buy-number` — POST, JWT; POST `IncomingPhoneNumbers.json` with `VoiceUrl` → `.../twilio-voice-inbound`, `SmsUrl` → `.../twilio-sms` (proactive for Phase 10), `StatusCallback` → `.../twilio-voice-status`. |
+  | **DB** | On successful Twilio purchase: insert `phone_numbers` (`phone_number`, `twilio_sid` PN*, `friendly_name`, `status = active`, `organization_id`, `trust_hub_status = pending`, `area_code`, `spam_status = Unknown`). |
+  | **Release** | UI **Release number** only sets **`phone_numbers.status = released`** (and clears default / assignment); **no** Twilio release API — tooltip directs admins to Twilio Console. |
+  | **Scoping** | `organization_id` from **`profiles`** for the JWT user; Twilio credentials and inserts are always for that org. |
+  | **Not done** | Deploy Edge Functions + secrets; Phase 10 `twilio-sms` handler. |
+
 - **2026-04-18 | [DONE] Leaderboard TV: Full Rankings table parity + Recent wins right**
   *What:* **`TVMode.tsx`** — TV table wrapped like desktop (**“Full Rankings”** bar + card). Column order matches the main rankings grid: **Rank, Agent, Calls, Policies, Appts, Talk Time, Conv %**, with **Recent wins** as the **last (rightmost)** column. Podium block: **`border-b`**, **`pb-6`**, capped height (**`min(220px, 26vh)`**), **`max-w-5xl`** grid, ring-only highlight for #1 — reduces overlap with the table header. Horizontal scroll via **`min-w-[640px]`** on small widths. *No schema changes.* `tsc --noEmit` clean.
 
@@ -1748,6 +1763,7 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-18 | [DONE] | **Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring:** `twilio-search-numbers` + `twilio-buy-number` (JWT, per-org Twilio creds from `phone_settings`); purchase sets voice/SMS/status webhooks to Supabase functions URL; inserts `phone_numbers` with `twilio_sid`. `NumberManagementSection`: search/buy live, Twilio SID column, released-number tooltip; release remains DB-only. Config: `verify_jwt = true` for both. Not deployed yet. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 8 — PhoneSettings UI Rewrite:** Replaced Telnyx credential fields with Twilio Account SID, Auth Token, API Key, TwiML App SID. Added Trust Hub status display, SHAKEN/STIR toggle, inbound routing strategy selector (`assigned` / `all-ring`, round-robin disabled), voicemail toggle, recording toggle. Number management UI preserved but purchase/search disabled pending Phase 9. |
 | 2026-04-18 | [DONE] | **Templates modal UX:** SMS templates can attach files (stored like email); header `pr-12` so close control clears Preview. |
 | 2026-04-18 | [DONE] | **Template Modal Enhancement — 7 features:** merge fields + emoji pickers (popovers), email attachments (private `template-attachments` bucket + signed URLs), SMS segment counter, live preview with sample life-insurance data, duplicate row action, category tags + filter. Migration `20260418_enhance_message_templates.sql`. List split: `EmailSMSTemplates.tsx` + `TemplatesListView.tsx` / `TemplatesFiltersRow.tsx`; modal in `TemplateModal.tsx` + hooks/utils. |
