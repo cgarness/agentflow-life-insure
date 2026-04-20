@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { useTelnyx } from "@/contexts/TelnyxContext";
+import { useTwilio } from "@/contexts/TwilioContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
@@ -56,7 +56,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const { makeCall, isReady } = useTelnyx();
+  const { makeCall, isReady } = useTwilio();
   const { profile, user } = useAuth();
 
   const isFiltered = role !== "Admin" || adminToggle === "my";

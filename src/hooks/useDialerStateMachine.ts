@@ -9,7 +9,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
  */
 
 type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
-type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
+type VoiceConnectionStatus = "idle" | "connecting" | "ready" | "error";
 
 export type MachineState =
   | "IDLE"
@@ -30,8 +30,8 @@ function useLatestRef<T>(value: T) {
 
 export interface UseDialerStateMachineProps {
   isAutoDialEnabled: boolean;
-  telnyxCallState: CallState;
-  telnyxStatus: TelnyxStatus;
+  twilioCallState: CallState;
+  twilioStatus: VoiceConnectionStatus;
   currentLead: any | null;
   hasDialedOnce: React.MutableRefObject<boolean>;
   showWrapUp: boolean;
@@ -56,8 +56,8 @@ const MAX_DIAL_DELAY_MS = 10_000;
 
 export function useDialerStateMachine({
   isAutoDialEnabled,
-  telnyxCallState,
-  telnyxStatus,
+  twilioCallState,
+  twilioStatus,
   currentLead,
   hasDialedOnce,
   showWrapUp,
@@ -73,10 +73,10 @@ export function useDialerStateMachine({
   );
   const machineState: MachineState = (() => {
     if (showWrapUp) return "WRAP_UP";
-    if (telnyxCallState === "active") return "CONNECTED";
-    if (telnyxCallState === "incoming") return "CONNECTED";
-    if (telnyxCallState === "dialing") return "DIALING";
-    if (telnyxCallState === "ended") return "WRAP_UP";
+    if (twilioCallState === "active") return "CONNECTED";
+    if (twilioCallState === "incoming") return "CONNECTED";
+    if (twilioCallState === "dialing") return "DIALING";
+    if (twilioCallState === "ended") return "WRAP_UP";
     return "IDLE";
   })();
 
@@ -112,16 +112,16 @@ export function useDialerStateMachine({
 
   const guardsRef = useRef({
     isAutoDialEnabled,
-    telnyxCallState,
-    telnyxStatus,
+    twilioCallState,
+    twilioStatus,
     showWrapUp,
     isAdvancing,
     leadKey,
   });
   guardsRef.current = {
     isAutoDialEnabled,
-    telnyxCallState,
-    telnyxStatus,
+    twilioCallState,
+    twilioStatus,
     showWrapUp,
     isAdvancing,
     leadKey,
@@ -139,8 +139,8 @@ export function useDialerStateMachine({
     if (
       !isAutoDialEnabled ||
       !leadKey ||
-      telnyxCallState !== "idle" ||
-      telnyxStatus !== "ready" ||
+      twilioCallState !== "idle" ||
+      twilioStatus !== "ready" ||
       showWrapUp ||
       isAdvancing
     ) {
@@ -186,8 +186,8 @@ export function useDialerStateMachine({
 
       if (
         !g.isAutoDialEnabled ||
-        g.telnyxCallState !== "idle" ||
-        g.telnyxStatus !== "ready" ||
+        g.twilioCallState !== "idle" ||
+        g.twilioStatus !== "ready" ||
         g.showWrapUp ||
         g.isAdvancing
       ) {
@@ -200,8 +200,8 @@ export function useDialerStateMachine({
   }, [
     leadKey,
     isAutoDialEnabled,
-    telnyxCallState,
-    telnyxStatus,
+    twilioCallState,
+    twilioStatus,
     showWrapUp,
     isAdvancing,
     dialDelayMs,

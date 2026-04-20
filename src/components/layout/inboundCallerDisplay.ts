@@ -1,4 +1,4 @@
-import type { IdentifiedContact } from "@/contexts/TelnyxContext";
+import type { IdentifiedContact } from "@/contexts/TwilioContext";
 import {
   isInboundNameSameAsPhoneNumber,
   stripIfOrgOwnedPhoneLabel,

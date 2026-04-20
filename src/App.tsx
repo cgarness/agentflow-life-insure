@@ -11,7 +11,7 @@ import ProfileSetupModal from "@/components/onboarding/ProfileSetupModal";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
-import { TelnyxProvider } from "@/contexts/TelnyxContext";
+import { TwilioProvider } from "@/contexts/TwilioContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import DialerPage from "./pages/DialerPage";
@@ -99,7 +99,7 @@ const App = () => (
           <BrandingProvider>
             <NotificationProvider>
               <CalendarProvider>
-                <TelnyxProvider>
+                <TwilioProvider>
                 <SidebarProvider>
                   <Toaster />
                   <Sonner />
@@ -141,7 +141,7 @@ const App = () => (
                     </ErrorBoundary>
                   </BrowserRouter>
                 </SidebarProvider>
-                </TelnyxProvider>
+                </TwilioProvider>
               </CalendarProvider>
             </NotificationProvider>
           </BrandingProvider>

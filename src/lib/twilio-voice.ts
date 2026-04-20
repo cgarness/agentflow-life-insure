@@ -1,7 +1,7 @@
 /**
- * Twilio Voice SDK wrapper — replaces src/lib/telnyx.ts as the core browser
+ * Twilio Voice SDK wrapper — replaces `src/lib/telnyx.ts` as the core browser
  * telephony library. Owns Device lifecycle, token fetch/refresh, and the
- * incoming-call pub/sub that TwilioContext consumes in Phase 7.
+ * incoming-call pub/sub that TwilioContext consumes (Phase 7).
  */
 
 import { Call, Device } from "@twilio/voice-sdk";
@@ -40,6 +40,11 @@ function dispatchIncoming(payload: IncomingCallNotificationPayload): void {
   });
 }
 
+/** Clears all inbound listeners (used before re-init / full teardown). */
+export function clearIncomingCallHandlers(): void {
+  incomingSubscribers.clear();
+}
+
 /**
  * Subscribe to inbound (ringing) Twilio call notifications.
  * Returns a teardown function — matches the telnyx.ts pub/sub contract.
@@ -51,16 +56,16 @@ export function subscribeIncomingCall(cb: IncomingSubscriber): () => void {
   };
 }
 
-/** Alias spelling for callers that prefer the verb form. */
-export function subscribeToIncomingCalls(cb: IncomingSubscriber): () => void {
-  return subscribeIncomingCall(cb);
+/** Convenience: subscribe with `(call) => void` (TwilioContext). */
+export function subscribeToIncomingCalls(cb: (call: Call) => void): void {
+  subscribeIncomingCall(({ call }) => cb(call));
 }
 
-export function unsubscribeFromIncomingCalls(cb: IncomingSubscriber): void {
-  incomingSubscribers.delete(cb);
+export function unsubscribeFromIncomingCalls(_cb: IncomingSubscriber | ((call: Call) => void)): void {
+  /* Prefer clearIncomingCallHandlers() when re-initializing the Device. */
 }
 
-/** Fetches a fresh Access Token from the twilio-token Edge Function. */
+/** Fetches a fresh Access Token from the `twilio-token` Edge Function. */
 export async function fetchTwilioToken(): Promise<TwilioTokenResponse> {
   const { data, error } = await supabase.functions.invoke<TwilioTokenResponse>("twilio-token");
   if (error) {
@@ -75,17 +80,26 @@ export async function fetchTwilioToken(): Promise<TwilioTokenResponse> {
   return data;
 }
 
-function wireDeviceListeners(device: Device): void {
+export type InitTwilioDeviceOptions = {
+  onRegistered?: () => void;
+  onUnregistered?: () => void;
+  onError?: (err: Error) => void;
+};
+
+function wireDeviceListeners(device: Device, opts?: InitTwilioDeviceOptions): void {
   device.on("registered", () => {
     console.log("[twilio-voice] device registered, identity:", currentIdentity);
+    opts?.onRegistered?.();
   });
 
   device.on("unregistered", () => {
     console.log("[twilio-voice] device unregistered");
+    opts?.onUnregistered?.();
   });
 
   device.on("error", (error: unknown) => {
     console.error("[twilio-voice] device error:", error);
+    opts?.onError?.(error instanceof Error ? error : new Error(String(error)));
   });
 
   device.on("incoming", (call: Call) => {
@@ -108,7 +122,7 @@ function wireDeviceListeners(device: Device): void {
  * Initializes (or returns the existing) Twilio Device singleton. Fetches a
  * token, constructs the Device, wires listeners, and registers.
  */
-export async function initTwilioDevice(): Promise<Device> {
+export async function initTwilioDevice(opts?: InitTwilioDeviceOptions): Promise<Device> {
   if (twilioDevice && twilioDevice.state === Device.State.Registered) {
     return twilioDevice;
   }
@@ -123,7 +137,7 @@ export async function initTwilioDevice(): Promise<Device> {
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
     });
 
-    wireDeviceListeners(device);
+    wireDeviceListeners(device, opts);
     await device.register();
 
     twilioDevice = device;
@@ -171,8 +185,15 @@ export function twilioHangUpAll(): void {
 }
 
 /** Accepts a ringing inbound call. */
-export function twilioAnswerCall(call: Call): void {
-  call.accept();
+export async function twilioAnswerCall(
+  call: Call,
+  options?: { rtcConstraints?: MediaStreamConstraints },
+): Promise<void> {
+  if (options?.rtcConstraints) {
+    await call.accept({ rtcConstraints: options.rtcConstraints });
+  } else {
+    call.accept();
+  }
 }
 
 /** Rejects a ringing inbound call. */
@@ -182,6 +203,7 @@ export function twilioRejectCall(call: Call): void {
 
 /** Tears down the Device (used on logout / navigation away). */
 export async function destroyTwilioDevice(): Promise<void> {
+  clearIncomingCallHandlers();
   if (!twilioDevice) return;
   try {
     await twilioDevice.unregister();

@@ -241,6 +241,19 @@
   | **⚠ Downstream breakage until Phase 6-7 (frontend)** | `TelnyxContext.tsx` references `telnyx_call_id`, `telnyx_call_control_id` in selects/updates. `dialer-api.ts` and `FullScreenContactView.tsx` reference `telnyx_call_control_id`. `CallRecordingLibrary.tsx` also references it. These will produce runtime errors until frontend is updated. |
   | **⚠ Downstream breakage until Phase 11 (inbound-call-claim)** | `telnyx-webhook` edge function writes `telnyx_call_id` and `telnyx_call_control_id` — will fail on insert until Phase 11. |
   | **⚠ TypeScript errors until Phase 12 (types regen)** | `src/integrations/supabase/types.ts` still declares old column names. All files that import these types will show TS errors until `supabase gen types` is re-run. Affected files: `TelnyxContext.tsx`, `dialer-api.ts`, `FullScreenContactView.tsx`, `CallRecordingLibrary.tsx`. |
+- **2026-04-18 | [DONE] Twilio Migration Phase 7 - TwilioContext rewrite + consumer migration**
+  *What:* Extended **src/lib/twilio-voice.ts** (optional initTwilioDevice callbacks, clearIncomingCallHandlers, async twilioAnswerCall with rtcConstraints, subscribeToIncomingCalls wrapper). Replaced mounted telephony with **src/contexts/TwilioContext.tsx** (TwilioProvider, useTwilio) on Twilio Voice.js while preserving prior context behavior. **TelnyxContext.tsx** is a thin deprecated re-export (no telnyx webrtc). Consumers: App, DialerPage, FloatingDialer, IncomingCallModal, DashboardDetailModal, DialerCallPhaseLabel, inboundCallerDisplay, InboundCallIdentity, useInboundCallerDisplayLines, useDialerStateMachine. DialerPage: telephony renames only. Token: **twilio-token** Edge Function. tsc and vite build clean. Next: Phase 8 Phone Settings UI.
+
+  ### Context Snapshot - Twilio Phase 7 (2026-04-18)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Library** | src/lib/twilio-voice.ts merged Phase 6 + Phase 7 hooks |
+  | **Context** | src/contexts/TwilioContext.tsx |
+  | **Deprecated** | src/contexts/TelnyxContext.tsx re-exports TwilioContext |
+  | **DB** | twilio_call_sid / provider_session_id per Phase 1 |
+  | **tsc / build** | Clean |
+
 
 - **2026-04-18 | [DONE] Leaderboard TV: Full Rankings table parity + Recent wins right**
   *What:* **`TVMode.tsx`** — TV table wrapped like desktop (**“Full Rankings”** bar + card). Column order matches the main rankings grid: **Rank, Agent, Calls, Policies, Appts, Talk Time, Conv %**, with **Recent wins** as the **last (rightmost)** column. Podium block: **`border-b`**, **`pb-6`**, capped height (**`min(220px, 26vh)`**), **`max-w-5xl`** grid, ring-only highlight for #1 — reduces overlap with the table header. Horizontal scroll via **`min-w-[640px]`** on small widths. *No schema changes.* `tsc --noEmit` clean.

@@ -1,0 +1,2125 @@
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Device } from "@twilio/voice-sdk";
+import {
+  initTwilioDevice,
+  destroyTwilioDevice,
+  twilioMakeCall,
+  twilioHangUp,
+  twilioHangUpAll,
+  twilioAnswerCall,
+  getTwilioDevice,
+  getCallSid,
+  getCallDirection,
+  clearIncomingCallHandlers,
+  subscribeToIncomingCalls,
+  type TwilioCall,
+} from "@/lib/twilio-voice";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+import { isTelnyxSdkInboundDirection } from "@/lib/telnyxNotificationBranch";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
+import {
+  buildOrgDidLast10Set,
+  isCallsRowInboundDirection,
+  isInboundNameSameAsPhoneNumber,
+  last10Digits,
+  resolveInboundCallerRawNumber,
+  stripIfOrgOwnedPhoneLabel,
+  telnyxCallControlIdsEqual,
+} from "@/lib/telnyxInboundCaller";
+import {
+  loadIncomingCallAlertsPrefs,
+  enableIncomingCallAlertsFromUserGesture,
+  showIncomingDesktopNotification,
+  closeIncomingDesktopNotification,
+  startIncomingRingtone,
+  stopIncomingRingtone,
+  isIncomingAudioPrimed,
+  getDesktopNotificationPermission,
+} from "@/lib/incomingCallAlerts";
+import { getStateByAreaCode } from "@/lib/caller-id-selection";
+import {
+  CALLER_ID_STICKY_MIN_DURATION_SEC,
+  selectOutboundCallerId,
+} from "@/lib/caller-id-selection";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/telnyxInboundCaller";
+
+/** Mic capture for WebRTC: AEC/NS/AGC + 48 kHz mono where the browser supports it. */
+const TELNYX_MIC_CAPTURE: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    sampleRate: 48000,
+    channelCount: 1,
+  },
+};
+
+const toE164 = (phone: string): string => {
+  if (!phone) return phone;
+  // Already E.164
+  if (phone.startsWith('+')) return phone.replace(/[^\d+]/g, '');
+  // Strip all non-digits
+  const digits = phone.replace(/\D/g, '');
+  // 11 digits starting with 1 — US number with country code
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  // 10 digits — assume US
+  if (digits.length === 10) return `+1${digits}`;
+  // Anything else — prepend + and hope for the best
+  return `+${digits}`;
+};
+
+function extractIncomingCallerDisplay(
+  call: any,
+  rawNotification?: unknown,
+  excludeOrgLast10?: Set<string>,
+): { number: string; name: string } {
+  const opts = call?.options ?? {};
+  const resolved = resolveInboundCallerRawNumber(call, rawNotification, excludeOrgLast10);
+  const fallbackRaw = opts.remoteCallerNumber ?? call?.remoteCallerNumber ?? "";
+  const fallback = typeof fallbackRaw === "string" ? fallbackRaw.trim() : "";
+  const isExcluded = (s: string) => {
+    const d = s.replace(/\D/g, "");
+    const l10 = d.length >= 10 ? d.slice(-10) : "";
+    return l10.length === 10 && Boolean(excludeOrgLast10?.has(l10));
+  };
+  let num = resolved || fallback;
+  if (num && isExcluded(num)) num = "";
+  num = stripIfOrgOwnedPhoneLabel(String(num || "").trim(), excludeOrgLast10);
+
+  const nameCandidates = [opts.remoteCallerName, call?.remoteCallerName, opts.callerName];
+  let name = "";
+  for (const c of nameCandidates) {
+    if (typeof c !== "string") continue;
+    const t = c.trim();
+    if (!t || /^outbound call$/i.test(t)) continue;
+    const stripped = stripIfOrgOwnedPhoneLabel(t, excludeOrgLast10);
+    if (stripped) {
+      name = stripped;
+      break;
+    }
+  }
+
+  return { number: String(num || "").trim(), name: String(name || "").trim() };
+}
+
+type TelnyxStatus = "idle" | "connecting" | "ready" | "error";
+export type CallState = "idle" | "dialing" | "incoming" | "active" | "ended";
+
+/** CRM-backed identity for inbound calls (from `calls` row / webhook + Realtime). */
+export type IdentifiedContact = { name: string; number: string; type?: string };
+
+interface OrphanCall {
+  id: string;
+  telnyx_call_control_id: string | null;
+  contact_id: string | null;
+  caller_id_used: string | null;
+  started_at: string | null;
+  status: string;
+}
+
+/** Options for makeCall — pass contact/campaign metadata for single-point call record creation. */
+export interface MakeCallOptions {
+  contactId?: string | null;
+  campaignId?: string | null;
+  campaignLeadId?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactType?: string | null;
+}
+
+/** Optional campaign-level override for `getSmartCallerId` (falls back to org Phone Settings). */
+export type SmartCallerIdOptions = {
+  localPresenceEnabled?: boolean;
+};
+
+export interface TwilioContextValue {
+  status: TelnyxStatus;
+  errorMessage: string | null;
+  currentCall: any | null;
+  callState: CallState;
+  callDuration: number;
+  isMuted: boolean;
+  isOnHold: boolean;
+  defaultCallerNumber: string;
+  isReady: boolean;
+  ringTimeout: number;
+  orphanCall: OrphanCall | null;
+  connectionDropped: boolean;
+  incomingCallerNumber: string;
+  incomingCallerName: string;
+  /** CRM match from `leads` by inbound phone (incoming ring only). */
+  crmContactName: string;
+  /** Lead/client name + number from `calls` row (webhook contact match + Realtime). */
+  identifiedContact: IdentifiedContact | null;
+  lastCallDirection: "inbound" | "outbound";
+  makeCall: (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions) => Promise<string | undefined>;
+  hangUp: () => void;
+  answerIncomingCall: () => Promise<void>;
+  rejectIncomingCall: () => void;
+  hangUpOrphan: () => Promise<void>;
+  dismissOrphanCall: () => void;
+  toggleMute: () => void;
+  toggleHold: () => void;
+  availableNumbers: any[];
+  selectedCallerNumber: string;
+  setSelectedCallerNumber: (number: string) => void;
+  getSmartCallerId: (
+    contactPhone: string,
+    contactId?: string | null,
+    opts?: SmartCallerIdOptions,
+  ) => Promise<string>;
+  initializeClient: () => Promise<void>;
+  destroyClient: () => void;
+  /** Inbound: desktop notification + ringtone prefs (requires one-time Enable click). */
+  incomingCallAlerts: {
+    optIn: boolean;
+    audioPrimed: boolean;
+    desktopPermission: NotificationPermission | "unsupported";
+    ringtoneEnabled: boolean;
+    desktopEnabled: boolean;
+  };
+  enableIncomingCallAlerts: () => Promise<void>;
+}
+
+const TwilioVoiceReactContext = createContext<TwilioContextValue | null>(null);
+
+export const useTwilio = (): TwilioContextValue => {
+  const ctx = useContext(TwilioVoiceReactContext);
+  if (!ctx) throw new Error("useTwilio must be used within TwilioProvider");
+  return ctx;
+};
+
+export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [status, setStatus] = useState<TelnyxStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [currentCall, setCurrentCall] = useState<any>(null);
+  const [callState, setCallState] = useState<CallState>("idle");
+  const [callDuration, setCallDuration] = useState(0);
+  const callStateRef = useRef<CallState>(callState);
+  const callDurationRef = useRef(0);
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+  useEffect(() => {
+    callDurationRef.current = callDuration;
+  }, [callDuration]);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isOnHold, setIsOnHold] = useState(false);
+  const [defaultCallerNumber, setDefaultCallerNumber] = useState("");
+  const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
+  const [ringTimeout, setRingTimeout] = useState(30);
+  /** Org default from `phone_settings.api_secret` JSON (`local_presence_enabled`). */
+  const [orgLocalPresenceEnabled, setOrgLocalPresenceEnabled] = useState(true);
+  const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
+    return typeof window !== "undefined" ? localStorage.getItem("telnyx_manual_caller_id") || "" : "";
+  });
+
+  const [orphanCall, setOrphanCall] = useState<OrphanCall | null>(null);
+  const [connectionDropped, setConnectionDropped] = useState(false);
+  const [incomingCallerNumber, setIncomingCallerNumber] = useState("");
+  const [incomingCallerName, setIncomingCallerName] = useState("");
+  const [crmContactName, setCrmContactName] = useState("");
+  const [identifiedContact, setIdentifiedContact] = useState<IdentifiedContact | null>(null);
+  /** Set when `inbound-call-claim` succeeds — used to read webhook `caller_id_used` for CRM match. */
+  const [inboundClaimedCallRowId, setInboundClaimedCallRowId] = useState<string | null>(null);
+  const incomingCallerNumberRef = useRef("");
+  const incomingCallerNameRef = useRef("");
+  /** Telnyx session id for the current inbound SDK call — matches `calls.telnyx_call_id` from webhook. */
+  const inboundSdkSessionIdRef = useRef("");
+  useEffect(() => {
+    incomingCallerNumberRef.current = incomingCallerNumber;
+  }, [incomingCallerNumber]);
+  useEffect(() => {
+    incomingCallerNameRef.current = incomingCallerName;
+  }, [incomingCallerName]);
+
+  /** `call_logs.direction` and finalize context for inbound vs outbound. */
+  const lastCallLogDirectionRef = useRef<"inbound" | "outbound">("outbound");
+  const [lastCallDirection, setLastCallDirection] = useState<"inbound" | "outbound">("outbound");
+
+  // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
+  const isDialingRef = useRef(false);
+
+  // Synchronize lock with callState to ensure it is released when a call ends or is idle.
+  useEffect(() => {
+    if (callState === "idle" || callState === "ended") {
+      isDialingRef.current = false;
+    }
+  }, [callState]);
+
+  // Persist manual override to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (selectedCallerNumber) {
+        localStorage.setItem("telnyx_manual_caller_id", selectedCallerNumber);
+      } else {
+        localStorage.removeItem("telnyx_manual_caller_id");
+      }
+    }
+  }, [selectedCallerNumber]);
+
+  /** Inbound ring: never show org-owned DIDs as the “customer” caller ID. */
+  const inboundCallerExcludeRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    inboundCallerExcludeRef.current = buildOrgDidLast10Set(
+      availableNumbers,
+      defaultCallerNumber,
+      selectedCallerNumber,
+    );
+  }, [availableNumbers, defaultCallerNumber, selectedCallerNumber]);
+
+  const inboundCallerExcludeOrg = useMemo(
+    () => buildOrgDidLast10Set(availableNumbers, defaultCallerNumber, selectedCallerNumber),
+    [availableNumbers, defaultCallerNumber, selectedCallerNumber],
+  );
+
+  const deviceRef = useRef<Device | null>(null);
+  /** True only after `telnyx.ready` for the current client — avoids placing calls when React status is stale or socket is half-open. */
+  const twilioVoiceReadyRef = useRef(false);
+  /** Prevents overlapping initializeClient runs (eager app load + floating dialer open). */
+  const initializeInFlightRef = useRef(false);
+  /** Set on `telnyx.ready` so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
+  const twilioVoiceOrgIdRef = useRef<string | null>(null);
+  const callRef = useRef<any>(null);
+  /** Last Telnyx envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
+  const lastInboundNotificationRef = useRef<unknown>(undefined);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const endResetRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const activeCallIdRef = useRef<string | null>(null);
+  const activeCallControlIdRef = useRef<string | null>(null);
+  /** One DB sync of Telnyx IDs per outbound call (webhooks + recording depend on `calls.telnyx_call_control_id`). */
+  const telnyxIdsDbSyncedRef = useRef(false);
+  /** Prevents duplicate start-call-recording invocations per call. */
+  const recordingStartedRef = useRef(false);
+  const pendingAbortCallIdRef = useRef<string | null>(null);
+  const activeLeadIdRef = useRef<string | null>(null);
+  /** LRU for outbound DIDs (E.164 → last used epoch ms). */
+  const didLastUsedAtRef = useRef<Map<string, number>>(new Map());
+
+  // Browser-side call recording (MediaRecorder)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingAudioCtxRef = useRef<AudioContext | null>(null);
+
+  // Prevents double processing of call-end state across hangUp(), telnyx.error, and telnyx.notification handlers.
+  // Reset at the start of each new call (makeCall); set when the first handler processes the end.
+  const endStateProcessedRef = useRef(false);
+
+  // bridgeAutoAnsweredRef removed — one-legged calling has no inbound bridge leg.
+
+  // Ensure a hidden <audio> element exists for remote audio playback
+  const getRemoteAudioElement = useCallback(() => {
+    if (remoteAudioRef.current) return remoteAudioRef.current;
+    let el = document.getElementById("telnyx-remote-audio") as HTMLAudioElement | null;
+    if (!el) {
+      el = document.createElement("audio");
+      el.id = "telnyx-remote-audio";
+      el.autoplay = true;
+      el.setAttribute("playsinline", "true");
+      document.body.appendChild(el);
+    }
+    remoteAudioRef.current = el;
+    return el;
+  }, []);
+
+  // Attach remote media stream from a call object to the hidden audio element
+  const attachRemoteAudio = useCallback((call: any) => {
+    try {
+      const stream =
+        (typeof call?.getRemoteStream === "function" ? call.getRemoteStream() : null) ||
+        call?.remoteStream ||
+        call?.options?.remoteStream;
+      if (stream) {
+        const audioEl = getRemoteAudioElement();
+        audioEl.srcObject = stream;
+        audioEl.play().catch(() => { /* autoplay may be blocked */ });
+      }
+    } catch (err) {
+      console.warn("Failed to attach remote audio:", err);
+    }
+  }, [getRemoteAudioElement]);
+
+  const { profile, user } = useAuth();
+  const organizationId = (profile as { organization_id?: string | null })?.organization_id;
+  const authUserId = user?.id ?? profile?.id ?? null;
+
+  // Fetch available numbers for the organization
+  useEffect(() => {
+    if (!profile || !organizationId) return;
+    
+    supabase
+      .from("phone_numbers")
+      .select(
+        "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit",
+      )
+      .eq("organization_id", organizationId)
+      .in("status", ["active", "Active"])
+      .then(({ data }) => {
+        if (data) {
+          setAvailableNumbers(data);
+          // If no manual override is set, we still want to know the default
+          const defaultNum = data.find(n => n.is_default)?.phone_number || data[0]?.phone_number || "";
+          setDefaultCallerNumber(defaultNum);
+        }
+      });
+  }, [organizationId, profile?.id]);
+
+  // Fetch global phone settings (ring timeout, etc.)
+  useEffect(() => {
+    if (!organizationId) return;
+    supabase
+      .from("phone_settings")
+      .select("ring_timeout, api_secret")
+      .eq("organization_id", organizationId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.ring_timeout) {
+          setRingTimeout(data.ring_timeout);
+        }
+        try {
+          const flags = data?.api_secret ? JSON.parse(String(data.api_secret)) : {};
+          setOrgLocalPresenceEnabled(flags.local_presence_enabled !== false);
+        } catch {
+          setOrgLocalPresenceEnabled(true);
+        }
+      });
+  }, [organizationId, profile?.id]);
+
+  // Resolve inbound caller against CRM (RPC: leads → campaign_leads → clients) while ringing.
+  useEffect(() => {
+    if (callState !== "incoming") {
+      setCrmContactName("");
+      return;
+    }
+    const raw =
+      incomingCallerNumber.trim() ||
+      (identifiedContact?.number || "").trim();
+    if (!raw || raw === "Unknown caller" || !organizationId) {
+      setCrmContactName("");
+      return;
+    }
+    const digits = raw.replace(/\D/g, "");
+    const last10 = digits.length >= 10 ? digits.slice(-10) : "";
+    if (!last10) {
+      setCrmContactName("");
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      let phoneForLookup = raw;
+
+      if (inboundClaimedCallRowId) {
+        const { data: row, error: rowErr } = await supabase
+          .from("calls")
+          .select("caller_id_used, contact_phone")
+          .eq("id", inboundClaimedCallRowId)
+          .maybeSingle();
+
+        if (!cancelled && !rowErr && row) {
+          const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
+          const rowDigits = fromRow.replace(/\D/g, "");
+          const rowLast10 = rowDigits.length >= 10 ? rowDigits.slice(-10) : "";
+          const rowLooksLikeCustomer =
+            rowDigits.length >= 10 && !inboundCallerExcludeOrg.has(rowLast10);
+          if (rowLooksLikeCustomer) {
+            phoneForLookup = fromRow;
+            if (!cancelled && rowDigits !== digits) {
+              setIncomingCallerNumber(fromRow);
+            }
+          }
+        }
+      }
+
+      const normalized = normalizePhoneNumber(phoneForLookup);
+      const normDigits = normalized.replace(/\D/g, "");
+      if (normDigits.length < 10) {
+        if (!cancelled) setCrmContactName("");
+        return;
+      }
+
+      const { data: displayName, error } = await supabase.rpc("resolve_inbound_caller_display_name", {
+        p_caller_phone: normalized || phoneForLookup,
+      });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.warn("[TelnyxContext] resolve_inbound_caller_display_name:", error.message);
+        setCrmContactName("");
+        return;
+      }
+
+      setCrmContactName(typeof displayName === "string" ? displayName.trim() : "");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    callState,
+    incomingCallerNumber,
+    identifiedContact?.number,
+    organizationId,
+    inboundClaimedCallRowId,
+    inboundCallerExcludeOrg,
+  ]);
+
+  /**
+   * WebRTC inbound often reports the agency DID as "remote" on the first notifications.
+   * When `phone_numbers` / manual caller ID finish loading, the org-DID exclude set fills in —
+   * re-run ANI extraction so we clear the DID and let `calls.caller_id_used` + CRM take over.
+   */
+  useEffect(() => {
+    if (callState !== "incoming") return;
+    if (inboundCallerExcludeOrg.size === 0) return;
+    const raw = incomingCallerNumber.trim();
+    if (!raw) return;
+    const l10 = last10Digits(raw);
+    if (!l10 || !inboundCallerExcludeOrg.has(l10)) return;
+    const c = callRef.current;
+    if (!c) {
+      setIncomingCallerNumber("");
+      setIncomingCallerName("");
+      return;
+    }
+    const { number, name } = extractIncomingCallerDisplay(
+      c,
+      lastInboundNotificationRef.current,
+      inboundCallerExcludeOrg,
+    );
+    setIncomingCallerNumber(number || "");
+    setIncomingCallerName(name);
+  }, [callState, incomingCallerNumber, inboundCallerExcludeOrg]);
+
+  /** POST dialer-hangup Edge Function; used by orphan banner and silent refresh recovery. */
+  const requestDialerHangup = useCallback(async (callId: string, callControlId: string | null): Promise<boolean> => {
+    try {
+      const { data: { session } } = await supabase.auth.refreshSession();
+      if (!session?.access_token) return false;
+
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+      const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          call_id: callId,
+          call_control_id: callControlId,
+        }),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  /**
+   * Service-role claim so the agent can see the row under RLS (`calls.agent_id`).
+   * Retries for several seconds: `call.initiated` webhook often lands after the first SDK notification.
+   */
+  const claimInboundCall = useCallback(
+    async (controlId: string, telnyxCallSessionId?: string | null): Promise<string | null> => {
+      const cc = controlId?.trim() ?? "";
+      const sid = telnyxCallSessionId?.trim() ?? "";
+      if (!cc && !sid) return null;
+
+      const maxAttempts = 18;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) return null;
+
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/inbound-call-claim`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            ...(cc ? { call_control_id: cc } : {}),
+            ...(sid ? { telnyx_call_id: sid } : {}),
+          }),
+        });
+
+        const json = (await resp.json().catch(() => ({}))) as { id?: string; error?: string };
+
+        if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
+          console.warn("[inbound-call-claim] stopped:", resp.status, json?.error);
+          return null;
+        }
+
+        if (resp.ok && json.id) {
+          lastCallLogDirectionRef.current = "inbound";
+          setLastCallDirection("inbound");
+          return json.id;
+        }
+
+        const delay = Math.min(1200, 200 + attempt * 100);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+      return null;
+    },
+    []
+  );
+
+  const clearIncomingDisplay = useCallback(() => {
+    setIncomingCallerNumber("");
+    setIncomingCallerName("");
+    setCrmContactName("");
+    setIdentifiedContact(null);
+    setInboundClaimedCallRowId(null);
+    inboundSdkSessionIdRef.current = "";
+    lastInboundNotificationRef.current = undefined;
+    setLastCallDirection("outbound");
+  }, []);
+
+  const reconcileIdentifiedContactFromCallsRow = useCallback(
+    async (row: Record<string, unknown> | null | undefined) => {
+      if (!row || !organizationId) return;
+      if (!isCallsRowInboundDirection(row.direction)) return;
+      if (String(row.organization_id ?? "") !== String(organizationId)) return;
+
+      const typeRaw = typeof row.contact_type === "string" ? row.contact_type.trim() : "";
+      const typeStr = typeRaw ? typeRaw.toLowerCase() : undefined;
+
+      const nameFromRow = typeof row.contact_name === "string" ? row.contact_name.trim() : "";
+      const num =
+        String(row.contact_phone || row.caller_id_used || "").trim() ||
+        incomingCallerNumberRef.current;
+
+      const pstn = String(row.contact_phone || row.caller_id_used || "").trim();
+      const pstnL10 = pstn ? last10Digits(pstn) : null;
+      if (pstnL10 && inboundCallerExcludeRef.current.has(pstnL10)) {
+        return;
+      }
+
+      const cleanName =
+        nameFromRow && num && !isInboundNameSameAsPhoneNumber(nameFromRow, num)
+          ? nameFromRow
+          : "";
+
+      if (cleanName && num) {
+        setIdentifiedContact({ name: cleanName, number: num, type: typeStr });
+      }
+
+      if (row.contact_id) {
+        const cid = String(row.contact_id);
+        if (cleanName) return;
+
+        const ct = String(row.contact_type || "lead").toLowerCase();
+        const resolvedType = ct === "client" ? "client" : "lead";
+        if (ct === "client") {
+          const { data, error } = await supabase
+            .from("clients")
+            .select("first_name, last_name, phone")
+            .eq("id", cid)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[TelnyxContext] identifiedContact client fetch:", error.message);
+            return;
+          }
+          if (data) {
+            const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
+            setIdentifiedContact({
+              name: n,
+              number: String(data.phone || num || "").trim(),
+              type: resolvedType,
+            });
+          }
+        } else {
+          const { data, error } = await supabase
+            .from("leads")
+            .select("first_name, last_name, phone")
+            .eq("id", cid)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[TelnyxContext] identifiedContact lead fetch:", error.message);
+            return;
+          }
+          if (data) {
+            const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Lead";
+            setIdentifiedContact({
+              name: n,
+              number: String(data.phone || num || "").trim(),
+              type: resolvedType,
+            });
+          }
+        }
+        return;
+      }
+
+      // No contact_id yet: still expose PSTN from webhook row so UI is not stuck on "Unknown Caller"
+      if (pstn) {
+        setIdentifiedContact((prev) => {
+          if (
+            prev?.name &&
+            !isInboundNameSameAsPhoneNumber(prev.name, prev.number || pstn)
+          ) {
+            return prev.number === pstn ? prev : { ...prev, number: pstn };
+          }
+          if (cleanName) {
+            return { name: cleanName, number: pstn, type: typeStr };
+          }
+          return { name: "", number: pstn, type: typeStr };
+        });
+      }
+    },
+    [organizationId],
+  );
+
+  /** Prefer PSTN ANI from `calls` (webhook `payload.from`) when the SDK shows your DID as "remote". */
+  const applyInboundAniFromCallsRow = useCallback(
+    (row: Record<string, unknown> | null | undefined) => {
+      if (!row || !organizationId) return;
+      if (!isCallsRowInboundDirection(row.direction)) return;
+      if (String(row.organization_id ?? "") !== String(organizationId)) return;
+
+      const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
+      if (!fromRow) return;
+
+      const l10 = last10Digits(fromRow);
+      if (!l10) return;
+
+      const exclude = inboundCallerExcludeRef.current;
+      if (exclude.has(l10)) return;
+
+      const cur = incomingCallerNumberRef.current.trim();
+      const curDigits = cur.replace(/\D/g, "");
+      const curL10 = curDigits.length >= 10 ? curDigits.slice(-10) : "";
+      const curIsAgency = curL10.length === 10 && exclude.has(curL10);
+
+      if (curIsAgency || !cur || curL10 !== l10) {
+        setIncomingCallerNumber(normalizePhoneNumber(fromRow) || fromRow);
+      }
+    },
+    [organizationId],
+  );
+
+  /**
+   * Webhook writes `calls.caller_id_used` shortly after ring; client SELECT/Realtime can miss
+   * if Telnyx session/control ids are not aligned yet. Poll SECURITY DEFINER RPC until row appears.
+   */
+  useEffect(() => {
+    if (callState !== "incoming" || !organizationId) return;
+
+    let cancelled = false;
+    let ticks = 0;
+    /** Count RPC attempts only after SDK exposes session or control id — do not burn budget while refs are empty. */
+    const maxTicks = 40;
+
+    const tick = async () => {
+      if (cancelled) return;
+      const sid = inboundSdkSessionIdRef.current?.trim() || "";
+      const cc = activeCallControlIdRef.current?.trim() || "";
+      if (!sid && !cc) return;
+      if (ticks >= maxTicks) return;
+      ticks += 1;
+
+      const { data, error } = await supabase.rpc("peek_inbound_call_identity", {
+        p_telnyx_session_id: sid || null,
+        p_call_control_id: cc || null,
+      });
+
+      if (cancelled || error) {
+        if (error) {
+          console.warn("[TelnyxContext] peek_inbound_call_identity:", error.message);
+        }
+        return;
+      }
+      if (data == null || typeof data !== "object") return;
+
+      const j = data as Record<string, unknown>;
+      const synthetic: Record<string, unknown> = {
+        direction: "inbound",
+        organization_id: organizationId,
+        caller_id_used: j.caller_id_used,
+        contact_phone: j.contact_phone,
+        contact_name: j.contact_name,
+        contact_id: j.contact_id,
+        contact_type: j.contact_type,
+      };
+
+      applyInboundAniFromCallsRow(synthetic);
+      void reconcileIdentifiedContactFromCallsRow(synthetic);
+    };
+
+    void tick();
+    const id =
+      typeof window !== "undefined" ? window.setInterval(() => void tick(), 350) : 0;
+    return () => {
+      cancelled = true;
+      if (id) window.clearInterval(id);
+    };
+  }, [
+    callState,
+    organizationId,
+    applyInboundAniFromCallsRow,
+    reconcileIdentifiedContactFromCallsRow,
+  ]);
+
+  const [incomingAlertsTick, setIncomingAlertsTick] = useState(0);
+  const prevCallStateForAlertsRef = useRef<CallState>("idle");
+
+  const incomingCallAlerts = useMemo(() => {
+    void incomingAlertsTick;
+    const prefs = loadIncomingCallAlertsPrefs();
+    return {
+      optIn: prefs.optIn,
+      audioPrimed: isIncomingAudioPrimed(),
+      desktopPermission: getDesktopNotificationPermission(),
+      ringtoneEnabled: prefs.ringtone,
+      desktopEnabled: prefs.desktop,
+    };
+  }, [incomingAlertsTick]);
+
+  const enableIncomingCallAlerts = useCallback(async () => {
+    const { audioPrimed, notificationPermission } = await enableIncomingCallAlertsFromUserGesture();
+    setIncomingAlertsTick((t) => t + 1);
+    if (callStateRef.current === "incoming") {
+      const body = incomingCallerNameRef.current
+        ? `${incomingCallerNameRef.current}${
+            incomingCallerNumberRef.current ? ` · ${incomingCallerNumberRef.current}` : ""
+          }`
+        : incomingCallerNumberRef.current || "Open AgentFlow to answer";
+      if (typeof document !== "undefined" && document.hidden) {
+        showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      }
+      startIncomingRingtone();
+    }
+    if (notificationPermission === "granted") {
+      toast.success("Desktop alerts and ringtone are on for inbound calls.");
+    } else if (notificationPermission === "denied") {
+      toast.message(
+        "Ringtone is on for this browser. Allow notifications in your browser settings if you also want pop-up alerts."
+      );
+    } else if (!audioPrimed) {
+      toast.error("Could not unlock call sounds. Try again or check browser audio permissions.");
+    } else {
+      toast.success("Inbound ringtone enabled.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!organizationId || !authUserId) return;
+
+    const channel = supabase
+      .channel(`calls-identified-${authUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "calls",
+          filter: `organization_id=eq.${organizationId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!row) return;
+          if (!isCallsRowInboundDirection(row.direction)) return;
+
+          const rowAgent = row.agent_id as string | null | undefined;
+          const sid = String(row.telnyx_call_id || "");
+          const cc = String(row.telnyx_call_control_id || "");
+          const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
+          const localCc = activeCallControlIdRef.current?.trim() || "";
+          const controlMatch = Boolean(cc && localCc && telnyxCallControlIdsEqual(cc, localCc));
+          const unassignedRing =
+            (rowAgent == null || rowAgent === "") && (sessionMatch || controlMatch);
+          const assignedMine = rowAgent === authUserId;
+          if (!unassignedRing && !assignedMine) return;
+
+          applyInboundAniFromCallsRow(row);
+
+          const eventType = String((payload as { eventType?: string }).eventType || "");
+          const hasCrmMarker =
+            Boolean(row.contact_id) ||
+            (typeof row.contact_name === "string" && row.contact_name.trim() !== "");
+          const hasAni =
+            String(row.caller_id_used || row.contact_phone || "").trim() !== "";
+          if (
+            (eventType === "UPDATE" || eventType === "INSERT") &&
+            (hasCrmMarker || hasAni)
+          ) {
+            void reconcileIdentifiedContactFromCallsRow(row);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [organizationId, authUserId, reconcileIdentifiedContactFromCallsRow, applyInboundAniFromCallsRow]);
+
+  useEffect(() => {
+    const inboundUi =
+      callState === "incoming" ||
+      (callState === "active" && lastCallLogDirectionRef.current === "inbound");
+    if (!inboundUi || !organizationId) return;
+
+    let cancelled = false;
+
+    const run = async () => {
+      const selectCols =
+        "contact_id, contact_name, contact_phone, caller_id_used, contact_type, direction, organization_id, agent_id, telnyx_call_id, telnyx_call_control_id";
+
+      let row: Record<string, unknown> | null = null;
+
+      if (inboundClaimedCallRowId) {
+        const { data } = await supabase
+          .from("calls")
+          .select(selectCols)
+          .eq("id", inboundClaimedCallRowId)
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        row = (data as Record<string, unknown>) ?? null;
+      }
+
+      if (!row) {
+        const sid = inboundSdkSessionIdRef.current;
+        if (sid) {
+          const { data } = await supabase
+            .from("calls")
+            .select(selectCols)
+            .eq("organization_id", organizationId)
+            .in("direction", ["inbound", "incoming"])
+            .eq("telnyx_call_id", sid)
+            .maybeSingle();
+          row = (data as Record<string, unknown>) ?? null;
+        }
+      }
+
+      if (!row) {
+        const cc = activeCallControlIdRef.current;
+        if (cc) {
+          const { data } = await supabase
+            .from("calls")
+            .select(selectCols)
+            .eq("organization_id", organizationId)
+            .in("direction", ["inbound", "incoming"])
+            .eq("telnyx_call_control_id", cc)
+            .maybeSingle();
+          row = (data as Record<string, unknown>) ?? null;
+        }
+      }
+
+      if (!row && (inboundSdkSessionIdRef.current || activeCallControlIdRef.current)) {
+        const { data: peek } = await supabase.rpc("peek_inbound_call_identity", {
+          p_telnyx_session_id: inboundSdkSessionIdRef.current?.trim() || null,
+          p_call_control_id: activeCallControlIdRef.current?.trim() || null,
+        });
+        if (peek && typeof peek === "object" && !Array.isArray(peek)) {
+          const j = peek as Record<string, unknown>;
+          row = {
+            direction: "inbound",
+            organization_id: organizationId,
+            caller_id_used: j.caller_id_used,
+            contact_phone: j.contact_phone,
+            contact_name: j.contact_name,
+            contact_id: j.contact_id,
+            contact_type: j.contact_type,
+          };
+        }
+      }
+
+      if (cancelled || !row) return;
+      applyInboundAniFromCallsRow(row);
+      await reconcileIdentifiedContactFromCallsRow(row);
+    };
+
+    void run();
+
+    const interval =
+      typeof window !== "undefined" ? window.setInterval(() => void run(), 500) : 0;
+    const stop =
+      typeof window !== "undefined"
+        ? window.setTimeout(() => {
+            if (interval) window.clearInterval(interval);
+          }, 4500)
+        : 0;
+
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+      if (stop) window.clearTimeout(stop);
+    };
+  }, [
+    callState,
+    organizationId,
+    inboundClaimedCallRowId,
+    reconcileIdentifiedContactFromCallsRow,
+    applyInboundAniFromCallsRow,
+  ]);
+
+  useEffect(() => {
+    const prev = prevCallStateForAlertsRef.current;
+    prevCallStateForAlertsRef.current = callState;
+
+    if (callState !== "incoming") {
+      if (prev === "incoming") {
+        stopIncomingRingtone();
+        closeIncomingDesktopNotification();
+      }
+      return;
+    }
+
+    if (prev !== "incoming") {
+      const body = incomingCallerName
+        ? `${incomingCallerName}${incomingCallerNumber ? ` · ${incomingCallerNumber}` : ""}`
+        : incomingCallerNumber || "Open AgentFlow to answer";
+      if (typeof document !== "undefined" && document.hidden) {
+        showIncomingDesktopNotification("Incoming call — AgentFlow", body);
+      }
+      startIncomingRingtone();
+    }
+  }, [callState, incomingCallerNumber, incomingCallerName]);
+
+  // ─── Mid-Call Refresh Recovery ───
+  // If the agent reloads mid-call, check for orphaned active calls and surface a hang-up UI
+  useEffect(() => {
+    if (!profile?.id || !organizationId) return;
+
+    const checkOrphanedCalls = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('calls')
+          .select('id, telnyx_call_control_id, contact_id, caller_id_used, started_at, status')
+          .eq('agent_id', profile.id)
+          .in('status', ['ringing', 'connected'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.warn('[TelnyxContext] Orphan call check failed:', error.message);
+          return;
+        }
+
+        if (!data) return;
+
+        // Stale call guard: if a call has been "ringing" for >5 minutes, auto-mark as failed
+        const STALE_RINGING_THRESHOLD_MS = 5 * 60 * 1000;
+        if (data.status === 'ringing' && data.started_at) {
+          const age = Date.now() - new Date(data.started_at).getTime();
+          if (age > STALE_RINGING_THRESHOLD_MS) {
+            console.warn(`[TelnyxContext] Stale ringing call ${data.id} (${Math.round(age / 1000)}s old). Auto-cleaning to failed.`);
+            await supabase
+              .from('calls')
+              .update({ status: 'failed', updated_at: new Date().toISOString() })
+              .eq('id', data.id);
+            return;
+          }
+        }
+
+        // Silent recovery: after refresh, WebRTC cannot restore audio — same as tapping Hang Up.
+        // Finalizes the DB row (and best-effort Telnyx) so ghost "connected" rows do not loop forever.
+        const edgeOk = await requestDialerHangup(data.id, data.telnyx_call_control_id);
+        if (edgeOk) {
+          console.log(`[TelnyxContext] Orphan row ${data.id} finalized via dialer-hangup (silent refresh recovery).`);
+          return;
+        }
+
+        const endedAt = new Date().toISOString();
+        const startedMs = data.started_at ? new Date(data.started_at).getTime() : Date.now();
+        const durationSec = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
+        const { error: clientErr } = await supabase
+          .from('calls')
+          .update({
+            status: 'completed',
+            ended_at: endedAt,
+            duration: durationSec,
+          })
+          .eq('id', data.id)
+          .eq('agent_id', profile.id);
+
+        if (!clientErr) {
+          console.log(`[TelnyxContext] Orphan row ${data.id} finalized via client update (Edge fallback).`);
+          return;
+        }
+
+        console.warn(`[TelnyxContext] Orphaned active call detected: ${data.id} (status=${data.status}). Surfacing recovery UI.`);
+        setOrphanCall(data as OrphanCall);
+      } catch (err) {
+        console.warn('[TelnyxContext] Exception in orphan call check:', err);
+      }
+    };
+
+    checkOrphanedCalls();
+  }, [profile?.id, organizationId, requestDialerHangup]);
+
+  const hangUpOrphan = useCallback(async () => {
+    if (!orphanCall) return;
+
+    try {
+      const ok = await requestDialerHangup(orphanCall.id, orphanCall.telnyx_call_control_id);
+      if (ok) {
+        console.log(`[TelnyxContext] Orphaned call ${orphanCall.id} terminated successfully.`);
+        toast.success('Orphaned call terminated.');
+      } else {
+        const { data: { session } } = await supabase.auth.refreshSession();
+        if (!session?.access_token) {
+          toast.error('Session expired. Please log in again.');
+        } else {
+          console.warn(`[TelnyxContext] Orphan hangup request failed`);
+          toast.warning('Call may have already ended.');
+        }
+      }
+    } catch (err) {
+      console.error('[TelnyxContext] Error hanging up orphan call:', err);
+      toast.error('Failed to terminate orphaned call.');
+    } finally {
+      setOrphanCall(null);
+    }
+  }, [orphanCall, requestDialerHangup]);
+
+  const dismissOrphanCall = useCallback(() => {
+    setOrphanCall(null);
+  }, []);
+
+  const insertCallLog = useCallback(async (duration: number, leadId: string | null) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+
+      const direction = lastCallLogDirectionRef.current;
+      const { error } = await (supabase as any).from('call_logs').insert({
+        user_id: session.user.id,
+        lead_id: leadId,
+        duration: duration,
+        status: duration > 0 ? 'completed' : 'no-answer',
+        direction,
+      });
+      
+      if (error) {
+        console.warn("[Automated Log] Failed to save call log:", error.message);
+      }
+    } catch (err) {
+      console.warn("[Automated Log] Exception saving call log:", err);
+    }
+  }, []);
+
+  const startBrowserRecording = useCallback((call: any) => {
+    try {
+      const remoteStream: MediaStream | undefined =
+        (typeof call?.getRemoteStream === "function" ? call.getRemoteStream() : undefined) ||
+        call?.remoteStream;
+      const localStream: MediaStream | undefined = call?.localStream ?? mediaStreamRef.current ?? undefined;
+      if (!remoteStream) {
+        console.warn("[Recording] No remote stream available — skipping browser recording");
+        return;
+      }
+
+      const ctx = new AudioContext();
+      recordingAudioCtxRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+
+      const remoteSrc = ctx.createMediaStreamSource(remoteStream);
+      remoteSrc.connect(dest);
+
+      if (localStream && localStream.getAudioTracks().length > 0) {
+        const localSrc = ctx.createMediaStreamSource(localStream);
+        localSrc.connect(dest);
+      }
+
+      recordingChunksRef.current = [];
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(dest.stream, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordingChunksRef.current.push(e.data);
+      };
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      console.log("[Recording] Browser recording started:", mimeType);
+    } catch (err) {
+      console.warn("[Recording] Failed to start browser recording:", err);
+    }
+  }, []);
+
+  const stopBrowserRecording = useCallback((): Blob | null => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      try { recorder.stop(); } catch { /* may already be stopped */ }
+    }
+    mediaRecorderRef.current = null;
+
+    if (recordingAudioCtxRef.current) {
+      try { recordingAudioCtxRef.current.close(); } catch { /* ignore */ }
+      recordingAudioCtxRef.current = null;
+    }
+
+    const chunks = recordingChunksRef.current;
+    recordingChunksRef.current = [];
+    if (chunks.length === 0) return null;
+
+    const blob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
+    console.log("[Recording] Browser recording stopped. Size:", (blob.size / 1024).toFixed(1), "KB");
+    return blob;
+  }, []);
+
+  const uploadRecording = useCallback(async (callId: string, blob: Blob) => {
+    try {
+      const orgId = profile?.organization_id || "unknown";
+      const ext = blob.type.includes("webm") ? "webm" : "ogg";
+      const path = `${orgId}/${callId}.${ext}`;
+
+      console.log("[Recording] Uploading to storage:", path);
+      const { error: uploadErr } = await supabase.storage
+        .from("call-recordings")
+        .upload(path, blob, { contentType: blob.type, upsert: true });
+
+      if (uploadErr) {
+        console.error("[Recording] Upload failed:", uploadErr);
+        return;
+      }
+
+      await supabase
+        .from("calls")
+        .update({ recording_url: `storage:call-recordings/${path}` } as any)
+        .eq("id", callId);
+
+      console.log("[Recording] Uploaded and saved:", path);
+    } catch (err) {
+      console.error("[Recording] Upload exception:", err);
+    }
+  }, [profile?.organization_id]);
+
+  const finalizeCallRecord = useCallback(async (duration: number) => {
+    if (!activeCallIdRef.current) return;
+
+    const callId = activeCallIdRef.current;
+    const leadId = activeLeadIdRef.current;
+    
+    // Clear refs immediately so we don't double-finalize
+    activeCallIdRef.current = null;
+    activeLeadIdRef.current = null;
+
+    // Background log to the analytical table, non-blocking
+    insertCallLog(duration, leadId).catch(console.warn);
+
+    console.log(`[TelnyxContext] Finalizing call record ${callId} with duration ${duration}s`);
+
+    try {
+      const { error } = await supabase
+        .from('calls')
+        .update({
+          status: 'completed',
+          ended_at: new Date().toISOString(),
+          duration: duration
+        })
+        .eq('id', callId);
+
+      if (error) {
+        console.error("[TelnyxContext] Error finalizing call record:", error);
+      }
+    } catch (err) {
+      console.error("[TelnyxContext] Exception during call finalization:", err);
+    }
+  }, []);
+
+  const hangUp = useCallback(async () => {
+    const callId = activeCallIdRef.current;
+    const controlId = activeCallControlIdRef.current;
+
+    console.log("[TelnyxContext] Initiating dual-layer hangup.", { callId, controlId });
+
+    endStateProcessedRef.current = true;
+
+    setIdentifiedContact(null);
+
+    // 1. Instant UI update — triggers wrap-up phase in DialerPage
+    setCallState("ended");
+    
+    // Check if we are in the middle of a dial initiation (Race Condition handling)
+    if (callStateRef.current === "dialing" && !controlId && callId) {
+      console.log("[TelnyxContext] Hangup requested during dialing; latching pending abort for:", callId);
+      pendingAbortCallIdRef.current = callId;
+    }
+
+    // Clear audio immediately
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+
+    // Layer 1: Local WebRTC Hangup leg
+    if (callRef.current) {
+      try {
+        twilioHangUp(callRef.current as TwilioCall);
+      } catch (err) {
+        console.warn("[TwilioContext] Local hangup error:", err);
+      }
+      callRef.current = null;
+    }
+
+    // Layer 2: Secure Server-Side Hangup via Edge Function (awaited — ensures PSTN leg is terminated)
+    if (callId) {
+      try {
+        const { data: { session } } = await supabase.auth.refreshSession();
+        if (session?.access_token) {
+          const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+          const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/dialer-hangup`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${session.access_token}`,
+              "apikey": SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({
+              call_id: callId,
+              call_control_id: controlId
+            }),
+          });
+          if (!resp.ok) {
+            console.error(`[TelnyxContext] Edge hangup returned HTTP ${resp.status} for call ${callId}. PSTN leg may still be alive.`);
+          }
+        }
+      } catch (err) {
+        console.error("[TelnyxContext] Edge hangup fetch failed — PSTN leg may still be alive:", err);
+      }
+    }
+
+    // Immediate cleanup of local states — no delay so wrap-up UI can take over
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    // Reset call-specific refs synchronously (callState stays "ended" for wrap-up)
+    activeCallIdRef.current = null;
+    activeCallControlIdRef.current = null;
+    isDialingRef.current = false;
+
+    // Deferred cosmetic reset — gives the "ended" state time to trigger wrap-up effects
+    if (endResetRef.current) { clearTimeout(endResetRef.current); endResetRef.current = null; }
+    endResetRef.current = setTimeout(() => {
+      endResetRef.current = null;
+      setCurrentCall(null);
+      setCallState("idle");
+      setIsMuted(false);
+      setIsOnHold(false);
+      clearIncomingDisplay();
+    }, 200);
+  }, [clearIncomingDisplay]);
+
+  const answerIncomingCall = useCallback(async () => {
+    if (callStateRef.current !== "incoming") return;
+    const call = callRef.current as TwilioCall | null;
+    if (!call || !isTelnyxSdkInboundDirection(getCallDirection(call))) return;
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
+    } catch (err) {
+      console.error("[TwilioContext] Mic denied for answer:", err);
+      toast.error("Microphone access is required to answer.");
+      return;
+    }
+
+    if (mediaStreamRef.current && mediaStreamRef.current !== stream) {
+      try {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* ignore */
+      }
+    }
+    mediaStreamRef.current = stream;
+
+    const sid = getCallSid(call) ?? "";
+    if (sid) {
+      void (async () => {
+        const rowId = await claimInboundCall("", sid);
+        if (rowId) {
+          activeCallIdRef.current = rowId;
+          telnyxIdsDbSyncedRef.current = true;
+          setInboundClaimedCallRowId(rowId);
+        }
+      })();
+    }
+
+    endStateProcessedRef.current = false;
+    recordingStartedRef.current = false;
+    activeLeadIdRef.current = null;
+    isDialingRef.current = true;
+
+    try {
+      await twilioAnswerCall(call, { rtcConstraints: TELNYX_MIC_CAPTURE });
+      try {
+        call.mute(false);
+      } catch {
+        /* ignore */
+      }
+      attachRemoteAudio(call);
+      try {
+        remoteAudioRef.current?.play?.().catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    } catch (err: unknown) {
+      console.error("[TwilioContext] answer() failed:", err);
+      toast.error(err instanceof Error ? err.message : "Could not answer the call.");
+      isDialingRef.current = false;
+    }
+  }, [attachRemoteAudio, claimInboundCall]);
+
+  const rejectIncomingCall = useCallback(() => {
+    if (callStateRef.current !== "incoming") return;
+    hangUp();
+  }, [hangUp]);
+
+  // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    if (callState === "dialing" && ringTimeout > 0) {
+      console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
+      timeoutId = setTimeout(async () => {
+        const twilioCall = callRef.current as TwilioCall | null;
+        if (twilioCall && isTelnyxSdkInboundDirection(getCallDirection(twilioCall))) {
+          return;
+        }
+        const st = twilioCall?.status?.();
+        if (twilioCall && (st === "pending" || st === "ringing")) {
+          console.log(
+            `[RingTimeout] ${ringTimeout}s reached without agent leg active.`,
+            { callId: activeCallIdRef.current, controlId: activeCallControlIdRef.current }
+          );
+
+          // PSTN leg can already be "connected" in Supabase (webhook) while WebRTC is still
+          // ringing — do not tear down a live customer call.
+          const rowId = activeCallIdRef.current;
+          if (rowId) {
+            const { data: row } = await supabase
+              .from("calls")
+              .select("status")
+              .eq("id", rowId)
+              .maybeSingle();
+            if (row?.status === "connected") {
+              console.log(
+                "[RingTimeout] Skipping hangup — call row is connected (customer answered; agent audio still connecting)."
+              );
+              return;
+            }
+          }
+
+          // Poll up to 3s (6 × 500ms) for the call_control_id to arrive via telnyx.notification.
+          // The ID comes asynchronously and may not be present at exact timeout time.
+          if (!activeCallControlIdRef.current) {
+            console.warn("[RingTimeout] call_control_id not yet available — polling up to 3s before hanging up...");
+            let waited = 0;
+            while (!activeCallControlIdRef.current && waited < 3000) {
+              await new Promise<void>(resolve => setTimeout(resolve, 500));
+              waited += 500;
+            }
+            console.log(
+              `[RingTimeout] Poll complete (${waited}ms). controlId=${activeCallControlIdRef.current ?? "still null"}`
+            );
+          }
+
+          toast.info(`Call timed out after ${ringTimeout}s without answer.`);
+          hangUp();
+        }
+      }, ringTimeout * 1000);
+    }
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [callState, ringTimeout, hangUp]);
+
+  const toggleMute = useCallback(() => {
+    const call = callRef.current as TwilioCall | null;
+    if (!call) return;
+    try {
+      const next = !call.isMuted();
+      call.mute(next);
+      setIsMuted(next);
+    } catch (err) {
+      console.warn("[TwilioContext] toggleMute failed:", err);
+    }
+  }, []);
+
+  const toggleHold = useCallback(() => {
+    setIsOnHold((h) => !h);
+  }, []);
+
+  const queryStickyOutboundCaller = useCallback(async (cid: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("calls")
+        .select("caller_id_used, duration")
+        .eq("contact_id", cid)
+        .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
+        .not("caller_id_used", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data?.caller_id_used) return null;
+      return {
+        caller_id_used: data.caller_id_used,
+        duration_sec: typeof data.duration === "number" ? data.duration : 0,
+      };
+    } catch (e) {
+      console.warn("[TelnyxContext] queryStickyOutboundCaller:", e);
+      return null;
+    }
+  }, []);
+
+  const getSmartCallerId = useCallback(
+    async (
+      contactPhone: string,
+      contactId?: string | null,
+      opts?: SmartCallerIdOptions,
+    ): Promise<string> => {
+      const stamp = (e164: string) => {
+        if (e164) didLastUsedAtRef.current.set(e164, Date.now());
+      };
+
+      if (selectedCallerNumber) {
+        stamp(selectedCallerNumber);
+        return selectedCallerNumber;
+      }
+
+      const localPresenceEnabled =
+        opts?.localPresenceEnabled !== undefined
+          ? opts.localPresenceEnabled
+          : orgLocalPresenceEnabled;
+
+      const chosen = await selectOutboundCallerId(
+        {
+          destinationPhone: contactPhone,
+          contactId: contactId ?? null,
+          phones: availableNumbers,
+          localPresenceEnabled,
+          defaultFallback: defaultCallerNumber,
+          didLastUsedAt: didLastUsedAtRef.current,
+          now: Date.now(),
+          stickyMinDurationSec: CALLER_ID_STICKY_MIN_DURATION_SEC,
+        },
+        {
+          queryStickyCaller: queryStickyOutboundCaller,
+          getStateByAreaCode,
+        },
+      );
+
+      stamp(chosen);
+      return chosen;
+    },
+    [
+      selectedCallerNumber,
+      availableNumbers,
+      defaultCallerNumber,
+      orgLocalPresenceEnabled,
+      queryStickyOutboundCaller,
+    ],
+  );
+
+  const wireTwilioCall = useCallback(
+    (call: TwilioCall, notification?: unknown) => {
+      callRef.current = call;
+      setCurrentCall(call);
+      try {
+        const sid = getCallSid(call) ?? "";
+        Object.defineProperty(call, "id", { value: sid, configurable: true, enumerable: false });
+        Object.defineProperty(call, "callControlId", { value: sid, configurable: true, enumerable: false });
+      } catch {
+        /* ignore */
+      }
+
+      const syncIdsToRow = () => {
+        const rowId = activeCallIdRef.current;
+        const sid = getCallSid(call) ?? "";
+        if (!rowId || !sid || telnyxIdsDbSyncedRef.current) return;
+        telnyxIdsDbSyncedRef.current = true;
+        activeCallControlIdRef.current = sid;
+        void supabase
+          .from("calls")
+          .update({
+            telnyx_call_control_id: sid,
+            telnyx_call_id: sid,
+            updated_at: new Date().toISOString(),
+          } as Record<string, unknown>)
+          .eq("id", rowId)
+          .then(({ error: syncErr }) => {
+            if (syncErr) {
+              telnyxIdsDbSyncedRef.current = false;
+              console.warn("[TwilioContext] Failed to sync CallSid to calls row:", syncErr.message);
+            }
+          });
+      };
+
+      const finalizeEnded = () => {
+        if (endStateProcessedRef.current) return;
+        endStateProcessedRef.current = true;
+        setCallState("ended");
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+        const recordingCallId = activeCallIdRef.current;
+        const recordingBlob = stopBrowserRecording();
+        if (recordingBlob && recordingCallId) {
+          void uploadRecording(recordingCallId, recordingBlob);
+        }
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = null;
+        }
+        void finalizeCallRecord(callDurationRef.current);
+        if (endResetRef.current) {
+          clearTimeout(endResetRef.current);
+          endResetRef.current = null;
+        }
+        endResetRef.current = setTimeout(() => {
+          endResetRef.current = null;
+          setCurrentCall(null);
+          setCallState("idle");
+          setIsMuted(false);
+          setIsOnHold(false);
+          callRef.current = null;
+          clearIncomingDisplay();
+        }, 200);
+      };
+
+      call.on("ringing", () => {
+        if (!isTelnyxSdkInboundDirection(getCallDirection(call))) {
+          setCallState("dialing");
+        }
+      });
+
+      call.on("accept", () => {
+        try {
+          call.mute?.(false);
+        } catch {
+          /* ignore */
+        }
+        setCallState("active");
+        if (!timerRef.current) {
+          timerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
+        }
+        attachRemoteAudio(call);
+        syncIdsToRow();
+        if (!recordingStartedRef.current) {
+          recordingStartedRef.current = true;
+          startBrowserRecording(call);
+        }
+      });
+
+      call.on("disconnect", () => {
+        finalizeEnded();
+      });
+
+      call.on("cancel", () => {
+        finalizeEnded();
+      });
+
+      call.on("reject", () => {
+        finalizeEnded();
+      });
+
+      call.on("error", (err: { message?: string }) => {
+        console.warn("[TwilioContext] Call error:", err);
+        finalizeEnded();
+      });
+
+      if (isTelnyxSdkInboundDirection(getCallDirection(call))) {
+        setLastCallDirection("inbound");
+        const sid = getCallSid(call) ?? "";
+        inboundSdkSessionIdRef.current = sid;
+        lastInboundNotificationRef.current = notification;
+        const fromParam = String(call.parameters?.From ?? "").trim();
+        const { number, name } = extractIncomingCallerDisplay(
+          { options: { remoteCallerNumber: fromParam }, remoteCallerNumber: fromParam },
+          notification,
+          inboundCallerExcludeRef.current,
+        );
+        setIncomingCallerNumber(number || fromParam);
+        setIncomingCallerName(name);
+        endStateProcessedRef.current = false;
+        setCallState("incoming");
+
+        if (sid && !activeCallIdRef.current) {
+          const snap = call;
+          void (async () => {
+            const claimedId = await claimInboundCall("", sid);
+            if (!claimedId || callRef.current !== snap) return;
+            activeCallIdRef.current = claimedId;
+            setInboundClaimedCallRowId(claimedId);
+            telnyxIdsDbSyncedRef.current = true;
+          })();
+        }
+      } else {
+        setCallState("dialing");
+      }
+    },
+    [
+      attachRemoteAudio,
+      claimInboundCall,
+      clearIncomingDisplay,
+      finalizeCallRecord,
+      organizationId,
+      startBrowserRecording,
+      stopBrowserRecording,
+      uploadRecording,
+    ],
+  );
+
+  const initializeClient = useCallback(async () => {
+    if (!profile) {
+      console.log("[TwilioContext] Waiting for profile...");
+      return;
+    }
+
+    if (!organizationId) {
+      console.warn("[TwilioContext] Cannot initialize: User has no organization_id");
+      setStatus("error");
+      setErrorMessage("Your account is not associated with an organization. Please contact support.");
+      return;
+    }
+
+    if (deviceRef.current) {
+      const registered = deviceRef.current.state === Device.State.Registered;
+      const sameOrg = twilioVoiceOrgIdRef.current === organizationId;
+      if (registered && sameOrg && twilioVoiceReadyRef.current) {
+        console.log("[TwilioContext] Device already registered; skipping re-initialization.");
+        setStatus("ready");
+        setErrorMessage(null);
+        return;
+      }
+      console.log("[TwilioContext] Destroying existing Device before re-initialization...");
+      twilioVoiceReadyRef.current = false;
+      await destroyTwilioDevice();
+      deviceRef.current = null;
+      twilioVoiceOrgIdRef.current = null;
+    }
+
+    if (initializeInFlightRef.current) {
+      console.log("[TwilioContext] initializeClient skipped — already in progress.");
+      return;
+    }
+    initializeInFlightRef.current = true;
+    setStatus("connecting");
+    setErrorMessage(null);
+
+    try {
+      try {
+        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
+      } catch {
+        /* mic optional at registration */
+      }
+
+      clearIncomingCallHandlers();
+      await initTwilioDevice({
+        onRegistered: () => {
+          twilioVoiceOrgIdRef.current = organizationId;
+          twilioVoiceReadyRef.current = true;
+          deviceRef.current = getTwilioDevice();
+          setStatus("ready");
+          setErrorMessage(null);
+          console.log("[TwilioContext] Twilio Device registered");
+        },
+        onUnregistered: () => {
+          twilioVoiceReadyRef.current = false;
+        },
+        onError: (err) => {
+          console.error("[TwilioContext] Device error:", err);
+          twilioVoiceReadyRef.current = false;
+          setStatus("error");
+          setErrorMessage(err.message || "Twilio connection error");
+        },
+      });
+
+      deviceRef.current = getTwilioDevice();
+
+      subscribeToIncomingCalls((incomingCall) => {
+        endStateProcessedRef.current = false;
+        recordingStartedRef.current = false;
+        wireTwilioCall(incomingCall);
+      });
+    } catch (err: unknown) {
+      twilioVoiceReadyRef.current = false;
+      setStatus("error");
+      setErrorMessage(err instanceof Error ? err.message : "Could not initialize dialer");
+    } finally {
+      initializeInFlightRef.current = false;
+    }
+  }, [
+    claimInboundCall,
+    clearIncomingDisplay,
+    finalizeCallRecord,
+    organizationId,
+    profile?.id,
+    startBrowserRecording,
+    stopBrowserRecording,
+    uploadRecording,
+    wireTwilioCall,
+  ]);
+
+  // Start WebRTC registration in the background as soon as we have org context (floating dialer no longer pays full cold-start cost).
+  useEffect(() => {
+    if (!profile || !organizationId) return;
+    void initializeClient();
+  }, [profile?.id, organizationId, initializeClient]);
+
+  const destroyClient = useCallback(() => {
+    stopIncomingRingtone();
+    closeIncomingDesktopNotification();
+    twilioVoiceOrgIdRef.current = null;
+    twilioVoiceReadyRef.current = false;
+    twilioHangUpAll();
+    void destroyTwilioDevice();
+    deviceRef.current = null;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (endResetRef.current) {
+      clearTimeout(endResetRef.current);
+      endResetRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    callRef.current = null;
+    endStateProcessedRef.current = false;
+    setStatus("idle");
+    setErrorMessage(null);
+    setCurrentCall(null);
+    setCallState("idle");
+    setCallDuration(0);
+    setIsMuted(false);
+    setIsOnHold(false);
+    clearIncomingDisplay();
+  }, [clearIncomingDisplay]);
+
+  useEffect(() => {
+    const onLeave = () => {
+      twilioHangUpAll();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", onLeave);
+      return () => window.removeEventListener("beforeunload", onLeave);
+    }
+  }, []);
+
+  // Call duration timer — start when active, stop otherwise
+  useEffect(() => {
+    if (callState === "dialing") {
+      setCallDuration(0);
+      timerRef.current = setInterval(() => {
+        setCallDuration((d) => d + 1);
+      }, 1000);
+    } else if (callState === "ended" && timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, [callState]);
+
+  // Standard UUID string shape (any version) — Postgres accepts v1–v5; a v4-only
+  // regex was dropping valid lead IDs so `contact_id` stayed null and history/recordings never linked.
+  const UUID_REGEX =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isValidUUID = (val?: string | null): val is string => !!val && UUID_REGEX.test(val);
+
+  const makeCall = useCallback(async (destinationNumber: string, callerNumber?: string, opts?: MakeCallOptions): Promise<string | undefined> => {
+    if (isDialingRef.current) {
+      console.warn("[TelnyxContext] makeCall blocked — already dialing (execution lock).");
+      toast.error("A call is already starting. Please wait.");
+      return undefined;
+    }
+
+    if (
+      callStateRef.current === "incoming" ||
+      callStateRef.current === "active" ||
+      callStateRef.current === "dialing"
+    ) {
+      toast.error("Finish or decline the current call before placing another.");
+      return undefined;
+    }
+
+    // Authoritative gate: SIP registration complete (avoids races where UI shows Ready too early).
+    if (!twilioVoiceReadyRef.current) {
+      const msg =
+        status === "connecting"
+          ? "Phone is still connecting. Wait until the dialer shows Ready."
+          : "Phone is not connected yet. Wait a few seconds or tap retry in the dialer header.";
+      console.warn("[TelnyxContext] makeCall blocked — SIP not registered. Status:", status);
+      toast.error(msg);
+      return undefined;
+    }
+
+    if (!getTwilioDevice()) {
+      console.warn("[TwilioContext] makeCall blocked — no Twilio Device instance.");
+      toast.error("Phone connection is not available. Open the dialer to reconnect.");
+      return undefined;
+    }
+
+    if (status !== "ready") {
+      const msg =
+        status === "connecting"
+          ? "Phone is still connecting, please wait."
+          : "Dialer is not connected. Check your credentials in Settings.";
+      console.warn("TelnyxRTC not ready, cannot make call. Status:", status);
+      toast.error(msg);
+      return undefined;
+    }
+
+    endStateProcessedRef.current = false;
+
+    const { data: { session: existing }, error: getErr } = await supabase.auth.getSession();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp = existing?.expires_at;
+    const stale =
+      getErr ||
+      !existing?.access_token ||
+      (typeof exp === "number" && exp - nowSec < 120);
+
+    let session = existing;
+    if (stale) {
+      const { data: { session: refreshed }, error: refreshErr } = await supabase.auth.refreshSession();
+      if (!refreshed?.access_token || refreshErr) {
+        console.warn("[TelnyxContext] Call blocked: No active auth session.", refreshErr || getErr);
+        toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
+        return undefined;
+      }
+      session = refreshed;
+    }
+
+    if (!session?.access_token) {
+      console.warn("[TelnyxContext] Call blocked: No active session after refresh check.");
+      toast.error("Authentication error: Session invalid or expired. Please log in to make calls.");
+      return undefined;
+    }
+
+    const orgIdClaim = session.user.app_metadata?.organization_id;
+    if (!orgIdClaim) {
+      toast.error("Security Block: No Valid Organization Token.");
+      return undefined;
+    }
+
+    if (!profile?.id) {
+      toast.error("Your profile is still loading. Try again in a moment.");
+      return undefined;
+    }
+
+    try {
+      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(TELNYX_MIC_CAPTURE);
+    } catch (err) {
+      console.error("Microphone permission denied:", err);
+      setStatus("error");
+      setErrorMessage("Microphone access is required to make calls. Please allow microphone access in your browser and try again.");
+      toast.error("Microphone access is required to place calls.");
+      return undefined;
+    }
+
+    isDialingRef.current = true;
+    lastCallLogDirectionRef.current = "outbound";
+    setLastCallDirection("outbound");
+
+    try {
+      setInboundClaimedCallRowId(null);
+      activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
+      setCallState("dialing");
+      setIsMuted(false);
+      setIsOnHold(false);
+      setConnectionDropped(false);
+
+      const callerIdUsed = callerNumber || defaultCallerNumber;
+      if (!callerIdUsed) {
+        throw new Error("No caller ID selected. Please select a phone number to dial from in the Dialer settings.");
+      }
+
+      // ── SINGLE CALL RECORD CREATION ──
+      const { data: callRecord, error: callError } = await (supabase as any)
+        .from('calls')
+        .insert({
+          contact_id: isValidUUID(opts?.contactId) ? opts!.contactId : null,
+          organization_id: organizationId,
+          agent_id: profile.id,
+          campaign_id: opts?.campaignId || null,
+          campaign_lead_id: opts?.campaignLeadId || null,
+          contact_name: opts?.contactName || null,
+          contact_phone: opts?.contactPhone || destinationNumber,
+          contact_type: opts?.contactType || null,
+          status: 'ringing',
+          direction: 'outbound',
+          caller_id_used: callerIdUsed,
+          started_at: new Date().toISOString(),
+        })
+        .select('id')
+        .maybeSingle();
+
+      if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
+      if (!callRecord) throw new Error("Failed to create call record: no data returned");
+
+      activeCallIdRef.current = callRecord.id;
+      activeCallControlIdRef.current = null;
+      telnyxIdsDbSyncedRef.current = false;
+      recordingStartedRef.current = false;
+
+      if (!getTwilioDevice()) {
+        throw new Error("Twilio Device is not ready. Wait for Ready status and try again.");
+      }
+
+      console.log("[TwilioContext] Initiating outbound Twilio Voice call:", {
+        to: toE164(destinationNumber),
+        from: toE164(callerIdUsed),
+        callId: callRecord.id,
+      });
+
+      const call = await twilioMakeCall({
+        to: toE164(destinationNumber),
+        callerId: toE164(callerIdUsed),
+        callRowId: callRecord.id,
+        orgId: organizationId as string,
+      });
+
+      wireTwilioCall(call);
+
+      void supabase
+        .rpc("increment_phone_number_daily_usage", { p_phone_e164: callerIdUsed })
+        .then(({ error: incErr }) => {
+          if (incErr) {
+            console.warn("[TelnyxContext] increment_phone_number_daily_usage:", incErr.message);
+          }
+        });
+
+      setAvailableNumbers((prev) =>
+        prev.map((n) =>
+          n.phone_number === callerIdUsed
+            ? { ...n, daily_call_count: (n.daily_call_count ?? 0) + 1 }
+            : n,
+        ),
+      );
+
+      return callRecord.id;
+    } catch (err: any) {
+      console.error("Failed to start call:", err);
+      toast.error(err.message || "Failed to start call");
+      setCallState("idle");
+      isDialingRef.current = false;
+      return undefined;
+    }
+    // isDialingRef stays true until the call ends (released in useEffect on idle/ended).
+  }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id, wireTwilioCall]);
+
+
+  // Network resilience: Auto-reconnect if internet blips
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("[TelnyxContext] Network restored. Re-initializing client...");
+      setConnectionDropped(false);
+      if (status === "error" || !deviceRef.current) {
+         // Add a tiny delay to ensure socket is actually ready
+         setTimeout(() => initializeClient(), 1000);
+      }
+    };
+    
+    const handleOffline = () => {
+       console.warn("[TelnyxContext] Network connectivity lost.");
+       setStatus("error");
+       setErrorMessage("Internet connection lost. Call may have dropped. Waiting to reconnect...");
+       // Instead of calling hangUp() which bypasses wrap-up, transition to "ended" state.
+       // This forces the DialerPage wrap-up phase so the agent can log the drop.
+       if (callState === "active" || callState === "dialing" || callState === "incoming") {
+         setConnectionDropped(true);
+         setCallState("ended");
+         setIdentifiedContact(null);
+         inboundSdkSessionIdRef.current = "";
+         // Clean up local WebRTC state without triggering full hangUp flow
+         if (callRef.current) {
+           try {
+             twilioHangUp(callRef.current as TwilioCall);
+           } catch {
+             /* connection already lost */
+           }
+           callRef.current = null;
+         }
+         if (timerRef.current) {
+           clearInterval(timerRef.current);
+           timerRef.current = null;
+         }
+       }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+      return () => {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
+    }
+  }, [status, callState, initializeClient]);
+
+  const isReady = status === "ready";
+
+  return (
+    <TwilioVoiceReactContext.Provider
+      value={{
+        status,
+        errorMessage,
+        currentCall,
+        callState,
+        callDuration,
+        isMuted,
+        isOnHold,
+        defaultCallerNumber,
+        isReady,
+        ringTimeout,
+        orphanCall,
+        connectionDropped,
+        incomingCallerNumber,
+        incomingCallerName,
+        crmContactName,
+        identifiedContact,
+        lastCallDirection,
+        availableNumbers,
+        selectedCallerNumber,
+        setSelectedCallerNumber,
+        getSmartCallerId,
+        makeCall,
+        hangUp,
+        answerIncomingCall,
+        rejectIncomingCall,
+        hangUpOrphan,
+        dismissOrphanCall,
+        toggleMute,
+        toggleHold,
+        initializeClient,
+        destroyClient,
+        incomingCallAlerts,
+        enableIncomingCallAlerts,
+      }}
+    >
+      {children}
+    </TwilioVoiceReactContext.Provider>
+  );
+};

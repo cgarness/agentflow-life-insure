@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useTelnyx } from "@/contexts/TelnyxContext";
+import { useTwilio } from "@/contexts/TwilioContext";
 import { buildInboundCallerLines } from "@/components/layout/inboundCallerDisplay";
 import { buildOrgDidLast10Set, extractWebrtcInboundRemoteNumber } from "@/lib/telnyxInboundCaller";
 
@@ -35,7 +35,7 @@ export function useInboundCallerDisplayLines(opts?: { onCall?: boolean }) {
     defaultCallerNumber,
     callState,
     lastCallDirection,
-  } = useTelnyx();
+  } = useTwilio();
 
   const telnyxUsefulCallerName = useMemo(() => {
     const name = incomingCallerName.trim();

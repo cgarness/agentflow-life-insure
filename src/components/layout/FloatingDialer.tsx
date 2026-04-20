@@ -5,7 +5,7 @@ import {
   Minus, ChevronUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
+import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
 import { useNavigate } from "react-router-dom";
 import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
 import { useAuth } from "@/contexts/AuthContext";
@@ -95,33 +95,33 @@ const FloatingDialer: React.FC = () => {
   }, []);
 
   const {
-    status: telnyxStatus,
-    errorMessage: telnyxErrorMessage,
-    callState: telnyxCallState,
-    callDuration: telnyxCallDuration,
-    isMuted: telnyxIsMuted,
-    isOnHold: telnyxIsOnHold,
+    status: twilioStatus,
+    errorMessage: twilioErrorMessage,
+    callState: twilioCallState,
+    callDuration: twilioCallDuration,
+    isMuted: twilioIsMuted,
+    isOnHold: twilioIsOnHold,
     incomingCallerNumber,
     incomingCallerName,
     crmContactName,
     identifiedContact,
     lastCallDirection,
-    makeCall: telnyxMakeCall,
-    hangUp: telnyxHangUp,
-    answerIncomingCall: telnyxAnswerIncoming,
-    rejectIncomingCall: telnyxRejectIncoming,
-    toggleMute: telnyxToggleMute,
-    toggleHold: telnyxToggleHold,
-    initializeClient: telnyxInitialize,
-    isReady: telnyxIsReady,
+    makeCall: twilioMakeCall,
+    hangUp: twilioHangUp,
+    answerIncomingCall: twilioAnswerIncoming,
+    rejectIncomingCall: twilioRejectIncoming,
+    toggleMute: twilioToggleMute,
+    toggleHold: twilioToggleHold,
+    initializeClient: twilioInitialize,
+    isReady: twilioIsReady,
     availableNumbers,
     selectedCallerNumber,
     setSelectedCallerNumber,
     getSmartCallerId,
     incomingCallAlerts,
     enableIncomingCallAlerts,
-    destroyClient: telnyxDestroy,
-  } = useTelnyx();
+    destroyClient: twilioDestroy,
+  } = useTwilio();
 
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
@@ -247,14 +247,14 @@ const FloatingDialer: React.FC = () => {
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => setIsVisible(true), 0);
-      telnyxInitialize();
+      twilioInitialize();
       return () => clearTimeout(t);
     } else {
       setIsVisible(false);
-      if (!onCallRef.current) telnyxDestroy();
+      if (!onCallRef.current) twilioDestroy();
       setMinimized(false);
     }
-  }, [open, telnyxInitialize, telnyxDestroy]);
+  }, [open, twilioInitialize, twilioDestroy]);
 
   // Fetch dispositions for post-call
   useEffect(() => {
@@ -396,7 +396,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const proceedWithCall = async (destinationNumber: string, callerNumber: string, contactId?: string | null) => {
-    if (!telnyxIsReady) return;
+    if (!twilioIsReady) return;
     lastUsedCallerId.current = callerNumber;
     const opts: MakeCallOptions = {
       contactId: contactId || selectedContact?.id || null,
@@ -404,7 +404,7 @@ const FloatingDialer: React.FC = () => {
       contactPhone: destinationNumber,
       contactType: selectedContact?.type || null,
     };
-    const callId = await telnyxMakeCall(destinationNumber, callerNumber || undefined, opts);
+    const callId = await twilioMakeCall(destinationNumber, callerNumber || undefined, opts);
     if (!callId) return;
     setCurrentCallId(callId);
     setOnCall(true);
@@ -475,38 +475,38 @@ const FloatingDialer: React.FC = () => {
   };
 
   const handleHangUp = useCallback(() => {
-    telnyxHangUp();
+    twilioHangUp();
     setOnCall(false);
     setShowDisposition(true);
     setSelectedDispId(null);
-  }, [telnyxHangUp]);
+  }, [twilioHangUp]);
 
   useEffect(() => {
-    if (telnyxCallState === "incoming") {
+    if (twilioCallState === "incoming") {
       // Premature onCall(true) (e.g. SDK "active" edge) hides Answer/Decline — reset for ring UI.
       setOnCall(false);
       setOpen(true);
       setActiveTab("dial");
     }
-  }, [telnyxCallState]);
+  }, [twilioCallState]);
 
   useEffect(() => {
-    if (telnyxCallState === "active" && !onCall) {
+    if (twilioCallState === "active" && !onCall) {
       setOnCall(true);
       setCallSeconds(0);
     }
-  }, [telnyxCallState, onCall]);
+  }, [twilioCallState, onCall]);
 
   useEffect(() => {
-    if (telnyxCallState === "ended" && onCall) {
+    if (twilioCallState === "ended" && onCall) {
       handleHangUp();
     }
-    if (telnyxCallState === "ended" && !onCall) {
+    if (twilioCallState === "ended" && !onCall) {
       setCallSeconds(0);
       setCurrentCallId(null);
       setShowDisposition(false);
     }
-  }, [telnyxCallState, onCall, handleHangUp]);
+  }, [twilioCallState, onCall, handleHangUp]);
 
   const resetAll = () => {
     setShowDisposition(false);
@@ -532,7 +532,7 @@ const FloatingDialer: React.FC = () => {
             id: currentCallId || undefined,
             master_lead_id: selectedContact.id,
             agent_id: user.id,
-            duration_seconds: telnyxCallDuration || callSeconds,
+            duration_seconds: twilioCallDuration || callSeconds,
             disposition: disp.name,
             notes: callNotes.trim(),
             outcome: disp.name,
@@ -591,13 +591,13 @@ const FloatingDialer: React.FC = () => {
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
   const statusDotColor =
-    telnyxStatus === 'ready' ? '#22c55e' :
-    telnyxStatus === 'connecting' ? '#eab308' :
-    telnyxStatus === 'error' ? '#ef4444' : '#94a3b8';
-  const shouldPulse = telnyxStatus === 'ready' || telnyxStatus === 'connecting';
+    twilioStatus === 'ready' ? '#22c55e' :
+    twilioStatus === 'connecting' ? '#eab308' :
+    twilioStatus === 'error' ? '#ef4444' : '#94a3b8';
+  const shouldPulse = twilioStatus === 'ready' || twilioStatus === 'connecting';
 
   /** Outbound calls are blocked until Telnyx SIP registration completes (matches TelnyxContext.makeCall gates). */
-  const canPlaceCall = telnyxIsReady && telnyxStatus !== 'error';
+  const canPlaceCall = twilioIsReady && twilioStatus !== 'error';
 
   return (
     <>
@@ -720,13 +720,13 @@ const FloatingDialer: React.FC = () => {
                   }}
                 />
                 <h2 className="font-semibold text-foreground text-sm">Dialer</h2>
-                {telnyxStatus === 'connecting' && <span className="text-[10px] text-muted-foreground">Connecting…</span>}
-                {telnyxStatus === 'idle' && open && <span className="text-[10px] text-muted-foreground">Starting phone…</span>}
-                {telnyxStatus === 'ready' && <span className="text-[10px] text-muted-foreground">Ready</span>}
-                {telnyxStatus === 'error' && (
+                {twilioStatus === 'connecting' && <span className="text-[10px] text-muted-foreground">Connecting…</span>}
+                {twilioStatus === 'idle' && open && <span className="text-[10px] text-muted-foreground">Starting phone…</span>}
+                {twilioStatus === 'ready' && <span className="text-[10px] text-muted-foreground">Ready</span>}
+                {twilioStatus === 'error' && (
                   <div className="flex flex-col">
-                    <span className="text-[10px] text-destructive leading-tight">{telnyxErrorMessage || "Connection failed"}</span>
-                    <button onClick={() => telnyxInitialize()} className="text-[10px] text-primary underline underline-offset-2 w-fit">retry</button>
+                    <span className="text-[10px] text-destructive leading-tight">{twilioErrorMessage || "Connection failed"}</span>
+                    <button onClick={() => twilioInitialize()} className="text-[10px] text-primary underline underline-offset-2 w-fit">retry</button>
                   </div>
                 )}
               </div>
@@ -759,9 +759,9 @@ const FloatingDialer: React.FC = () => {
             </div>
           </div>
 
-          {telnyxIsReady &&
+          {twilioIsReady &&
             !incomingCallAlerts.optIn &&
-            telnyxCallState !== "incoming" && (
+            twilioCallState !== "incoming" && (
             <div className="mx-3 mt-2 shrink-0 rounded-lg border border-border bg-muted/50 px-3 py-2.5">
               <p className="text-[11px] text-muted-foreground leading-snug mb-2">
                 One tap unlocks ringtone and optional desktop pop-ups for inbound life-insurance calls (your browser requires it).
@@ -777,11 +777,11 @@ const FloatingDialer: React.FC = () => {
             </div>
           )}
 
-          {telnyxIsReady &&
+          {twilioIsReady &&
             incomingCallAlerts.optIn &&
             incomingCallAlerts.desktopEnabled &&
             incomingCallAlerts.desktopPermission === "denied" &&
-            telnyxCallState !== "incoming" && (
+            twilioCallState !== "incoming" && (
               <p className="mx-3 mt-1.5 shrink-0 text-[10px] text-amber-700 dark:text-amber-500/90 leading-snug">
                 Browser notifications are off — you’ll still get the in-app incoming screen and ringtone when this tab is open.
               </p>
@@ -841,10 +841,10 @@ const FloatingDialer: React.FC = () => {
 
             {activeTab === "dial" && (
               <div className="px-3 py-2 space-y-3">
-                {telnyxCallState === "dialing" && (
+                {twilioCallState === "dialing" && (
                   <div className="flex flex-col items-center gap-2 py-3 rounded-lg border border-border bg-muted/30">
                     <DialerCallPhaseLabel
-                      callState={telnyxCallState}
+                      callState={twilioCallState}
                       lastCallDirection={lastCallDirection}
                       onCall={false}
                     />
@@ -855,7 +855,7 @@ const FloatingDialer: React.FC = () => {
                     </p>
                   </div>
                 )}
-                {telnyxCallState === "incoming" && (
+                {twilioCallState === "incoming" && (
                   <div className="flex flex-col items-center space-y-4 py-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Incoming call</p>
                     <InboundCallIdentity
@@ -868,7 +868,7 @@ const FloatingDialer: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          void telnyxAnswerIncoming();
+                          void twilioAnswerIncoming();
                         }}
                         className="flex-1 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold text-sm"
                       >
@@ -877,7 +877,7 @@ const FloatingDialer: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          telnyxRejectIncoming();
+                          twilioRejectIncoming();
                         }}
                         className="flex-1 py-3 rounded-lg bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold text-sm"
                       >
@@ -890,7 +890,7 @@ const FloatingDialer: React.FC = () => {
                 {onCall && (
                   <div className="flex flex-col items-center space-y-4">
                     <DialerCallPhaseLabel
-                      callState={telnyxCallState}
+                      callState={twilioCallState}
                       lastCallDirection={lastCallDirection}
                       onCall={onCall}
                     />
@@ -912,25 +912,25 @@ const FloatingDialer: React.FC = () => {
                       <button onClick={() => { navigate(`/contacts?contact=${selectedContact.id}`); setOpen(false); }} className="text-sm text-teal-500 hover:text-teal-600 hover:underline">View Full Contact &rarr;</button>
                     )}
                     {lastUsedCallerId.current && <p className="text-xs text-muted-foreground">Calling from: {lastUsedCallerId.current}</p>}
-                    <p className="text-3xl font-mono text-foreground">{formatTime(telnyxCallDuration || callSeconds)}</p>
+                    <p className="text-3xl font-mono text-foreground">{formatTime(twilioCallDuration || callSeconds)}</p>
                     <div className="flex items-center gap-6">
                       <div className="flex flex-col items-center gap-1">
-                        <button type="button" onClick={telnyxToggleMute} className={`w-12 h-12 rounded-full flex items-center justify-center ${telnyxIsMuted ? "bg-destructive/20 text-destructive" : "bg-accent text-foreground"}`}>
-                          {telnyxIsMuted ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                        <button type="button" onClick={twilioToggleMute} className={`w-12 h-12 rounded-full flex items-center justify-center ${twilioIsMuted ? "bg-destructive/20 text-destructive" : "bg-accent text-foreground"}`}>
+                          {twilioIsMuted ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                         </button>
-                        <span className="text-xs text-muted-foreground">{telnyxIsMuted ? "Unmute" : "Mute"}</span>
+                        <span className="text-xs text-muted-foreground">{twilioIsMuted ? "Unmute" : "Mute"}</span>
                       </div>
                       <div className="flex flex-col items-center gap-1">
                         <button
                           type="button"
-                          onClick={telnyxToggleHold}
+                          onClick={twilioToggleHold}
                           className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                            telnyxIsOnHold ? "bg-primary/20 text-primary" : "bg-accent text-foreground"
+                            twilioIsOnHold ? "bg-primary/20 text-primary" : "bg-accent text-foreground"
                           }`}
                         >
                           <Pause className="w-5 h-5" />
                         </button>
-                        <span className="text-xs text-muted-foreground">{telnyxIsOnHold ? "Resume" : "Hold"}</span>
+                        <span className="text-xs text-muted-foreground">{twilioIsOnHold ? "Resume" : "Hold"}</span>
                       </div>
                       <div className="flex flex-col items-center gap-1">
                         <button className="w-12 h-12 rounded-full bg-accent text-foreground flex items-center justify-center"><Voicemail className="w-5 h-5" /></button>
@@ -989,9 +989,9 @@ const FloatingDialer: React.FC = () => {
                   </div>
                 )}
 
-                {!onCall && !showDisposition && telnyxCallState !== "incoming" && (
+                {!onCall && !showDisposition && twilioCallState !== "incoming" && (
                   <div className="space-y-4">
-                    {!canPlaceCall && telnyxStatus !== 'error' && (
+                    {!canPlaceCall && twilioStatus !== 'error' && (
                       <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/40 px-3 py-2">
                         Wait for <span className="font-medium text-foreground">Ready</span> in the header before placing a call.
                       </p>

@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { PhoneIncoming } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useTelnyx } from "@/contexts/TelnyxContext";
+import { useTwilio } from "@/contexts/TwilioContext";
 import { cn } from "@/lib/utils";
 import { useInboundCallerDisplayLines } from "@/hooks/useInboundCallerDisplayLines";
 import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
@@ -20,7 +20,7 @@ const IncomingCallModal = () => {
     rejectIncomingCall,
     incomingCallAlerts,
     enableIncomingCallAlerts,
-  } = useTelnyx();
+  } = useTwilio();
 
   const inboundLines = useInboundCallerDisplayLines({ onCall: false });
 

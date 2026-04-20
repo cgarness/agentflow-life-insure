@@ -1,5 +1,5 @@
 import React from "react";
-import type { IdentifiedContact } from "@/contexts/TelnyxContext";
+import type { IdentifiedContact } from "@/contexts/TwilioContext";
 import { isInboundNameSameAsPhoneNumber } from "@/components/layout/inboundCallerDisplay";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 

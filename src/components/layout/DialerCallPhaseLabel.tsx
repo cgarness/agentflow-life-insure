@@ -1,5 +1,5 @@
 import React from "react";
-import type { CallState } from "@/contexts/TelnyxContext";
+import type { CallState } from "@/contexts/TwilioContext";
 
 type Props = {
   callState: CallState;

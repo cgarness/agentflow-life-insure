@@ -48,7 +48,7 @@ import {
   getTodayCallCount,
   getContactCallStats,
 } from "@/lib/dialer-api";
-import { useTelnyx, MakeCallOptions } from "@/contexts/TelnyxContext";
+import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
 import {
   Dialog,
   DialogContent,
@@ -292,23 +292,23 @@ export default function DialerPage() {
 
   // Call status from context
   const {
-    status: telnyxStatus,
-    errorMessage: telnyxErrorMessage,
-    callState: telnyxCallState,
-    callDuration: telnyxCallDuration,
-    currentCall: telnyxCurrentCall,
+    status: twilioStatus,
+    errorMessage: twilioErrorMessage,
+    callState: twilioCallState,
+    callDuration: twilioCallDuration,
+    currentCall: twilioCurrentCall,
     availableNumbers,
     selectedCallerNumber,
     setSelectedCallerNumber,
-    makeCall: telnyxMakeCall,
-    hangUp: telnyxHangUp,
+    makeCall: twilioMakeCall,
+    hangUp: twilioHangUp,
     hangUpOrphan,
     dismissOrphanCall,
     orphanCall,
-    initializeClient: telnyxInitialize,
-    destroyClient: telnyxDestroy,
+    initializeClient: twilioInitialize,
+    destroyClient: twilioDestroy,
     getSmartCallerId,
-  } = useTelnyx();
+  } = useTwilio();
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
@@ -410,7 +410,7 @@ export default function DialerPage() {
   const callWasAnswered = useRef(false);
   /** Mirrors state for ring-timeout callback (avoids stale React closures). */
   const currentCallIdRef = useRef<string | null>(null);
-  const telnyxCallStateRef = useRef<string>("idle");
+  const twilioCallStateRef = useRef<string>("idle");
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
   const hasProcessedEndedState = useRef(false);
@@ -520,10 +520,10 @@ export default function DialerPage() {
   const callStatus = useMemo<CallStatus>(() => {
     if (!lockMode) return "connected"; // Personal: full reveal always
     if (!currentLead) return "idle";
-    if (telnyxCallState === "dialing" || telnyxCallState === "incoming") return "ringing";
-    if (telnyxCallState === "active" || telnyxCallState === "ended" || showWrapUp) return "connected";
+    if (twilioCallState === "dialing" || twilioCallState === "incoming") return "ringing";
+    if (twilioCallState === "active" || twilioCallState === "ended" || showWrapUp) return "connected";
     return "idle";
-  }, [lockMode, currentLead, telnyxCallState, showWrapUp]);
+  }, [lockMode, currentLead, twilioCallState, showWrapUp]);
 
   /* --- data loading --- */
 
@@ -1142,7 +1142,7 @@ export default function DialerPage() {
       const now = new Date();
       setLeadQueue(prev => {
         // Guard 1: Never re-sort while a call is active or dialing — would disrupt the live lead
-        if (telnyxCallState === 'active' || telnyxCallState === 'dialing' || telnyxCallState === 'incoming') return prev;
+        if (twilioCallState === 'active' || twilioCallState === 'dialing' || twilioCallState === 'incoming') return prev;
         // Guard 2: Never re-sort while wrap-up modal is open — agent is mid-disposition
         if (showWrapUp) return prev;
         // Guard 3: Only sort leads AFTER the current index — current and prior leads must not move
@@ -1159,7 +1159,7 @@ export default function DialerPage() {
     }, 60_000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, lockMode, telnyxCallState, showWrapUp, currentLeadIndex]);
+  }, [selectedCampaignId, lockMode, twilioCallState, showWrapUp, currentLeadIndex]);
 
   const fetchHistory = useCallback(
     async (
@@ -1415,11 +1415,11 @@ export default function DialerPage() {
     }
     setIsAdvancing(true);
     setCurrentLeadIndex(idx);
-    if (telnyxCallState === "idle" || telnyxCallState === "ended") {
+    if (twilioCallState === "idle" || twilioCallState === "ended") {
       setShowWrapUp(false);
     }
     setTimeout(() => setIsAdvancing(false), 500);
-  }, [leadQueue, searchParams, setSearchParams, telnyxCallState]);
+  }, [leadQueue, searchParams, setSearchParams, twilioCallState]);
 
   // ── Lead Selection Handler (with isAdvancing guard) ──
   const handleLeadSelect = useCallback((idx: number) => {
@@ -1563,9 +1563,9 @@ export default function DialerPage() {
       contactName: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim() || null,
       contactPhone: leadPhone,
     };
-    const callId = await telnyxMakeCall(leadPhone, callerNumber || undefined, opts);
+    const callId = await twilioMakeCall(leadPhone, callerNumber || undefined, opts);
     setCurrentCallId(callId || null);
-  }, [telnyxMakeCall, selectedCampaignId, currentLead]);
+  }, [twilioMakeCall, selectedCampaignId, currentLead]);
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
     if (!user) {
@@ -1581,8 +1581,8 @@ export default function DialerPage() {
       toast.error("No lead selected");
       return;
     }
-    if (telnyxStatus === "error") {
-      toast.error(telnyxErrorMessage || "Dialer error. Please check your settings.");
+    if (twilioStatus === "error") {
+      toast.error(twilioErrorMessage || "Dialer error. Please check your settings.");
       return;
     }
     const now = new Date().toISOString();
@@ -1623,37 +1623,37 @@ export default function DialerPage() {
     setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
-  }, [currentLead, telnyxStatus, telnyxErrorMessage, dialerStats, user?.id, initiateCall]);
+  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall]);
 
   const handleHangUp = useCallback(() => {
-    console.log("[Dialer] Hang up — duration:", telnyxCallDuration, "counting as connected:", telnyxCallDuration >= 7);
-    if (telnyxCallDuration >= 7) {
+    console.log("[Dialer] Hang up — duration:", twilioCallDuration, "counting as connected:", twilioCallDuration >= 7);
+    if (twilioCallDuration >= 7) {
       // Optimistic local update
       setDialerStats(prev => prev ? {
         ...prev,
         calls_connected: prev.calls_connected + 1,
-        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
+        total_talk_seconds: prev.total_talk_seconds + twilioCallDuration,
         last_updated_at: new Date().toISOString(),
       } : prev);
       setSessionStats(prev => ({
         ...prev,
         calls_connected: prev.calls_connected + 1,
-        total_talk_seconds: prev.total_talk_seconds + telnyxCallDuration,
+        total_talk_seconds: prev.total_talk_seconds + twilioCallDuration,
       }));
       // Persist to Supabase
       if (user?.id) {
         upsertDialerStats(user.id, {
           calls_connected: 1,
-          total_talk_seconds: telnyxCallDuration,
+          total_talk_seconds: twilioCallDuration,
         }).catch(() => {});
       }
     }
-    telnyxHangUp();
-  }, [telnyxCallDuration, telnyxHangUp, user?.id]);
+    twilioHangUp();
+  }, [twilioCallDuration, twilioHangUp, user?.id]);
 
   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
-    // Use currentCallId (internal UUID) which is more reliable than telnyxCurrentCall
-    // since telnyxHangUp() may have already cleared the telnyx call reference
+    // Use currentCallId (internal UUID) which is more reliable than twilioCurrentCall
+    // since twilioHangUp() may have already cleared the twilio call reference
     if (currentCallId) {
       try {
         await supabase.from('calls')
@@ -1686,28 +1686,28 @@ export default function DialerPage() {
     currentCallIdRef.current = currentCallId;
   }, [currentCallId]);
   useEffect(() => {
-    telnyxCallStateRef.current = telnyxCallState;
-  }, [telnyxCallState]);
+    twilioCallStateRef.current = twilioCallState;
+  }, [twilioCallState]);
 
   useEffect(() => {
-    if (telnyxCallState === "incoming") wasInboundSessionRef.current = true;
-    if (telnyxCallState === "active" && isTelnyxSdkInboundDirection(telnyxCurrentCall?.direction)) {
+    if (twilioCallState === "incoming") wasInboundSessionRef.current = true;
+    if (twilioCallState === "active" && isTelnyxSdkInboundDirection(twilioCurrentCall?.direction)) {
       wasInboundSessionRef.current = true;
     }
-    if (telnyxCallState === "idle") wasInboundSessionRef.current = false;
-  }, [telnyxCallState, telnyxCurrentCall?.direction]);
+    if (twilioCallState === "idle") wasInboundSessionRef.current = false;
+  }, [twilioCallState, twilioCurrentCall?.direction]);
 
   // Track whether the current call was answered (reached "active" state)
   useEffect(() => {
-    if (telnyxCallState === "active") {
+    if (twilioCallState === "active") {
       callWasAnswered.current = true;
     }
-  }, [telnyxCallState]);
+  }, [twilioCallState]);
 
   // When webhook marks PSTN connected before WebRTC goes "active", treat as answered so
   // we do not auto-dispose as No Answer if the agent leg drops later.
   useEffect(() => {
-    if (!currentCallId || telnyxCallState !== "dialing") return;
+    if (!currentCallId || twilioCallState !== "dialing") return;
     const channel = supabase
       .channel(`dialer-call-${currentCallId}`)
       .on(
@@ -1729,14 +1729,14 @@ export default function DialerPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentCallId, telnyxCallState]);
+  }, [currentCallId, twilioCallState]);
 
   // ── Strict Ring Timeout Enforcement ──
   // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
   // IMPORTANT: WebRTC can still report "dialing" while the PSTN side is already answered
   // (calls.status = connected). Do not hang up in that case.
   useEffect(() => {
-    if (telnyxCallState !== "dialing") return;
+    if (twilioCallState !== "dialing") return;
     if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
 
     const timeoutMs = ringTimeoutRef.current * 1000;
@@ -1756,31 +1756,31 @@ export default function DialerPage() {
           return;
         }
       }
-      if (telnyxCallStateRef.current !== "dialing") return;
+      if (twilioCallStateRef.current !== "dialing") return;
       console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
       toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);
-      telnyxHangUp();
+      twilioHangUp();
     }, timeoutMs);
 
     return () => clearTimeout(timeoutId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp]);
+  }, [twilioCallState, twilioHangUp]);
 
   // Reset the ended-state guard only when a new call begins — NOT on every non-ended state.
   // Resetting on "idle" caused a double-fire: ended → idle (200ms reset) → ended (WebRTC destroy notification)
   // would re-process the same call end and advance the lead twice.
   useEffect(() => {
-    if (telnyxCallState === "dialing" || telnyxCallState === "incoming") {
+    if (twilioCallState === "dialing" || twilioCallState === "incoming") {
       hasProcessedEndedState.current = false;
       lastProcessedCallIdRef.current = null;
     }
-  }, [telnyxCallState]);
+  }, [twilioCallState]);
 
   // Trigger wrap-up when call ends (covers remote hangup).
   // Ring timeout (call never answered) auto-dispositions as "No Answer" silently.
   // Manual hang-up of an answered call ALWAYS shows the wrap-up panel.
   useEffect(() => {
-    if (telnyxCallState === "ended") {
+    if (twilioCallState === "ended") {
       // Process-once guard: prevent re-firing from dependency changes while still "ended"
       if (hasProcessedEndedState.current) return;
 
@@ -1795,7 +1795,7 @@ export default function DialerPage() {
       }
 
       // Strict process-once-per-call-id guard (must run BEFORE flipping hasProcessedEndedState)
-      const callIdToProcess = telnyxCurrentCall?.id || telnyxCurrentCall?.callControlId || currentCallId;
+      const callIdToProcess = twilioCurrentCall?.id || twilioCurrentCall?.callControlId || currentCallId;
       if (callIdToProcess && lastProcessedCallIdRef.current === callIdToProcess) {
         return;
       }
@@ -1837,7 +1837,7 @@ export default function DialerPage() {
       setTimeout(() => setShowWrapUp(true), 500);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, telnyxHangUp, telnyxCurrentCall, dispositions, handleAutoDispose, handleAdvance, currentCallId]);
+  }, [twilioCallState, twilioHangUp, twilioCurrentCall, dispositions, handleAutoDispose, handleAdvance, currentCallId]);
 
   // live local time badge — updates every minute when lead state changes
   useEffect(() => {
@@ -1860,7 +1860,7 @@ export default function DialerPage() {
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-    if (!showWrapUp || telnyxCallState === "active") return;
+    if (!showWrapUp || twilioCallState === "active") return;
     const num = parseInt(e.key, 10);
     if (num >= 1 && num <= 9 && dispositions[num - 1]) {
       handleSelectDisposition(dispositions[num - 1]);
@@ -1869,7 +1869,7 @@ export default function DialerPage() {
   window.addEventListener("keydown", handleKey);
   return () => window.removeEventListener("keydown", handleKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [showWrapUp, telnyxCallState, dispositions]);
+}, [showWrapUp, twilioCallState, dispositions]);
 
   // (Session duration ticker moved to mount effects above)
 
@@ -2011,12 +2011,12 @@ export default function DialerPage() {
 
     syncSettings();
     setSessionStats({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
-    telnyxInitialize();
+    twilioInitialize();
 
     return () => {
       // Cleanup
     };
-  }, [selectedCampaignId, organizationId, telnyxInitialize]);
+  }, [selectedCampaignId, organizationId, twilioInitialize]);
 
   const memoizedCheckHours = useCallback(
     (state: string) => checkCallingHours(state, callingHoursStart, callingHoursEnd),
@@ -2026,8 +2026,8 @@ export default function DialerPage() {
   // ── Two-Lane State Machine Hook ──
   const { machineState, autoDialCountdownActive, cancelAutoDialCountdown } = useDialerStateMachine({
     isAutoDialEnabled: autoDialEnabled && !isPaused,
-    telnyxCallState,
-    telnyxStatus,
+    twilioCallState,
+    twilioStatus,
     currentLead,
     hasDialedOnce,
     showWrapUp,
@@ -2106,8 +2106,8 @@ export default function DialerPage() {
   // ── Telnyx answer → start claim timer (Team/Open only) ──
   useEffect(() => {
     if (!lockMode || !currentLead) return;
-    if (telnyxCallState === "active") {
-      if (isTelnyxSdkInboundDirection(telnyxCurrentCall?.direction)) {
+    if (twilioCallState === "active") {
+      if (isTelnyxSdkInboundDirection(twilioCurrentCall?.direction)) {
         setClaimRingActive(false);
         return;
       }
@@ -2117,13 +2117,13 @@ export default function DialerPage() {
         (currentLead.lead_id || currentLead.id) as string,
         selectedCampaignId || ""
       );
-    } else if (telnyxCallState === "idle" || telnyxCallState === "ended") {
+    } else if (twilioCallState === "idle" || twilioCallState === "ended") {
       setClaimRingActive(false);
       // Cancel timer only on idle (ended keeps the card revealed during wrap-up)
-      if (telnyxCallState === "idle") cancelClaimTimer();
+      if (twilioCallState === "idle") cancelClaimTimer();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telnyxCallState, lockMode, currentLead?.id]);
+  }, [twilioCallState, lockMode, currentLead?.id]);
 
   /* --- caller ID selection --- */
   // Redundant helper removed, now using getSmartCallerId from TelnyxContext
@@ -2175,7 +2175,7 @@ export default function DialerPage() {
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
-        duration_seconds: telnyxCallDuration,
+        duration_seconds: twilioCallDuration,
         disposition: d.name,
         notes: "",
         outcome: d.name,
@@ -2340,7 +2340,7 @@ export default function DialerPage() {
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
-        duration_seconds: telnyxCallDuration,
+        duration_seconds: twilioCallDuration,
         disposition: selectedDisp?.name || "No Disposition",
         notes: noteText,
         outcome: selectedDisp?.name || "No Outcome",
@@ -2370,7 +2370,7 @@ export default function DialerPage() {
           masterId as string,
           selectedCampaignId!,
           selectedDisp?.name || "",
-          telnyxCallDuration
+          twilioCallDuration
         );
         stopHeartbeat();
         releaseLock(currentLead.id as string);
@@ -2424,7 +2424,7 @@ export default function DialerPage() {
         }
       }
 
-      if (telnyxCallDuration > 0 && masterId) {
+      if (twilioCallDuration > 0 && masterId) {
         scheduleRecordingHistoryRefresh(masterId);
       }
 
@@ -3019,7 +3019,7 @@ export default function DialerPage() {
                 .then(() => {})
                 .catch(() => {});
             }
-            telnyxDestroy();
+            twilioDestroy();
             setSelectedCampaignId(null);
             setLeadQueue([]);
             setCurrentLeadIndex(0);
@@ -3293,8 +3293,8 @@ export default function DialerPage() {
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
         <DialerActions
-          telnyxCallState={telnyxCallState}
-          telnyxCallDuration={telnyxCallDuration}
+          telnyxCallState={twilioCallState}
+          telnyxCallDuration={twilioCallDuration}
           claimRingActive={claimRingActive}
           campaignType={campaignType}
           campaignId={selectedCampaignId || ""}
@@ -3526,7 +3526,7 @@ export default function DialerPage() {
               onClick={() => {
                 console.log("DNC override:", dncLead);
                 if (dncLead?.phone) {
-                  telnyxMakeCall(dncLead.phone);
+                  twilioMakeCall(dncLead.phone);
                 }
                 setShowDncWarning(false);
               }}
