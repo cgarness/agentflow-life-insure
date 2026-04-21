@@ -224,11 +224,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [dialSessionRingOverride, setDialSessionRingOverride] = useState<number | null>(null);
   /** True while DialerPage owns merged ring policy (suppress duplicate timeout toast here). */
   const dialerRingSessionActiveRef = useRef(false);
+  const latestRingTimeoutRef = useRef(25);
   const ringTimeout = useMemo(() => {
     if (dialSessionRingOverride != null && dialSessionRingOverride > 0) return dialSessionRingOverride;
     if (phoneBaselineRing > 0) return phoneBaselineRing;
     return 25;
   }, [dialSessionRingOverride, phoneBaselineRing]);
+  latestRingTimeoutRef.current = ringTimeout;
 
   const applyDialSessionRingTimeout = useCallback((seconds: number | null) => {
     if (seconds == null || (typeof seconds === "number" && (Number.isNaN(seconds) || seconds <= 0))) {
@@ -315,8 +317,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Last inbound notification envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
   const lastInboundNotificationRef = useRef<unknown>(undefined);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  /** Outbound ring-timeout timer — cleared on `accept` so answered calls are never torn down by this timer. */
-  const outboundRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Outbound ring-timeout watchdog interval — cleared on `accept`. */
+  const outboundRingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Ring watchdog calls this — never put `hangUp` in the watchdog effect deps (would reset the timer). */
+  const hangUpRef = useRef<() => void>(() => {});
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1223,6 +1227,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clearIncomingDisplay();
     }, 200);
   }, [clearIncomingDisplay]);
+  hangUpRef.current = hangUp;
 
   const answerIncomingCall = useCallback(async () => {
     if (callStateRef.current !== "incoming") return;
@@ -1289,84 +1294,76 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     hangUp();
   }, [hangUp]);
 
-  // Ring Timeout Logic: Auto-hangup if call stays "dialing" for too long
+  // Ring timeout: interval watchdog keyed ONLY on `callState` so `ringTimeout` / `hangUp` identity
+  // changes do not clear and restart the timer mid-ring (that prevented hangup from ever firing).
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout | null = null;
+    if (callState !== "dialing") return;
 
-    if (callState === "dialing" && ringTimeout > 0) {
-      console.log(`[RingTimeout] Setting timer for ${ringTimeout}s`);
-      timeoutId = setTimeout(async () => {
-        const twilioCall = callRef.current as TwilioCall | null;
-        if (twilioCall && isVoiceSdkInboundDirection(getCallDirection(twilioCall))) {
-          return;
-        }
-        if (callStateRef.current !== "dialing") {
-          console.log("[RingTimeout] Skipping hangup — call state is no longer dialing.");
-          return;
-        }
+    const limitSec = Math.max(1, latestRingTimeoutRef.current);
+    const startedAt = Date.now();
+    let fired = false;
 
-        console.log(`[RingTimeout] ${ringTimeout}s reached.`, {
-          callId: activeCallIdRef.current,
-          controlId: activeCallControlIdRef.current,
-        });
+    console.log(`[RingTimeout] Watchdog started for ${limitSec}s (dialing)`);
 
-        if (outboundRemoteAnsweredRef.current || callStateRef.current === "active") {
-          console.log("[RingTimeout] Skipping hangup — outbound accept fired (remote answered).");
-          return;
-        }
+    const iv = window.setInterval(() => {
+      if (fired) return;
 
-        if (!activeCallControlIdRef.current) {
-          console.warn("[RingTimeout] CallSid not yet available — polling up to 3s before hanging up...");
-          let waited = 0;
-          while (!activeCallControlIdRef.current && waited < 3000) {
-            await new Promise<void>(resolve => setTimeout(resolve, 500));
-            waited += 500;
-          }
-          console.log(
-            `[RingTimeout] Poll complete (${waited}ms). controlId=${activeCallControlIdRef.current ?? "still null"}`
-          );
-        }
+      const twilioCall = callRef.current as TwilioCall | null;
+      if (twilioCall && isVoiceSdkInboundDirection(getCallDirection(twilioCall))) {
+        return;
+      }
+      if (callStateRef.current !== "dialing") {
+        window.clearInterval(iv);
+        if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
+        return;
+      }
+      if (outboundRemoteAnsweredRef.current || callStateRef.current === "active") {
+        window.clearInterval(iv);
+        if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
+        return;
+      }
 
-        if (outboundRemoteAnsweredRef.current || callStateRef.current === "active") {
-          console.log("[RingTimeout] Skipping hangup — answered during SID wait.");
-          return;
-        }
-        if (callStateRef.current !== "dialing") {
-          console.log("[RingTimeout] Skipping hangup — call left dialing state during wait.");
-          return;
-        }
+      const elapsedSec = (Date.now() - startedAt) / 1000;
+      if (elapsedSec < limitSec) return;
 
+      fired = true;
+      window.clearInterval(iv);
+      if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
+
+      console.log(`[RingTimeout] ${limitSec}s elapsed — forcing teardown.`, {
+        callId: activeCallIdRef.current,
+        controlId: activeCallControlIdRef.current,
+      });
+
+      try {
+        twilioHangUpAll();
+      } catch {
+        /* ignore */
+      }
+      const snap = callRef.current as TwilioCall | null;
+      if (snap && !outboundRemoteAnsweredRef.current) {
         try {
-          twilioHangUpAll();
-        } catch {
-          /* ignore */
+          snap.disconnect();
+        } catch (e) {
+          console.warn("[RingTimeout] Call.disconnect() error:", e);
         }
-        const snap = callRef.current as TwilioCall | null;
-        if (snap && !outboundRemoteAnsweredRef.current) {
-          try {
-            snap.disconnect();
-          } catch (e) {
-            console.warn("[RingTimeout] Call.disconnect() error:", e);
-          }
-        }
+      }
 
-        if (!dialerRingSessionActiveRef.current) {
-          toast.info(`Call timed out after ${ringTimeout}s without answer.`);
-        }
-        hangUp();
-      }, ringTimeout * 1000);
-      outboundRingTimerRef.current = timeoutId;
-    }
+      if (!dialerRingSessionActiveRef.current) {
+        toast.info(`Call timed out after ${limitSec}s without answer.`);
+      }
+      hangUpRef.current();
+    }, 400);
+
+    outboundRingTimerRef.current = iv;
 
     return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (outboundRingTimerRef.current === timeoutId) {
+      window.clearInterval(iv);
+      if (outboundRingTimerRef.current === iv) {
         outboundRingTimerRef.current = null;
       }
     };
-  }, [callState, ringTimeout, hangUp]);
+  }, [callState]);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current as TwilioCall | null;
@@ -1535,8 +1532,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       call.on("accept", () => {
-        if (outboundRingTimerRef.current) {
-          clearTimeout(outboundRingTimerRef.current);
+        if (outboundRingTimerRef.current != null) {
+          window.clearInterval(outboundRingTimerRef.current);
           outboundRingTimerRef.current = null;
         }
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {

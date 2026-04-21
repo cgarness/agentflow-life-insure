@@ -326,6 +326,8 @@ export default function DialerPage() {
     getSmartCallerId,
     applyDialSessionRingTimeout: twilioApplyDialSessionRingTimeout,
   } = useTwilio();
+  const twilioHangUpRef = useRef(twilioHangUp);
+  twilioHangUpRef.current = twilioHangUp;
   const [displayedFromNumber, setDisplayedFromNumber] = useState<string>("");
 
   const [selectedDisp, setSelectedDisp] = useState<Disposition | null>(null);
@@ -1743,24 +1745,33 @@ export default function DialerPage() {
   }, [twilioCallState]);
 
   // ── Strict Ring Timeout Enforcement ──
-  // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
-  // Only skip when Voice context is already `active` (accept fired). Do not use DB or `call.status()`.
+  // Interval watchdog depends only on `twilioCallState` so `twilioHangUp` ref changes cannot reset the timer.
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
-    if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
+    const limitSec = Math.max(1, ringTimeoutRef.current || 25);
+    const startedAt = Date.now();
+    let fired = false;
 
-    const timeoutMs = ringTimeoutRef.current * 1000;
-    const timeoutId = setTimeout(() => {
-      if (twilioCallStateRef.current === "active") return;
-      if (twilioCallStateRef.current !== "dialing") return;
-      console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
-      toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);
-      twilioHangUp();
-    }, timeoutMs);
+    const iv = window.setInterval(() => {
+      if (fired) return;
+      if (twilioCallStateRef.current === "active") {
+        window.clearInterval(iv);
+        return;
+      }
+      if (twilioCallStateRef.current !== "dialing") {
+        window.clearInterval(iv);
+        return;
+      }
+      if ((Date.now() - startedAt) / 1000 < limitSec) return;
+      fired = true;
+      window.clearInterval(iv);
+      console.log(`[RingTimeout] Strict enforcement: ${limitSec}s reached. Hanging up.`);
+      toast.info(`No answer after ${limitSec}s — hanging up.`);
+      twilioHangUpRef.current();
+    }, 400);
 
-    return () => clearTimeout(timeoutId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [twilioCallState, twilioHangUp]);
+    return () => window.clearInterval(iv);
+  }, [twilioCallState]);
 
   // Reset the ended-state guard only when a new call begins — NOT on every non-ended state.
   // Resetting on "idle" caused a double-fire: ended → idle (200ms reset) → ended (WebRTC destroy notification)

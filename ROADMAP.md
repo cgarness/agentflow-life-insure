@@ -67,6 +67,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-21 | [DONE] | Ring timeout watchdog — timer no longer resets on `ringTimeout` / `hangUp` deps**
+  *What:* Ring-timeout **`useEffect`** depended on **`ringTimeout`** and **`hangUp`**. Mid-call updates (phone settings merge, **`applyDialSessionRingTimeout`**, or callback identity) **cleared the scheduled `setTimeout` and started a new full window**, so the call could ring far past **10s** with “no answer.” Replaced with a **400ms `setInterval` watchdog** whose **only** dependency is **`callState === 'dialing'`**, using **`latestRingTimeoutRef`** for the limit at dial start and **`hangUpRef.current()`** for teardown. **`DialerPage`** strict path matches (**`twilioHangUpRef`**, deps only **`twilioCallState`**). **`accept`** clears the watchdog with **`clearInterval`**.
+  *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-20 | [DONE] | Ring timeout — answered detection + force PSTN teardown**
   *What:* **`getCallStatus() === 'open'`** could still be true while the callee had not been answered, so ring timeout sometimes skipped **`hangUp()`** again. Outbound “answered” is now **`outboundRemoteAnsweredRef`** set **only** in Voice.js **`accept`**. Ring timeout skips only when that ref or **`callStateRef === 'active'`**; then **`twilioHangUpAll()`**, **`call.disconnect()`**, and **`hangUp()`** run so the leg ends reliably. **`callStateRef`** is synced on **`dialing` / `active` / `ended`** transitions. **`DialerPage`** strict timeout only checks **`twilioCallStateRef`** for **`active`**; removed Realtime **`calls.connected`** → **`callWasAnswered`** (webhook is too early).
   *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
