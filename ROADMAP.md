@@ -67,6 +67,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Ring timeout — answered detection + force PSTN teardown**
+  *What:* **`getCallStatus() === 'open'`** could still be true while the callee had not been answered, so ring timeout sometimes skipped **`hangUp()`** again. Outbound “answered” is now **`outboundRemoteAnsweredRef`** set **only** in Voice.js **`accept`**. Ring timeout skips only when that ref or **`callStateRef === 'active'`**; then **`twilioHangUpAll()`**, **`call.disconnect()`**, and **`hangUp()`** run so the leg ends reliably. **`callStateRef`** is synced on **`dialing` / `active` / `ended`** transitions. **`DialerPage`** strict timeout only checks **`twilioCallStateRef`** for **`active`**; removed Realtime **`calls.connected`** → **`callWasAnswered`** (webhook is too early).
+  *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-20 | [DONE] | Sticky caller ID — minimum conversation seconds (30 → 45)**
   *What:* **`CALLER_ID_STICKY_MIN_DURATION_SEC`** in **`src/lib/caller-id-selection.ts`** is now **45** so Smart Caller ID reuse only applies after **`duration >= 45`** seconds on the last outbound to the contact (filters quick hangups / short machine answers). **`TwilioContext`** already passes this constant into **`selectOutboundCallerId`**; no duplicate inline threshold. **`FloatingDialer`** prior-call warning uses the same export (**`.gte("duration", ...)`**).
   *Files:* **`src/lib/caller-id-selection.ts`**, **`ROADMAP.md`**.

@@ -49,7 +49,6 @@ import {
   getContactCallStats,
 } from "@/lib/dialer-api";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
-import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import {
   Dialog,
   DialogContent,
@@ -428,7 +427,6 @@ export default function DialerPage() {
   const callWasAnswered = useRef(false);
   /** Mirrors state for ring-timeout callback (avoids stale React closures). */
   const currentCallIdRef = useRef<string | null>(null);
-  const twilioSdkCallRef = useRef<TwilioCall | null>(null);
   const twilioCallStateRef = useRef<string>("idle");
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
@@ -1710,9 +1708,6 @@ export default function DialerPage() {
   useEffect(() => {
     twilioCallStateRef.current = twilioCallState;
   }, [twilioCallState]);
-  useEffect(() => {
-    twilioSdkCallRef.current = (twilioCurrentCall as TwilioCall | null) ?? null;
-  }, [twilioCurrentCall]);
 
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
@@ -1747,63 +1742,16 @@ export default function DialerPage() {
     }
   }, [twilioCallState]);
 
-  // When webhook marks PSTN connected before WebRTC goes "active", treat as answered so
-  // we do not auto-dispose as No Answer if the agent leg drops later.
-  useEffect(() => {
-    if (!currentCallId || twilioCallState !== "dialing") return;
-    const channel = supabase
-      .channel(`dialer-call-${currentCallId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "calls",
-          filter: `id=eq.${currentCallId}`,
-        },
-        (payload) => {
-          const next = (payload.new as { status?: string })?.status;
-          if (next === "connected") {
-            const live = twilioSdkCallRef.current;
-            try {
-              if (live && String(getCallStatus(live)).toLowerCase() === "open") {
-                callWasAnswered.current = true;
-              }
-            } catch {
-              /* ignore */
-            }
-          }
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [currentCallId, twilioCallState]);
-
   // ── Strict Ring Timeout Enforcement ──
   // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
-  // Do not skip based on `calls.status`: Twilio `in-progress` maps to DB "connected" before the callee answers.
+  // Only skip when Voice context is already `active` (accept fired). Do not use DB or `call.status()`.
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
     if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
 
     const timeoutMs = ringTimeoutRef.current * 1000;
     const timeoutId = setTimeout(() => {
-      const live = twilioSdkCallRef.current;
-      if (live) {
-        try {
-          if (String(getCallStatus(live)).toLowerCase() === "open") {
-            console.log(
-              "[DialerPage] Ring timeout skipped — Twilio SDK call is open (answered).",
-            );
-            callWasAnswered.current = true;
-            return;
-          }
-        } catch {
-          /* ignore */
-        }
-      }
+      if (twilioCallStateRef.current === "active") return;
       if (twilioCallStateRef.current !== "dialing") return;
       console.log(`[RingTimeout] Strict enforcement: ${ringTimeoutRef.current}s reached. Hanging up.`);
       toast.info(`No answer after ${ringTimeoutRef.current}s — hanging up.`);

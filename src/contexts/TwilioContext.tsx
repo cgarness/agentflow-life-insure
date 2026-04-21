@@ -10,7 +10,6 @@ import {
   getTwilioDevice,
   getCallSid,
   getCallDirection,
-  getCallStatus,
   clearIncomingCallHandlers,
   subscribeToIncomingCalls,
   type TwilioCall,
@@ -329,6 +328,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Prevents duplicate browser-side recording starts per call. */
   const recordingStartedRef = useRef(false);
   const pendingAbortCallIdRef = useRef<string | null>(null);
+  /** Outbound: set only in Voice.js `accept` (remote answered). Never infer from DB/webhook or `call.status()`. */
+  const outboundRemoteAnsweredRef = useRef(false);
   const activeLeadIdRef = useRef<string | null>(null);
   /** LRU for outbound DIDs (E.164 → last used epoch ms). */
   const didLastUsedAtRef = useRef<Map<string, number>>(new Map());
@@ -1168,6 +1169,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     console.log("[TwilioContext] Initiating hangup.", { callId, controlId });
 
     endStateProcessedRef.current = true;
+    callStateRef.current = "ended";
 
     setIdentifiedContact(null);
 
@@ -1308,20 +1310,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           controlId: activeCallControlIdRef.current,
         });
 
-        // Twilio status webhooks map `in-progress` → `calls.status = connected` before the
-        // browser SDK fires `accept` / `open`. Skipping hangup on DB "connected" alone prevents
-        // ring timeout from ever firing; only skip if the SDK leg is actually established.
-        const liveCall = callRef.current as TwilioCall | null;
-        if (liveCall) {
-          try {
-            const sdkStatus = String(getCallStatus(liveCall) ?? "").toLowerCase();
-            if (sdkStatus === "open") {
-              console.log("[RingTimeout] Skipping hangup — Twilio SDK call status is open (answered).");
-              return;
-            }
-          } catch {
-            /* ignore */
-          }
+        if (outboundRemoteAnsweredRef.current || callStateRef.current === "active") {
+          console.log("[RingTimeout] Skipping hangup — outbound accept fired (remote answered).");
+          return;
         }
 
         if (!activeCallControlIdRef.current) {
@@ -1336,19 +1327,26 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           );
         }
 
+        if (outboundRemoteAnsweredRef.current || callStateRef.current === "active") {
+          console.log("[RingTimeout] Skipping hangup — answered during SID wait.");
+          return;
+        }
         if (callStateRef.current !== "dialing") {
           console.log("[RingTimeout] Skipping hangup — call left dialing state during wait.");
           return;
         }
-        const again = callRef.current as TwilioCall | null;
-        if (again) {
+
+        try {
+          twilioHangUpAll();
+        } catch {
+          /* ignore */
+        }
+        const snap = callRef.current as TwilioCall | null;
+        if (snap && !outboundRemoteAnsweredRef.current) {
           try {
-            if (String(getCallStatus(again) ?? "").toLowerCase() === "open") {
-              console.log("[RingTimeout] Skipping hangup — SDK status is open after wait.");
-              return;
-            }
-          } catch {
-            /* ignore */
+            snap.disconnect();
+          } catch (e) {
+            console.warn("[RingTimeout] Call.disconnect() error:", e);
           }
         }
 
@@ -1531,6 +1529,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       call.on("ringing", () => {
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
+          callStateRef.current = "dialing";
           setCallState("dialing");
         }
       });
@@ -1540,11 +1539,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           clearTimeout(outboundRingTimerRef.current);
           outboundRingTimerRef.current = null;
         }
+        if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
+          outboundRemoteAnsweredRef.current = true;
+        }
         try {
           call.mute?.(false);
         } catch {
           /* ignore */
         }
+        callStateRef.current = "active";
         setCallState("active");
         if (!timerRef.current) {
           timerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
@@ -1609,6 +1612,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           })();
         }
       } else {
+        outboundRemoteAnsweredRef.current = false;
+        callStateRef.current = "dialing";
         setCallState("dialing");
       }
     },
@@ -1875,6 +1880,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       setInboundClaimedCallRowId(null);
       activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
+      outboundRemoteAnsweredRef.current = false;
+      callStateRef.current = "dialing";
       setCallState("dialing");
       setIsMuted(false);
       setIsOnHold(false);
@@ -1952,6 +1959,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (err: any) {
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
+      outboundRemoteAnsweredRef.current = false;
+      callStateRef.current = "idle";
       setCallState("idle");
       isDialingRef.current = false;
       return undefined;
