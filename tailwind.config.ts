@@ -127,6 +127,18 @@ export default {
           "0%": { transform: "translateX(0)" },
           "100%": { transform: "translateX(-50%)" },
         },
+        "reputation-grid": {
+          "0%": { backgroundPosition: "0 0" },
+          "100%": { backgroundPosition: "28px 28px" },
+        },
+        "reputation-scan-sweep": {
+          "0%": { transform: "translateY(-140%)" },
+          "100%": { transform: "translateY(480%)" },
+        },
+        "reputation-pulse-dot": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.35" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -138,6 +150,9 @@ export default {
         "fire-flicker": "fire-flicker 0.8s ease-in-out infinite",
         "tv-trophy-shimmer": "tv-trophy-shimmer 2s ease-in-out infinite",
         "ticker": "ticker 30s linear infinite",
+        "reputation-grid": "reputation-grid 10s linear infinite",
+        "reputation-scan-sweep": "reputation-scan-sweep 3.2s ease-in-out infinite",
+        "reputation-pulse-dot": "reputation-pulse-dot 1.4s ease-in-out infinite",
       },
     },
   },

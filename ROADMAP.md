@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 20, 2026
+**Owner:** Chris Garness | **Last Updated:** April 21, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -67,6 +67,10 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-21 | [DONE] | Settings — Number Reputation tab**
+  *What:* New **Telephony Stack** sidebar entry **Number Reputation** (`?section=number-reputation`) with a simplified reputation table (health score, attestation, spam-likely mapping, last check, per-row and bulk scan via existing **`spam-check-cron`** Edge Function). Added an always-on **AI line monitor** scanner strip (grid sweep, radar, scan beam, ticker) plus row-level scan animation while a check runs. Extracted **`CarrierReputationPanel`** for reuse with **Spam Monitoring** expand rows.
+  *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/number-reputation/ReputationAiScanner.tsx`**, **`src/components/settings/phone/CarrierReputationPanel.tsx`**, **`src/components/settings/SpamMonitoring.tsx`**, **`tailwind.config.ts`**, **`ROADMAP.md`**.
 
 - **2026-04-20 | [DONE] | Contact Conversations — call info modal**
   *What:* Each call bubble in the center **Conversations** column on the full-screen contact view now has a small **Info** icon. Clicking it opens a modal with the full **`calls`** row context (direction, disposition, timestamps, caller ID, agent, prospect snapshot, recording status, coaching flag, carrier/session identifiers, SIP/quality fields, internal IDs). The contact timeline query selects the extra columns needed for that modal (no schema change).

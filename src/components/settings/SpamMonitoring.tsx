@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { CarrierReputationPanel } from "@/components/settings/phone/CarrierReputationPanel";
 
 type PhoneNumber = {
   id: string;
@@ -344,7 +345,7 @@ const SpamMonitoring: React.FC = () => {
                               className="overflow-hidden"
                             >
                               <div className="px-6 py-4 bg-accent/20 border-t">
-                                <CarrierDetails data={carrierData} />
+                                <CarrierReputationPanel data={carrierData} />
                               </div>
                             </motion.div>
                           </td>
@@ -358,68 +359,6 @@ const SpamMonitoring: React.FC = () => {
           </table>
         </div>
       </div>
-    </div>
-  );
-};
-
-const CarrierDetails: React.FC<{ data: any }> = ({ data }) => {
-  if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
-    return (
-      <p className="text-sm text-muted-foreground italic">
-        No carrier data available. Run spam check to get detailed carrier breakdown.
-      </p>
-    );
-  }
-
-  const carriers = data.carriers || data.carrier_results;
-  const networkAnalysis = data.network_analysis;
-
-  return (
-    <div className="space-y-4">
-      <h5 className="text-sm font-semibold text-foreground">Carrier Analysis</h5>
-      {carriers && Array.isArray(carriers) ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {carriers.map((c: any, i: number) => (
-            <div key={i} className="bg-card border rounded-lg p-3 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground capitalize">{c.name || c.carrier || "Unknown"}</span>
-                {c.blocking_rate != null && (
-                  <Badge className={c.blocking_rate > 5
-                    ? "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30"
-                    : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                  }>
-                    {c.blocking_rate}% blocked
-                  </Badge>
-                )}
-              </div>
-              {c.spam_label && <p className="text-xs text-red-500 font-medium">{c.spam_label}</p>}
-              {c.completion_rate != null && (
-                <p className="text-xs text-muted-foreground">Completion: {c.completion_rate}%</p>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground italic">No carrier breakdown available.</p>
-      )}
-
-      {networkAnalysis && (
-        <div className="pt-2">
-          <h5 className="text-sm font-semibold text-foreground mb-2">Network Analysis</h5>
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Total Calls", value: networkAnalysis.total_calls },
-              { label: "Flagged Calls", value: networkAnalysis.flagged_calls },
-              { label: "Avg Answer Rate", value: networkAnalysis.average_answer_rate != null ? `${networkAnalysis.average_answer_rate}%` : "N/A" },
-            ].map((s) => (
-              <div key={s.label} className="bg-card border rounded-lg p-3 text-center">
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-                <p className="text-lg font-bold text-foreground">{s.value ?? "—"}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
