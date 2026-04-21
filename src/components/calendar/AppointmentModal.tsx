@@ -28,6 +28,24 @@ const TYPE_DURATIONS: Record<string, number> = {
   "Other": 30,
 };
 
+/** "{phrase} with {first name}" — matches how agents speak; subject stays fully editable. */
+const TYPE_SUBJECT_LEAD: Record<CalAppointmentType, string> = {
+  "Sales Call": "Sales call",
+  "Follow Up": "Follow up",
+  "Recruit Interview": "Recruit interview",
+  "Policy Review": "Policy review",
+  "Policy Anniversary": "Policy anniversary",
+  "Other": "Meeting",
+};
+
+function autoSubjectForType(appointmentType: CalAppointmentType, displayName: string): string {
+  const lead = TYPE_SUBJECT_LEAD[appointmentType] ?? "Meeting";
+  const trimmed = displayName.trim();
+  if (!trimmed) return "";
+  const first = trimmed.split(/\s+/)[0];
+  return `${lead} with ${first}`;
+}
+
 const timeToMinutes = (t: string): number => {
   const match = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
   if (!match) return 0;
@@ -236,9 +254,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       setAgent(editing.agent);
       setNotes(editing.notes);
     } else {
-      const firstName = prefillContactName?.split(" ")[0] || "";
-      setTitle(prefillContactName ? `Call with ${firstName}` : "");
       setType("Sales Call"); setStatus("Scheduled");
+      setTitle(prefillContactName ? autoSubjectForType("Sales Call", prefillContactName) : "");
       setContactName(prefillContactName || "");
       setStartTime(defaultTime || "10:00 AM");
       setEndTime(defaultTime ? advanceTime(defaultTime) : "10:30 AM");
@@ -255,6 +272,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   const contactId = editing?.contactId || prefillContactId || selectedContactId || "";
   const [contactInfo, setContactInfo] = useState<{ name: string; phone: string; email: string; state: string; status: string; contactId: string } | null>(null);
+
+  const displayNameForSubject = () =>
+    (contactInfo?.name || prefillContactName || contactName).trim();
 
   useEffect(() => {
     if (!contactId) {
@@ -501,7 +521,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                           setContactName(c.name);
                           setSelectedContactId(c.id);
                           setContactDropdownOpen(false);
-                          if (!title.trim()) setTitle(`Call with ${c.name.split(" ")[0]}`);
+                          setTitle(autoSubjectForType(type, c.name));
                         }}
                         className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-accent flex items-center justify-between border-b border-border/50 last:border-0"
                       >
@@ -550,7 +570,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                       if (error || !newLead) { toastSonner.error("Failed"); return; }
                       setContactName(`${newLead.first_name} ${newLead.last_name}`);
                       setSelectedContactId(newLead.id); setShowCreateForm(false);
-                      if (!title.trim()) setTitle(`Call with ${newLead.first_name}`);
+                      setTitle(autoSubjectForType(type, `${newLead.first_name} ${newLead.last_name}`));
                       toastSonner.success("Created");
                     }}
                   >
@@ -577,7 +597,12 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Type</label>
                 <select 
                   value={type} 
-                  onChange={e => setType(e.target.value as CalAppointmentType)} 
+                  onChange={e => {
+                    const next = e.target.value as CalAppointmentType;
+                    setType(next);
+                    const name = displayNameForSubject();
+                    if (name) setTitle(autoSubjectForType(next, name));
+                  }} 
                   className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 >
                   {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
