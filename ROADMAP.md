@@ -67,6 +67,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Ring timeout — root fix: keep watchdog through `active`, `answerOnBridge`, stop clearing on Voice.js `accept`**
+  *What:* Outbound **`accept`** is browser media up, not callee pickup — **`callState`** goes **`active`** while PSTN still rings, so the old watchdog (deps only **`dialing`**) was torn down and **`accept`** had been clearing **`outboundRingTimerRef`**, killing the timer immediately. **Fix:** TwiML **`<Dial answerOnBridge="true">`** (deploy **`twilio-voice-webhook`**), Device **`enableRingingState: true`**, ring watchdog keyed by **`outboundRingSessionId`** + **`outboundRingStartedAtRef`** (no reset on dialing→active), skip hangup only when **`getCallStatus() === "open"`**, remove **`accept`** handler’s **`clearInterval`** on the ring timer. **`DialerPage`** strict path: deps **`[currentCallId]`**, same open check.
+  *Files:* **`supabase/functions/twilio-voice-webhook/index.ts`**, **`src/lib/twilio-voice.ts`**, **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-20 | [DONE] | Ring timeout — retract DB `connected` skip (was blocking hangup)**
   *What:* **`twilio-voice-status`** maps Twilio **`in-progress`** → **`calls.status = connected`** while the callee can still be ringing, so the ring watchdog often skipped teardown and calls never timed out. Hangup skip is again **`Voice.js` `accept`** (**`outboundRemoteAnsweredRef`**) in **`TwilioContext`**, and **`callWasAnswered`** (active state) on **`DialerPage`** strict path — not **`calls.status`**.
   *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.

@@ -136,6 +136,8 @@ export async function initTwilioDevice(opts?: InitTwilioDeviceOptions): Promise<
       region: "us1",
       closeProtection: true,
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
+      // Emits Call "ringing" for outbound when callee is alerted (pairs with Dial answerOnBridge).
+      enableRingingState: true,
     });
 
     wireDeviceListeners(device, opts);

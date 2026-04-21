@@ -125,7 +125,9 @@ function buildDialTwiml(toNumber: string, callerId: string, statusCallbackUrl: s
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
-    `<Dial callerId="${safeCaller}" action="${safeAction}" method="POST">` +
+    // answerOnBridge: PSTN leg rings without bridging audio until pickup — Voice.js stays in
+    // "ringing" / non-open until answered, so ring-timeout watchdog can run through that phase.
+    `<Dial answerOnBridge="true" callerId="${safeCaller}" action="${safeAction}" method="POST">` +
     `<Number>${safeTo}</Number>` +
     `</Dial>` +
     `</Response>`

@@ -10,6 +10,7 @@ import {
   getTwilioDevice,
   getCallSid,
   getCallDirection,
+  getCallStatus,
   clearIncomingCallHandlers,
   subscribeToIncomingCalls,
   type TwilioCall,
@@ -269,6 +270,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** `call_logs.direction` and finalize context for inbound vs outbound. */
   const lastCallLogDirectionRef = useRef<"inbound" | "outbound">("outbound");
   const [lastCallDirection, setLastCallDirection] = useState<"inbound" | "outbound">("outbound");
+  /** Drives outbound ring-timeout effect deps once per placed call (avoids resetting timer on dialing→active). */
+  const [outboundRingSessionId, setOutboundRingSessionId] = useState<string | null>(null);
 
   // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
   const isDialingRef = useRef(false);
@@ -317,8 +320,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** Last inbound notification envelope for the current inbound ring — re-run ANI extract when org-DID exclude set loads. */
   const lastInboundNotificationRef = useRef<unknown>(undefined);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  /** Outbound ring-timeout watchdog interval — cleared on `accept`. */
+  /** Outbound ring-timeout watchdog interval — cleared on timeout, PSTN open, or call end. */
   const outboundRingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Epoch ms for the current outbound ring window (set with `outboundRingSessionId`). */
+  const outboundRingStartedAtRef = useRef<number>(0);
   /** Ring watchdog calls this — never put `hangUp` in the watchdog effect deps (would reset the timer). */
   const hangUpRef = useRef<() => void>(() => {});
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
@@ -1173,6 +1178,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     console.log("[TwilioContext] Initiating hangup.", { callId, controlId });
 
     endStateProcessedRef.current = true;
+    outboundRingStartedAtRef.current = 0;
+    setOutboundRingSessionId(null);
     callStateRef.current = "ended";
 
     setIdentifiedContact(null);
@@ -1294,17 +1301,18 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     hangUp();
   }, [hangUp]);
 
-  // Ring timeout: interval watchdog keyed ONLY on `callState === "dialing"` (not raw SDK status strings).
-  // Do NOT skip using `calls.status === "connected"`: Twilio `in-progress` maps there before callee answer.
-  // Skip teardown only after Voice.js `accept` (`outboundRemoteAnsweredRef`) or if state left `dialing`.
+  // Ring timeout: outbound stays `active` right after Voice.js `accept` while PSTN still rings.
+  // Effect deps are `outboundRingSessionId` only so dialing→active does not reset the timer.
+  // Skip hangup when `getCallStatus() === "open"` (callee answered) — use TwiML `<Dial answerOnBridge="true">`.
   useEffect(() => {
-    if (callState !== "dialing") return;
+    if (!outboundRingSessionId) return;
 
-    const limitSec = Math.max(1, latestRingTimeoutRef.current);
-    const startedAt = Date.now();
+    const rawLimit = latestRingTimeoutRef.current;
+    const limitSec = Math.max(1, Math.min(600, Number.isFinite(rawLimit) ? rawLimit : 25));
+    const startedAt = outboundRingStartedAtRef.current || Date.now();
     let fired = false;
 
-    console.log(`[RingTimeout] Watchdog started for ${limitSec}s (dialing)`);
+    console.log(`[RingTimeout] Watchdog started for ${limitSec}s (session ${outboundRingSessionId})`);
 
     const iv = window.setInterval(() => {
       if (fired) return;
@@ -1313,10 +1321,26 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (twilioCall && isVoiceSdkInboundDirection(getCallDirection(twilioCall))) {
         return;
       }
-      if (callStateRef.current !== "dialing") {
+
+      const stillOutboundRingPhase =
+        lastCallLogDirectionRef.current === "outbound" &&
+        (callStateRef.current === "dialing" || callStateRef.current === "active");
+      if (!stillOutboundRingPhase) {
         window.clearInterval(iv);
         if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
         return;
+      }
+
+      if (twilioCall && !isVoiceSdkInboundDirection(getCallDirection(twilioCall))) {
+        try {
+          if (getCallStatus(twilioCall) === "open") {
+            window.clearInterval(iv);
+            if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
       }
 
       const elapsedSec = (Date.now() - startedAt) / 1000;
@@ -1331,9 +1355,17 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const ringPolicyAtFire = latestRingTimeoutRef.current;
 
       void (async () => {
-        if (callStateRef.current !== "dialing") return;
-        if (outboundRemoteAnsweredRef.current) {
-          console.log("[RingTimeout] Skip hangup — Voice.js accept (remote answered).", {
+        const snapCall = callRef.current as TwilioCall | null;
+        const stillOut =
+          lastCallLogDirectionRef.current === "outbound" &&
+          (callStateRef.current === "dialing" || callStateRef.current === "active");
+        if (!stillOut) return;
+        if (
+          snapCall &&
+          !isVoiceSdkInboundDirection(getCallDirection(snapCall)) &&
+          getCallStatus(snapCall) === "open"
+        ) {
+          console.log("[RingTimeout] Skip hangup — Voice.js call status is open (callee answered).", {
             callId: activeCallIdRef.current,
             limitSec: limitAtFire,
             ringTimeoutRef: ringPolicyAtFire,
@@ -1377,7 +1409,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         outboundRingTimerRef.current = null;
       }
     };
-  }, [callState]);
+  }, [outboundRingSessionId]);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current as TwilioCall | null;
@@ -1503,6 +1535,12 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const finalizeEnded = () => {
         if (endStateProcessedRef.current) return;
         endStateProcessedRef.current = true;
+        outboundRingStartedAtRef.current = 0;
+        setOutboundRingSessionId(null);
+        if (outboundRingTimerRef.current != null) {
+          window.clearInterval(outboundRingTimerRef.current);
+          outboundRingTimerRef.current = null;
+        }
         setCallState("ended");
         if (timerRef.current) {
           clearInterval(timerRef.current);
@@ -1546,10 +1584,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       call.on("accept", () => {
-        if (outboundRingTimerRef.current != null) {
-          window.clearInterval(outboundRingTimerRef.current);
-          outboundRingTimerRef.current = null;
-        }
+        // Do not clear outboundRingTimerRef here — Voice.js "accept" is browser media up, not PSTN answer;
+        // the ring watchdog clears itself when getCallStatus() === "open" or on timeout.
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
           outboundRemoteAnsweredRef.current = true;
         }
@@ -1930,6 +1966,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       activeCallControlIdRef.current = null;
       callIdsDbSyncedRef.current = false;
       recordingStartedRef.current = false;
+      outboundRingStartedAtRef.current = Date.now();
+      setOutboundRingSessionId(callRecord.id);
 
       if (!getTwilioDevice()) {
         throw new Error("Twilio Device is not ready. Wait for Ready status and try again.");
@@ -1971,6 +2009,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error("Failed to start call:", err);
       toast.error(err.message || "Failed to start call");
       outboundRemoteAnsweredRef.current = false;
+      outboundRingStartedAtRef.current = 0;
+      setOutboundRingSessionId(null);
       callStateRef.current = "idle";
       setCallState("idle");
       isDialingRef.current = false;

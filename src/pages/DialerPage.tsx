@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { isVoiceSdkInboundDirection } from "@/lib/voiceSdkNotificationBranch";
+import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -318,6 +319,7 @@ export default function DialerPage() {
     setSelectedCallerNumber,
     makeCall: twilioMakeCall,
     hangUp: twilioHangUp,
+    lastCallDirection,
     hangUpOrphan,
     dismissOrphanCall,
     orphanCall,
@@ -430,6 +432,8 @@ export default function DialerPage() {
   /** Mirrors state for ring-timeout callback (avoids stale React closures). */
   const currentCallIdRef = useRef<string | null>(null);
   const twilioCallStateRef = useRef<string>("idle");
+  const twilioCurrentCallRef = useRef<TwilioCall | null>(null);
+  const lastCallDirectionRef = useRef<"inbound" | "outbound">("outbound");
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
   const hasProcessedEndedState = useRef(false);
@@ -1710,6 +1714,12 @@ export default function DialerPage() {
   useEffect(() => {
     twilioCallStateRef.current = twilioCallState;
   }, [twilioCallState]);
+  useEffect(() => {
+    twilioCurrentCallRef.current = (twilioCurrentCall as TwilioCall | null) ?? null;
+  }, [twilioCurrentCall]);
+  useEffect(() => {
+    lastCallDirectionRef.current = lastCallDirection;
+  }, [lastCallDirection]);
 
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
@@ -1744,20 +1754,35 @@ export default function DialerPage() {
     }
   }, [twilioCallState]);
 
-  // ── Strict Ring Timeout Enforcement ──
-  // Interval watchdog depends only on `twilioCallState` so `twilioHangUp` ref changes cannot reset the timer.
-  // Skip only when UI is active/answered — not `calls.status` (Twilio in-progress maps to connected too early).
+  // ── Strict Ring Timeout Enforcement (DialerPage belt-and-suspenders) ──
+  // One interval per `currentCallId` so dialing→active does not reset the window. Skip hangup when
+  // Voice.js `getCallStatus() === "open"` (callee answered with TwiML `answerOnBridge`).
   useEffect(() => {
-    if (twilioCallState !== "dialing") return;
-    const limitSec = Math.max(1, ringTimeoutRef.current || 25);
+    if (!currentCallId) return;
+
+    const rawLimit = ringTimeoutRef.current;
+    const limitSec = Math.max(1, Math.min(600, Number.isFinite(rawLimit) ? rawLimit : 25));
     const startedAt = Date.now();
     let fired = false;
 
     const iv = window.setInterval(() => {
       if (fired) return;
-      if (twilioCallStateRef.current !== "dialing") {
+      const out = lastCallDirectionRef.current === "outbound";
+      const st = twilioCallStateRef.current;
+      if (!out || (st !== "dialing" && st !== "active")) {
         window.clearInterval(iv);
         return;
+      }
+      const call = twilioCurrentCallRef.current;
+      if (call && !isVoiceSdkInboundDirection(call.direction)) {
+        try {
+          if (getCallStatus(call) === "open") {
+            window.clearInterval(iv);
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
       }
       if ((Date.now() - startedAt) / 1000 < limitSec) return;
       fired = true;
@@ -1767,26 +1792,28 @@ export default function DialerPage() {
       const ringPolicyAtFire = ringTimeoutRef.current;
 
       void (async () => {
-        if (twilioCallStateRef.current !== "dialing") return;
-        if (callWasAnswered.current) {
-          console.log("[RingTimeout] Strict path — skip hangup; call reached active (answered).", {
+        if (lastCallDirectionRef.current !== "outbound") return;
+        const st2 = twilioCallStateRef.current;
+        if (st2 !== "dialing" && st2 !== "active") return;
+        const c2 = twilioCurrentCallRef.current;
+        if (c2 && !isVoiceSdkInboundDirection(c2.direction) && getCallStatus(c2) === "open") {
+          console.log("[RingTimeout] Strict path — skip hangup (call status open).", {
             limitSec: limitAtFire,
             ringTimeoutRef: ringPolicyAtFire,
           });
           return;
         }
 
-        console.log(
-          `[RingTimeout] Strict enforcement: ${limitAtFire}s reached. Hanging up.`,
-          { ringTimeoutRef: ringPolicyAtFire },
-        );
+        console.log(`[RingTimeout] Strict enforcement: ${limitAtFire}s reached. Hanging up.`, {
+          ringTimeoutRef: ringPolicyAtFire,
+        });
         toast.info(`No answer after ${limitAtFire}s — hanging up.`);
         twilioHangUpRef.current();
       })();
     }, 400);
 
     return () => window.clearInterval(iv);
-  }, [twilioCallState]);
+  }, [currentCallId]);
 
   // Reset the ended-state guard only when a new call begins — NOT on every non-ended state.
   // Resetting on "idle" caused a double-fire: ended → idle (200ms reset) → ended (WebRTC destroy notification)
