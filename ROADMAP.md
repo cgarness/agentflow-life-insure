@@ -67,6 +67,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Ring timeout — retract DB `connected` skip (was blocking hangup)**
+  *What:* **`twilio-voice-status`** maps Twilio **`in-progress`** → **`calls.status = connected`** while the callee can still be ringing, so the ring watchdog often skipped teardown and calls never timed out. Hangup skip is again **`Voice.js` `accept`** (**`outboundRemoteAnsweredRef`**) in **`TwilioContext`**, and **`callWasAnswered`** (active state) on **`DialerPage`** strict path — not **`calls.status`**.
+  *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-20 | [DONE] | Ring timeout — SDK-agnostic fire + `calls.status === connected` as sole skip guard**
   *What:* Removed pre-timeout skips tied to **`outboundRemoteAnsweredRef`** / **`callStateRef === 'active'`** (Voice.js–specific) from the outbound ring watchdog so the timer cannot silently no-op when app state stays **`dialing`**. On window expiry, while **`callStateRef`** is still **`dialing`**, the code **`select('status').maybeSingle()`** on **`calls`**; if **`connected`**, hangup/toast are skipped (PSTN answered, browser audio may still be connecting). Otherwise **`twilioHangUpAll()`**, **`disconnect()`**, toast (when not dialer-owned), and **`hangUpRef`**. **`DialerPage`** strict duplicate watchdog matches (no **`active`** skip). Console logs include **`ringTimeoutRef`** / policy ref at fire time.
   *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.

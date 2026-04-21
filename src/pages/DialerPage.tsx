@@ -1746,6 +1746,7 @@ export default function DialerPage() {
 
   // ── Strict Ring Timeout Enforcement ──
   // Interval watchdog depends only on `twilioCallState` so `twilioHangUp` ref changes cannot reset the timer.
+  // Skip only when UI is active/answered — not `calls.status` (Twilio in-progress maps to connected too early).
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
     const limitSec = Math.max(1, ringTimeoutRef.current || 25);
@@ -1767,24 +1768,12 @@ export default function DialerPage() {
 
       void (async () => {
         if (twilioCallStateRef.current !== "dialing") return;
-
-        const callRowId = currentCallIdRef.current;
-        if (callRowId) {
-          const { data: row, error } = await supabase
-            .from("calls")
-            .select("status")
-            .eq("id", callRowId)
-            .maybeSingle();
-          if (error) {
-            console.warn("[RingTimeout] Strict path — calls status lookup failed:", error.message);
-          }
-          if (row?.status === "connected") {
-            console.log(
-              "[RingTimeout] Strict path — skip hangup; calls.status is connected (audio may still be connecting).",
-              { callId: callRowId, limitSec: limitAtFire, ringTimeoutRef: ringPolicyAtFire },
-            );
-            return;
-          }
+        if (callWasAnswered.current) {
+          console.log("[RingTimeout] Strict path — skip hangup; call reached active (answered).", {
+            limitSec: limitAtFire,
+            ringTimeoutRef: ringPolicyAtFire,
+          });
+          return;
         }
 
         console.log(

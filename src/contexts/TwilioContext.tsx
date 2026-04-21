@@ -1294,8 +1294,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     hangUp();
   }, [hangUp]);
 
-  // Ring timeout: interval watchdog keyed ONLY on `callState === "dialing"` (not SDK status strings).
-  // When the window elapses, skip hangup only if `calls.status === "connected"` (PSTN answered; audio may lag).
+  // Ring timeout: interval watchdog keyed ONLY on `callState === "dialing"` (not raw SDK status strings).
+  // Do NOT skip using `calls.status === "connected"`: Twilio `in-progress` maps there before callee answer.
+  // Skip teardown only after Voice.js `accept` (`outboundRemoteAnsweredRef`) or if state left `dialing`.
   useEffect(() => {
     if (callState !== "dialing") return;
 
@@ -1331,25 +1332,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       void (async () => {
         if (callStateRef.current !== "dialing") return;
-
-        const callRowId = activeCallIdRef.current;
-        if (callRowId) {
-          const { data: row, error } = await supabase
-            .from("calls")
-            .select("status")
-            .eq("id", callRowId)
-            .maybeSingle();
-          if (error) {
-            console.warn("[RingTimeout] calls status lookup failed:", error.message);
-          }
-          if (row?.status === "connected") {
-            console.log("[RingTimeout] Skip hangup — calls.status is connected (audio may still be connecting).", {
-              callId: callRowId,
-              limitSec: limitAtFire,
-              ringTimeoutRef: ringPolicyAtFire,
-            });
-            return;
-          }
+        if (outboundRemoteAnsweredRef.current) {
+          console.log("[RingTimeout] Skip hangup — Voice.js accept (remote answered).", {
+            callId: activeCallIdRef.current,
+            limitSec: limitAtFire,
+            ringTimeoutRef: ringPolicyAtFire,
+          });
+          return;
         }
 
         console.log(`[RingTimeout] ${limitAtFire}s elapsed — forcing teardown.`, {
