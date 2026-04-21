@@ -67,6 +67,19 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Call log duplicate insert — `callLogSentRef` guard (409 / null `lead_id`)**
+  *What:* `finalizeCallRecord` could drive `insertCallLog` more than once per `calls.id`; a second insert could hit unique constraints (409) or violate FK when telemetry raced ref clears. Added **`callLogSentRef`** (stores the **`calls`** row id) set only on the first successful log attempt for that id; subsequent finalizes skip **`insertCallLog`**. Reset **`callLogSentRef`** when **`callState`** becomes **`idle`** (same effect as **`isDialingRef`** release). *Note:* Legacy **`TelnyxContext.tsx`** was removed in the Twilio migration; the live implementation is **`TwilioContext.tsx`**.
+  *Files:* **`src/contexts/TwilioContext.tsx`**, **`ROADMAP.md`**.
+
+  ### Context Snapshot — call_logs single insert guard (2026-04-20)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Change** | **`callLogSentRef`** + conditional **`insertCallLog`** in **`finalizeCallRecord`**; clear ref on **`callState === 'idle'`**. |
+  | **RLS** | **`20260402000002_lockdown_rls.sql`**: agent inserts satisfy **`user_id = auth.uid()`** without **`organization_id`** on **`WITH CHECK`** — no schema change. |
+  | **Test** | Place outbound call from dialer, hang up (remote + local); confirm one **`call_logs`** row per call and no 409 in console. |
+  | **Risk** | Low; only suppresses duplicate analytics inserts for the same **`calls.id`**. |
+
 - **2026-04-20 | [DONE] | Ops — redeploy `twilio-voice-webhook` (answerOnBridge TwiML live)**
   *What:* **`npx supabase functions deploy twilio-voice-webhook --project-ref jncvvsvckxhqgqvkppmj --yes`** (CLI bundled without local Docker). Production Twilio outbound TwiML now includes **`answerOnBridge="true"`** on **`<Dial>`**.
 

@@ -275,11 +275,16 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Execution lock: prevents concurrent makeCall invocations (rapid-fire loop fix)
   const isDialingRef = useRef(false);
+  /** Prevents duplicate `call_logs` rows when finalize runs more than once for the same `calls.id`. */
+  const callLogSentRef = useRef<string | null>(null);
 
   // Synchronize lock with callState to ensure it is released when a call ends or is idle.
   useEffect(() => {
     if (callState === "idle" || callState === "ended") {
       isDialingRef.current = false;
+    }
+    if (callState === "idle") {
+      callLogSentRef.current = null;
     }
   }, [callState]);
 
@@ -1143,13 +1148,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const callId = activeCallIdRef.current;
     const leadId = activeLeadIdRef.current;
-    
+
     // Clear refs immediately so we don't double-finalize
     activeCallIdRef.current = null;
     activeLeadIdRef.current = null;
 
-    // Background log to the analytical table, non-blocking
-    insertCallLog(duration, leadId).catch(console.warn);
+    if (callLogSentRef.current !== callId) {
+      callLogSentRef.current = callId;
+      insertCallLog(duration, leadId).catch(console.warn);
+    }
 
     console.log(`[TwilioContext] Finalizing call record ${callId} with duration ${duration}s`);
 
