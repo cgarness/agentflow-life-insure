@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus } from "lucide-react";
+import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus, Mic, Info } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
@@ -80,6 +80,60 @@ const initialHealthStatuses = ["Excellent", "Good", "Fair", "Poor"];
 const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", "Anytime"];
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
+
+/** Call row merged into the contact conversation timeline (`_type: "call"`). */
+type ContactConvoCallRow = {
+  id: string;
+  _type: "call";
+  _ts: number;
+  direction: string | null;
+  duration: number | null;
+  disposition_name: string | null;
+  recording_url: string | null;
+  twilio_call_sid: string | null;
+  started_at: string | null;
+  created_at: string | null;
+  ended_at: string | null;
+  caller_id_used: string | null;
+  agent_id: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  status: string | null;
+  outcome: string | null;
+  is_missed: boolean | null;
+  amd_result: string | null;
+  notes: string | null;
+  hangup_details: string | null;
+  quality_percentage: number | null;
+  mos: number | null;
+  shaken_stir: string | null;
+  provider_session_id: string | null;
+  provider_error_code: string | null;
+  sip_response_code: number | null;
+  pdd_seconds: number | null;
+  recording_duration: number | null;
+  campaign_id: string | null;
+  flagged_for_coaching: boolean | null;
+};
+
+function formatMmSs(sec: number | null | undefined): string {
+  const n = Math.max(0, Math.floor(sec ?? 0));
+  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+}
+
+function formatDateTimeShort(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function callRecordingLabel(c: ContactConvoCallRow): string {
+  if (c.recording_url === "__recording_pending__") return "Processing…";
+  if (c.recording_url && c.recording_url !== "__recording_pending__") return "Available";
+  if (c.twilio_call_sid && (c.duration ?? 0) > 0) return "Available";
+  return "None";
+}
 
 const fallbackStatusStyles: Record<string, string> = {
   New: "#3B82F6",
@@ -227,6 +281,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   // Conversations
   const [convoLoading, setConvoLoading] = useState(false);
   const [convoItems, setConvoItems] = useState<any[]>([]);
+  const [convoCallDetail, setConvoCallDetail] = useState<ContactConvoCallRow | null>(null);
   const [convoFilter, setConvoFilter] = useState<"All" | "Calls" | "SMS" | "Email">("All");
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
@@ -432,7 +487,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         supabase
           .from("calls")
           .select(
-            "id, direction, duration, disposition_name, recording_url, twilio_call_sid, started_at, created_at, caller_id_used"
+            "id, direction, duration, disposition_name, recording_url, twilio_call_sid, started_at, created_at, ended_at, caller_id_used, agent_id, contact_name, contact_phone, status, outcome, is_missed, amd_result, notes, hangup_details, quality_percentage, mos, shaken_stir, provider_session_id, provider_error_code, sip_response_code, pdd_seconds, recording_duration, campaign_id, flagged_for_coaching"
           )
           .eq("contact_id", myId)
           .order("created_at", { ascending: false })
@@ -979,34 +1034,55 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           : "bg-card border border-border text-foreground rounded-tl-sm"
                       }`}>
                         <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold shrink-0">
-                              {isOutbound ? "Call" : "Inbound Call"}
-                            </span>
-                            
-                            {item.disposition_name && (
-                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                                isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
-                              } shadow-sm`}>
-                                {item.disposition_name}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2 min-w-0">
+                              <span className="font-semibold shrink-0">
+                                {isOutbound ? "Call" : "Inbound Call"}
                               </span>
-                            )}
 
-                            <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
-                              {item.duration > 0 ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
-                            </span>
+                              {item.disposition_name && (
+                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                  isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
+                                } shadow-sm`}>
+                                  {item.disposition_name}
+                                </span>
+                              )}
 
-                            {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.twilio_call_sid && item.duration > 0)) && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); toggleRecording(item.id); }}
-                                className={`p-1 rounded-full transition-all ml-auto ${
+                              <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
+                                {item.duration != null && item.duration > 0 ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, "0")}` : "0:00"}
+                              </span>
+                            </div>
+                            <div className="flex items-center shrink-0 gap-0.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConvoCallDetail(item as ContactConvoCallRow);
+                                }}
+                                className={`p-1 rounded-full transition-all ${
                                   isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
                                 }`}
-                                title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                                title="Call details"
+                                aria-label="View full call details"
                               >
-                                <Play className={`w-3 h-3 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                                <Info className="w-3 h-3" strokeWidth={2.5} />
                               </button>
-                            )}
+                              {((item.recording_url && item.recording_url !== "__recording_pending__") || (item.twilio_call_sid && item.duration > 0)) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleRecording(item.id);
+                                  }}
+                                  className={`p-1 rounded-full transition-all ${
+                                    isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
+                                  }`}
+                                  title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                                >
+                                  <Play className={`w-3 h-3 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -1250,6 +1326,78 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
         
       </div>
+
+      <Dialog open={!!convoCallDetail} onOpenChange={(open) => !open && setConvoCallDetail(null)}>
+        <DialogContent className="max-w-lg max-h-[min(85vh,640px)] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Call details</DialogTitle>
+            <DialogDescription>
+              Everything we store for this phone conversation. Use the play button in the thread to listen when a recording is available.
+            </DialogDescription>
+          </DialogHeader>
+          {convoCallDetail && (
+            <dl className="space-y-0 text-sm border border-border rounded-lg divide-y divide-border">
+              {[
+                { label: "Direction", value: convoCallDetail.direction === "inbound" ? "Inbound" : "Outbound" },
+                { label: "Disposition", value: convoCallDetail.disposition_name?.trim() || "—" },
+                { label: "Talk time", value: formatMmSs(convoCallDetail.duration) },
+                { label: "Started", value: formatDateTimeShort(convoCallDetail.started_at) },
+                { label: "Ended", value: formatDateTimeShort(convoCallDetail.ended_at) },
+                { label: "Logged in system", value: formatDateTimeShort(convoCallDetail.created_at) },
+                { label: "Outbound caller ID used", value: convoCallDetail.caller_id_used ? formatPhoneNumber(convoCallDetail.caller_id_used) : "—" },
+                { label: "Agent on call", value: getAgentDisplayName(convoCallDetail.agent_id || "") || "—" },
+                { label: "Prospect name (snapshot)", value: convoCallDetail.contact_name?.trim() || "—" },
+                {
+                  label: "Prospect phone (snapshot)",
+                  value: convoCallDetail.contact_phone ? formatPhoneNumber(convoCallDetail.contact_phone) : "—",
+                },
+                { label: "Call status", value: convoCallDetail.status?.trim() || "—" },
+                { label: "Outcome", value: convoCallDetail.outcome?.trim() || "—" },
+                { label: "Missed call", value: convoCallDetail.is_missed ? "Yes" : "No" },
+                { label: "Voicemail / machine detection", value: convoCallDetail.amd_result?.trim() || "—" },
+                { label: "Recording", value: callRecordingLabel(convoCallDetail) },
+                {
+                  label: "Recording length",
+                  value:
+                    convoCallDetail.recording_duration != null && convoCallDetail.recording_duration > 0
+                      ? formatMmSs(convoCallDetail.recording_duration)
+                      : "—",
+                },
+                { label: "Hang-up details", value: convoCallDetail.hangup_details?.trim() || "—" },
+                { label: "Agent notes on call", value: convoCallDetail.notes?.trim() || "—" },
+                {
+                  label: "Flagged for coaching",
+                  value: convoCallDetail.flagged_for_coaching ? "Yes" : "No",
+                },
+                {
+                  label: "Quality score",
+                  value:
+                    convoCallDetail.quality_percentage != null
+                      ? `${convoCallDetail.quality_percentage}%`
+                      : "—",
+                },
+                { label: "Audio clarity (MOS)", value: convoCallDetail.mos != null ? String(convoCallDetail.mos) : "—" },
+                { label: "Caller ID attestation (STIR/SHAKEN)", value: convoCallDetail.shaken_stir?.trim() || "—" },
+                { label: "Carrier session ID", value: convoCallDetail.provider_session_id?.trim() || "—" },
+                { label: "Provider error", value: convoCallDetail.provider_error_code?.trim() || "—" },
+                { label: "SIP response code", value: convoCallDetail.sip_response_code != null ? String(convoCallDetail.sip_response_code) : "—" },
+                {
+                  label: "Post-dial delay (seconds)",
+                  value: convoCallDetail.pdd_seconds != null ? String(convoCallDetail.pdd_seconds) : "—",
+                },
+                { label: "Campaign ID", value: convoCallDetail.campaign_id?.trim() || "—" },
+                { label: "Call control ID", value: convoCallDetail.twilio_call_sid?.trim() || "—" },
+                { label: "Internal row ID", value: convoCallDetail.id },
+              ].map((row) => (
+                <div key={row.label} className="grid grid-cols-[minmax(0,38%)_1fr] gap-x-3 px-3 py-2.5">
+                  <dt className="text-muted-foreground font-medium leading-snug">{row.label}</dt>
+                  <dd className="text-foreground break-words leading-snug">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>

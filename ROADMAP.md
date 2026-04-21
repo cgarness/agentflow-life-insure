@@ -67,6 +67,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Contact Conversations — call info modal**
+  *What:* Each call bubble in the center **Conversations** column on the full-screen contact view now has a small **Info** icon. Clicking it opens a modal with the full **`calls`** row context (direction, disposition, timestamps, caller ID, agent, prospect snapshot, recording status, coaching flag, carrier/session identifiers, SIP/quality fields, internal IDs). The contact timeline query selects the extra columns needed for that modal (no schema change).
+  *Files:* **`src/components/contacts/FullScreenContactView.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-20 | [DONE] | Call log duplicate insert — `callLogSentRef` guard (409 / null `lead_id`)**
   *What:* `finalizeCallRecord` could drive `insertCallLog` more than once per `calls.id`; a second insert could hit unique constraints (409) or violate FK when telemetry raced ref clears. Added **`callLogSentRef`** (stores the **`calls`** row id) set only on the first successful log attempt for that id; subsequent finalizes skip **`insertCallLog`**. Reset **`callLogSentRef`** when **`callState`** becomes **`idle`** (same effect as **`isDialingRef`** release). *Note:* Legacy **`TelnyxContext.tsx`** was removed in the Twilio migration; the live implementation is **`TwilioContext.tsx`**.
   *Files:* **`src/contexts/TwilioContext.tsx`**, **`ROADMAP.md`**.
