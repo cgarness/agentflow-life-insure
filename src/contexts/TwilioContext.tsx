@@ -10,6 +10,7 @@ import {
   getTwilioDevice,
   getCallSid,
   getCallDirection,
+  getCallStatus,
   clearIncomingCallHandlers,
   subscribeToIncomingCalls,
   type TwilioCall,
@@ -1307,20 +1308,19 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           controlId: activeCallControlIdRef.current,
         });
 
-        // PSTN leg can already be "connected" in Supabase (webhook) while WebRTC is still
-        // ringing — do not tear down a live customer call.
-        const rowId = activeCallIdRef.current;
-        if (rowId) {
-          const { data: row } = await supabase
-            .from("calls")
-            .select("status")
-            .eq("id", rowId)
-            .maybeSingle();
-          if (row?.status === "connected") {
-            console.log(
-              "[RingTimeout] Skipping hangup — call row is connected (customer answered; agent audio still connecting)."
-            );
-            return;
+        // Twilio status webhooks map `in-progress` → `calls.status = connected` before the
+        // browser SDK fires `accept` / `open`. Skipping hangup on DB "connected" alone prevents
+        // ring timeout from ever firing; only skip if the SDK leg is actually established.
+        const liveCall = callRef.current as TwilioCall | null;
+        if (liveCall) {
+          try {
+            const sdkStatus = String(getCallStatus(liveCall) ?? "").toLowerCase();
+            if (sdkStatus === "open") {
+              console.log("[RingTimeout] Skipping hangup — Twilio SDK call status is open (answered).");
+              return;
+            }
+          } catch {
+            /* ignore */
           }
         }
 
@@ -1334,6 +1334,22 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           console.log(
             `[RingTimeout] Poll complete (${waited}ms). controlId=${activeCallControlIdRef.current ?? "still null"}`
           );
+        }
+
+        if (callStateRef.current !== "dialing") {
+          console.log("[RingTimeout] Skipping hangup — call left dialing state during wait.");
+          return;
+        }
+        const again = callRef.current as TwilioCall | null;
+        if (again) {
+          try {
+            if (String(getCallStatus(again) ?? "").toLowerCase() === "open") {
+              console.log("[RingTimeout] Skipping hangup — SDK status is open after wait.");
+              return;
+            }
+          } catch {
+            /* ignore */
+          }
         }
 
         if (!dialerRingSessionActiveRef.current) {

@@ -49,6 +49,7 @@ import {
   getContactCallStats,
 } from "@/lib/dialer-api";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
+import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import {
   Dialog,
   DialogContent,
@@ -427,6 +428,7 @@ export default function DialerPage() {
   const callWasAnswered = useRef(false);
   /** Mirrors state for ring-timeout callback (avoids stale React closures). */
   const currentCallIdRef = useRef<string | null>(null);
+  const twilioSdkCallRef = useRef<TwilioCall | null>(null);
   const twilioCallStateRef = useRef<string>("idle");
   const isAutoDispositioningRef = useRef(false);
   const lastProcessedCallIdRef = useRef<string | null>(null);
@@ -1708,6 +1710,9 @@ export default function DialerPage() {
   useEffect(() => {
     twilioCallStateRef.current = twilioCallState;
   }, [twilioCallState]);
+  useEffect(() => {
+    twilioSdkCallRef.current = (twilioCurrentCall as TwilioCall | null) ?? null;
+  }, [twilioCurrentCall]);
 
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
@@ -1759,7 +1764,14 @@ export default function DialerPage() {
         (payload) => {
           const next = (payload.new as { status?: string })?.status;
           if (next === "connected") {
-            callWasAnswered.current = true;
+            const live = twilioSdkCallRef.current;
+            try {
+              if (live && String(getCallStatus(live)).toLowerCase() === "open") {
+                callWasAnswered.current = true;
+              }
+            } catch {
+              /* ignore */
+            }
           }
         }
       )
@@ -1771,27 +1783,25 @@ export default function DialerPage() {
 
   // ── Strict Ring Timeout Enforcement ──
   // If a call has been ringing/dialing beyond the configured ring timeout, auto-hangup.
-  // IMPORTANT: WebRTC can still report "dialing" while the PSTN side is already answered
-  // (calls.status = connected). Do not hang up in that case.
+  // Do not skip based on `calls.status`: Twilio `in-progress` maps to DB "connected" before the callee answers.
   useEffect(() => {
     if (twilioCallState !== "dialing") return;
     if (!ringTimeoutRef.current || ringTimeoutRef.current <= 0) return;
 
     const timeoutMs = ringTimeoutRef.current * 1000;
-    const timeoutId = setTimeout(async () => {
-      const cid = currentCallIdRef.current;
-      if (cid) {
-        const { data: row, error } = await supabase
-          .from("calls")
-          .select("status")
-          .eq("id", cid)
-          .maybeSingle();
-        if (!error && row?.status === "connected") {
-          console.log(
-            "[DialerPage] Ring timeout skipped — CRM call is connected (customer answered; agent leg still joining)."
-          );
-          callWasAnswered.current = true;
-          return;
+    const timeoutId = setTimeout(() => {
+      const live = twilioSdkCallRef.current;
+      if (live) {
+        try {
+          if (String(getCallStatus(live)).toLowerCase() === "open") {
+            console.log(
+              "[DialerPage] Ring timeout skipped — Twilio SDK call is open (answered).",
+            );
+            callWasAnswered.current = true;
+            return;
+          }
+        } catch {
+          /* ignore */
         }
       }
       if (twilioCallStateRef.current !== "dialing") return;
