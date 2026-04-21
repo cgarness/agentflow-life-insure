@@ -67,6 +67,17 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Ring timeout — SDK-agnostic fire + `calls.status === connected` as sole skip guard**
+  *What:* Removed pre-timeout skips tied to **`outboundRemoteAnsweredRef`** / **`callStateRef === 'active'`** (Voice.js–specific) from the outbound ring watchdog so the timer cannot silently no-op when app state stays **`dialing`**. On window expiry, while **`callStateRef`** is still **`dialing`**, the code **`select('status').maybeSingle()`** on **`calls`**; if **`connected`**, hangup/toast are skipped (PSTN answered, browser audio may still be connecting). Otherwise **`twilioHangUpAll()`**, **`disconnect()`**, toast (when not dialer-owned), and **`hangUpRef`**. **`DialerPage`** strict duplicate watchdog matches (no **`active`** skip). Console logs include **`ringTimeoutRef`** / policy ref at fire time.
+  *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
+  ### Context Snapshot — Ring timeout DB connected guard (2026-04-20)
+
+  | File | Change |
+  | :--- | :--- |
+  | **`src/contexts/TwilioContext.tsx`** | Ring watchdog: time-based expiry only; async **`calls.status`** check before teardown; logs **`limitSec`** + **`latestRingTimeoutRef`**; **`disconnect()`** whenever teardown runs. |
+  | **`src/pages/DialerPage.tsx`** | Strict ring watchdog: same **`calls.status === 'connected'`** skip; logs **`ringTimeoutRef.current`**; removed **`twilioCallStateRef === 'active'`** early exit. |
+
 - **2026-04-21 | [DONE] | Ring timeout watchdog — timer no longer resets on `ringTimeout` / `hangUp` deps**
   *What:* Ring-timeout **`useEffect`** depended on **`ringTimeout`** and **`hangUp`**. Mid-call updates (phone settings merge, **`applyDialSessionRingTimeout`**, or callback identity) **cleared the scheduled `setTimeout` and started a new full window**, so the call could ring far past **10s** with “no answer.” Replaced with a **400ms `setInterval` watchdog** whose **only** dependency is **`callState === 'dialing'`**, using **`latestRingTimeoutRef`** for the limit at dial start and **`hangUpRef.current()`** for teardown. **`DialerPage`** strict path matches (**`twilioHangUpRef`**, deps only **`twilioCallState`**). **`accept`** clears the watchdog with **`clearInterval`**.
   *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.

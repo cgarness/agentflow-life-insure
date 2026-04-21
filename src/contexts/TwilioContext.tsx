@@ -1294,8 +1294,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     hangUp();
   }, [hangUp]);
 
-  // Ring timeout: interval watchdog keyed ONLY on `callState` so `ringTimeout` / `hangUp` identity
-  // changes do not clear and restart the timer mid-ring (that prevented hangup from ever firing).
+  // Ring timeout: interval watchdog keyed ONLY on `callState === "dialing"` (not SDK status strings).
+  // When the window elapses, skip hangup only if `calls.status === "connected"` (PSTN answered; audio may lag).
   useEffect(() => {
     if (callState !== "dialing") return;
 
@@ -1317,42 +1317,67 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
         return;
       }
-      if (outboundRemoteAnsweredRef.current || callStateRef.current === "active") {
-        window.clearInterval(iv);
-        if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
-        return;
-      }
 
       const elapsedSec = (Date.now() - startedAt) / 1000;
       if (elapsedSec < limitSec) return;
 
+      if (fired) return;
       fired = true;
       window.clearInterval(iv);
       if (outboundRingTimerRef.current === iv) outboundRingTimerRef.current = null;
 
-      console.log(`[RingTimeout] ${limitSec}s elapsed — forcing teardown.`, {
-        callId: activeCallIdRef.current,
-        controlId: activeCallControlIdRef.current,
-      });
+      const limitAtFire = limitSec;
+      const ringPolicyAtFire = latestRingTimeoutRef.current;
 
-      try {
-        twilioHangUpAll();
-      } catch {
-        /* ignore */
-      }
-      const snap = callRef.current as TwilioCall | null;
-      if (snap && !outboundRemoteAnsweredRef.current) {
-        try {
-          snap.disconnect();
-        } catch (e) {
-          console.warn("[RingTimeout] Call.disconnect() error:", e);
+      void (async () => {
+        if (callStateRef.current !== "dialing") return;
+
+        const callRowId = activeCallIdRef.current;
+        if (callRowId) {
+          const { data: row, error } = await supabase
+            .from("calls")
+            .select("status")
+            .eq("id", callRowId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[RingTimeout] calls status lookup failed:", error.message);
+          }
+          if (row?.status === "connected") {
+            console.log("[RingTimeout] Skip hangup — calls.status is connected (audio may still be connecting).", {
+              callId: callRowId,
+              limitSec: limitAtFire,
+              ringTimeoutRef: ringPolicyAtFire,
+            });
+            return;
+          }
         }
-      }
 
-      if (!dialerRingSessionActiveRef.current) {
-        toast.info(`Call timed out after ${limitSec}s without answer.`);
-      }
-      hangUpRef.current();
+        console.log(`[RingTimeout] ${limitAtFire}s elapsed — forcing teardown.`, {
+          callId: activeCallIdRef.current,
+          controlId: activeCallControlIdRef.current,
+          limitSec: limitAtFire,
+          ringTimeoutRef: ringPolicyAtFire,
+        });
+
+        try {
+          twilioHangUpAll();
+        } catch {
+          /* ignore */
+        }
+        const snap = callRef.current as TwilioCall | null;
+        if (snap) {
+          try {
+            snap.disconnect();
+          } catch (e) {
+            console.warn("[RingTimeout] Call.disconnect() error:", e);
+          }
+        }
+
+        if (!dialerRingSessionActiveRef.current) {
+          toast.info(`Call timed out after ${limitAtFire}s without answer.`);
+        }
+        hangUpRef.current();
+      })();
     }, 400);
 
     outboundRingTimerRef.current = iv;

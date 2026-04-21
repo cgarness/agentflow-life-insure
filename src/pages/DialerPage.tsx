@@ -1754,10 +1754,6 @@ export default function DialerPage() {
 
     const iv = window.setInterval(() => {
       if (fired) return;
-      if (twilioCallStateRef.current === "active") {
-        window.clearInterval(iv);
-        return;
-      }
       if (twilioCallStateRef.current !== "dialing") {
         window.clearInterval(iv);
         return;
@@ -1765,9 +1761,39 @@ export default function DialerPage() {
       if ((Date.now() - startedAt) / 1000 < limitSec) return;
       fired = true;
       window.clearInterval(iv);
-      console.log(`[RingTimeout] Strict enforcement: ${limitSec}s reached. Hanging up.`);
-      toast.info(`No answer after ${limitSec}s — hanging up.`);
-      twilioHangUpRef.current();
+
+      const limitAtFire = limitSec;
+      const ringPolicyAtFire = ringTimeoutRef.current;
+
+      void (async () => {
+        if (twilioCallStateRef.current !== "dialing") return;
+
+        const callRowId = currentCallIdRef.current;
+        if (callRowId) {
+          const { data: row, error } = await supabase
+            .from("calls")
+            .select("status")
+            .eq("id", callRowId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[RingTimeout] Strict path — calls status lookup failed:", error.message);
+          }
+          if (row?.status === "connected") {
+            console.log(
+              "[RingTimeout] Strict path — skip hangup; calls.status is connected (audio may still be connecting).",
+              { callId: callRowId, limitSec: limitAtFire, ringTimeoutRef: ringPolicyAtFire },
+            );
+            return;
+          }
+        }
+
+        console.log(
+          `[RingTimeout] Strict enforcement: ${limitAtFire}s reached. Hanging up.`,
+          { ringTimeoutRef: ringPolicyAtFire },
+        );
+        toast.info(`No answer after ${limitAtFire}s — hanging up.`);
+        twilioHangUpRef.current();
+      })();
     }, 400);
 
     return () => window.clearInterval(iv);
