@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -240,8 +241,8 @@ export async function getLeadHistory(
     return {
       id: c.id,
       type: "call" as const,
-      description: `${c.direction === "inbound" ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}`,
-      direction: c.direction ?? "outbound",
+      description: `${isCallsRowInboundDirection(c.direction) ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}`,
+      direction: isCallsRowInboundDirection(c.direction) ? "inbound" : "outbound",
       disposition: c.disposition_name,
       disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,
       created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
@@ -325,7 +326,7 @@ export async function saveCall(data: {
   caller_id_used?: string;
   contact_type?: string;
 }, organizationId: string | null = null) {
-  const callPayload = {
+  const sharedCallFields = {
     contact_id: data.master_lead_id,
     campaign_lead_id: data.campaign_lead_id || null,
     agent_id: data.agent_id,
@@ -334,7 +335,6 @@ export async function saveCall(data: {
     disposition_name: data.disposition,
     notes: data.notes,
     outcome: data.outcome,
-    direction: "outbound",
     caller_id_used: data.caller_id_used || null,
     status: "completed",
     ended_at: new Date().toISOString(),
@@ -344,13 +344,17 @@ export async function saveCall(data: {
 
   let error;
   if (data.id) {
+    // Do not overwrite `direction` on update — inbound rows use the same wrap-up path in some
+    // clients, and power-dialer rows are already outbound from `makeCall`.
     const { error: updateError } = await supabase
       .from("calls")
-      .update(callPayload)
+      .update(sharedCallFields)
       .eq("id", data.id);
     error = updateError;
   } else {
-    const { error: insertError } = await supabase.from("calls").insert(callPayload);
+    const { error: insertError } = await supabase
+      .from("calls")
+      .insert({ ...sharedCallFields, direction: "outbound" });
     error = insertError;
   }
 

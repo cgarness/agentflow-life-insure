@@ -26,6 +26,7 @@ import { calculateAge } from "@/utils/dateUtils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
+import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -1021,7 +1022,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             )}
             
             {!convoLoading && filteredConvos.map(item => {
-              const isOutbound = item.direction === "outbound";
+              const isOutbound =
+                item._type === "sms"
+                  ? item.direction === "outbound"
+                  : !isCallsRowInboundDirection(item.direction);
               const timestamp = new Date(item._ts).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 
               if (item._type === "call") {
@@ -1037,7 +1041,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex flex-wrap items-center gap-2 min-w-0">
                               <span className="font-semibold shrink-0">
-                                {isOutbound ? "Call" : "Inbound Call"}
+                                {isOutbound ? "Outbound Call" : "Inbound Call"}
                               </span>
 
                               {item.disposition_name && (
@@ -1338,7 +1342,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           {convoCallDetail && (
             <dl className="space-y-0 text-sm border border-border rounded-lg divide-y divide-border">
               {[
-                { label: "Direction", value: convoCallDetail.direction === "inbound" ? "Inbound" : "Outbound" },
+                {
+                  label: "Direction",
+                  value: isCallsRowInboundDirection(convoCallDetail.direction) ? "Inbound" : "Outbound",
+                },
                 { label: "Disposition", value: convoCallDetail.disposition_name?.trim() || "—" },
                 { label: "Talk time", value: formatMmSs(convoCallDetail.duration) },
                 { label: "Started", value: formatDateTimeShort(convoCallDetail.started_at) },

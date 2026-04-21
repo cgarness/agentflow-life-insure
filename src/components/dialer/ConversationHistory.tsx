@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic, Play } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
+import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 
 interface HistoryItem {
   id: string;
@@ -115,7 +116,8 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
           {!loadingHistory &&
             reversedHistory.map((item) => {
-              const isOutbound = item.direction !== "inbound";
+              const isOutbound =
+                item.type !== "call" ? item.direction !== "inbound" : !isCallsRowInboundDirection(item.direction);
               
               return (
                 <div 
@@ -139,7 +141,13 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                         <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="leading-tight font-semibold shrink-0">
-                              {item.direction === "inbound" ? "Inbound Call" : "Call"}
+                              {item.type === "call"
+                                ? isCallsRowInboundDirection(item.direction)
+                                  ? "Inbound Call"
+                                  : "Outbound Call"
+                                : item.direction === "inbound"
+                                  ? "Inbound Call"
+                                  : "Call"}
                             </span>
                             
                             {item.type === "call" && item.disposition && (
