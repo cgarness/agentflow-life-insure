@@ -67,6 +67,9 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-20 | [DONE] | Ops — redeploy `twilio-voice-webhook` (answerOnBridge TwiML live)**
+  *What:* **`npx supabase functions deploy twilio-voice-webhook --project-ref jncvvsvckxhqgqvkppmj --yes`** (CLI bundled without local Docker). Production Twilio outbound TwiML now includes **`answerOnBridge="true"`** on **`<Dial>`**.
+
 - **2026-04-20 | [DONE] | Ring timeout — root fix: keep watchdog through `active`, `answerOnBridge`, stop clearing on Voice.js `accept`**
   *What:* Outbound **`accept`** is browser media up, not callee pickup — **`callState`** goes **`active`** while PSTN still rings, so the old watchdog (deps only **`dialing`**) was torn down and **`accept`** had been clearing **`outboundRingTimerRef`**, killing the timer immediately. **Fix:** TwiML **`<Dial answerOnBridge="true">`** (deploy **`twilio-voice-webhook`**), Device **`enableRingingState: true`**, ring watchdog keyed by **`outboundRingSessionId`** + **`outboundRingStartedAtRef`** (no reset on dialing→active), skip hangup only when **`getCallStatus() === "open"`**, remove **`accept`** handler’s **`clearInterval`** on the ring timer. **`DialerPage`** strict path: deps **`[currentCallId]`**, same open check.
   *Files:* **`supabase/functions/twilio-voice-webhook/index.ts`**, **`src/lib/twilio-voice.ts`**, **`src/contexts/TwilioContext.tsx`**, **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
