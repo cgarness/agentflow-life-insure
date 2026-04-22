@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
@@ -16,6 +16,12 @@ const SettingsInner: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSlug = searchParams.get("section") || "my-profile";
   const { user, profile } = useAuth();
+
+  useEffect(() => {
+    if (searchParams.get("section") === "spam") {
+      setSearchParams({ section: "number-reputation" }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const { isAnyDirty, clearAll } = useUnsavedChanges();
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
 

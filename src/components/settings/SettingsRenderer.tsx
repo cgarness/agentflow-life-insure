@@ -18,7 +18,6 @@ import CallMonitoring from "@/components/settings/CallMonitoring";
 import DNCSettings from "@/components/settings/DNCSettings";
 import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
-import SpamMonitoring from "@/components/settings/SpamMonitoring";
 import NumberReputation from "@/components/settings/NumberReputation";
 import MasterAdmin from "@/components/settings/MasterAdmin";
 import { Settings } from "lucide-react";
@@ -51,7 +50,6 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isMaste
     case "menu-links": return <CustomMenuLinks />;
     case "activity-log": return <ActivityLog />;
     case "number-reputation": return <NumberReputation />;
-    case "spam": return <SpamMonitoring />;
     case "master-admin": return isMasterAdmin ? <MasterAdmin /> : <MyProfile />;
     case "ai": return (
       <div className="space-y-4">

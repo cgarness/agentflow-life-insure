@@ -1,7 +1,7 @@
 import { 
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield, 
   Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, 
-  Webhook, Link, Clock, Radar, Database, PlayCircle, Lock, 
+  Webhook, Link, Clock, Database, PlayCircle, Lock, 
   CalendarDays, UserCircle, SlidersHorizontal, ScanLine
 } from "lucide-react";
 
@@ -36,7 +36,6 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
       { slug: "recordings", icon: PlayCircle, label: "Recording Library" },
       { slug: "monitoring", icon: Headphones, label: "Call Monitoring" },
       { slug: "number-reputation", icon: ScanLine, label: "Number Reputation" },
-      { slug: "spam", icon: Radar, label: "Spam Monitoring" },
     ],
   },
   {

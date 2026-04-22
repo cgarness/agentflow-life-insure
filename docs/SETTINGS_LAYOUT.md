@@ -78,10 +78,9 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 - **Live Feed**: Real-time view of active calls within the organization.
 - **Executive Actions**: Listen (Silent), Whisper (Agent only), Barge (All parties).
 
-#### [Spam Monitoring](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/SpamMonitoring.tsx) (`spam`)
-- **Health Badges**: Displays SHAKEN/STIR status for each number.
-- **Carrier Profile**: Manage CNAM (Caller Name) and Business Identity.
-- **Remediation**: Logic for rotating "flagged" numbers and checking spam status on major carriers.
+#### [Number Reputation](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/NumberReputation.tsx) (`number-reputation`)
+- **Caller ID health**: Twilio Voice Insights reputation, per-carrier signals, and spam-likelihood indicators per number.
+- **Checks**: On-demand reputation refresh (rate-limited) with row detail for attestation and carrier JSON.
 
 ---
 

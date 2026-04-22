@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Remove Settings → Spam Monitoring tab**
+  *What:* Removed the duplicate **Spam Monitoring** settings section; **Number Reputation** remains the single place for caller ID spam/reputation signals. Deleted **`SpamMonitoring.tsx`** and dropped the **`spam`** slug from nav + renderer. Legacy **`?section=spam`** URLs **`replace`** redirect to **`number-reputation`**.
+  *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/pages/SettingsPage.tsx`**, **`docs/SETTINGS_LAYOUT.md`**, **`ROADMAP.md`** (removed **`src/components/settings/SpamMonitoring.tsx`**).
+
 - **2026-04-22 | [DONE] | Call recording playback (first Play + Twilio `storage:` paths)**
   *What:* **RecordingPlayer** used to return after the initial fetch, so the first Play click only loaded audio and required a second click to hear it. **Play** now continues into `audio.play()` after a successful load. Also resolve **`recording_url`** values shaped like **`storage:{path}`** from the Twilio recording webhook when **`recording_storage_path`** is missing on older rows.
   *Files:* **`src/components/ui/RecordingPlayer.tsx`**, **`ROADMAP.md`**.
