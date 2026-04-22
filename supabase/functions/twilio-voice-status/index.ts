@@ -104,8 +104,22 @@ async function fetchTwilioStirShakenLevel(
   const json = (await res.json()) as Record<string, unknown>;
   const twilioRaw =
     (typeof json.stir_verstat === "string" ? json.stir_verstat : null) ??
-    (typeof json.shaken_stir === "string" ? json.shaken_stir : null);
+    (typeof json.stir_status === "string" ? json.stir_status : null) ??
+    (typeof json.stirStatus === "string" ? json.stirStatus : null) ??
+    (typeof json.shaken_stir === "string" ? json.shaken_stir : null) ??
+    (typeof json.shakenStir === "string" ? json.shakenStir : null);
   return normalizeStirShakenLevel(twilioRaw);
+}
+
+/** Twilio <Dial action> posts DialCallStatus, not CallStatus — map into the same terminal handling. */
+function mapDialCallStatusToCallStatus(dialCallStatus: string): string | null {
+  const d = dialCallStatus.trim().toLowerCase();
+  if (!d) return null;
+  if (d === "completed" || d === "answered") return "completed";
+  if (d === "busy") return "busy";
+  if (d === "no-answer") return "no-answer";
+  if (d === "failed" || d === "canceled") return d;
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -132,12 +146,19 @@ Deno.serve(async (req) => {
       return new Response(EMPTY_TWIML, { status: 403, headers: twimlHeaders });
     }
 
-    const callSid = params["CallSid"] ?? "";
-    const callStatus = params["CallStatus"] ?? "";
-    const callDuration = parseDurationSeconds(params["CallDuration"]);
+    const parentCallSid = params["CallSid"] ?? "";
+    const dialCallSid = params["DialCallSid"] ?? "";
+    const dialCallStatus = params["DialCallStatus"] ?? "";
+    const callStatusFromForm = params["CallStatus"] ?? "";
+    const mappedFromDial = mapDialCallStatusToCallStatus(dialCallStatus);
+    const callStatus = mappedFromDial ?? callStatusFromForm;
+    const callDuration = parseDurationSeconds(
+      params["CallDuration"] ?? params["DialCallDuration"],
+    );
     const sipResponseCode = params["SipResponseCode"] ?? "";
     const webhookStirRaw =
       params["StirVerstat"] ??
+      params["StirStatus"] ??
       params["StirShakenStatus"] ??
       params["StirShaken"] ??
       "";
@@ -145,8 +166,11 @@ Deno.serve(async (req) => {
     const to = params["To"] ?? "";
 
     console.log("[twilio-voice-status] event", {
-      callSid,
-      callStatus,
+      parentCallSid,
+      dialCallSid: dialCallSid || "(none)",
+      dialCallStatus: dialCallStatus || "(none)",
+      callStatusFromForm: callStatusFromForm || "(none)",
+      effectiveCallStatus: callStatus || "(none)",
       callDuration,
       sipResponseCode: sipResponseCode || "(none)",
       stirShaken: webhookStirRaw || "(none)",
@@ -154,8 +178,8 @@ Deno.serve(async (req) => {
       to,
     });
 
-    if (!callSid) {
-      console.warn("[twilio-voice-status] Missing CallSid — acking anyway");
+    if (!parentCallSid && !dialCallSid) {
+      console.warn("[twilio-voice-status] Missing CallSid/DialCallSid — acking anyway");
       return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
 
@@ -166,22 +190,38 @@ Deno.serve(async (req) => {
 
     const nowIso = new Date().toISOString();
 
-    const { data: existing, error: selectError } = await supabase
-      .from("calls")
-      .select("id, started_at, duration, status")
-      .eq("twilio_call_sid", callSid)
-      .maybeSingle();
+    let matchTwilioSid = "";
+    let existing: { id: string; started_at: string | null; duration: number | null; status: string | null } | null =
+      null;
 
-    if (selectError) {
-      console.error(
-        `[twilio-voice-status] calls lookup failed for ${callSid}:`,
-        selectError.message,
-      );
+    const tryLookup = async (sid: string) => {
+      if (!sid) return;
+      const { data, error: selectError } = await supabase
+        .from("calls")
+        .select("id, started_at, duration, status")
+        .eq("twilio_call_sid", sid)
+        .maybeSingle();
+      if (selectError) {
+        console.error(
+          `[twilio-voice-status] calls lookup failed for ${sid}:`,
+          selectError.message,
+        );
+        return;
+      }
+      if (data) {
+        existing = data;
+        matchTwilioSid = sid;
+      }
+    };
+
+    await tryLookup(parentCallSid);
+    if (!existing && dialCallSid && dialCallSid !== parentCallSid) {
+      await tryLookup(dialCallSid);
     }
 
     if (!existing) {
       console.warn(
-        `[twilio-voice-status] No calls row matches twilio_call_sid=${callSid} (status=${callStatus})`,
+        `[twilio-voice-status] No calls row matches twilio_call_sid parent=${parentCallSid || "(none)"} dial=${dialCallSid || "(none)"} (effectiveStatus=${callStatus})`,
       );
       return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
@@ -211,7 +251,12 @@ Deno.serve(async (req) => {
           patch.duration = computed;
         }
         if (!patch.shaken_stir && accountSid) {
-          const fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, callSid);
+          // PSTN leg (child) usually carries STIR/SHAKEN; parent Voice SDK leg may not.
+          const stirSid = dialCallSid || parentCallSid;
+          let fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, stirSid);
+          if (!fetched && dialCallSid && parentCallSid && stirSid === dialCallSid) {
+            fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, parentCallSid);
+          }
           if (fetched) patch.shaken_stir = fetched;
         }
         break;
@@ -236,7 +281,7 @@ Deno.serve(async (req) => {
       }
       default: {
         console.log(
-          `[twilio-voice-status] Unhandled CallStatus=${callStatus} for ${callSid} — no DB write`,
+          `[twilio-voice-status] Unhandled effectiveCallStatus=${callStatus} (form CallStatus=${callStatusFromForm}, DialCallStatus=${dialCallStatus}) for parent=${parentCallSid} — no DB write`,
         );
         return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
       }
@@ -245,11 +290,11 @@ Deno.serve(async (req) => {
     const { error: updateError } = await supabase
       .from("calls")
       .update(patch)
-      .eq("twilio_call_sid", callSid);
+      .eq("twilio_call_sid", matchTwilioSid);
 
     if (updateError) {
       console.error(
-        `[twilio-voice-status] calls update failed for ${callSid}:`,
+        `[twilio-voice-status] calls update failed for ${matchTwilioSid}:`,
         updateError.message,
       );
     }
