@@ -20,6 +20,8 @@ type PhoneNumber = {
   spam_score: number | null;
   spam_checked_at: string | null;
   attestation_level: string | null;
+  /** Signing tier from Twilio Trust Hub SHAKEN/STIR Trust Product (filled on reputation check). */
+  shaken_stir_attestation: string | null;
   carrier_reputation_data: unknown;
   daily_call_count: number | null;
   daily_call_limit: number | null;
@@ -494,6 +496,8 @@ const NumberReputation: React.FC = () => {
                 const scanning = scanningIds.includes(num.id);
                 const attestation =
                   normalizeAttestationLetter(num.last_outbound_shaken_stir) ??
+                  normalizeAttestationLetter(num.shaken_stir_attestation) ??
+                  normalizeAttestationLetter(num.attestation_level) ??
                   getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
                 return (
                   <React.Fragment key={num.id}>

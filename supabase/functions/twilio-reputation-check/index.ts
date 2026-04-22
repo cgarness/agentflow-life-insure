@@ -4,6 +4,7 @@ import { SUPER_ADMIN_EMAIL, MAX_CHECKS_PER_NUMBER_PER_UTC_DAY } from "./constant
 import { digitsOnly } from "./phone.ts";
 import { createOutboundReport, pollOutboundReportForHandle } from "./twilioInsights.ts";
 import { computeReputation, extractReportMetrics } from "./scoring.ts";
+import { fetchTrustHubSigningAttestation } from "./trustHubSigningAttestation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +40,8 @@ type PhoneRow = {
   assigned_to: string | null;
   daily_call_count: number | null;
   attestation_level: string | null;
+  twilio_sid: string | null;
+  shaken_stir_attestation: string | null;
 };
 
 function buildCarrierPanel(
@@ -145,7 +148,9 @@ Deno.serve(async (req) => {
 
   let phoneQuery = supabase
     .from("phone_numbers")
-    .select("id, organization_id, phone_number, assigned_to, daily_call_count, attestation_level")
+    .select(
+      "id, organization_id, phone_number, assigned_to, daily_call_count, attestation_level, twilio_sid, shaken_stir_attestation",
+    )
     .eq("phone_number", phoneE164)
     .eq("status", "active");
 
@@ -217,6 +222,11 @@ Deno.serve(async (req) => {
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
+  /** Voice Insights does not include SHAKEN/STIR; resolve signing tier from Trust Hub in parallel. */
+  const trustHubAttestationPromise = fetchTrustHubSigningAttestation(accountSid, authToken, {
+    phoneNumberSid: row.twilio_sid,
+  });
+
   const created = await createOutboundReport(accountSid, authToken, startIso, endIso);
   if (!created.ok) {
     return jsonResponse({
@@ -241,6 +251,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: msg }, 502);
   }
 
+  const trustHubSigningAtt = await trustHubAttestationPromise;
+
   const nowIso = new Date().toISOString();
   const carriers = buildCarrierPanel(twilioRow);
 
@@ -252,16 +264,27 @@ Deno.serve(async (req) => {
       window: { start: startIso, end: endIso },
       carriers,
       display_health: "Insufficient Data",
-      computed: { reason: "no_matching_handle_in_report" },
+      computed: {
+        reason: "no_matching_handle_in_report",
+        trust_hub_signing_attestation: trustHubSigningAtt,
+        metrics: trustHubSigningAtt
+          ? { attestation_level: trustHubSigningAtt, source: "twilio_trust_hub_shaken_stir" }
+          : undefined,
+      },
     };
+    const insuffPatch: Record<string, unknown> = {
+      spam_status: "Insufficient Data",
+      spam_score: null,
+      spam_checked_at: nowIso,
+      carrier_reputation_data,
+    };
+    if (trustHubSigningAtt) {
+      insuffPatch.attestation_level = trustHubSigningAtt;
+      insuffPatch.shaken_stir_attestation = trustHubSigningAtt;
+    }
     const { error: upErr } = await supabase
       .from("phone_numbers")
-      .update({
-        spam_status: "Insufficient Data",
-        spam_score: null,
-        spam_checked_at: nowIso,
-        carrier_reputation_data,
-      })
+      .update(insuffPatch)
       .eq("id", row.id)
       .eq("organization_id", row.organization_id);
 
@@ -282,10 +305,13 @@ Deno.serve(async (req) => {
       spam_status: "Insufficient Data",
       spam_score: null,
       message: "Twilio returned no metrics row for this caller ID in the report (volume window or top-N list).",
+      signing_attestation: trustHubSigningAtt,
     }, 200);
   }
 
-  const metrics = extractReportMetrics(twilioRow, row.daily_call_count, row.attestation_level);
+  const attestationSeed =
+    trustHubSigningAtt ?? row.shaken_stir_attestation ?? row.attestation_level;
+  const metrics = extractReportMetrics(twilioRow, row.daily_call_count, attestationSeed);
   const computed = computeReputation(metrics);
 
   const carrier_reputation_data = {
@@ -300,6 +326,7 @@ Deno.serve(async (req) => {
       spam_status: computed.spam_status,
       penalties: computed.penalties,
       metrics: computed.metrics,
+      trust_hub_signing_attestation: trustHubSigningAtt,
     },
     twilio_row_keys: Object.keys(twilioRow).slice(0, 120),
   };
@@ -310,8 +337,11 @@ Deno.serve(async (req) => {
     spam_checked_at: nowIso,
     carrier_reputation_data,
   };
-  if (computed.metrics.attestation_level && computed.metrics.attestation_level !== row.attestation_level) {
+  if (computed.metrics.attestation_level !== row.attestation_level) {
     patch.attestation_level = computed.metrics.attestation_level;
+  }
+  if (trustHubSigningAtt) {
+    patch.shaken_stir_attestation = trustHubSigningAtt;
   }
 
   const { error: upErr2 } = await supabase
@@ -337,6 +367,7 @@ Deno.serve(async (req) => {
     spam_status: computed.spam_status,
     spam_score: computed.spam_score,
     display_health: computed.display_health,
+    signing_attestation: trustHubSigningAtt ?? computed.metrics.attestation_level ?? null,
   }, 200);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
