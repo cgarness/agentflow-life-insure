@@ -24,6 +24,7 @@ type PhoneNumber = {
   daily_call_count: number | null;
   daily_call_limit: number | null;
   created_at: string | null;
+  last_outbound_shaken_stir: string | null;
 };
 
 const normStatus = (s: string | null) => (s ?? "").toLowerCase().replace(/\s+/g, "_");
@@ -116,6 +117,7 @@ const spamLikelyBadge = (status: string | null) => {
 };
 
 type CarrierSignal = "good" | "warning" | "bad" | "unknown";
+const CHECK_TIMEOUT_MS = 90_000;
 
 function getAttestationFromLatestTwilio(data: unknown, fallback: string | null): string | null {
   const d = (data ?? {}) as Record<string, unknown>;
@@ -126,6 +128,32 @@ function getAttestationFromLatestTwilio(data: unknown, fallback: string | null):
     return fromTwilio.trim().toUpperCase();
   }
   return fallback;
+}
+
+const OUTBOUND_DIRECTIONS = new Set([
+  "outbound",
+  "outgoing",
+  "outgoing_dial",
+  "dial_outbound",
+]);
+
+function normalizeAttestationLetter(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).toUpperCase().trim();
+  if (s === "A" || s === "B" || s === "C") return s;
+  const word = s.match(/\b([ABC])\b/);
+  if (word) return word[1]!;
+  const letters = s.replace(/[^ABC]/g, "");
+  if (letters.includes("A")) return "A";
+  if (letters.includes("B")) return "B";
+  if (letters.includes("C")) return "C";
+  return null;
+}
+
+function isOutboundDirection(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  const normalized = String(raw).toLowerCase().replace(/\s+/g, "_");
+  return OUTBOUND_DIRECTIONS.has(normalized);
 }
 
 function getCarrierSignal(data: unknown, carrierName: "AT&T" | "Verizon" | "T-Mobile"): CarrierSignal {
@@ -209,7 +237,32 @@ const NumberReputation: React.FC = () => {
         .eq("status", "active")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as PhoneNumber[];
+      const phoneRows = (data as PhoneNumber[]) ?? [];
+      if (phoneRows.length === 0) return phoneRows;
+
+      const numbers = phoneRows.map((row) => row.phone_number);
+      const { data: callsData, error: callsError } = await supabase
+        .from("calls")
+        .select("caller_id_used, direction, created_at, shaken_stir")
+        .in("caller_id_used", numbers)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (callsError) {
+        console.warn("[NumberReputation] unable to load calls attestation:", callsError.message);
+      }
+
+      const lastOutboundByNumber = new Map<string, string | null>();
+      for (const call of callsData ?? []) {
+        const callerId = call.caller_id_used;
+        if (!callerId || lastOutboundByNumber.has(callerId)) continue;
+        if (!isOutboundDirection(call.direction)) continue;
+        lastOutboundByNumber.set(callerId, normalizeAttestationLetter(call.shaken_stir));
+      }
+
+      return phoneRows.map((row) => ({
+        ...row,
+        last_outbound_shaken_stir: lastOutboundByNumber.get(row.phone_number) ?? null,
+      }));
     },
   });
 
@@ -282,6 +335,20 @@ const NumberReputation: React.FC = () => {
     return payload;
   };
 
+  const withClientTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race<T>([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   const handleCheckAll = async () => {
     if (!phoneNumbers?.length) return;
     setBulkScanning(true);
@@ -292,7 +359,11 @@ const NumberReputation: React.FC = () => {
         setScanningIds([n.id]);
         await new Promise((r) => setTimeout(r, 200));
         try {
-          await invokeReputationCheck(n.phone_number);
+          await withClientTimeout(
+            invokeReputationCheck(n.phone_number),
+            CHECK_TIMEOUT_MS,
+            "Check timed out after 90 seconds. Twilio may still be compiling this report — refresh in a minute.",
+          );
           ok++;
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -310,7 +381,11 @@ const NumberReputation: React.FC = () => {
   const handleCheckOne = async (id: string, e164: string) => {
     setScanningIds([id]);
     try {
-      const payload = await invokeReputationCheck(e164);
+      const payload = await withClientTimeout(
+        invokeReputationCheck(e164),
+        CHECK_TIMEOUT_MS,
+        "Check timed out after 90 seconds. Twilio may still be compiling this report — refresh in a minute.",
+      );
       toast.success(payload?.message ?? `Updated ${e164}`);
       await refetch();
     } catch (err: unknown) {
@@ -318,6 +393,7 @@ const NumberReputation: React.FC = () => {
       toast.error(msg);
     } finally {
       setScanningIds([]);
+      await refetch();
     }
   };
 
@@ -401,7 +477,9 @@ const NumberReputation: React.FC = () => {
               {phoneNumbers?.map((num) => {
                 const expanded = expandedRows.has(num.id);
                 const scanning = scanningIds.includes(num.id);
-                const attestation = getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
+                const attestation =
+                  normalizeAttestationLetter(num.last_outbound_shaken_stir) ??
+                  getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
                 return (
                   <React.Fragment key={num.id}>
                     <motion.tr
