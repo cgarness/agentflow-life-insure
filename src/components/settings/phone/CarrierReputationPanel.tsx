@@ -16,7 +16,6 @@ function healthBadgeClass(display: string): string {
 }
 
 const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
-  const display = String(d.display_health ?? "—");
   const window = d.window as Record<string, unknown> | undefined;
   const computed = d.computed as Record<string, unknown> | undefined;
   const penalties = Array.isArray(computed?.penalties) ? (computed.penalties as string[]) : [];
@@ -26,15 +25,14 @@ const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h5 className="text-sm font-semibold text-foreground">Twilio Voice Insights</h5>
-        <Badge className={`border ${healthBadgeClass(display)}`}>{display}</Badge>
-        {d.report_id != null && (
-          <span className="font-mono text-[10px] text-muted-foreground">Report {String(d.report_id).slice(0, 24)}…</span>
+        <h5 className="text-sm font-semibold text-foreground">Twilio details</h5>
+        {typeof computed?.spam_status === "string" && (
+          <Badge className={`border ${healthBadgeClass(String(computed.spam_status))}`}>{String(computed.spam_status)}</Badge>
         )}
       </div>
       {window && (
         <p className="text-xs text-muted-foreground">
-          Window: {String(window.start ?? "")} → {String(window.end ?? "")} (UTC)
+          7-day window: {String(window.start ?? "")} to {String(window.end ?? "")} (UTC)
         </p>
       )}
       {metrics && (

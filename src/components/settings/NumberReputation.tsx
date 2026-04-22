@@ -3,13 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { ChevronRight, Loader2, Phone, RefreshCw, Shield } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Flag, Loader2, Phone, RefreshCw, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { ReputationAiScanner } from "@/components/settings/number-reputation/ReputationAiScanner";
 import { CarrierReputationPanel } from "@/components/settings/phone/CarrierReputationPanel";
 import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
 
@@ -37,9 +35,9 @@ const getAttestationBadge = (level: string | null) => {
     case "B":
       return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">B</Badge>;
     case "C":
-      return <Badge className="bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30">C</Badge>;
+      return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">C</Badge>;
     default:
-      return <Badge variant="outline" className="text-muted-foreground">Unknown</Badge>;
+      return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30">Unknown</Badge>;
   }
 };
 
@@ -88,25 +86,84 @@ const spamLikelyBadge = (status: string | null) => {
   );
 };
 
-/** Overall 0–100 health: prefer stored spam_score; else derive from status + daily volume. */
-function computeHealthScore(row: PhoneNumber): { score: number; label: "Good" | "Watch" | "Action" } {
-  if (row.spam_score != null && !Number.isNaN(row.spam_score)) {
-    const s = Math.max(0, Math.min(100, row.spam_score));
-    return {
-      score: s,
-      label: s >= 80 ? "Good" : s >= 60 ? "Watch" : "Action",
-    };
+type CarrierSignal = "good" | "warning" | "bad" | "unknown";
+
+function getAttestationFromLatestTwilio(data: unknown, fallback: string | null): string | null {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const computed = (d.computed ?? {}) as Record<string, unknown>;
+  const metrics = (computed.metrics ?? {}) as Record<string, unknown>;
+  const fromTwilio = metrics.attestation_level;
+  if (typeof fromTwilio === "string" && fromTwilio.trim()) {
+    return fromTwilio.trim().toUpperCase();
   }
-  const n = normStatus(row.spam_status);
-  const callCount = row.daily_call_count ?? 0;
-  const callLimit = row.daily_call_limit ?? 100;
-  const pct = callLimit > 0 ? (callCount / callLimit) * 100 : 0;
-  if (n === "flagged" || pct >= 85) return { score: 42, label: "Action" };
-  if (n === "at_risk" || pct >= 55) return { score: 68, label: "Watch" };
-  if (n === "clean") return { score: 92, label: "Good" };
-  if (n === "insufficient_data") return { score: 72, label: "Watch" };
-  if (n === "evaluating") return { score: 70, label: "Watch" };
-  return { score: 65, label: "Watch" };
+  return fallback;
+}
+
+function getCarrierSignal(data: unknown, carrierName: "AT&T" | "Verizon" | "T-Mobile"): CarrierSignal {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const carriers = (d.carriers ?? d.carrier_results) as unknown[] | undefined;
+  if (!Array.isArray(carriers)) return "unknown";
+  const key = carrierName.toLowerCase().replace("&", "");
+  const hit = carriers.find((c) => {
+    const row = c as Record<string, unknown>;
+    const n = String(row.name ?? row.carrier ?? "").toLowerCase().replace("&", "");
+    return n.includes(key) || (carrierName === "T-Mobile" && (n.includes("tmobile") || n.includes("t mobile")));
+  }) as Record<string, unknown> | undefined;
+  if (!hit) return "unknown";
+  const label = String(hit.spam_label ?? "").toLowerCase();
+  if (/flag|spam|block/.test(label)) return "bad";
+  const blockingRate = Number(hit.blocking_rate);
+  if (Number.isFinite(blockingRate)) {
+    if (blockingRate > 5) return "bad";
+    if (blockingRate >= 2) return "warning";
+    return "good";
+  }
+  return "unknown";
+}
+
+function carrierBadge(signal: CarrierSignal) {
+  if (signal === "good") {
+    return (
+      <Badge
+        className="h-6 w-6 justify-center border-emerald-500/30 bg-emerald-500/15 px-0 text-emerald-700 dark:text-emerald-400"
+        title="Check"
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        <span className="sr-only">Check</span>
+      </Badge>
+    );
+  }
+  if (signal === "warning") {
+    return (
+      <Badge
+        className="h-6 w-6 justify-center border-amber-500/30 bg-amber-500/15 px-0 text-amber-800 dark:text-amber-400"
+        title="Warning"
+      >
+        <AlertTriangle className="h-3.5 w-3.5" />
+        <span className="sr-only">Warning</span>
+      </Badge>
+    );
+  }
+  if (signal === "bad") {
+    return (
+      <Badge
+        className="h-6 w-6 justify-center border-red-500/30 bg-red-500/15 px-0 text-red-700 dark:text-red-400"
+        title="Flag"
+      >
+        <Flag className="h-3.5 w-3.5" />
+        <span className="sr-only">Flag</span>
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      className="h-6 w-6 justify-center border-slate-500/30 bg-slate-500/15 px-0 text-slate-600 dark:text-slate-400"
+      title="Unknown"
+    >
+      <span className="text-xs font-semibold">?</span>
+      <span className="sr-only">Unknown</span>
+    </Badge>
+  );
 }
 
 const NumberReputation: React.FC = () => {
@@ -126,8 +183,6 @@ const NumberReputation: React.FC = () => {
       return data as PhoneNumber[];
     },
   });
-
-  const activeCount = phoneNumbers?.length ?? 0;
 
   const toggleRow = (id: string) => {
     setExpandedRows((prev) => {
@@ -242,7 +297,6 @@ const NumberReputation: React.FC = () => {
   if (!isLoading && (!phoneNumbers || phoneNumbers.length === 0)) {
     return (
       <div className="space-y-5">
-        <ReputationAiScanner activeLineCount={0} />
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
           <p className="text-sm text-muted-foreground">
@@ -273,15 +327,11 @@ const NumberReputation: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <ReputationAiScanner activeLineCount={activeCount} />
-
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
           <p className="text-sm text-muted-foreground">
-            Checks call Twilio Voice Insights (7-day window). Each line allows up to three checks per UTC day (Super
-            Admin: unlimited). A scan usually finishes in under a minute; if Twilio is still compiling metrics, run
-            Check again shortly.
+            Clean table view of your caller ID reputation, attestation, and carrier signals.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -309,9 +359,11 @@ const NumberReputation: React.FC = () => {
               <tr>
                 <th className="w-10 px-3 py-3" />
                 <th className="px-3 py-3 text-left font-medium">Phone number</th>
-                <th className="px-3 py-3 text-left font-medium">Health</th>
-                <th className="px-3 py-3 text-left font-medium">Attestation</th>
+                <th className="px-3 py-3 text-left font-medium">Attestation (last Twilio call log)</th>
                 <th className="px-3 py-3 text-left font-medium">Spam likely</th>
+                <th className="px-3 py-3 text-left font-medium">AT&amp;T</th>
+                <th className="px-3 py-3 text-left font-medium">Verizon</th>
+                <th className="px-3 py-3 text-left font-medium">T-Mobile</th>
                 <th className="px-3 py-3 text-left font-medium">Last check</th>
                 <th className="px-3 py-3 text-left font-medium">Check</th>
               </tr>
@@ -320,7 +372,7 @@ const NumberReputation: React.FC = () => {
               {phoneNumbers?.map((num) => {
                 const expanded = expandedRows.has(num.id);
                 const scanning = scanningIds.includes(num.id);
-                const health = computeHealthScore(num);
+                const attestation = getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
                 return (
                   <React.Fragment key={num.id}>
                     <motion.tr
@@ -355,27 +407,11 @@ const NumberReputation: React.FC = () => {
                         )}
                       </td>
                       <td className="px-3 py-3 font-mono text-xs text-foreground">{num.phone_number}</td>
-                      <td className="px-3 py-3">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                          <span className="text-sm font-semibold tabular-nums">{health.score}</span>
-                          <Badge
-                            className={cn(
-                              "w-fit border text-xs",
-                              health.label === "Good" &&
-                                "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-                              health.label === "Watch" &&
-                                "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-400",
-                              health.label === "Action" &&
-                                "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-                            )}
-                          >
-                            {health.label}
-                          </Badge>
-                          <Progress value={health.score} className="hidden h-1.5 w-20 sm:block md:w-28" />
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">{getAttestationBadge(num.attestation_level)}</td>
+                      <td className="px-3 py-3">{getAttestationBadge(attestation)}</td>
                       <td className="px-3 py-3">{spamLikelyBadge(num.spam_status)}</td>
+                      <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
+                      <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
+                      <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
                       <td className="px-3 py-3 text-xs text-muted-foreground">
                         {num.spam_checked_at
                           ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
@@ -404,7 +440,7 @@ const NumberReputation: React.FC = () => {
                     <AnimatePresence>
                       {expanded && (
                         <tr>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={9} className="p-0">
                             <motion.div
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: "auto", opacity: 1 }}
