@@ -739,7 +739,7 @@ export default function DialerPage() {
         .from('campaigns')
         .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, created_by')
         .eq('organization_id', organizationId)
-        .in('status', ['Active', 'Paused', 'Draft'])
+        .eq('status', 'Active')
         .order('name', { ascending: true });
       if (error) {
         console.error('[Dialer] campaigns fetch:', error);

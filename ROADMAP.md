@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Dialer campaign picker — Active only**
+  *What:* The dialer loaded campaigns with status **Active**, **Paused**, or **Draft**, so draft/paused campaigns appeared alongside active ones. Campaign selection now queries **`status = 'Active'`** only, matching how leads are added to campaigns elsewhere.
+  *Files:* **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | Number Reputation UI cleanup (table-first view)**
   *What:* Simplified **Number Reputation** from a developer-style diagnostics screen to a cleaner operations table. Removed the animated AI monitor strip and the long explanatory paragraph, removed the health “Watch” bar/score column, and kept the row dropdown for detail drill-down. Attestation now prefers the latest Twilio-derived value from reputation payload metrics (fallback to stored DB value) and uses the requested badge colors: **A = green, B = yellow, C = red, Unknown = gray**. Added top-table carrier columns (**AT&T**, **Verizon**, **T-Mobile**) with visual status badges (**Check = green, Warning = yellow, Flag = red, Unknown = gray**) while keeping expanded carrier details below each row.
   *Files:* **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/phone/CarrierReputationPanel.tsx`**, **`ROADMAP.md`**.
