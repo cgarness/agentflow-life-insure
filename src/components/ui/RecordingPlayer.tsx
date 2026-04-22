@@ -105,6 +105,14 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
         storagePath = storagePathCol.trim();
       } else if (recUrl?.startsWith("storage:call-recordings/")) {
         storagePath = recUrl.replace("storage:call-recordings/", "");
+      } else if (recUrl?.startsWith("storage:")) {
+        // Twilio pipeline stores `storage:{objectPath}` (no bucket name in the token).
+        const rest = recUrl.slice("storage:".length).trim();
+        if (rest.startsWith("call-recordings/")) {
+          storagePath = rest.slice("call-recordings/".length);
+        } else if (rest) {
+          storagePath = rest;
+        }
       }
 
       let blob: Blob;
@@ -157,10 +165,9 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
   const togglePlay = async () => {
     if (!blobUrlRef.current) {
       await fetchAudio();
-      return;
     }
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !blobUrlRef.current) return;
     if (!audio.src && blobUrlRef.current) {
       audio.src = blobUrlRef.current;
       audio.load();
@@ -168,7 +175,7 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
     if (playing) {
       audio.pause();
     } else {
-      void audio.play();
+      void audio.play().catch(() => {});
     }
   };
 

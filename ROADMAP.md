@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Call recording playback (first Play + Twilio `storage:` paths)**
+  *What:* **RecordingPlayer** used to return after the initial fetch, so the first Play click only loaded audio and required a second click to hear it. **Play** now continues into `audio.play()` after a successful load. Also resolve **`recording_url`** values shaped like **`storage:{path}`** from the Twilio recording webhook when **`recording_storage_path`** is missing on older rows.
+  *Files:* **`src/components/ui/RecordingPlayer.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | Custom menu links in sidebar + open mode (new tab vs in-app)**
   *What:* Links from **Settings → Custom Menu Links** now render in the main left nav **directly above Settings** (after Training). Each link can open in a **new browser tab** or **inside AgentFlow** via route **`/app-link/:id`** with an iframe and a fallback “Open in new tab” control. Added DB column **`open_mode`** (`new_tab` | `in_frame`). Settings list and Master Admin table include the new field; sidebar uses org-scoped **`useCustomMenuLinks`** with query invalidation after edits.
   *Files:* **`supabase/migrations/20260422130000_custom_menu_links_open_mode.sql`**, **`src/hooks/useCustomMenuLinks.ts`**, **`src/pages/AppLinkEmbedPage.tsx`**, **`src/components/layout/Sidebar.tsx`**, **`src/components/layout/NavItems.tsx`**, **`src/components/settings/CustomMenuLinks.tsx`**, **`src/App.tsx`**, **`src/integrations/supabase/types.ts`**, **`src/components/settings/MasterAdmin.tsx`**, **`ROADMAP.md`**.
