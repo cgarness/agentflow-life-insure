@@ -36,9 +36,9 @@ verify_jwt = false
 [functions.inbound-call-claim]
 verify_jwt = false
 
-# Invoked by Supabase cron or service role; uses SUPABASE_SERVICE_ROLE_KEY inside handler.
-[functions.spam-check-cron]
-verify_jwt = false
+# Twilio Voice Insights reputation — JWT; Admin / Team Leader / assigned Agent; rate-limited per number (UTC).
+[functions.twilio-reputation-check]
+verify_jwt = true
 
 # Twilio webhooks — authenticated via X-Twilio-Signature HMAC-SHA1, not Supabase JWT.
 [functions.twilio-search-numbers]

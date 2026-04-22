@@ -40,6 +40,8 @@ const getSpamBadge = (status: string | null) => {
       return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/20">Flagged</Badge>;
     case "insufficient data":
       return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30 hover:bg-slate-500/20">More calls needed</Badge>;
+    case "evaluating":
+      return <Badge className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30 hover:bg-sky-500/20">Evaluating</Badge>;
     default:
       return <Badge variant="outline" className="text-muted-foreground">Unknown</Badge>;
   }
@@ -99,80 +101,11 @@ const SpamMonitoring: React.FC = () => {
   };
 
   const handleCheckAllSpam = async () => {
-    if (!phoneNumbers?.length) return;
-    setIsScanning(true);
-
-    try {
-      // Animate wave through rows
-      for (let i = 0; i < phoneNumbers.length; i++) {
-        setScanningNumbers([phoneNumbers[i].id]);
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
-
-      // Call Edge Function with direct fetch
-      const response = await fetch(
-        `${(supabase as any).supabaseUrl}/functions/v1/spam-check-cron`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({}),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        console.error("Spam check failed:", data);
-        toast.error(`Spam check failed: ${data.error || "Unknown error"}`);
-      } else {
-        console.log("Spam check succeeded:", data);
-        toast.success("Spam check completed! Refreshing data...");
-        await refetch();
-      }
-    } catch (error: any) {
-      console.error("Spam check error:", error);
-      toast.error(`Failed to check spam status: ${error.message}`);
-    } finally {
-      setIsScanning(false);
-      setScanningNumbers([]);
-    }
+    toast.info("Spam Monitoring checks are retired. Use Settings → Number Reputation for Twilio Insights scans.");
   };
 
-  const handleCheckIndividual = async (phoneId: string, phoneNumber: string) => {
-    setScanningNumbers([phoneId]);
-
-    try {
-      const response = await fetch(
-        `${(supabase as any).supabaseUrl}/functions/v1/spam-check-cron`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ phone_number: phoneNumber }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        console.error(`Failed to check ${phoneNumber}:`, data);
-        toast.error(`Failed to check ${phoneNumber}: ${data.error || "Unknown error"}`);
-      } else {
-        console.log(`Checked ${phoneNumber} successfully:`, data);
-        toast.success(`Checked ${phoneNumber} successfully!`);
-        await refetch();
-      }
-    } catch (error: any) {
-      console.error(`Error checking ${phoneNumber}:`, error);
-      toast.error(`Failed to check ${phoneNumber}: ${error.message}`);
-    } finally {
-      setScanningNumbers([]);
-    }
+  const handleCheckIndividual = async (_phoneId: string, _phoneNumber: string) => {
+    toast.info("Use Settings → Number Reputation to run a Twilio reputation check on this number.");
   };
 
   const cleanCount = phoneNumbers?.filter((p) => p.spam_status?.toLowerCase() === "clean").length ?? 0;
@@ -211,18 +144,17 @@ const SpamMonitoring: React.FC = () => {
           <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Radar className="w-5 h-5 text-primary" /> Spam Monitoring
           </h3>
-          <p className="text-sm text-muted-foreground">Monitor phone number reputation and carrier blocking rates</p>
+          <p className="text-sm text-muted-foreground">
+            Legacy view. Reputation checks now live under{" "}
+            <span className="font-medium text-foreground">Number Reputation</span> (Twilio Voice Insights).
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isScanning}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
-<Button size="sm" onClick={handleCheckAllSpam} disabled={isScanning}>
-            {isScanning ? (
-              <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Scanning...</>
-            ) : (
-              <><Shield className="w-4 h-4 mr-1" /> Check All</>
-            )}
+          <Button size="sm" variant="secondary" onClick={handleCheckAllSpam} disabled>
+            <Shield className="w-4 h-4 mr-1" /> Check All (moved)
           </Button>
         </div>
       </div>

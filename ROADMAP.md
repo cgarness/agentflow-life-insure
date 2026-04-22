@@ -68,9 +68,21 @@
 
 ## 3. Work Log (Recent History)
 
-- **2026-04-21 | [DONE] | Settings — Number Reputation tab**
-  *What:* New **Telephony Stack** sidebar entry **Number Reputation** (`?section=number-reputation`) with a simplified reputation table (health score, attestation, spam-likely mapping, last check, per-row and bulk scan via existing **`spam-check-cron`** Edge Function). Added an always-on **AI line monitor** scanner strip (grid sweep, radar, scan beam, ticker) plus row-level scan animation while a check runs. Extracted **`CarrierReputationPanel`** for reuse with **Spam Monitoring** expand rows.
-  *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/number-reputation/ReputationAiScanner.tsx`**, **`src/components/settings/phone/CarrierReputationPanel.tsx`**, **`src/components/settings/SpamMonitoring.tsx`**, **`tailwind.config.ts`**, **`ROADMAP.md`**.
+- **2026-04-21 | [DONE] | Twilio Voice Insights reputation pipeline**
+  *What:* Removed legacy **`spam-check-cron`** Edge Function. Added **`twilio-reputation-check`** (JWT, `verify_jwt = true`): loads Twilio creds from **`phone_settings`**, creates/polls **Voice Insights v2** `POST/GET …/Voice/Reports/PhoneNumbers/Outbound`, matches the org’s **From** number, applies the agreed **0–100** penalty model (grace **`Evaluating`** when &lt; 20 calls in window), updates **`phone_numbers`** (`spam_score`, `spam_status`, `spam_checked_at`, **`carrier_reputation_data` schema v2**). Added **`phone_number_reputation_checks`** table (**`organization_id`** required) for **3 checks / number / UTC day**; **`cgarness.ffl@gmail.com`** bypasses the limit. **Auth:** Admin, Team Leader / Team Lead (all org numbers), or Agent assigned to the line; Super Admin email may check any org’s number. **Number Reputation** tab calls **`supabase.functions.invoke('twilio-reputation-check')`**. **Spam Monitoring** check actions replaced with “moved to Number Reputation” toasts; table still refreshes for legacy rows.
+  *Files:* **`supabase/migrations/20260421120000_phone_number_reputation_checks.sql`**, **`supabase/functions/twilio-reputation-check/*`**, **`supabase/config.toml`**, **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/phone/CarrierReputationPanel.tsx`**, **`src/components/settings/SpamMonitoring.tsx`**, **`ROADMAP.md`**. *Deploy:* `supabase functions deploy twilio-reputation-check` and apply migration (`db push`).
+
+  ### Context Snapshot — Twilio reputation (2026-04-21)
+
+  | Piece | Detail |
+  | :--- | :--- |
+  | **Twilio** | Advanced Voice Insights **Reports API v2**; report may take **~30–70s**; per-handle metrics parsed defensively (field names vary). |
+  | **Rate limit** | Rows in **`phone_number_reputation_checks`** per **`phone_number_id`** since **UTC midnight**; Super Admin email unlimited. |
+  | **Risk** | If a line is outside Twilio’s **top-N** outbound volume for the window, the report may **not include that handle** → **`Insufficient Data`** stored until volume qualifies. |
+
+- **2026-04-21 | [DONE] | Settings — Number Reputation tab (UI shell)**
+  *What:* **Telephony Stack → Number Reputation** (`?section=number-reputation`) with reputation table, **AI line monitor** strip, row expand for carrier JSON, animations. *(Initial build wired **`spam-check-cron`**; superseded same day by **Twilio Insights** pipeline above.)*
+  *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/number-reputation/ReputationAiScanner.tsx`**, **`tailwind.config.ts`**, **`ROADMAP.md`**.
 
 - **2026-04-20 | [DONE] | Contact Conversations — call info modal**
   *What:* Each call bubble in the center **Conversations** column on the full-screen contact view now has a small **Info** icon. Clicking it opens a modal with the full **`calls`** row context (direction, disposition, timestamps, caller ID, agent, prospect snapshot, recording status, coaching flag, carrier/session identifiers, SIP/quality fields, internal IDs). The contact timeline query selects the extra columns needed for that modal (no schema change).

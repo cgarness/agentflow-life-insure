@@ -48,6 +48,7 @@ const getSpamLikelyLabel = (status: string | null): { text: string; variant: "ye
   if (n === "at_risk") return { text: "Elevated", variant: "maybe" };
   if (n === "clean") return { text: "No", variant: "no" };
   if (n === "insufficient_data") return { text: "Unknown", variant: "unknown" };
+  if (n === "evaluating") return { text: "Evaluating", variant: "unknown" };
   return { text: "Unknown", variant: "unknown" };
 };
 
@@ -85,6 +86,7 @@ function computeHealthScore(row: PhoneNumber): { score: number; label: "Good" | 
   if (n === "at_risk" || pct >= 55) return { score: 68, label: "Watch" };
   if (n === "clean") return { score: 92, label: "Good" };
   if (n === "insufficient_data") return { score: 72, label: "Watch" };
+  if (n === "evaluating") return { score: 70, label: "Watch" };
   return { score: 65, label: "Watch" };
 }
 
@@ -116,36 +118,46 @@ const NumberReputation: React.FC = () => {
     });
   };
 
-  const runEdgeCheck = async (body: Record<string, unknown>) => {
-    const response = await fetch(`${(supabase as any).supabaseUrl}/functions/v1/spam-check-cron`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
+  type ReputationFnResponse = {
+    success?: boolean;
+    error?: string | Record<string, unknown>;
+    message?: string;
+    spam_status?: string;
+    spam_score?: number | null;
+  };
+
+  const invokeReputationCheck = async (e164: string) => {
+    const { data, error } = await supabase.functions.invoke<ReputationFnResponse>("twilio-reputation-check", {
+      body: { phone_number: e164 },
     });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || "Reputation check failed");
+    if (error) throw new Error(error.message);
+    const payload = data as ReputationFnResponse | null;
+    if (payload?.error) {
+      const err = payload.error;
+      throw new Error(typeof err === "string" ? err : JSON.stringify(err));
     }
-    return data;
+    return payload;
   };
 
   const handleCheckAll = async () => {
     if (!phoneNumbers?.length) return;
     setBulkScanning(true);
     try {
+      let ok = 0;
       for (let i = 0; i < phoneNumbers.length; i++) {
-        setScanningIds([phoneNumbers[i].id]);
-        await new Promise((r) => setTimeout(r, 280));
+        const n = phoneNumbers[i];
+        setScanningIds([n.id]);
+        await new Promise((r) => setTimeout(r, 200));
+        try {
+          await invokeReputationCheck(n.phone_number);
+          ok++;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          toast.error(`${n.phone_number}: ${msg}`);
+        }
       }
-      await runEdgeCheck({});
-      toast.success("Reputation scan complete.");
+      toast.success(ok === phoneNumbers.length ? "All lines scanned." : `Scanned ${ok} of ${phoneNumbers.length} lines (see errors).`);
       await refetch();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      toast.error(msg);
     } finally {
       setBulkScanning(false);
       setScanningIds([]);
@@ -155,8 +167,8 @@ const NumberReputation: React.FC = () => {
   const handleCheckOne = async (id: string, e164: string) => {
     setScanningIds([id]);
     try {
-      await runEdgeCheck({ phone_number: e164 });
-      toast.success(`Updated ${e164}`);
+      const payload = await invokeReputationCheck(e164);
+      toast.success(payload?.message ?? `Updated ${e164}`);
       await refetch();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Check failed";
@@ -208,8 +220,8 @@ const NumberReputation: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
           <p className="text-sm text-muted-foreground">
-            Health score combines your stored reputation score with daily volume. Expand a row for carrier details when
-            available.
+            Checks call Twilio Voice Insights (7-day window). Each line allows up to three checks per UTC day (Super
+            Admin: unlimited). A scan can take up to a minute while Twilio builds the report.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
