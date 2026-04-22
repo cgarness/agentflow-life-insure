@@ -13,6 +13,25 @@ export type ComputedReputation = {
   };
 };
 
+/** Normalize Twilio / DB attestation strings to a single A | B | C when possible. */
+export function normalizeAttestationLetter(
+  fromRow: string | null | undefined,
+  fromDb: string | null | undefined,
+): string | null {
+  for (const raw of [fromRow, fromDb]) {
+    if (raw == null || String(raw).trim() === "") continue;
+    const s = String(raw).toUpperCase().trim();
+    if (s === "A" || s === "B" || s === "C") return s;
+    const word = s.match(/\b([ABC])\b/);
+    if (word) return word[1]!;
+    const letters = s.replace(/[^ABC]/g, "");
+    if (letters.includes("A")) return "A";
+    if (letters.includes("B")) return "B";
+    if (letters.includes("C")) return "C";
+  }
+  return null;
+}
+
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number" && !Number.isNaN(v)) return v;
@@ -65,10 +84,9 @@ export function extractReportMetrics(
       "answer_seizure_ratio",
     );
 
-  const attestation =
+  const attRaw =
     (typeof row["attestation_level"] === "string" ? row["attestation_level"] : null) ??
-    (typeof row["stir_shaken_attestation"] === "string" ? row["stir_shaken_attestation"] : null) ??
-    attestationFromDb;
+    (typeof row["stir_shaken_attestation"] === "string" ? row["stir_shaken_attestation"] : null);
 
   return {
     total_calls: Math.round(total),
@@ -76,7 +94,7 @@ export function extractReportMetrics(
     short_call_pct: shortCallPct,
     asr_pct: asrPct,
     daily_dials: dailyCallCountFromDb,
-    attestation_level: attestation ? String(attestation).toUpperCase().slice(0, 1) : null,
+    attestation_level: normalizeAttestationLetter(attRaw, attestationFromDb),
   };
 }
 
