@@ -8,8 +8,9 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import {
-  Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Trash2, Plus,
+  Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Trash2, Plus, ChevronDown,
 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { Badge } from "@/components/ui/badge";
@@ -432,19 +433,27 @@ const MyProfile: React.FC = () => {
       </Card>
 
       {/* CARD 1.1 — Licensed States */}
-      <Card className="bg-card border-border rounded-xl">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Globe className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Licensed States</CardTitle>
-              <p className="text-xs text-muted-foreground">Manage the states where you are licensed to sell</p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <Card className="bg-card border-border rounded-xl overflow-hidden">
+        <Collapsible defaultOpen={false} className="group">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+                  <Globe className="w-5 h-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <CardTitle className="text-lg">Licensed States</CardTitle>
+                  <p className="text-xs text-muted-foreground">Manage the states where you are licensed to sell</p>
+                </div>
+              </div>
+              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6 border-t border-border/50 pt-6">
           <div className="flex flex-col md:flex-row gap-3 items-end bg-accent/30 p-4 rounded-xl border border-border/50">
             <div className="flex-1 w-full space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Add New State</label>
@@ -509,10 +518,13 @@ const MyProfile: React.FC = () => {
               {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Licenses"}
             </Button>
           </div>
-        </CardContent>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
       </Card>
 
       <ProfileCarriersSection
+        collapsible
         carriers={selectedCarriers}
         onChange={setSelectedCarriers}
         footer={
@@ -523,9 +535,19 @@ const MyProfile: React.FC = () => {
       />
 
       {/* CARD 2 — Change Password */}
-      <Card className="bg-card border-border rounded-lg mb-6">
-        <CardHeader><CardTitle className="text-base">Change Password</CardTitle></CardHeader>
-        <CardContent className="space-y-4 max-w-md">
+      <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
+        <Collapsible defaultOpen={false} className="group">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              <CardTitle className="text-base">Change Password</CardTitle>
+              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4 max-w-md border-t border-border/50 pt-6">
           <PasswordField label="Current Password" value={currentPw} onChange={setCurrentPw} show={showCurrentPw} onToggle={() => setShowCurrentPw(!showCurrentPw)} />
           <div>
             <PasswordField label="New Password" value={newPw} onChange={setNewPw} show={showNewPw} onToggle={() => setShowNewPw(!showNewPw)} />
@@ -553,13 +575,25 @@ const MyProfile: React.FC = () => {
           <Button onClick={handleUpdatePassword} disabled={!pwAllFilled || pwMismatch || pwSaving} className="px-6">
             {pwSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Updating...</> : "Update Password"}
           </Button>
-        </CardContent>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
       </Card>
 
       {/* CARD 3 — Preferences */}
-      <Card className="bg-card border-border rounded-lg mb-6">
-        <CardHeader><CardTitle className="text-base">Preferences</CardTitle></CardHeader>
-        <CardContent className="space-y-5">
+      <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
+        <Collapsible defaultOpen={false} className="group">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              <CardTitle className="text-base">Preferences</CardTitle>
+              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-5 border-t border-border/50 pt-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-foreground">Dark Mode</p>
@@ -617,14 +651,26 @@ const MyProfile: React.FC = () => {
           <Button onClick={handleSavePreferences} disabled={prefSaving} className="px-6">
             {prefSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Preferences"}
           </Button>
-        </CardContent>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
       </Card>
 
       {/* CARD 4 — Agent Goals */}
       {showGoals && (
-        <Card className="bg-card border-border rounded-lg mb-6">
-          <CardHeader><CardTitle className="text-base">My Goals</CardTitle></CardHeader>
-          <CardContent className="space-y-4 max-w-md">
+        <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
+          <Collapsible defaultOpen={false} className="group">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              >
+                <CardTitle className="text-base">My Goals</CardTitle>
+                <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-4 max-w-md border-t border-border/50 pt-6">
             <GoalField label="Daily Calls Goal" unit="calls per day" value={dailyCalls} onChange={setDailyCalls} error={goalErrors.dailyCalls} />
             <GoalField label="Monthly Policies Goal" unit="policies per month" value={monthlyPolicies} onChange={setMonthlyPolicies} error={goalErrors.monthlyPolicies} />
             <GoalField label="Weekly Appointments Goal" unit="appointments per week" value={weeklyAppts} onChange={setWeeklyAppts} error={goalErrors.weeklyAppts} />
@@ -632,7 +678,9 @@ const MyProfile: React.FC = () => {
             <Button onClick={handleSaveGoals} disabled={goalSaving} className="px-6">
               {goalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Goals"}
             </Button>
-          </CardContent>
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
       )}
 

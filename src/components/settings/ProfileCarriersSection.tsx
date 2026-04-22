@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Trash2, Plus, Loader2 } from "lucide-react";
+import { Shield, Trash2, Plus, Loader2, ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export type ProfileCarrierRow = { carrier: string; writingNumber: string };
 
@@ -32,6 +33,8 @@ interface ProfileCarriersSectionProps {
   footer?: React.ReactNode;
   /** Shorter copy when an admin is editing another user */
   adminEditing?: boolean;
+  /** When true, header toggles visibility (e.g. My Profile); User Management stays expanded */
+  collapsible?: boolean;
 }
 
 const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
@@ -40,6 +43,7 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
   disabled = false,
   footer,
   adminEditing = false,
+  collapsible = false,
 }) => {
   const [carrierToAdd, setCarrierToAdd] = useState("");
   const [orgCarrierNames, setOrgCarrierNames] = useState<string[]>([]);
@@ -88,24 +92,24 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
     onChange(carriers.filter((c) => c.carrier !== carrier));
   };
 
-  return (
-    <Card className="bg-card border-border rounded-xl">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <Shield className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <CardTitle className="text-lg">Insurance Carriers</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {adminEditing
-                ? "Writing numbers for each carrier. Only carriers listed under Settings → Carriers can be selected."
-                : "Configure your writing numbers. Only carriers your agency added under Settings → Carriers appear in the list."}
-            </p>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
+  const headerBlock = (
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+        <Shield className="w-5 h-5 text-primary" />
+      </div>
+      <div className="min-w-0">
+        <CardTitle className="text-lg">Insurance Carriers</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          {adminEditing
+            ? "Writing numbers for each carrier. Only carriers listed under Settings → Carriers can be selected."
+            : "Configure your writing numbers. Only carriers your agency added under Settings → Carriers appear in the list."}
+        </p>
+      </div>
+    </div>
+  );
+
+  const body = (
+    <>
         <div className="flex flex-col md:flex-row gap-3 items-end bg-accent/30 p-4 rounded-xl border border-border/50">
           <div className="flex-1 w-full space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Select Carrier</label>
@@ -190,7 +194,34 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
         </div>
 
         {footer ? <div className="flex justify-end pt-2 border-t border-border/50">{footer}</div> : null}
-      </CardContent>
+    </>
+  );
+
+  if (collapsible) {
+    return (
+      <Card className="bg-card border-border rounded-xl overflow-hidden">
+        <Collapsible defaultOpen={false} className="group">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              {headerBlock}
+              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6 border-t border-border/50 pt-6">{body}</CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="bg-card border-border rounded-xl">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">{headerBlock}</CardHeader>
+      <CardContent className="space-y-6">{body}</CardContent>
     </Card>
   );
 };

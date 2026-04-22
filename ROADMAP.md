@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | My Profile — collapsible sections below Profile Information**
+  *What:* **Settings → My Profile** keeps **Profile Information** always visible; **Licensed States**, **Insurance Carriers**, **Change Password**, **Preferences**, and **My Goals** (when shown) are **expand/collapse** panels (closed by default) with a row header and chevron, using Radix **Collapsible**. **User Management** profile carrier editor unchanged (optional **`collapsible`** prop on **`ProfileCarriersSection`**).
+  *Files:* **`src/components/settings/MyProfile.tsx`**, **`src/components/settings/ProfileCarriersSection.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | Remove Health Statuses (product + database)**
   *What:* Removed **Health Statuses** everywhere: **Master Admin** category, **Contact Management** required-field label, **Add Lead** / **Import** / **Contacts** table column, **dialer** lead card and queue preview, **FullScreenContactView** settings fetch, **`healthStatusesSupabaseApi`**, **`Lead.healthStatus`**, and **`leads.health_status`** + **`public.health_statuses`** via migration **`20260422190000_remove_health_statuses_feature.sql`** (also strips **`Health Status`** from **`contact_management_settings.required_fields_lead`** JSON where present). Edge **`import-contacts`** no longer maps **`health_status`**.
   *Files:* Migration above; **`src/lib/types.ts`**, **`src/lib/supabase-settings.ts`**, **`src/lib/supabase-contacts.ts`**, **`src/lib/supabase-leads.ts`**, **`src/integrations/supabase/types.ts`**, **`src/components/settings/MasterAdmin.tsx`**, **`src/components/settings/ContactManagement.tsx`**, **`src/components/contacts/*`**, **`src/pages/Contacts.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/dialer/LeadCard.tsx`**, **`src/components/dialer/LeadCardBlurred.tsx`**, **`src/components/dialer/QueuePanel.tsx`**, **`supabase/functions/import-contacts/index.ts`**, **`ROADMAP.md`**.
