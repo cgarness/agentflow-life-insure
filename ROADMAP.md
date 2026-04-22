@@ -79,6 +79,11 @@
   | **Twilio** | Advanced Voice Insights **Reports API v2**; report may take **~30–70s**; per-handle metrics parsed defensively (field names vary). |
   | **Rate limit** | Rows in **`phone_number_reputation_checks`** per **`phone_number_id`** since **UTC midnight**; Super Admin email unlimited. |
   | **Risk** | If a line is outside Twilio’s **top-N** outbound volume for the window, the report may **not include that handle** → **`Insufficient Data`** stored until volume qualifies. |
+  | **Production 401 on “Check”** | If the browser’s **`functions/v1/twilio-reputation-check`** host is **not** **`jncvvsvckxhqgqvkppmj.supabase.co`**, the JWT was issued for a different project → **401**. Fix **Vercel** **`VITE_SUPABASE_URL`** and **`VITE_SUPABASE_ANON_KEY`** from the **same** Supabase project dashboard, then redeploy. The app now logs a console error on host mismatch and extends the Number Reputation error toast with that hint. |
+
+- **2026-04-21 | [DONE] | Number Reputation — surface wrong Supabase project URL (401 on Check)**
+  *What:* When **`VITE_SUPABASE_URL`** points at the wrong project (typo or old ref), Edge **`verify_jwt`** rejects the token. Added **`warnIfSupabaseUrlHostMismatch()`** on Supabase client init and a clearer **401** message on **`twilio-reputation-check`** invoke failure (Vercel env hint).
+  *Files:* **`src/config/supabaseProject.ts`**, **`src/integrations/supabase/client.ts`**, **`src/components/settings/NumberReputation.tsx`**, **`ROADMAP.md`**.
 
 - **2026-04-21 | [DONE] | Settings — Number Reputation tab (UI shell)**
   *What:* **Telephony Stack → Number Reputation** (`?section=number-reputation`) with reputation table, **AI line monitor** strip, row expand for carrier JSON, animations. *(Initial build wired **`spam-check-cron`**; superseded same day by **Twilio Insights** pipeline above.)*

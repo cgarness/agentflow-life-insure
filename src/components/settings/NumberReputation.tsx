@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { ReputationAiScanner } from "@/components/settings/number-reputation/ReputationAiScanner";
 import { CarrierReputationPanel } from "@/components/settings/phone/CarrierReputationPanel";
+import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
 
 type PhoneNumber = {
   id: string;
@@ -149,7 +150,21 @@ const NumberReputation: React.FC = () => {
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
       },
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      const base = String(error.message || "");
+      const is401 =
+        base.includes("401") ||
+        base.toLowerCase().includes("non-2xx") ||
+        base.toLowerCase().includes("unauthorized");
+      if (is401) {
+        throw new Error(
+          `${base} — If this persists, open the browser Network tab: the request host must be ` +
+            `${AGENTFLOW_SUPABASE_PROJECT_REF}.supabase.co (same project as your login). ` +
+            `Fix Vercel VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY if the host is wrong.`,
+        );
+      }
+      throw new Error(base);
+    }
     const payload = data as ReputationFnResponse | null;
     if (payload?.error) {
       const err = payload.error;
