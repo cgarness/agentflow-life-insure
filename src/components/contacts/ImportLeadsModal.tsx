@@ -35,7 +35,7 @@ interface Conflict {
 
 const AGENTFLOW_FIELDS = [
   "First Name", "Last Name", "Full Name", "Phone", "Email", "State", "Lead Source",
-  "Age", "Date of Birth", "Health Status", "Best Time to Call", "Notes", "Assigned Agent",
+  "Age", "Date of Birth", "Best Time to Call", "Notes", "Assigned Agent",
 ] as const;
 
 type AgentFlowField = typeof AGENTFLOW_FIELDS[number];
@@ -52,7 +52,6 @@ const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
   "Lead Source": ["lead source", "source", "how did you hear", "referral source", "origin", "marketing source", "traffic source"],
   "Age": ["age", "years old", "current age", "customer age"],
   "Date of Birth": ["date of birth", "dob", "birth date", "birthday", "birthdate"],
-  "Health Status": ["health status", "health", "medical status", "condition", "health condition", "medical history"],
   "Best Time to Call": ["best time to call", "best time", "call time", "preferred time", "contact time", "callback time"],
   "Notes": ["notes", "note", "comments", "comment", "additional info", "remarks", "description", "details"],
   "Assigned Agent": ["assigned agent", "agent", "rep", "sales rep", "assigned to", "owner", "agent name", "staff"],
@@ -60,12 +59,12 @@ const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
 
 const TEMPLATE_HEADERS = [
   "First Name", "Last Name", "Phone", "Email", "State", "Lead Source",
-  "Age", "Date of Birth", "Health Status", "Best Time to Call", "Notes",
+  "Age", "Date of Birth", "Best Time to Call", "Notes",
 ];
 
 const TEMPLATE_ROWS = [
-  ["John", "Smith", "(555) 111-2222", "john.smith@email.com", "FL", "Facebook Ads", "42", "1983-05-12", "Preferred", "Morning", "Interested in term life"],
-  ["Jane", "Doe", "(555) 333-4444", "jane.doe@email.com", "TX", "Referral", "35", "1990-08-23", "Standard", "Afternoon", "Referred by Mike T."],
+  ["John", "Smith", "(555) 111-2222", "john.smith@email.com", "FL", "Facebook Ads", "42", "1983-05-12", "Morning", "Interested in term life"],
+  ["Jane", "Doe", "(555) 333-4444", "jane.doe@email.com", "TX", "Referral", "35", "1990-08-23", "Afternoon", "Referred by Mike T."],
 ];
 
 // Redundant LEAD_STATUSES removed
@@ -496,7 +495,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           leadScore: 5,
           age: parseInt(getVal(r.row, "Age")) || undefined,
           dateOfBirth: getVal(r.row, "Date of Birth") || undefined,
-          healthStatus: getVal(r.row, "Health Status") || undefined,
           bestTimeToCall: getVal(r.row, "Best Time to Call") || undefined,
           notes: getVal(r.row, "Notes") || undefined,
           customFields: customFieldsData

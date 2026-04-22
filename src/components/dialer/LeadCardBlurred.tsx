@@ -36,7 +36,7 @@ function BlurField({ label }: { label: string }) {
  * LeadCardBlurred — ringing state view for Team/Open campaigns.
  *
  * Shows ONLY: first name, state, age, attempt counter, last disposition.
- * Sensitive fields (last name, phone, email, DOB, health, source, score,
+ * Sensitive fields (last name, phone, email, DOB, source, score,
  * spouse, notes) are rendered with a blur + lock icon overlay.
  *
  * Used exclusively by LeadCard when callStatus === 'ringing'.
@@ -119,7 +119,6 @@ export default function LeadCardBlurred({
           <BlurField label="Phone" />
           <BlurField label="Email" />
           <BlurField label="DOB" />
-          <BlurField label="Health" />
           <BlurField label="Source" />
           <BlurField label="Score" />
           <BlurField label="Spouse" />

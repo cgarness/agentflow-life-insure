@@ -127,7 +127,6 @@ serve(async (req: Request) => {
         organization_id: orgId, // Always stamp orgId centrally
         age: row.age || null,
         date_of_birth: row.dateOfBirth || null,
-        health_status: row.healthStatus || null,
         best_time_to_call: row.bestTimeToCall || null,
         notes: row.notes || null,
         custom_fields: row.customFields || null,

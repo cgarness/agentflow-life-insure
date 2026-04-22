@@ -3,16 +3,15 @@ import {
   pipelineSupabaseApi as pipelineApi,
   customFieldsSupabaseApi as customFieldsApi,
   leadSourcesSupabaseApi as leadSourcesApi,
-  healthStatusesSupabaseApi as healthStatusesApi
 } from "@/lib/supabase-settings";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
-import { PipelineStage, CustomField, LeadSource, HealthStatus, ContactManagementSettings } from "@/lib/types";
+import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
-  CheckCircle2, MinusCircle, Lock, AlertTriangle, Flame,
+  CheckCircle2, MinusCircle, Lock, AlertTriangle,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -36,7 +35,7 @@ const PRESET_COLORS = [
   { name: "Teal", hex: "#14B8A6" },
 ];
 
-const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Health Statuses", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings", "Field Layout"];
+const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings", "Field Layout"];
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -792,205 +791,6 @@ const LeadSourcesTab: React.FC = () => {
   );
 };
 
-// ==================== HEALTH STATUSES TAB ====================
-
-const HealthStatusesTab: React.FC = () => {
-  const { organizationId } = useOrganization();
-  const [statuses, setStatuses] = useState<HealthStatus[]>([]);
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", color: "#3B82F6", description: "" });
-  const [saving, setSaving] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<HealthStatus | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-  const [orderChanged, setOrderChanged] = useState(false);
-  const [savingOrder, setSavingOrder] = useState(false);
-
-  const load = useCallback(async () => { setStatuses(await healthStatusesApi.getAll()); setOrderChanged(false); }, []);
-  useEffect(() => { load(); }, [load]);
-
-  const openAdd = () => { setEditingId(null); setForm({ name: "", color: "#3B82F6", description: "" }); setShowModal(true); };
-  const openEdit = (h: HealthStatus) => {
-    setEditingId(h.id);
-    setForm({ name: h.name, color: h.color, description: h.description });
-    setShowModal(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
-    setSaving(true);
-    try {
-      if (editingId) {
-        await healthStatusesApi.update(editingId, { name: form.name, color: form.color, description: form.description });
-        toast({ title: "Health status updated" });
-      } else {
-        await healthStatusesApi.create({ name: form.name, color: form.color, description: form.description, isDefault: false, order: statuses.length + 1 }, organizationId);
-        toast({ title: "Health status created" });
-      }
-      setShowModal(false);
-      load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
-    finally { setSaving(false); }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await healthStatusesApi.delete(deleteTarget.id);
-      toast({ title: `${deleteTarget.name} deleted` });
-      setDeleteTarget(null);
-      load();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
-    finally { setDeleting(false); }
-  };
-
-  const handleDrop = (idx: number) => {
-    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return; }
-    const reordered = [...statuses];
-    const [moved] = reordered.splice(dragIdx, 1);
-    reordered.splice(idx, 0, moved);
-    setStatuses(reordered);
-    setDragIdx(null);
-    setOverIdx(null);
-    setOrderChanged(true);
-  };
-
-  const saveOrder = async () => {
-    setSavingOrder(true);
-    try {
-      await healthStatusesApi.reorder(statuses.map(h => h.id));
-      toast({ title: "Health status order saved" });
-      setOrderChanged(false);
-      load();
-    } catch { toast({ title: "Error saving order", variant: "destructive" }); }
-    finally { setSavingOrder(false); }
-  };
-
-  const isEditingDefault = editingId ? statuses.find(h => h.id === editingId)?.isDefault : false;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h4 className="text-base font-semibold text-foreground">Health Statuses</h4>
-          <p className="text-sm text-muted-foreground">Manage the health classification options that appear on lead and client records.</p>
-        </div>
-        <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Health Status</Button>
-      </div>
-
-      <div className="bg-card rounded-xl border overflow-hidden">
-        {statuses.map((h, idx) => (
-          <div
-            key={h.id}
-            draggable
-            onDragStart={() => setDragIdx(idx)}
-            onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
-            onDrop={() => handleDrop(idx)}
-            onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
-              } ${dragIdx === idx ? "opacity-50" : ""}`}
-          >
-            <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
-            <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: h.color }} />
-            <span className="text-sm font-medium text-foreground">{h.name}</span>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="flex-1 text-xs text-muted-foreground truncate max-w-[200px]">
-                    {h.description.length > 50 ? h.description.slice(0, 50) + "…" : h.description}
-                  </span>
-                </TooltipTrigger>
-                {h.description.length > 50 && <TooltipContent className="max-w-xs"><p>{h.description}</p></TooltipContent>}
-              </Tooltip>
-            </TooltipProvider>
-            {h.isDefault && <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium">Default</span>}
-            <button onClick={() => openEdit(h)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => !h.isDefault && setDeleteTarget(h)}
-                    disabled={h.isDefault}
-                    className={`p-1.5 rounded-md transition-colors ${h.isDefault ? "text-muted-foreground/30 cursor-not-allowed" : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </TooltipTrigger>
-                {h.isDefault && <TooltipContent><p>Default statuses cannot be deleted</p></TooltipContent>}
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        ))}
-      </div>
-
-      {orderChanged && (
-        <Button onClick={saveOrder} disabled={savingOrder} className="w-full">
-          {savingOrder ? "Saving..." : "Save Order"}
-        </Button>
-      )}
-
-      {/* Add/Edit */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{editingId ? "Edit Health Status" : "Add Health Status"}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5">Status Name *</label>
-              <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value.slice(0, 30) }))}
-                placeholder="e.g., Diabetic" disabled={!!isEditingDefault} maxLength={30} />
-              <div className="flex justify-between mt-1">
-                {isEditingDefault && <p className="text-xs text-muted-foreground">(Default — locked)</p>}
-                <p className="text-xs text-muted-foreground ml-auto">{form.name.length}/30</p>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5">Color</label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {PRESET_COLORS.map(c => (
-                  <button key={c.hex} onClick={() => setForm(f => ({ ...f, color: c.hex }))}
-                    className={`w-8 h-8 rounded-lg border-2 transition-all ${form.color === c.hex ? "border-foreground scale-110" : "border-transparent hover:scale-105"}`}
-                    style={{ backgroundColor: c.hex }} title={c.name} />
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded border border-black/10" style={{ backgroundColor: form.color }} />
-                <Input value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="#hex" className="flex-1 font-mono text-sm" />
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5">Description</label>
-              <p className="text-xs text-muted-foreground mb-1">Short description shown as a tooltip in contact records</p>
-              <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value.slice(0, 100) }))} placeholder="e.g., Excellent health, no major conditions" maxLength={100} />
-              <p className="text-xs text-muted-foreground mt-1 text-right">{form.description.length}/100</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : editingId ? "Save Changes" : "Save Status"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete */}
-      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
-            <DialogDescription>This action cannot be undone.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting ? "Deleting..." : "Delete"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-};
-
 // ==================== DUPLICATE DETECTION TAB ====================
 
 const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
@@ -1149,7 +949,7 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
 // ==================== REQUIRED FIELDS TAB ====================
 
 const LEAD_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
-const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", "Health Status", "Best Time to Call", "Assigned Agent"];
+const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", "Best Time to Call", "Assigned Agent"];
 const CLIENT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"];
 
@@ -1527,12 +1327,7 @@ const DisplaySettingsTab: React.FC = () => {
   const [sortBy, setSortBy] = useState("Created Date");
   const [sortDesc, setSortDesc] = useState(true);
   const [perPage, setPerPage] = useState(25);
-  const [agingFresh, setAgingFresh] = useState(3);
-  const [agingOld, setAgingOld] = useState(7);
-  const [agingStale, setAgingStale] = useState(14);
-  const [defaultTab, setDefaultTab] = useState("overview");
   const [saving, setSaving] = useState(false);
-  const [agingErrors, setAgingErrors] = useState<Record<string, string>>({});
   const [loadingPrefs, setLoadingPrefs] = useState(true);
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -1578,20 +1373,7 @@ const DisplaySettingsTab: React.FC = () => {
     setOverIdx(null);
   };
 
-  const validateAging = (): boolean => {
-    const errors: Record<string, string> = {};
-    if (agingFresh < 1) errors.fresh = "Must be at least 1";
-    if (agingOld <= agingFresh) errors.old = `Must be greater than ${agingFresh}`;
-    if (agingStale <= agingOld) errors.stale = `Must be greater than ${agingOld}`;
-    setAgingErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
   const handleSave = async () => {
-    if (!validateAging()) {
-      toast({ title: "Please fix the errors before saving", variant: "destructive" });
-      return;
-    }
     setSaving(true);
     try {
       if (user?.id) {
@@ -1623,12 +1405,6 @@ const DisplaySettingsTab: React.FC = () => {
       setSaving(false);
     }
   };
-
-  const RadioTile = ({ value, current, onChange, label }: { value: string; current: string; onChange: (v: string) => void; label: string }) => (
-    <button onClick={() => onChange(value)} className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${current === value ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
-      {label}
-    </button>
-  );
 
   return (
     <div className="space-y-4">
@@ -1720,76 +1496,6 @@ const DisplaySettingsTab: React.FC = () => {
             <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
               {n}
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Card 4 — Lead Aging Thresholds */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Lead Aging Thresholds</h5>
-          <p className="text-xs text-muted-foreground">Customize when lead aging indicators change color. Based on days since last contact.</p>
-        </div>
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="w-4 h-4 rounded-full bg-[#22C55E] shrink-0" />
-            <span className="text-sm text-foreground w-24">Fresh</span>
-            <span className="text-xs text-muted-foreground w-8">0 to</span>
-            <Input type="number" value={agingFresh} onChange={e => { setAgingFresh(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={1} />
-            <span className="text-xs text-muted-foreground">days</span>
-          </div>
-          {agingErrors.fresh && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.fresh}</p>}
-
-          <div className="flex items-center gap-3">
-            <span className="w-4 h-4 rounded-full bg-[#EAB308] shrink-0" />
-            <span className="text-sm text-foreground w-24">Getting Old</span>
-            <span className="text-xs text-muted-foreground w-8">{agingFresh + 1} to</span>
-            <Input type="number" value={agingOld} onChange={e => { setAgingOld(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={agingFresh + 1} />
-            <span className="text-xs text-muted-foreground">days</span>
-          </div>
-          {agingErrors.old && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.old}</p>}
-
-          <div className="flex items-center gap-3">
-            <span className="w-4 h-4 rounded-full bg-[#F97316] shrink-0" />
-            <span className="text-sm text-foreground w-24">Stale</span>
-            <span className="text-xs text-muted-foreground w-8">{agingOld + 1} to</span>
-            <Input type="number" value={agingStale} onChange={e => { setAgingStale(parseInt(e.target.value) || 0); setAgingErrors({}); }} className="w-20" min={agingOld + 1} />
-            <span className="text-xs text-muted-foreground">days</span>
-          </div>
-          {agingErrors.stale && <p className="text-xs text-[#EF4444] pl-11">{agingErrors.stale}</p>}
-
-          <div className="flex items-center gap-3">
-            <span className="w-4 h-4 rounded-full bg-[#EF4444] shrink-0 flex items-center justify-center text-[8px]">🔥</span>
-            <span className="text-sm text-foreground w-24">Urgent</span>
-            <span className="text-xs text-muted-foreground">{agingStale + 1}+ days</span>
-          </div>
-        </div>
-
-        {/* Live preview bar */}
-        <div className="mt-3">
-          <div className="flex h-6 rounded-lg overflow-hidden border border-border">
-            <div className="bg-[#22C55E] flex-1 flex items-center justify-center text-[9px] font-bold text-white">0-{agingFresh}d</div>
-            <div className="bg-[#EAB308] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingFresh + 1}-{agingOld}d</div>
-            <div className="bg-[#F97316] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingOld + 1}-{agingStale}d</div>
-            <div className="bg-[#EF4444] flex-1 flex items-center justify-center text-[9px] font-bold text-white">{agingStale + 1}+d</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Card 5 — Contact Modal Default Tab */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Contact Modal Default Tab</h5>
-          <p className="text-xs text-muted-foreground">Choose which tab opens first when an agent clicks on a contact.</p>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { value: "overview", label: "Overview" },
-            { value: "activity", label: "Activity" },
-            { value: "calls", label: "Calls" },
-            { value: "notes", label: "Notes" },
-          ].map(t => (
-            <RadioTile key={t.value} value={t.value} current={defaultTab} onChange={setDefaultTab} label={t.label} />
           ))}
         </div>
       </div>
@@ -1897,7 +1603,7 @@ const ContactManagement: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-foreground">Contact Management</h3>
-        <p className="text-sm text-muted-foreground">Configure pipeline stages, custom fields, lead sources, and health statuses.</p>
+        <p className="text-sm text-muted-foreground">Configure pipeline stages, custom fields, lead sources, and contact behavior.</p>
       </div>
 
       {/* Tab bar */}
@@ -1925,12 +1631,11 @@ const ContactManagement: React.FC = () => {
       {activeTab === 0 && <PipelineStagesTab />}
       {activeTab === 1 && <CustomFieldsTab />}
       {activeTab === 2 && <LeadSourcesTab />}
-      {activeTab === 3 && <HealthStatusesTab />}
-      {activeTab === 4 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 5 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 6 && <AssignmentRulesTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 7 && <DisplaySettingsTab />}
-      {activeTab === 8 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 3 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 4 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 5 && <AssignmentRulesTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 6 && <DisplaySettingsTab />}
+      {activeTab === 7 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
     </div>
   );
 };

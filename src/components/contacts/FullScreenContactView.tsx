@@ -4,8 +4,8 @@ import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
-import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
-import { LeadSource, HealthStatus, CustomField } from "@/lib/types";
+import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
+import { LeadSource, CustomField } from "@/lib/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -77,7 +77,6 @@ const US_STATES = [
 const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
 // Fallbacks will be replaced by database data
 const initialLeadSources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"];
-const initialHealthStatuses = ["Excellent", "Good", "Fair", "Poor"];
 const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", "Anytime"];
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -267,7 +266,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [leadSources, setLeadSources] = useState<string[]>(initialLeadSources);
-  const [healthStatuses, setHealthStatuses] = useState<string[]>(initialHealthStatuses);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [fieldOrder, setFieldOrder] = useState<string[]>(() => getDefaultFieldOrder(type));
 
@@ -347,9 +345,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
       const settingsP = (async () => {
         try {
-          const [sources, healths, fields] = await Promise.all([
+          const [sources, fields] = await Promise.all([
             leadSourcesSupabaseApi.getAll(),
-            healthStatusesSupabaseApi.getAll(),
             customFieldsSupabaseApi.getAll(),
           ]);
           let settings: Record<string, unknown> | null = null;
@@ -361,10 +358,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               .maybeSingle();
             settings = data;
           }
-          return { sources, healths, fields, settings };
+          return { sources, fields, settings };
         } catch (err) {
           console.error("Error fetching dynamic settings:", err);
-          return { sources: [] as LeadSource[], healths: [] as HealthStatus[], fields: [] as CustomField[], settings: null };
+          return { sources: [] as LeadSource[], fields: [] as CustomField[], settings: null };
         }
       })();
 
@@ -417,9 +414,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         setPipelineStages(fetchedStages);
       }
 
-      const { sources, healths, fields, settings } = settingsPack;
+      const { sources, fields, settings } = settingsPack;
       if (sources.length > 0) setLeadSources(sources.map((s) => s.name));
-      if (healths.length > 0) setHealthStatuses(healths.map((h) => h.name));
       const relevantFields = fields.filter(
         (f) => f.active && f.appliesTo.includes(myType === "lead" ? "Leads" : myType === "client" ? "Clients" : "Recruits")
       );

@@ -68,6 +68,14 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Remove Health Statuses (product + database)**
+  *What:* Removed **Health Statuses** everywhere: **Master Admin** category, **Contact Management** required-field label, **Add Lead** / **Import** / **Contacts** table column, **dialer** lead card and queue preview, **FullScreenContactView** settings fetch, **`healthStatusesSupabaseApi`**, **`Lead.healthStatus`**, and **`leads.health_status`** + **`public.health_statuses`** via migration **`20260422190000_remove_health_statuses_feature.sql`** (also strips **`Health Status`** from **`contact_management_settings.required_fields_lead`** JSON where present). Edge **`import-contacts`** no longer maps **`health_status`**.
+  *Files:* Migration above; **`src/lib/types.ts`**, **`src/lib/supabase-settings.ts`**, **`src/lib/supabase-contacts.ts`**, **`src/lib/supabase-leads.ts`**, **`src/integrations/supabase/types.ts`**, **`src/components/settings/MasterAdmin.tsx`**, **`src/components/settings/ContactManagement.tsx`**, **`src/components/contacts/*`**, **`src/pages/Contacts.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/dialer/LeadCard.tsx`**, **`src/components/dialer/LeadCardBlurred.tsx`**, **`src/components/dialer/QueuePanel.tsx`**, **`supabase/functions/import-contacts/index.ts`**, **`ROADMAP.md`**.
+
+- **2026-04-22 | [DONE] | Settings UI — simplify Dispositions + Contact Management**
+  *What:* **Dispositions** — removed the **Disposition Analytics** block (and its data fetch), dropped the **Numbers 1–9 match keyboard shortcuts** sentence from the info note (kept a short line about list order). **Contact Management** — removed **Lead Aging Thresholds** and **Contact Modal Default Tab** from **Display Settings**; removed the **Health Statuses** tab (superseded by full removal above).
+  *Files:* **`src/components/settings/DispositionsManager.tsx`**, **`src/components/settings/ContactManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | Remove Settings → Spam Monitoring tab**
   *What:* Removed the duplicate **Spam Monitoring** settings section; **Number Reputation** remains the single place for caller ID spam/reputation signals. Deleted **`SpamMonitoring.tsx`** and dropped the **`spam`** slug from nav + renderer. Legacy **`?section=spam`** URLs **`replace`** redirect to **`number-reputation`**.
   *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/pages/SettingsPage.tsx`**, **`docs/SETTINGS_LAYOUT.md`**, **`ROADMAP.md`** (removed **`src/components/settings/SpamMonitoring.tsx`**).

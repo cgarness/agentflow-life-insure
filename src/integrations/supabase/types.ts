@@ -1658,50 +1658,6 @@ export type Database = {
           },
         ]
       }
-      health_statuses: {
-        Row: {
-          color: string
-          created_at: string | null
-          description: string | null
-          id: string
-          is_default: boolean | null
-          name: string
-          organization_id: string | null
-          sort_order: number | null
-          updated_at: string | null
-        }
-        Insert: {
-          color?: string
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          is_default?: boolean | null
-          name: string
-          organization_id?: string | null
-          sort_order?: number | null
-          updated_at?: string | null
-        }
-        Update: {
-          color?: string
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          is_default?: boolean | null
-          name?: string
-          organization_id?: string | null
-          sort_order?: number | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "health_statuses_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       import_history: {
         Row: {
           agent_id: string | null
@@ -1963,7 +1919,6 @@ export type Database = {
           date_of_birth: string | null
           email: string
           first_name: string
-          health_status: string | null
           id: string
           last_contacted_at: string | null
           last_name: string
@@ -1987,7 +1942,6 @@ export type Database = {
           date_of_birth?: string | null
           email?: string
           first_name?: string
-          health_status?: string | null
           id?: string
           last_contacted_at?: string | null
           last_name?: string
@@ -2011,7 +1965,6 @@ export type Database = {
           date_of_birth?: string | null
           email?: string
           first_name?: string
-          health_status?: string | null
           id?: string
           last_contacted_at?: string | null
           last_name?: string

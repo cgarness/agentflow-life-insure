@@ -1,6 +1,6 @@
 
 import { supabase } from "@/integrations/supabase/client";
-import { PipelineStage, CustomField, LeadSource, HealthStatus } from "@/lib/types";
+import { PipelineStage, CustomField, LeadSource } from "@/lib/types";
 
 // ==================== PIPELINE STAGES ====================
 
@@ -237,79 +237,6 @@ export const leadSourcesSupabaseApi = {
     const updates = ids.map((id, index) =>
       (supabase as any)
         .from("lead_sources")
-        .update({ sort_order: index + 1 })
-        .eq("id", id)
-    );
-    await Promise.all(updates);
-  },
-};
-
-// ==================== HEALTH STATUSES ====================
-
-function rowToHealthStatus(row: any): HealthStatus {
-  return {
-    id: row.id,
-    name: row.name,
-    color: row.color,
-    description: row.description || "",
-    isDefault: row.is_default,
-    order: row.sort_order,
-  };
-}
-
-export const healthStatusesSupabaseApi = {
-  async getAll(): Promise<HealthStatus[]> {
-    const { data, error } = await (supabase as any)
-      .from("health_statuses")
-      .select("*")
-      .order("sort_order", { ascending: true });
-    if (error) throw error;
-    return (data || []).map(rowToHealthStatus);
-  },
-  async create(data: Omit<HealthStatus, "id">, organizationId: string | null = null): Promise<HealthStatus> {
-    const { data: result, error } = await (supabase as any)
-      .from("health_statuses")
-      .insert({
-        name: data.name,
-        color: data.color,
-        description: data.description,
-        is_default: data.isDefault,
-        sort_order: data.order,
-        organization_id: organizationId,
-      })
-      .select()
-      .single();
-    if (error) throw error;
-    return rowToHealthStatus(result);
-  },
-  async update(id: string, data: Partial<HealthStatus>): Promise<HealthStatus> {
-    const payload: any = {};
-    if (data.name !== undefined) payload.name = data.name;
-    if (data.color !== undefined) payload.color = data.color;
-    if (data.description !== undefined) payload.description = data.description;
-    if (data.isDefault !== undefined) payload.is_default = data.isDefault;
-    if (data.order !== undefined) payload.sort_order = data.order;
-
-    const { data: result, error } = await (supabase as any)
-      .from("health_statuses")
-      .update(payload)
-      .eq("id", id)
-      .select()
-      .single();
-    if (error) throw error;
-    return rowToHealthStatus(result);
-  },
-  async delete(id: string): Promise<void> {
-    const { error } = await (supabase as any)
-      .from("health_statuses")
-      .delete()
-      .eq("id", id);
-    if (error) throw error;
-  },
-  async reorder(ids: string[]): Promise<void> {
-    const updates = ids.map((id, index) =>
-      (supabase as any)
-        .from("health_statuses")
         .update({ sort_order: index + 1 })
         .eq("id", id)
     );

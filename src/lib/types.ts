@@ -89,7 +89,6 @@ export interface Lead {
   leadScore: number;
   age?: number;
   dateOfBirth?: string;
-  healthStatus?: string;
   bestTimeToCall?: string;
   spouseInfo?: string;
   notes?: string;
@@ -314,15 +313,6 @@ export interface LeadSource {
   color: string;
   active: boolean;
   usageCount: number;
-  order: number;
-}
-
-export interface HealthStatus {
-  id: string;
-  name: string;
-  color: string;
-  description: string;
-  isDefault: boolean;
   order: number;
 }
 

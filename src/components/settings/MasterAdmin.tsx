@@ -13,7 +13,6 @@
  * - Custom Fields
  * - Pipeline Stages
  * - Lead Sources
- * - Health Statuses
  */
 
 import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
@@ -39,7 +38,6 @@ const DATA_SOURCES: Record<string, 'supabase' | 'mock'> = {
   'Custom Fields': 'supabase',
   'Pipeline Stages': 'supabase',
   'Lead Sources': 'supabase',
-  'Health Statuses': 'supabase',
   'Carriers': 'supabase',
   'Email/SMS Templates': 'supabase',
   'Custom Menu Links': 'supabase',
@@ -63,7 +61,6 @@ const SUPABASE_TABLES: Record<string, string> = {
   'Custom Fields': 'custom_fields',
   'Pipeline Stages': 'pipeline_stages',
   'Lead Sources': 'lead_sources',
-  'Health Statuses': 'health_statuses',
   'Carriers': 'carriers',
   'Email/SMS Templates': 'message_templates',
   'Custom Menu Links': 'custom_menu_links',
@@ -126,7 +123,7 @@ const PRESET_COLORS = [
 
 const CATEGORIES = [
   "Dispositions", "Call Scripts", "Custom Fields", "Pipeline Stages",
-  "Lead Sources", "Health Statuses", "Carriers", "Email/SMS Templates",
+  "Lead Sources", "Carriers", "Email/SMS Templates",
   "Custom Menu Links", "Phone Numbers", "Leads", "Clients", "Recruits",
   "Appointments", "Calls", "Campaigns", "Campaign Leads", "Import History",
   "DNC List", "Activity Logs", "Users",
@@ -308,21 +305,6 @@ function buildConfig(profiles: { id: string; name: string }[]): Record<string, C
         { key: "name", label: "Name", type: "text" },
         { key: "color", label: "Color", type: "color" },
         { key: "active", label: "Active", type: "toggle" },
-      ],
-      getLabel: (r) => r.name,
-    },
-    "Health Statuses": {
-      table: "health_statuses",
-      orderBy: { col: "sort_order", asc: true },
-      columns: [
-        { key: "name", label: "Name" },
-        { key: "color", label: "Color", render: (v) => <ColorDot color={String(v ?? "#888")} /> },
-        { key: "description", label: "Description", render: (v) => truncate(v as string) },
-        { key: "sort_order", label: "Order" },
-      ],
-      editFields: [
-        { key: "name", label: "Name", type: "text" },
-        { key: "color", label: "Color", type: "color" },
       ],
       getLabel: (r) => r.name,
     },

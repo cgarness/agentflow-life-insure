@@ -163,7 +163,6 @@ export const leadsSupabaseApi = {
     if (data.leadScore !== undefined) updateData.lead_score = data.leadScore;
     if (data.age !== undefined) updateData.age = data.age;
     if (data.dateOfBirth !== undefined) updateData.date_of_birth = data.dateOfBirth;
-    if (data.healthStatus !== undefined) updateData.health_status = data.healthStatus;
     if (data.bestTimeToCall !== undefined) updateData.best_time_to_call = data.bestTimeToCall;
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.assignedAgentId !== undefined) {
@@ -247,7 +246,6 @@ export const leadsSupabaseApi = {
             assignedAgentId: row.assignedAgentId || "",
             age: row.age,
             dateOfBirth: row.dateOfBirth,
-            healthStatus: row.healthStatus,
             bestTimeToCall: row.bestTimeToCall,
             notes: row.notes,
             userId: row.userId || row.assignedAgentId || null,
@@ -311,7 +309,6 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
     leadScore: row.lead_score,
     age: row.age ?? undefined,
     dateOfBirth: row.date_of_birth ?? undefined,
-    healthStatus: row.health_status ?? undefined,
     bestTimeToCall: row.best_time_to_call ?? undefined,
     spouseInfo: row.spouse_info ?? undefined,
     notes: row.notes ?? undefined,
@@ -338,7 +335,6 @@ function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { //
     lead_score: data.leadScore,
     age: data.age ?? null,
     date_of_birth: data.dateOfBirth ?? null,
-    health_status: data.healthStatus ?? null,
     best_time_to_call: data.bestTimeToCall ?? null,
     notes: data.notes ?? null,
     assigned_agent_id: data.assignedAgentId,

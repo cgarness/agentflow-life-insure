@@ -41,7 +41,6 @@ export async function importLeadsToSupabase(
       lead_score: row.leadScore ?? 5,
       age: row.age || null,
       date_of_birth: row.dateOfBirth || null,
-      health_status: row.healthStatus || "",
       best_time_to_call: row.bestTimeToCall || "",
       notes: row.notes || "",
       assigned_agent_id: row.assignedAgentId || null,

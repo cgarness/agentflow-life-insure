@@ -144,7 +144,6 @@ export default function LeadCard({
     { label: "State", key: "state" },
     { label: "Age", key: "age" },
     { label: "DOB", key: "date_of_birth" },
-    { label: "Health", key: "health_status" },
     { label: "Best Time", key: "best_time_to_call" },
     { label: "Spouse", key: "spouse_info" },
     { label: "Source", key: "source" },

@@ -12,7 +12,7 @@ import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
-import { leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
+import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
@@ -93,7 +93,7 @@ function agingPill(days: number) {
 }
 
 // ===== LEAD Column definitions =====
-type ColumnKey = "name" | "phone" | "email" | "state" | "status" | "source" | "score" | "aging" | "agent" | "dob" | "health" | "bestTime" | "leadSourceAlias" | "createdDate" | "lastContacted";
+type ColumnKey = "name" | "phone" | "email" | "state" | "status" | "source" | "score" | "aging" | "agent" | "dob" | "bestTime" | "leadSourceAlias" | "createdDate" | "lastContacted";
 interface ColDef { key: ColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
 const ALL_COLUMNS: ColDef[] = [
   { key: "name", label: "Name", defaultVisible: true, locked: true },
@@ -106,7 +106,6 @@ const ALL_COLUMNS: ColDef[] = [
   { key: "aging", label: "Aging", defaultVisible: true },
   { key: "agent", label: "Agent", defaultVisible: true },
   { key: "dob", label: "Date of Birth", defaultVisible: false },
-  { key: "health", label: "Health Status", defaultVisible: false },
   { key: "bestTime", label: "Best Time to Call", defaultVisible: false },
   { key: "leadSourceAlias", label: "Lead Source", defaultVisible: false },
   { key: "createdDate", label: "Created Date", defaultVisible: false },
@@ -660,7 +659,6 @@ const Contacts: React.FC = () => {
       case "aging": return calcAging(l.lastContactedAt);
       case "agent": return getAgentName(l.assignedAgentId, agentProfiles).toLowerCase();
       case "dob": return l.dateOfBirth || "";
-      case "health": return l.healthStatus || "";
       case "bestTime": return l.bestTimeToCall || "";
       case "createdDate": return l.createdAt;
       case "lastContacted": return l.lastContactedAt || "";
@@ -1081,7 +1079,6 @@ const Contacts: React.FC = () => {
         return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
       }
       case "dob": return <span className="text-muted-foreground text-xs">{l.dateOfBirth || "—"}</span>;
-      case "health": return <span className="text-muted-foreground text-xs">{l.healthStatus || "—"}</span>;
       case "bestTime": return <span className="text-muted-foreground text-xs">{l.bestTimeToCall || "—"}</span>;
       case "leadSourceAlias": return <span className="text-muted-foreground">{l.leadSource}</span>;
       case "createdDate": return <span className="text-muted-foreground text-xs">{formatDate(l.createdAt)}</span>;

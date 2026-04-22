@@ -3,9 +3,8 @@ import { dispositionsSupabaseApi as dispositionsApi } from "@/lib/supabase-dispo
 import { Disposition } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
-  GripVertical, Plus, Pencil, Trash2, Info, BarChart3, TrendingUp,
-  TrendingDown, Phone, Calendar, FileText, Zap, X, Check, AlertTriangle,
-  Users, ShieldBan, Lock,
+  GripVertical, Plus, Pencil, Trash2, Info, Calendar, FileText, Zap,
+  AlertTriangle, Users, ShieldBan, Lock,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { CampaignAction } from "@/lib/types";
@@ -89,9 +88,6 @@ const DispositionsManager: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Disposition | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("Last 30 days");
-  const [analytics, setAnalytics] = useState<Awaited<ReturnType<typeof dispositionsApi.getAnalytics>> | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   // Drag state
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -108,20 +104,7 @@ const DispositionsManager: React.FC = () => {
     }
   }, []);
 
-  const loadAnalytics = useCallback(async () => {
-    setAnalyticsLoading(true);
-    try {
-      const data = await dispositionsApi.getAnalytics(analyticsPeriod);
-      setAnalytics(data);
-    } catch {
-      // silent
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  }, [analyticsPeriod]);
-
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
 
   const openAdd = () => {
     setEditingId(null);
@@ -198,7 +181,6 @@ const DispositionsManager: React.FC = () => {
       }
       setShowModal(false);
       load();
-      loadAnalytics();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: e.message || "Error saving", variant: "destructive" });
     } finally {
@@ -214,7 +196,6 @@ const DispositionsManager: React.FC = () => {
       toast({ title: `"${deleteTarget.name}" deleted` });
       setDeleteTarget(null);
       load();
-      loadAnalytics();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: e.message || "Error deleting", variant: "destructive" });
     } finally {
@@ -271,7 +252,7 @@ const DispositionsManager: React.FC = () => {
       <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
         <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
         <p className="text-sm text-foreground/80">
-          The order here determines what agents see after every call in the dialer. Numbers 1–9 match keyboard shortcuts during calls.
+          The order here determines what agents see after every call in the dialer.
         </p>
       </div>
 
@@ -403,77 +384,6 @@ const DispositionsManager: React.FC = () => {
       <Button onClick={openAdd} variant="outline" className="w-full border-dashed">
         <Plus className="w-4 h-4 mr-2" /> Add Disposition
       </Button>
-
-      {/* Analytics */}
-      <div className="space-y-4 pt-4 border-t">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="text-base font-semibold text-foreground flex items-center gap-2">
-              <BarChart3 className="w-4 h-4" /> Disposition Analytics
-            </h4>
-            <p className="text-xs text-muted-foreground">{analyticsPeriod}</p>
-          </div>
-          <select
-            value={analyticsPeriod}
-            onChange={e => setAnalyticsPeriod(e.target.value)}
-            className="h-8 px-2 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
-          >
-            <option>Last 7 days</option>
-            <option>Last 30 days</option>
-            <option>Last 90 days</option>
-            <option>All Time</option>
-          </select>
-        </div>
-
-        {analyticsLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[1, 2, 3, 4].map(i => <div key={i} className="h-20 rounded-lg bg-accent/50 animate-pulse" />)}
-          </div>
-        ) : analytics && analytics.totalDispositioned > 0 ? (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: "Total Dispositioned", value: analytics.totalDispositioned.toLocaleString() },
-                { label: "Most Used", value: analytics.mostUsed },
-                { label: "Positive Outcome Rate", value: analytics.positiveRate },
-                { label: "Callback Rate", value: analytics.callbackRate },
-              ].map(s => (
-                <div key={s.label} className="bg-accent/50 rounded-lg p-3">
-                  <p className="text-[11px] text-muted-foreground">{s.label}</p>
-                  <p className="text-lg font-bold text-foreground mt-0.5 truncate">{s.value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-card rounded-xl border divide-y">
-              {analytics.breakdown.map(b => (
-                <div key={b.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: b.color }} />
-                  <span className="text-sm font-medium text-foreground flex-1">{b.name}</span>
-                  <span className="text-sm font-mono text-foreground w-12 text-right">{b.count}</span>
-                  <span className="text-xs text-muted-foreground w-10 text-right">{b.percent}%</span>
-                  <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${b.percent}%`, backgroundColor: b.color }}
-                    />
-                  </div>
-                  <span className={`text-xs flex items-center gap-0.5 w-12 justify-end ${b.trend > 0 ? "text-green-600" : b.trend < 0 ? "text-red-500" : "text-muted-foreground"}`}>
-                    {b.trend > 0 ? <TrendingUp className="w-3 h-3" /> : b.trend < 0 ? <TrendingDown className="w-3 h-3" /> : null}
-                    {b.trend > 0 ? "+" : ""}{b.trend}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="bg-accent/50 rounded-xl p-8 text-center">
-            <BarChart3 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <h4 className="font-medium text-foreground mb-1">No call data yet</h4>
-            <p className="text-sm text-muted-foreground">Disposition analytics will appear after your team starts making calls.</p>
-          </div>
-        )}
-      </div>
 
       {/* Add/Edit Modal */}
       <Dialog open={showModal} onOpenChange={setShowModal}>

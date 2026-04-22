@@ -184,7 +184,6 @@ function mapDialerLeadToContactLead(row: any): Lead {
     leadScore: row.lead_score ?? 5,
     age: row.age ?? undefined,
     dateOfBirth: row.date_of_birth ?? undefined,
-    healthStatus: row.health_status ?? undefined,
     bestTimeToCall: row.best_time_to_call ?? undefined,
     spouseInfo: row.spouse_info ?? undefined,
     notes: row.notes ?? undefined,
@@ -496,7 +495,7 @@ export default function DialerPage() {
 
   // ── Queue sort / filter / preview ──
   type QueueSortKey = 'smart' | 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
-  type QueuePreviewField = 'age' | 'state' | 'score' | 'source' | 'attempts' | 'status' | 'best_time' | 'health';
+  type QueuePreviewField = 'age' | 'state' | 'score' | 'source' | 'attempts' | 'status' | 'best_time';
   interface QueueFilterState {
     status: string;
     state: string;
@@ -1151,14 +1150,13 @@ export default function DialerPage() {
       case 'attempts': return `${lead.call_attempts || 0} attempt${(lead.call_attempts || 0) !== 1 ? 's' : ''}`;
       case 'status': return lead.status || '—';
       case 'best_time': return lead.best_time_to_call || '—';
-      case 'health': return lead.health_status || '—';
       default: return '—';
     }
   }
 
   const PREVIEW_FIELD_LABELS: Record<string, string> = {
     age: 'Age', state: 'State', score: 'Score', source: 'Source',
-    attempts: 'Attempts', status: 'Status', best_time: 'Best Time', health: 'Health',
+    attempts: 'Attempts', status: 'Status', best_time: 'Best Time',
   };
 
   // ── 60-second queue re-sort: promotes leads whose retry/callback time has arrived ──
@@ -2736,7 +2734,6 @@ export default function DialerPage() {
       state: currentLead.state || "",
       age: currentLead.age || "",
       date_of_birth: currentLead.date_of_birth || "",
-      health_status: currentLead.health_status || "",
       best_time_to_call: currentLead.best_time_to_call || "",
       spouse_info: currentLead.spouse_info || "",
       source: currentLead.source || "",
@@ -2749,7 +2746,7 @@ export default function DialerPage() {
     if (!currentLead) return;
     try {
       const masterId = currentLead.lead_id || currentLead.id;
-      const { first_name, last_name, phone, email, state, age, date_of_birth, health_status, best_time_to_call, spouse_info, source, ...customFields } = editForm;
+      const { first_name, last_name, phone, email, state, age, date_of_birth, best_time_to_call, spouse_info, source, ...customFields } = editForm;
       
       const parsedAge = age ? parseInt(String(age)) : undefined;
       const updateData: any = {
@@ -2760,7 +2757,6 @@ export default function DialerPage() {
         state,
         age: isNaN(Number(parsedAge)) ? undefined : Number(parsedAge),
         dateOfBirth: date_of_birth,
-        healthStatus: health_status,
         bestTimeToCall: best_time_to_call,
         spouseInfo: spouse_info || "",
         leadSource: source,
@@ -2793,7 +2789,6 @@ export default function DialerPage() {
         state, 
         age: isNaN(Number(parsedAge)) ? l.age : Number(parsedAge), 
         date_of_birth, 
-        health_status, 
         best_time_to_call, 
         spouse_info, 
         source,

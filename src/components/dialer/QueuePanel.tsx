@@ -22,8 +22,7 @@ type QueuePreviewField =
   | "source"
   | "attempts"
   | "status"
-  | "best_time"
-  | "health";
+  | "best_time";
 
 interface QueuePanelProps {
   campaignType: string;

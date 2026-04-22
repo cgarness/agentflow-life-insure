@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { z } from "zod";
 import { X, Loader2 } from "lucide-react";
 import { Lead, LeadStatus } from "@/lib/types";
-import { leadSourcesSupabaseApi, healthStatusesSupabaseApi } from "@/lib/supabase-settings";
+import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
@@ -21,18 +21,13 @@ const AddLeadModal: React.FC<AddLeadModalProps> = ({ open, onClose, onSave, init
   const [form, setForm] = useState<Partial<Lead>>({});
   const [saving, setSaving] = useState(false);
   const [leadSources, setLeadSources] = useState<string[]>(["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"]);
-  const [healthStatuses, setHealthStatuses] = useState<string[]>(["Excellent", "Good", "Fair", "Poor"]);
 
   useEffect(() => {
     async function loadSettings() {
       if (!open) return;
       try {
-        const [sources, healths] = await Promise.all([
-          leadSourcesSupabaseApi.getAll(),
-          healthStatusesSupabaseApi.getAll()
-        ]);
+        const sources = await leadSourcesSupabaseApi.getAll();
         if (sources.length > 0) setLeadSources(sources.map(s => s.name));
-        if (healths.length > 0) setHealthStatuses(healths.map(h => h.name));
       } catch (err) {
         console.error("Error loading settings in modal:", err);
       }
@@ -213,21 +208,12 @@ const leadSchema = z.object({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Health Status</label>
-              <select value={form.healthStatus || ""} onChange={e => setForm((f) => ({ ...f, healthStatus: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                <option value="">Select...</option>
-                {healthStatuses.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Best Time to Call</label>
-              <select value={form.bestTimeToCall || ""} onChange={e => setForm((f) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-                <option value="">Select...</option>
-                {["Morning", "Afternoon", "Evening", "Anytime"].map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Best Time to Call</label>
+            <select value={form.bestTimeToCall || ""} onChange={e => setForm((f) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+              <option value="">Select...</option>
+              {["Morning", "Afternoon", "Evening", "Anytime"].map(s => <option key={s}>{s}</option>)}
+            </select>
           </div>
 
           <div>
