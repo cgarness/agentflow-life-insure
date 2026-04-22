@@ -24,7 +24,7 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 - **Personal Info**: First Name, Last Name, Email (Read Only), Bio.
 - **Security**: Current Password, New Password, Confirm Password.
 - **Preferences**: Theme (Light/Dark/System), Dashboard Layout.
-- **Agent Goals**: Daily Dials, Weekly Appointments, Monthly Policies (Stored in `user_preferences`).
+- **My Goals** (all roles): Daily calls, monthly policies, weekly appointments, monthly talk time (stored on `profiles` via `updateProfile`).
 
 #### [User Management](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/UserManagement.tsx) (`user-management`)
 - **User List**: Table of all organization members with name, email, role, and current status.

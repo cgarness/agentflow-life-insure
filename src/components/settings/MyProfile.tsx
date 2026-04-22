@@ -326,7 +326,6 @@ const MyProfile: React.FC = () => {
   const pwStrength = getPasswordStrength(newPw);
   const pwAllFilled = currentPw.length > 0 && newPw.length > 0 && confirmPw.length > 0;
   const pwMismatch = confirmPw.length > 0 && confirmPw !== newPw;
-  const showGoals = user.role === "Agent" || user.role === "Team Leader";
 
   return (
     <div className="space-y-6">
@@ -632,7 +631,6 @@ const MyProfile: React.FC = () => {
       </Card>
 
       {/* My Goals */}
-      {showGoals && (
         <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
           <Collapsible defaultOpen={false} className="group">
             <CollapsibleTrigger asChild>
@@ -667,7 +665,6 @@ const MyProfile: React.FC = () => {
             </CollapsibleContent>
           </Collapsible>
         </Card>
-      )}
 
       {/* Change Password (last) */}
       <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
