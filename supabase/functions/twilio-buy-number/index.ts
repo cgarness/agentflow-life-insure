@@ -35,15 +35,15 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    if (!supabaseUrl || !serviceKey) {
-      console.error(`${FN} Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`);
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    if (!supabaseUrl || !serviceKey || !anonKey) {
+      console.error(`${FN} Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or SUPABASE_ANON_KEY`);
       return new Response(JSON.stringify({ error: "Server configuration error" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -53,10 +53,11 @@ Deno.serve(async (req) => {
     }
 
     const jwt = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, anonKey);
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(jwt);
+    } = await supabaseAuth.auth.getUser(jwt);
 
     if (userError || !user) {
       console.error(`${FN} Auth error:`, userError?.message);
@@ -66,6 +67,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    const supabase = createClient(supabaseUrl, serviceKey);
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("organization_id")

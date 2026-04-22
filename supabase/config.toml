@@ -36,17 +36,19 @@ verify_jwt = false
 [functions.inbound-call-claim]
 verify_jwt = false
 
-# Twilio Voice Insights reputation — JWT; Admin / Team Leader / assigned Agent; rate-limited per number (UTC).
+# Twilio user JWT functions — verify_jwt=false: Supabase gateway rejects ES256 access tokens
+# (sb-error-code UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM). Each function validates Bearer JWT
+# in-code via anon client auth.getUser(jwt), then uses service role for DB.
 [functions.twilio-reputation-check]
-verify_jwt = true
+verify_jwt = false
 
-# Twilio webhooks — authenticated via X-Twilio-Signature HMAC-SHA1, not Supabase JWT.
 [functions.twilio-search-numbers]
-verify_jwt = true
+verify_jwt = false
 
 [functions.twilio-buy-number]
-verify_jwt = true
+verify_jwt = false
 
+# Twilio webhooks — authenticated via X-Twilio-Signature HMAC-SHA1, not Supabase JWT.
 [functions.twilio-voice-webhook]
 verify_jwt = false
 
@@ -64,8 +66,8 @@ verify_jwt = false
 
 # Outbound SMS — JWT from the logged-in agent; Twilio credentials read from phone_settings.
 [functions.twilio-sms]
-verify_jwt = true
+verify_jwt = false
 
 # Trust Hub — JWT; Admin/Super Admin only for register/assign; Twilio credentials from phone_settings.
 [functions.twilio-trust-hub]
-verify_jwt = true
+verify_jwt = false
