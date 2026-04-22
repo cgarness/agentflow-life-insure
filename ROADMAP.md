@@ -673,6 +673,9 @@
 - **2026-04-20 | [DONE] Calendar: appointment subject line auto-filled from Type + contact**
   *What:* In **`AppointmentModal.tsx`**, the subject line now defaults to a readable pattern such as **"Follow up with Test"** (type phrase + first name from the contact on the appointment). Changing **Type** refreshes the subject when a contact name is available; the field remains a normal text input and fully editable. New schedules with a prefilled contact start from **"Sales call with …"** instead of the old **"Call with …"** default. Contact pick / quick-create also applies the same rule using the current type.
 
+- **2026-04-22 | [DONE] Calendar: Agenda column is appointments-only (removed Daily Performance box)**
+  *What:* Removed the **Daily Performance** section (progress bar, "Appointments Today" count, tip text) from the right **Agenda** sidebar on **`src/pages/CalendarPage.tsx`**. That panel now only shows the selected day label plus the appointment cards or empty state. *No schema changes.*
+
 - **2026-04-17 | [DONE] Bugfix: Remove Dark Mode toggle and user profile section from left sidebar nav**
   *What:* Removed the Dark Mode toggle button (moon/sun icon + label) and the user profile/avatar display (initials + full name) from the bottom of `src/components/layout/Sidebar.tsx`. Both elements were cluttering the nav chrome. Cleaned up all now-unused imports (`AvatarSkeleton`, `NameSkeleton`, `Sun`, `Moon`, `useTheme`, `useAuth`) and removed the corresponding variable declarations (`theme`, `setTheme`, `profile`, `isLoading`). Removed the `space-y-3` class from the bottom `<div>` since only the collapse toggle button remains. Dark mode state logic (`ThemeProvider` in App.tsx) and auth context untouched — functionality preserved for use elsewhere. `tsc --noEmit` clean. *No schema changes.*
 

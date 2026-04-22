@@ -669,20 +669,6 @@ const CalendarPage: React.FC = () => {
                 </div>
               ))
             )}
-            
-            <div className="pt-4 px-1">
-              <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Daily Performance</div>
-              <div className="bg-primary/5 rounded-xl border border-primary/10 p-4 space-y-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-muted-foreground font-medium">Appointments Today</span>
-                  <span className="font-bold text-primary">{appointments.filter(a => sameDay(new Date(a.date), new Date())).length}</span>
-                </div>
-                <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-primary w-[60%] rounded-full shadow-[0_0_8px_rgba(59,130,246,0.3)]" />
-                </div>
-                <p className="text-[9px] text-muted-foreground leading-relaxed">Keep it up! Reach out to your next contact 10 mins early.</p>
-              </div>
-            </div>
           </div>
         </div>
       </div>
