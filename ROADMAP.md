@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Profile carrier picker uses Settings → Carriers list**
+  *What:* **My Profile** and **User Management** profile editing no longer use a hardcoded carrier name list. The “Select Carrier” dropdown loads **`name`** values from the same **`carriers`** table as the **Settings → Carriers** tab (org-scoped via RLS). Legacy saved rows that are not in that list still display on the profile until removed.
+  *Files:* **`src/components/settings/ProfileCarriersSection.tsx`**, **`src/components/settings/MyProfile.tsx`**, **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | Dialer campaign picker — Active only**
   *What:* The dialer loaded campaigns with status **Active**, **Paused**, or **Draft**, so draft/paused campaigns appeared alongside active ones. Campaign selection now queries **`status = 'Active'`** only, matching how leads are added to campaigns elsewhere.
   *Files:* **`src/pages/DialerPage.tsx`**, **`ROADMAP.md`**.

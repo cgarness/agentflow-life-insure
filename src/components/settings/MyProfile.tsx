@@ -8,11 +8,12 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import {
-  Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Shield, Trash2, Plus,
+  Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Trash2, Plus,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { Badge } from "@/components/ui/badge";
+import ProfileCarriersSection from "@/components/settings/ProfileCarriersSection";
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -36,18 +37,6 @@ const US_STATES = [
   "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
   "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
   "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
-];
-
-const CARRIERS = [
-  "Aetna",
-  "Ambetter",
-  "Blue Cross Blue Shield",
-  "Cigna",
-  "Humana",
-  "Molina Healthcare",
-  "Mutual of Omaha",
-  "UnitedHealthcare",
-  "Wellcare",
 ];
 
 function getPasswordStrength(pw: string) {
@@ -80,7 +69,6 @@ const MyProfile: React.FC = () => {
   const [npn, setNpn] = useState(profile?.npn ?? "");
   const [stateToAdd, setStateToAdd] = useState("");
   const [licensedStates, setLicensedStates] = useState<Array<{ state: string; licenseNumber: string }>>(profile?.licensed_states || []);
-  const [carrierToAdd, setCarrierToAdd] = useState("");
   const [selectedCarriers, setSelectedCarriers] = useState<Array<{ carrier: string; writingNumber: string }>>(profile?.carriers || []);
   const [residentState, setResidentState] = useState(profile?.resident_state ?? "");
   const [commissionLevel, setCommissionLevel] = useState(profile?.commission_level ?? "0%");
@@ -269,20 +257,6 @@ const MyProfile: React.FC = () => {
 
   const removeLicensedState = (state: string) => {
     setLicensedStates((prev) => prev.filter((item) => item.state !== state));
-  };
-
-  const addCarrier = () => {
-    if (!carrierToAdd || selectedCarriers.some((item) => item.carrier === carrierToAdd)) return;
-    setSelectedCarriers((prev) => [...prev, { carrier: carrierToAdd, writingNumber: "" }]);
-    setCarrierToAdd("");
-  };
-
-  const updateCarrierWritingNumber = (carrier: string, writingNumber: string) => {
-    setSelectedCarriers((prev) => prev.map((item) => (item.carrier === carrier ? { ...item, writingNumber } : item)));
-  };
-
-  const removeCarrier = (carrier: string) => {
-    setSelectedCarriers((prev) => prev.filter((item) => item.carrier !== carrier));
   };
 
   // Password save
@@ -538,86 +512,15 @@ const MyProfile: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* CARD 1.2 — Carriers */}
-      <Card className="bg-card border-border rounded-xl">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Shield className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Insurance Carriers</CardTitle>
-              <p className="text-xs text-muted-foreground">Configure your writing numbers for each carrier</p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex flex-col md:flex-row gap-3 items-end bg-accent/30 p-4 rounded-xl border border-border/50">
-            <div className="flex-1 w-full space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Select Carrier</label>
-              <select
-                value={carrierToAdd}
-                onChange={(e) => setCarrierToAdd(e.target.value)}
-                className="w-full h-11 px-4 rounded-lg border border-input bg-background/50 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
-              >
-                <option value="">Select a carrier</option>
-                {CARRIERS.filter((carrier) => !selectedCarriers.some((item) => item.carrier === carrier)).map((carrier) => (
-                  <option key={carrier} value={carrier}>{carrier}</option>
-                ))}
-              </select>
-            </div>
-            <Button 
-              type="button" 
-              onClick={addCarrier} 
-              disabled={!carrierToAdd}
-              className="h-11 px-6 rounded-lg font-medium transition-all hover:shadow-lg active:scale-95"
-            >
-              <Plus className="w-4 h-4 mr-1.5" /> Add Carrier
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {selectedCarriers.map(({ carrier, writingNumber }) => (
-              <div key={carrier} className="group relative p-4 rounded-xl border border-border bg-card hover:border-primary/50 hover:shadow-md transition-all duration-300">
-                <div className="flex items-center justify-between mb-3">
-                  <Badge variant="outline" className="font-semibold px-2.5 py-0.5 rounded-md border-primary/20 text-primary bg-primary/5">
-                    {carrier}
-                  </Badge>
-                  <button 
-                    type="button" 
-                    onClick={() => removeCarrier(carrier)} 
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    title="Remove Carrier"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Writing Number</label>
-                  <Input
-                    value={writingNumber}
-                    onChange={(e) => updateCarrierWritingNumber(carrier, e.target.value)}
-                    placeholder="Enter writing #"
-                    className="h-9 text-sm bg-accent/50 border-0 focus-visible:ring-1 focus-visible:ring-primary rounded-md"
-                  />
-                </div>
-              </div>
-            ))}
-            {selectedCarriers.length === 0 && (
-              <div className="md:col-span-2 lg:col-span-3 py-12 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl bg-accent/5">
-                <Shield className="w-8 h-8 text-muted-foreground/30 mb-2" />
-                <p className="text-sm text-muted-foreground">No carriers configured</p>
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end pt-2 border-t border-border/50">
-            <Button onClick={handleSaveProfile} disabled={profileSaving} variant="outline" className="px-6 rounded-lg transition-all hover:bg-primary/5">
-              {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Carriers"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <ProfileCarriersSection
+        carriers={selectedCarriers}
+        onChange={setSelectedCarriers}
+        footer={
+          <Button onClick={handleSaveProfile} disabled={profileSaving} variant="outline" className="px-6 rounded-lg transition-all hover:bg-primary/5">
+            {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Carriers"}
+          </Button>
+        }
+      />
 
       {/* CARD 2 — Change Password */}
       <Card className="bg-card border-border rounded-lg mb-6">

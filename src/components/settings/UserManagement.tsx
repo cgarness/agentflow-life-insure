@@ -30,6 +30,7 @@ import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
 import { useNavigate } from "react-router-dom";
 import TransferLeadsModal from "./TransferLeadsModal";
 import HierarchyTree from "./HierarchyTree";
+import ProfileCarriersSection, { normalizeProfileCarriers, type ProfileCarrierRow } from "@/components/settings/ProfileCarriersSection";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
@@ -548,6 +549,7 @@ const UserProfileModal: React.FC<{
         monthlyTalkTimeGoalHours: user.profile.monthlyTalkTimeGoalHours,
         npn: user.profile.npn || "",
         timezone: user.profile.timezone || "",
+        carriers: normalizeProfileCarriers(user.profile.carriers),
       });
       setIsSuperAdmin(user.isSuperAdmin);
       setOnboardingItems([...user.profile.onboardingItems]);
@@ -606,10 +608,29 @@ const UserProfileModal: React.FC<{
         uplineId: form.uplineId === "_none" ? null : form.uplineId,
         npn: (form.npn as string) || "",
         timezone: (form.timezone as string) || "Eastern Time (US & Canada)",
+        carriers: normalizeProfileCarriers(form.carriers),
       });
       toast({ title: "Changes saved successfully" });
       setEditMode(false);
-      onSaved({ id: user.id, role: form.role as UserRole, status: form.status as any, firstName: form.firstName as string, lastName: form.lastName as string, isSuperAdmin: isSuperAdmin });
+      const savedCarriers = normalizeProfileCarriers(form.carriers);
+      onSaved({
+        id: user.id,
+        role: form.role as UserRole,
+        status: form.status as any,
+        firstName: form.firstName as string,
+        lastName: form.lastName as string,
+        isSuperAdmin: isSuperAdmin,
+        profile: {
+          ...user.profile,
+          licensedStates: (form.licensedStates as any[]) || [],
+          residentState: (form.residentState as string) || "",
+          commissionLevel: (form.commissionLevel as string) || "0%",
+          uplineId: form.uplineId === "_none" ? null : form.uplineId,
+          npn: (form.npn as string) || "",
+          timezone: (form.timezone as string) || "Eastern Time (US & Canada)",
+          carriers: savedCarriers,
+        },
+      } as Partial<UserWithProfile>);
     } catch (e: any) {
       toast({ title: "Failed to save changes", description: e.message || "An unknown error occurred", variant: "destructive" });
     } finally {
@@ -825,6 +846,12 @@ const UserProfileModal: React.FC<{
                 )}
                 <div><Label>Licensed States</Label><StateMultiSelect selected={(form.licensedStates as any[]) || []} onChange={v => setForm(p => ({ ...p, licensedStates: v }))} disabled={!editMode} /></div>
                 <div><Label>Resident State</Label><SingleStateSelect value={form.residentState as string} onChange={v => setForm(p => ({ ...p, residentState: v }))} disabled={!editMode} /></div>
+                <ProfileCarriersSection
+                  carriers={normalizeProfileCarriers(form.carriers)}
+                  onChange={(next) => setForm((p) => ({ ...p, carriers: next }))}
+                  disabled={!editMode}
+                  adminEditing
+                />
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
                   <div>
@@ -1706,7 +1733,20 @@ const UserManagement: React.FC = () => {
         user={selectedUser}
         open={profileOpen}
         onClose={() => { setProfileOpen(false); setSelectedUser(null); }}
-        onSaved={(patch) => { if (patch?.id) setAllUsers(prev => prev.map(u => u.id === patch.id! ? { ...u, ...patch } : u)); }}
+        onSaved={(patch) => {
+          if (!patch?.id) return;
+          setAllUsers((prev) =>
+            prev.map((u) => {
+              if (u.id !== patch.id) return u;
+              const { profile: patchProfile, ...userPatch } = patch as Partial<UserWithProfile> & { profile?: Partial<UserProfile> };
+              const merged = { ...u, ...userPatch } as UserWithProfile;
+              if (patchProfile) {
+                merged.profile = { ...u.profile, ...patchProfile };
+              }
+              return merged;
+            }),
+          );
+        }}
         onDeleted={(id) => {
           setAllUsers(prev => prev.filter(u => u.id !== id));
           setProfileOpen(false);
