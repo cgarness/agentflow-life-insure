@@ -68,6 +68,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Custom menu links in sidebar + open mode (new tab vs in-app)**
+  *What:* Links from **Settings → Custom Menu Links** now render in the main left nav **directly above Settings** (after Training). Each link can open in a **new browser tab** or **inside AgentFlow** via route **`/app-link/:id`** with an iframe and a fallback “Open in new tab” control. Added DB column **`open_mode`** (`new_tab` | `in_frame`). Settings list and Master Admin table include the new field; sidebar uses org-scoped **`useCustomMenuLinks`** with query invalidation after edits.
+  *Files:* **`supabase/migrations/20260422130000_custom_menu_links_open_mode.sql`**, **`src/hooks/useCustomMenuLinks.ts`**, **`src/pages/AppLinkEmbedPage.tsx`**, **`src/components/layout/Sidebar.tsx`**, **`src/components/layout/NavItems.tsx`**, **`src/components/settings/CustomMenuLinks.tsx`**, **`src/App.tsx`**, **`src/integrations/supabase/types.ts`**, **`src/components/settings/MasterAdmin.tsx`**, **`ROADMAP.md`**.
+  *Ops:* Apply migration to Supabase (**`npx supabase db push`** or deploy SQL) so **`open_mode`** exists before relying on saves from the UI.
+
 - **2026-04-22 | [DONE] | Profile carrier picker uses Settings → Carriers list**
   *What:* **My Profile** and **User Management** profile editing no longer use a hardcoded carrier name list. The “Select Carrier” dropdown loads **`name`** values from the same **`carriers`** table as the **Settings → Carriers** tab (org-scoped via RLS). Legacy saved rows that are not in that list still display on the profile until removed.
   *Files:* **`src/components/settings/ProfileCarriersSection.tsx`**, **`src/components/settings/MyProfile.tsx`**, **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.

@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
+import type { CustomMenuLinkOpenMode } from "@/hooks/useCustomMenuLinks";
 import { Link2, ExternalLink, Plus, Loader2, Pencil, Trash2, GripVertical, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
@@ -14,10 +19,12 @@ interface CustomMenuLink {
     url: string;
     icon: string | null;
     sort_order: number;
+    open_mode: CustomMenuLinkOpenMode;
 }
 
 const CustomMenuLinks: React.FC = () => {
     const { organizationId } = useOrganization();
+    const queryClient = useQueryClient();
     const [links, setLinks] = useState<CustomMenuLink[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -28,19 +35,31 @@ const CustomMenuLinks: React.FC = () => {
     const [formLabel, setFormLabel] = useState("");
     const [formUrl, setFormUrl] = useState("");
     const [formOrder, setFormOrder] = useState<string>("0");
+    const [formOpenMode, setFormOpenMode] = useState<CustomMenuLinkOpenMode>("new_tab");
     const [formErrors, setFormErrors] = useState<{ label?: boolean; url?: boolean }>({});
     const [saving, setSaving] = useState(false);
 
+    const invalidateSidebarLinks = () => {
+        queryClient.invalidateQueries({ queryKey: ["custom_menu_links"] });
+        queryClient.invalidateQueries({ queryKey: ["custom_menu_link"] });
+    };
+
     useEffect(() => {
         fetchLinks();
-    }, []);
+    }, [organizationId]);
 
     const fetchLinks = async () => {
+        if (!organizationId) {
+            setLinks([]);
+            setLoading(false);
+            return;
+        }
         try {
             setLoading(true);
             const { data, error } = await supabase
                 .from('custom_menu_links')
                 .select('*')
+                .eq('organization_id', organizationId)
                 .order('sort_order', { ascending: true })
                 .order('created_at', { ascending: true });
 
@@ -52,6 +71,7 @@ const CustomMenuLinks: React.FC = () => {
                 url: d.url,
                 icon: d.icon,
                 sort_order: d.sort_order || 0,
+                open_mode: d.open_mode === "in_frame" ? "in_frame" : "new_tab",
             }));
             setLinks(formatted);
         } catch (error) {
@@ -66,6 +86,7 @@ const CustomMenuLinks: React.FC = () => {
         setFormLabel("");
         setFormUrl("");
         setFormOrder((links.length * 10).toString());
+        setFormOpenMode("new_tab");
         setFormErrors({});
         setEditTarget(null);
         setAddOpen(true);
@@ -75,6 +96,7 @@ const CustomMenuLinks: React.FC = () => {
         setFormLabel(l.label);
         setFormUrl(l.url);
         setFormOrder(l.sort_order.toString());
+        setFormOpenMode(l.open_mode);
         setFormErrors({});
         setEditTarget(l);
         setAddOpen(true);
@@ -101,12 +123,18 @@ const CustomMenuLinks: React.FC = () => {
             return;
         }
 
+        if (!organizationId) {
+            toast({ title: "Organization not loaded yet", description: "Try again in a moment.", variant: "destructive" });
+            return;
+        }
+
         try {
             setSaving(true);
             const payload = {
                 label: formLabel.trim(),
                 url: formatUrl,
                 sort_order: parseInt(formOrder, 10) || 0,
+                open_mode: formOpenMode,
                 updated_at: new Date().toISOString()
             };
 
@@ -122,6 +150,7 @@ const CustomMenuLinks: React.FC = () => {
 
             setAddOpen(false);
             fetchLinks();
+            invalidateSidebarLinks();
         } catch (error) {
             toast({ title: "Failed to save link", variant: "destructive" });
         } finally {
@@ -138,6 +167,7 @@ const CustomMenuLinks: React.FC = () => {
 
             setLinks(prev => prev.filter(l => l.id !== deleteTarget.id));
             toast({ title: "Link deleted", className: "bg-success text-success-foreground border-success" });
+            invalidateSidebarLinks();
         } catch (error) {
             toast({ title: "Failed to delete link", variant: "destructive" });
         } finally {
@@ -169,6 +199,7 @@ const CustomMenuLinks: React.FC = () => {
                 supabase.from('custom_menu_links').update({ sort_order: swap.sort_order }).eq('id', current.id),
                 supabase.from('custom_menu_links').update({ sort_order: current.sort_order }).eq('id', swap.id)
             ]);
+            invalidateSidebarLinks();
         } catch (error) {
             toast({ title: "Failed to reorder", variant: "destructive" });
             fetchLinks(); // revert
@@ -180,7 +211,9 @@ const CustomMenuLinks: React.FC = () => {
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-semibold text-foreground">Custom Menu Links</h3>
-                    <p className="text-sm text-muted-foreground">Add helpful external links to your agency's main sidebar</p>
+                    <p className="text-sm text-muted-foreground">
+                        Add links to your agency sidebar (above Settings). Choose whether each opens in a new browser tab or inside AgentFlow next to the dialer and menus.
+                    </p>
                 </div>
                 <Button onClick={openAdd} className="gap-2">
                     <Plus className="w-4 h-4" /> Add Link
@@ -218,7 +251,12 @@ const CustomMenuLinks: React.FC = () => {
                                     </div>
 
                                     <div className="flex-1 min-w-0">
-                                        <h4 className="font-semibold text-foreground">{l.label}</h4>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h4 className="font-semibold text-foreground">{l.label}</h4>
+                                            <Badge variant="secondary" className="text-[10px] font-normal">
+                                                {l.open_mode === "in_frame" ? "Inside AgentFlow" : "New tab"}
+                                            </Badge>
+                                        </div>
                                         <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary hover:underline flex items-center gap-1.5 truncate mt-0.5">
                                             {l.url} <ExternalLink className="w-3 h-3 shrink-0" />
                                         </a>
@@ -240,7 +278,7 @@ const CustomMenuLinks: React.FC = () => {
             </div>
 
             <Dialog open={addOpen} onOpenChange={setAddOpen}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle>{editTarget ? "Edit Menu Link" : "Add Menu Link"}</DialogTitle>
                     </DialogHeader>
@@ -265,6 +303,25 @@ const CustomMenuLinks: React.FC = () => {
                                 onKeyDown={(e) => { if (e.key === "Enter" && !saving) handleSave(); }}
                             />
                             {formErrors.url && <p className="text-xs text-destructive mt-1.5">Please enter a valid URL.</p>}
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium text-foreground">How it opens</Label>
+                            <RadioGroup value={formOpenMode} onValueChange={(v) => setFormOpenMode(v as CustomMenuLinkOpenMode)} className="grid gap-3">
+                                <div className="flex items-start gap-3 rounded-lg border border-border p-3 hover:bg-accent/40">
+                                    <RadioGroupItem value="new_tab" id="open-new-tab" className="mt-1 shrink-0" />
+                                    <label htmlFor="open-new-tab" className="flex-1 cursor-pointer leading-snug">
+                                        <span className="text-sm font-medium text-foreground">New tab</span>
+                                        <p className="text-xs text-muted-foreground mt-1">Opens the URL in a separate browser tab (best for sites that cannot be embedded).</p>
+                                    </label>
+                                </div>
+                                <div className="flex items-start gap-3 rounded-lg border border-border p-3 hover:bg-accent/40">
+                                    <RadioGroupItem value="in_frame" id="open-in-frame" className="mt-1 shrink-0" />
+                                    <label htmlFor="open-in-frame" className="flex-1 cursor-pointer leading-snug">
+                                        <span className="text-sm font-medium text-foreground">Inside AgentFlow</span>
+                                        <p className="text-xs text-muted-foreground mt-1">Shows the page in the main area while keeping the AgentFlow sidebar and header. Some external sites may block this.</p>
+                                    </label>
+                                </div>
+                            </RadioGroup>
                         </div>
                     </div>
                     <DialogFooter>

@@ -360,12 +360,14 @@ function buildConfig(profiles: { id: string; name: string }[]): Record<string, C
       columns: [
         { key: "label", label: "Name" },
         { key: "url", label: "URL", render: (v) => v ? <a href={String(v)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-xs"><ExternalLink className="w-3 h-3" />{truncate(v as string, 40)}</a> : <span className="text-muted-foreground">—</span> },
+        { key: "open_mode", label: "Opens", render: (v) => <Badge value={v === "in_frame" ? "In app" : "New tab"} /> },
         { key: "icon", label: "Icon", render: (v) => v ? String(v) : <span className="text-muted-foreground">—</span> },
         { key: "sort_order", label: "Order" },
       ],
       editFields: [
         { key: "label", label: "Name", type: "text" },
         { key: "url", label: "URL", type: "text" },
+        { key: "open_mode", label: "Open mode", type: "select", options: ["new_tab", "in_frame"] },
       ],
       getLabel: (r) => r.label,
     },

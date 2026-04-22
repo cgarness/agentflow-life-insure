@@ -26,6 +26,7 @@ import Leaderboard from "./pages/Leaderboard";
 import Reports from "./pages/Reports";
 import AIAgents from "./pages/AIAgents";
 import Training from "./pages/Training";
+import AppLinkEmbedPage from "./pages/AppLinkEmbedPage";
 import SettingsPage from "./pages/SettingsPage";
 import AgentProfile from "./pages/AgentProfile";
 import LoginPage from "./pages/LoginPage";
@@ -131,6 +132,7 @@ const App = () => (
                           <Route path="/reports" element={<Reports />} />
                           <Route path="/ai-agents" element={<AIAgents />} />
                           <Route path="/training" element={<Training />} />
+                          <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />

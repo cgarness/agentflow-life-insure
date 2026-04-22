@@ -10,8 +10,9 @@ import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useBranding } from "@/contexts/BrandingContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { SETTINGS_CONFIG } from "@/config/settingsConfig";
-import { MainNavItem, SettingsNavItem } from "./NavItems";
+import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useCustomMenuLinks } from "@/hooks/useCustomMenuLinks";
 
 const MAIN_MENU = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -25,12 +26,16 @@ const MAIN_MENU = [
   { icon: Bot, label: "AI Agents", path: "/ai-agents" },
   { icon: GraduationCap, label: "Training", path: "/training" },
   { icon: Settings, label: "Settings", path: "/settings" },
-];
+] as const;
+
+const CORE_MAIN_MENU = MAIN_MENU.slice(0, -1);
+const SETTINGS_MENU_ITEM = MAIN_MENU[MAIN_MENU.length - 1];
 
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { branding } = useBranding();
   const { isSuperAdmin } = useOrganization();
+  const { data: customMenuLinks = [] } = useCustomMenuLinks();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isSettings = location.pathname.startsWith("/settings");
@@ -63,8 +68,37 @@ const Sidebar: React.FC = () => {
       </>
     ) : (
       <>
-        {MAIN_MENU.map(item => <MainNavItem key={item.path} icon={item.icon} label={item.label} path={item.path} collapsed={collapsed}
-          isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))} onClick={() => setMobileOpen(false)} />)}
+        {CORE_MAIN_MENU.map((item) => (
+          <MainNavItem
+            key={item.path}
+            icon={item.icon}
+            label={item.label}
+            path={item.path}
+            collapsed={collapsed}
+            isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))}
+            onClick={() => setMobileOpen(false)}
+          />
+        ))}
+        {customMenuLinks.map((link) => (
+          <CustomMenuSidebarItem
+            key={link.id}
+            label={link.label}
+            collapsed={collapsed}
+            isActive={location.pathname === `/app-link/${link.id}`}
+            openMode={link.open_mode}
+            url={link.url}
+            linkId={link.id}
+            onClick={() => setMobileOpen(false)}
+          />
+        ))}
+        <MainNavItem
+          icon={SETTINGS_MENU_ITEM.icon}
+          label={SETTINGS_MENU_ITEM.label}
+          path={SETTINGS_MENU_ITEM.path}
+          collapsed={collapsed}
+          isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
+          onClick={() => setMobileOpen(false)}
+        />
         {isSuperAdmin && <MainNavItem icon={ShieldAlert} label="Super Admin" path="/super-admin" collapsed={collapsed} isActive={location.pathname === "/super-admin"} variant="warning" onClick={() => setMobileOpen(false)} />}
       </>
     )}

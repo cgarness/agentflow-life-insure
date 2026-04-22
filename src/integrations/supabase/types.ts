@@ -1290,6 +1290,7 @@ export type Database = {
           icon: string | null
           id: string
           label: string
+          open_mode: string
           organization_id: string | null
           sort_order: number | null
           updated_at: string
@@ -1300,6 +1301,7 @@ export type Database = {
           icon?: string | null
           id?: string
           label: string
+          open_mode?: string
           organization_id?: string | null
           sort_order?: number | null
           updated_at?: string
@@ -1310,6 +1312,7 @@ export type Database = {
           icon?: string | null
           id?: string
           label?: string
+          open_mode?: string
           organization_id?: string | null
           sort_order?: number | null
           updated_at?: string
