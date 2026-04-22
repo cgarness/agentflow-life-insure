@@ -174,10 +174,8 @@ const NumberReputation: React.FC = () => {
       const bodyHint = await readEdgeFunctionErrorBody(error);
       const base = String(error.message || "");
       const combined = bodyHint ? `${base} (${bodyHint})` : base;
-      const is401 =
-        base.includes("401") ||
-        combined.toLowerCase().includes("non-2xx") ||
-        combined.toLowerCase().includes("unauthorized");
+      const httpStatus = (error as { context?: Response }).context?.status;
+      const is401 = httpStatus === 401;
       if (is401) {
         throw new Error(
           `${combined} — Confirm the request URL is ` +

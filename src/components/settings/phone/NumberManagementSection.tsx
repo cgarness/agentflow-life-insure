@@ -302,6 +302,13 @@ export const NumberManagementSection: React.FC<Props> = ({
             <span className="text-[10px] text-muted-foreground">Make at least five calls with this number to build a score</span>
           </div>
         );
+      case "Evaluating":
+      case "evaluating":
+        return (
+          <span className="inline-flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400">
+            <ShieldQuestion className="w-3.5 h-3.5" /> Evaluating (Insights window)
+          </span>
+        );
       default:
         return (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
