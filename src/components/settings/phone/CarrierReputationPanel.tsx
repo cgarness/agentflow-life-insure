@@ -16,25 +16,22 @@ function healthBadgeClass(display: string): string {
 }
 
 const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
-  const window = d.window as Record<string, unknown> | undefined;
   const computed = d.computed as Record<string, unknown> | undefined;
   const penalties = Array.isArray(computed?.penalties) ? (computed.penalties as string[]) : [];
   const metrics = computed?.metrics as Record<string, unknown> | undefined;
   const carriers = (d.carriers ?? d.carrier_results) as unknown[] | undefined;
 
+  const normalizeCarrierLabel = (value: unknown): string => {
+    if (value == null) return "-";
+    const text = String(value).trim();
+    if (!text) return "-";
+    if (/no per-carrier breakdown/i.test(text)) return "-";
+    if (/no insights row matched/i.test(text)) return "-";
+    return text;
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h5 className="text-sm font-semibold text-foreground">Twilio details</h5>
-        {typeof computed?.spam_status === "string" && (
-          <Badge className={`border ${healthBadgeClass(String(computed.spam_status))}`}>{String(computed.spam_status)}</Badge>
-        )}
-      </div>
-      {window && (
-        <p className="text-xs text-muted-foreground">
-          7-day window: {String(window.start ?? "")} to {String(window.end ?? "")} (UTC)
-        </p>
-      )}
       {metrics && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
@@ -43,9 +40,9 @@ const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
             ["Short calls %", metrics.short_call_pct],
             ["Answer rate %", metrics.asr_pct],
           ].map(([label, val]) => (
-            <div key={String(label)} className="rounded-lg border bg-card px-2 py-1.5 text-center">
-              <p className="text-[10px] text-muted-foreground">{label}</p>
-              <p className="text-sm font-semibold tabular-nums">{val != null ? String(val) : "—"}</p>
+            <div key={String(label)} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center dark:border-border dark:bg-card">
+              <p className="text-[10px] text-slate-600 dark:text-muted-foreground">{label}</p>
+              <p className="text-sm font-semibold tabular-nums text-slate-900 dark:text-foreground">{val != null ? String(val) : "—"}</p>
             </div>
           ))}
         </div>
@@ -60,7 +57,12 @@ const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
           </ul>
         </div>
       )}
-      <h5 className="text-sm font-semibold text-foreground">Carrier view</h5>
+      <div className="flex items-center gap-2">
+        <h5 className="text-sm font-semibold text-foreground">Carrier view</h5>
+        {typeof computed?.spam_status === "string" && (
+          <Badge className={`border ${healthBadgeClass(String(computed.spam_status))}`}>{String(computed.spam_status)}</Badge>
+        )}
+      </div>
       {carriers && Array.isArray(carriers) ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {carriers.map((c: unknown, i: number) => {
@@ -68,9 +70,9 @@ const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
             const name = String(row.name ?? row.carrier ?? "Unknown");
             const blocking = row.blocking_rate;
             return (
-              <div key={i} className="space-y-1.5 rounded-lg border bg-card p-3">
+              <div key={i} className="space-y-1.5 rounded-lg border border-slate-200 bg-white p-3 dark:border-border dark:bg-card">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-foreground">{name}</span>
+                  <span className="text-sm font-medium text-slate-900 dark:text-foreground">{name}</span>
                   {blocking != null && (
                     <Badge
                       className={
@@ -83,11 +85,9 @@ const TwilioV2Panel: React.FC<{ d: Record<string, unknown> }> = ({ d }) => {
                     </Badge>
                   )}
                 </div>
-                {row.spam_label != null && (
-                  <p className="text-xs text-muted-foreground">{String(row.spam_label)}</p>
-                )}
+                <p className="text-xs text-slate-600 dark:text-muted-foreground">{normalizeCarrierLabel(row.spam_label)}</p>
                 {row.completion_rate != null && (
-                  <p className="text-xs text-muted-foreground">Completion: {String(row.completion_rate)}%</p>
+                  <p className="text-xs text-slate-600 dark:text-muted-foreground">Completion: {String(row.completion_rate)}%</p>
                 )}
               </div>
             );

@@ -77,6 +77,14 @@
   *What:* Applied a tighter table layout by converting carrier status badges to compact icon-only chips in the top table (`check`, `warning`, `flag`, `unknown`). Added tooltip titles + screen-reader labels so the cleaner visual still keeps clarity and accessibility.
   *Files:* **`src/components/settings/NumberReputation.tsx`**, **`ROADMAP.md`**.
 
+- **2026-04-22 | [DONE] | Number Reputation polish (dropdown cleanup + stronger light mode)**
+  *What:* Refined the dropdown to remove technical metadata lines (Twilio heading/date window), retained practical metrics, and normalized no-carrier text from Twilio (“No per-carrier breakdown…”, “No insights row matched…”) to a simple `-`. Updated **Spam likely** wording to business-friendly levels (**Low / Medium / High / Unknown**) and added stronger light-mode visual contrast (header tint, softer blue row hover, white cards, clearer borders/shadow).
+  *Files:* **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/phone/CarrierReputationPanel.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-22 | [DONE] | Number Reputation microcopy trim (attestation header)**
+  *What:* Removed the parenthetical “(last Twilio call log)” from the table header to keep column labels shorter and cleaner.
+  *Files:* **`src/components/settings/NumberReputation.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-21 | [DONE] | Twilio Voice Insights reputation pipeline**
   *What:* Removed legacy **`spam-check-cron`** Edge Function. Added **`twilio-reputation-check`** (JWT, `verify_jwt = true`): loads Twilio creds from **`phone_settings`**, creates/polls **Voice Insights v2** `POST/GET …/Voice/Reports/PhoneNumbers/Outbound`, matches the org’s **From** number, applies the agreed **0–100** penalty model (grace **`Evaluating`** when &lt; 20 calls in window), updates **`phone_numbers`** (`spam_score`, `spam_status`, `spam_checked_at`, **`carrier_reputation_data` schema v2**). Added **`phone_number_reputation_checks`** table (**`organization_id`** required) for **3 checks / number / UTC day**; **`cgarness.ffl@gmail.com`** bypasses the limit. **Auth:** Admin, Team Leader / Team Lead (all org numbers), or Agent assigned to the line; Super Admin email may check any org’s number. **Number Reputation** tab calls **`supabase.functions.invoke('twilio-reputation-check')`**. **Spam Monitoring** check actions replaced with “moved to Number Reputation” toasts; table still refreshes for legacy rows.
   *Files:* **`supabase/migrations/20260421120000_phone_number_reputation_checks.sql`**, **`supabase/functions/twilio-reputation-check/*`**, **`supabase/config.toml`**, **`src/components/settings/NumberReputation.tsx`**, **`src/components/settings/phone/CarrierReputationPanel.tsx`**, **`src/components/settings/SpamMonitoring.tsx`**, **`ROADMAP.md`**. *Deploy:* `supabase functions deploy twilio-reputation-check` and apply migration (`db push`).

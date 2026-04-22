@@ -61,9 +61,9 @@ async function readEdgeFunctionErrorBody(error: unknown): Promise<string | null>
 
 const getSpamLikelyLabel = (status: string | null): { text: string; variant: "yes" | "maybe" | "no" | "unknown" } => {
   const n = normStatus(status);
-  if (n === "flagged") return { text: "Yes", variant: "yes" };
-  if (n === "at_risk") return { text: "Elevated", variant: "maybe" };
-  if (n === "clean") return { text: "No", variant: "no" };
+  if (n === "flagged") return { text: "High", variant: "yes" };
+  if (n === "at_risk") return { text: "Medium", variant: "maybe" };
+  if (n === "clean") return { text: "Low", variant: "no" };
   if (n === "insufficient_data") return { text: "Unknown", variant: "unknown" };
   if (n === "evaluating") return { text: "Evaluating", variant: "unknown" };
   return { text: "Unknown", variant: "unknown" };
@@ -80,7 +80,7 @@ const spamLikelyBadge = (status: string | null) => {
           ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
           : "bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30";
   return (
-    <Badge className={cn("border", cls)} title="Carrier spam labels are partial; Unknown means not enough signal yet.">
+    <Badge className={cn("border", cls)} title="Low = clean, Medium = at risk, High = flagged, Unknown = not enough signal.">
       {text}
     </Badge>
   );
@@ -352,14 +352,14 @@ const NumberReputation: React.FC = () => {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-accent/50 text-muted-foreground">
+            <thead className="bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50 text-slate-700 dark:from-accent/60 dark:via-accent/50 dark:to-accent/40 dark:text-muted-foreground">
               <tr>
                 <th className="w-10 px-3 py-3" />
                 <th className="px-3 py-3 text-left font-medium">Phone number</th>
-                <th className="px-3 py-3 text-left font-medium">Attestation (last Twilio call log)</th>
+                <th className="px-3 py-3 text-left font-medium">Attestation</th>
                 <th className="px-3 py-3 text-left font-medium">Spam likely</th>
                 <th className="px-3 py-3 text-left font-medium">AT&amp;T</th>
                 <th className="px-3 py-3 text-left font-medium">Verizon</th>
@@ -368,7 +368,7 @@ const NumberReputation: React.FC = () => {
                 <th className="px-3 py-3 text-left font-medium">Check</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-slate-200 dark:divide-border">
               {phoneNumbers?.map((num) => {
                 const expanded = expandedRows.has(num.id);
                 const scanning = scanningIds.includes(num.id);
@@ -378,7 +378,7 @@ const NumberReputation: React.FC = () => {
                     <motion.tr
                       onClick={() => toggleRow(num.id)}
                       className={cn(
-                        "cursor-pointer transition-colors hover:bg-accent/30",
+                        "cursor-pointer transition-colors hover:bg-sky-50/70 dark:hover:bg-accent/30",
                         scanning && "bg-cyan-500/[0.07]",
                       )}
                       animate={
@@ -446,7 +446,7 @@ const NumberReputation: React.FC = () => {
                               animate={{ height: "auto", opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
                               transition={{ duration: 0.22 }}
-                              className="overflow-hidden border-t border-border bg-accent/20"
+                              className="overflow-hidden border-t border-slate-200 bg-slate-50/70 dark:border-border dark:bg-accent/20"
                             >
                               <div className="px-5 py-4">
                                 <CarrierReputationPanel data={num.carrier_reputation_data} />
