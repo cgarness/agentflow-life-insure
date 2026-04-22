@@ -34,10 +34,10 @@ export function normalizeAttestationLetter(
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
-  if (typeof v === "number" && !Number.isNaN(v)) return v;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string") {
     const n = parseFloat(v);
-    return Number.isNaN(n) ? null : n;
+    return Number.isFinite(n) ? n : null;
   }
   return null;
 }
@@ -56,8 +56,8 @@ export function extractReportMetrics(
     return null;
   };
 
-  const total =
-    pick("total_calls", "total_call_attempts", "calls", "call_attempts") ?? 0;
+  const rawTotal = pick("total_calls", "total_call_attempts", "calls", "call_attempts") ?? 0;
+  const total = Number.isFinite(rawTotal) ? Math.round(rawTotal) : 0;
 
   const blockRate =
     pick(
@@ -89,7 +89,7 @@ export function extractReportMetrics(
     (typeof row["stir_shaken_attestation"] === "string" ? row["stir_shaken_attestation"] : null);
 
   return {
-    total_calls: Math.round(total),
+    total_calls: total,
     block_rate_pct: blockRate,
     short_call_pct: shortCallPct,
     asr_pct: asrPct,
@@ -160,7 +160,8 @@ export function computeReputation(
     penalties.push(`Attestation below A (${att})`);
   }
 
-  score = Math.max(0, Math.min(100, Math.round(score)));
+  const safeScore = Number.isFinite(score) ? Math.round(score) : 100;
+  score = Math.max(0, Math.min(100, safeScore));
 
   let spam_status: string;
   let display_health: ComputedReputation["display_health"];

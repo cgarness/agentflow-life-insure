@@ -85,6 +85,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
+  try {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -232,7 +233,7 @@ Deno.serve(async (req) => {
       authToken,
       created.report_id,
       row.phone_number,
-      { maxAttempts: 35, delayMs: 2000 },
+      { maxAttempts: 16, delayMs: 1800 },
     );
     twilioRow = polled.row;
   } catch (e) {
@@ -266,11 +267,15 @@ Deno.serve(async (req) => {
 
     if (upErr) return jsonResponse({ error: upErr.message }, 500);
 
-    await supabase.from("phone_number_reputation_checks").insert({
+    const { error: insLogErr } = await supabase.from("phone_number_reputation_checks").insert({
       organization_id: row.organization_id,
       phone_number_id: row.id,
       checked_by: user.id,
     });
+    if (insLogErr) {
+      console.error("[twilio-reputation-check] insert check log", insLogErr.message);
+      return jsonResponse({ error: insLogErr.message, step: "reputation_checks_insert" }, 500);
+    }
 
     return jsonResponse({
       success: true,
@@ -296,7 +301,7 @@ Deno.serve(async (req) => {
       penalties: computed.penalties,
       metrics: computed.metrics,
     },
-    twilio_row_keys: Object.keys(twilioRow),
+    twilio_row_keys: Object.keys(twilioRow).slice(0, 120),
   };
 
   const patch: Record<string, unknown> = {
@@ -317,11 +322,15 @@ Deno.serve(async (req) => {
 
   if (upErr2) return jsonResponse({ error: upErr2.message }, 500);
 
-  await supabase.from("phone_number_reputation_checks").insert({
+  const { error: insLogErr2 } = await supabase.from("phone_number_reputation_checks").insert({
     organization_id: row.organization_id,
     phone_number_id: row.id,
     checked_by: user.id,
   });
+  if (insLogErr2) {
+    console.error("[twilio-reputation-check] insert check log", insLogErr2.message);
+    return jsonResponse({ error: insLogErr2.message, step: "reputation_checks_insert" }, 500);
+  }
 
   return jsonResponse({
     success: true,
@@ -329,4 +338,9 @@ Deno.serve(async (req) => {
     spam_score: computed.spam_score,
     display_health: computed.display_health,
   }, 200);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[twilio-reputation-check] unhandled", e);
+    return jsonResponse({ error: "Internal error", detail: msg.slice(0, 800) }, 500);
+  }
 });

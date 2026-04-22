@@ -43,6 +43,24 @@ const getAttestationBadge = (level: string | null) => {
   }
 };
 
+/** Parse JSON body from FunctionsHttpError.context (non-2xx Edge responses). */
+async function readEdgeFunctionErrorBody(error: unknown): Promise<string | null> {
+  const ctx = (error as { context?: Response })?.context;
+  if (!ctx || typeof ctx.clone !== "function") return null;
+  try {
+    const j = (await ctx.clone().json()) as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof j.error === "string") parts.push(j.error);
+    if (typeof j.detail === "string") parts.push(j.detail);
+    if (typeof j.message === "string") parts.push(j.message);
+    if (typeof j.step === "string") parts.push(`[${j.step}]`);
+    if (j.code != null) parts.push(String(j.code));
+    return parts.length ? parts.join(" — ") : null;
+  } catch {
+    return null;
+  }
+}
+
 const getSpamLikelyLabel = (status: string | null): { text: string; variant: "yes" | "maybe" | "no" | "unknown" } => {
   const n = normStatus(status);
   if (n === "flagged") return { text: "Yes", variant: "yes" };
@@ -127,7 +145,7 @@ const NumberReputation: React.FC = () => {
     spam_score?: number | null;
   };
 
-  /** Fresh user JWT for Edge (verify_jwt). Avoids 401 when the cached session is stale. */
+  /** Fresh user JWT for Edge. Avoids 401 when the cached session is stale. */
   const getAccessTokenForEdge = async (): Promise<string> => {
     const { data: refreshed, error: refErr } = await supabase.auth.refreshSession();
     const t = refreshed.session?.access_token;
@@ -149,21 +167,30 @@ const NumberReputation: React.FC = () => {
         Authorization: `Bearer ${accessToken}`,
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
       },
+      // Twilio report polling can run ~30–45s; default client timeouts are too short.
+      timeout: 150_000,
     });
     if (error) {
+      const bodyHint = await readEdgeFunctionErrorBody(error);
       const base = String(error.message || "");
+      const combined = bodyHint ? `${base} (${bodyHint})` : base;
       const is401 =
         base.includes("401") ||
-        base.toLowerCase().includes("non-2xx") ||
-        base.toLowerCase().includes("unauthorized");
+        combined.toLowerCase().includes("non-2xx") ||
+        combined.toLowerCase().includes("unauthorized");
       if (is401) {
         throw new Error(
-          `${base} — Confirm the request URL is ` +
+          `${combined} — Confirm the request URL is ` +
             `https://${AGENTFLOW_SUPABASE_PROJECT_REF}.supabase.co/functions/v1/twilio-reputation-check. ` +
             `If the host is already correct, sign out and sign back in (stale session), then retry.`,
         );
       }
-      throw new Error(base);
+      if (/abort|timed?\s*out|timeout/i.test(base)) {
+        throw new Error(
+          "The reputation check took too long and was cancelled. Twilio is still building the report — wait ~1 minute and click Check again.",
+        );
+      }
+      throw new Error(combined);
     }
     const payload = data as ReputationFnResponse | null;
     if (payload?.error) {
@@ -255,7 +282,8 @@ const NumberReputation: React.FC = () => {
           <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
           <p className="text-sm text-muted-foreground">
             Checks call Twilio Voice Insights (7-day window). Each line allows up to three checks per UTC day (Super
-            Admin: unlimited). A scan can take up to a minute while Twilio builds the report.
+            Admin: unlimited). A scan usually finishes in under a minute; if Twilio is still compiling metrics, run
+            Check again shortly.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
