@@ -42,11 +42,11 @@ function firstArray(
 }
 
 /**
- * Returns Twilio signing tier for outbound calls from this number:
+ * Returns Twilio *signing setup* tier (Trust Hub), not the per-carrier outcome of one PSTN call.
  * - **A** — number (PN…) is assigned to an approved SHAKEN/STIR Trust Product.
- * - **B** — account has an approved SHAKEN/STIR Trust Product but this PN is not
- *   assigned to it (Twilio still signs account-level B for Twilio-owned numbers).
- * - **null** — could not determine (API error, no SHAKEN product, or not approved yet).
+ * - **B** — account has an approved SHAKEN/STIR Trust Product but this PN is not on that product.
+ * - **C** — no approved SHAKEN/STIR Trust Product (Twilio’s default / gateway signing per onboarding docs).
+ * - **null** — Trust Hub list failed (do not guess C).
  */
 export async function fetchTrustHubSigningAttestation(
   accountSid: string,
@@ -54,7 +54,7 @@ export async function fetchTrustHubSigningAttestation(
   opts: {
     phoneNumberSid: string | null | undefined;
   },
-): Promise<"A" | "B" | null> {
+): Promise<"A" | "B" | "C" | null> {
   const pn = String(opts.phoneNumberSid ?? "").trim();
 
   const auth = basicAuth(accountSid, authToken);
@@ -88,8 +88,14 @@ export async function fetchTrustHubSigningAttestation(
     .map((p) => p as Record<string, unknown>)
     .filter(isShakenTrustProduct);
 
+  if (shakenProducts.length === 0) {
+    return "C";
+  }
+
   const approved = shakenProducts.filter((p) => isTwilioApprovedShakenProduct(p.status));
-  if (approved.length === 0) return null;
+  if (approved.length === 0) {
+    return "C";
+  }
 
   if (pn.startsWith("PN")) {
     for (const prod of approved) {

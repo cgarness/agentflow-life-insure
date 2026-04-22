@@ -5,6 +5,7 @@ import { digitsOnly } from "./phone.ts";
 import { createOutboundReport, pollOutboundReportForHandle } from "./twilioInsights.ts";
 import { computeReputation, extractReportMetrics } from "./scoring.ts";
 import { fetchTrustHubSigningAttestation } from "./trustHubSigningAttestation.ts";
+import { fetchRecentOutboundStirAttestation } from "./recentCallStirAttestation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -222,10 +223,21 @@ Deno.serve(async (req) => {
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
-  /** Voice Insights does not include SHAKEN/STIR; resolve signing tier from Trust Hub in parallel. */
+  /**
+   * Parallel attestation sources (Twilio docs):
+   * - Recent outbound `calls` + GET Call JSON (`stir_verstat` / `stir_status`) — actual signing on those legs.
+   * - Trust Hub SHAKEN/STIR Trust Product — A/B/C eligibility when Call API has no data.
+   */
   const trustHubAttestationPromise = fetchTrustHubSigningAttestation(accountSid, authToken, {
     phoneNumberSid: row.twilio_sid,
   });
+  const recentCallStirPromise = fetchRecentOutboundStirAttestation(
+    supabase,
+    row.organization_id as string,
+    row.phone_number,
+    accountSid,
+    authToken,
+  );
 
   const created = await createOutboundReport(accountSid, authToken, startIso, endIso);
   if (!created.ok) {
@@ -251,7 +263,12 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: msg }, 502);
   }
 
-  const trustHubSigningAtt = await trustHubAttestationPromise;
+  const [trustHubSigningAtt, callResourceStirAtt] = await Promise.all([
+    trustHubAttestationPromise,
+    recentCallStirPromise,
+  ]);
+  const signingAttestation =
+    callResourceStirAtt ?? trustHubSigningAtt;
 
   const nowIso = new Date().toISOString();
   const carriers = buildCarrierPanel(twilioRow);
@@ -267,8 +284,12 @@ Deno.serve(async (req) => {
       computed: {
         reason: "no_matching_handle_in_report",
         trust_hub_signing_attestation: trustHubSigningAtt,
-        metrics: trustHubSigningAtt
-          ? { attestation_level: trustHubSigningAtt, source: "twilio_trust_hub_shaken_stir" }
+        call_resource_stir_attestation: callResourceStirAtt,
+        metrics: signingAttestation
+          ? {
+            attestation_level: signingAttestation,
+            source: callResourceStirAtt ? "twilio_calls_rest" : "twilio_trust_hub_shaken_stir",
+          }
           : undefined,
       },
     };
@@ -278,9 +299,9 @@ Deno.serve(async (req) => {
       spam_checked_at: nowIso,
       carrier_reputation_data,
     };
-    if (trustHubSigningAtt) {
-      insuffPatch.attestation_level = trustHubSigningAtt;
-      insuffPatch.shaken_stir_attestation = trustHubSigningAtt;
+    if (signingAttestation) {
+      insuffPatch.attestation_level = signingAttestation;
+      insuffPatch.shaken_stir_attestation = signingAttestation;
     }
     const { error: upErr } = await supabase
       .from("phone_numbers")
@@ -305,12 +326,12 @@ Deno.serve(async (req) => {
       spam_status: "Insufficient Data",
       spam_score: null,
       message: "Twilio returned no metrics row for this caller ID in the report (volume window or top-N list).",
-      signing_attestation: trustHubSigningAtt,
+      signing_attestation: signingAttestation,
     }, 200);
   }
 
   const attestationSeed =
-    trustHubSigningAtt ?? row.shaken_stir_attestation ?? row.attestation_level;
+    signingAttestation ?? row.shaken_stir_attestation ?? row.attestation_level;
   const metrics = extractReportMetrics(twilioRow, row.daily_call_count, attestationSeed);
   const computed = computeReputation(metrics);
 
@@ -327,6 +348,7 @@ Deno.serve(async (req) => {
       penalties: computed.penalties,
       metrics: computed.metrics,
       trust_hub_signing_attestation: trustHubSigningAtt,
+      call_resource_stir_attestation: callResourceStirAtt,
     },
     twilio_row_keys: Object.keys(twilioRow).slice(0, 120),
   };
@@ -340,8 +362,8 @@ Deno.serve(async (req) => {
   if (computed.metrics.attestation_level !== row.attestation_level) {
     patch.attestation_level = computed.metrics.attestation_level;
   }
-  if (trustHubSigningAtt) {
-    patch.shaken_stir_attestation = trustHubSigningAtt;
+  if (signingAttestation) {
+    patch.shaken_stir_attestation = signingAttestation;
   }
 
   const { error: upErr2 } = await supabase
@@ -367,7 +389,7 @@ Deno.serve(async (req) => {
     spam_status: computed.spam_status,
     spam_score: computed.spam_score,
     display_health: computed.display_health,
-    signing_attestation: trustHubSigningAtt ?? computed.metrics.attestation_level ?? null,
+    signing_attestation: signingAttestation ?? computed.metrics.attestation_level ?? null,
   }, 200);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
