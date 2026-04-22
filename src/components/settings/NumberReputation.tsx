@@ -126,9 +126,28 @@ const NumberReputation: React.FC = () => {
     spam_score?: number | null;
   };
 
+  /** Fresh user JWT for Edge (verify_jwt). Avoids 401 when the cached session is stale. */
+  const getAccessTokenForEdge = async (): Promise<string> => {
+    const { data: refreshed, error: refErr } = await supabase.auth.refreshSession();
+    const t = refreshed.session?.access_token;
+    if (t) return t;
+    if (refErr) console.warn("[NumberReputation] refreshSession:", refErr.message);
+    const { data: { session }, error: sessErr } = await supabase.auth.getSession();
+    if (sessErr) throw new Error(sessErr.message);
+    if (!session?.access_token) {
+      throw new Error("Your session expired. Refresh the page and sign in again, then retry the check.");
+    }
+    return session.access_token;
+  };
+
   const invokeReputationCheck = async (e164: string) => {
+    const accessToken = await getAccessTokenForEdge();
     const { data, error } = await supabase.functions.invoke<ReputationFnResponse>("twilio-reputation-check", {
       body: { phone_number: e164 },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      },
     });
     if (error) throw new Error(error.message);
     const payload = data as ReputationFnResponse | null;
