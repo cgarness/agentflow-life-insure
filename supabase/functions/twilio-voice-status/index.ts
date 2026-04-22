@@ -69,6 +69,45 @@ function parseDurationSeconds(value: string | undefined): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+function buildBasicAuth(accountSid: string, authToken: string): string {
+  return "Basic " + btoa(`${accountSid}:${authToken}`);
+}
+
+function normalizeStirShakenLevel(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).toUpperCase().trim();
+  if (s === "A" || s === "B" || s === "C" || s === "U") return s;
+  const token = s.match(/(?:^|[-_\s])([ABCU])(?:$|[-_\s])/);
+  if (token?.[1]) return token[1];
+  const letters = s.replace(/[^ABCU]/g, "");
+  if (letters.includes("A")) return "A";
+  if (letters.includes("B")) return "B";
+  if (letters.includes("C")) return "C";
+  if (letters.includes("U")) return "U";
+  return null;
+}
+
+async function fetchTwilioStirShakenLevel(
+  accountSid: string,
+  authToken: string,
+  callSid: string,
+): Promise<string | null> {
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(callSid)}.json`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: buildBasicAuth(accountSid, authToken),
+      Accept: "application/json",
+    },
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as Record<string, unknown>;
+  const twilioRaw =
+    (typeof json.stir_verstat === "string" ? json.stir_verstat : null) ??
+    (typeof json.shaken_stir === "string" ? json.shaken_stir : null);
+  return normalizeStirShakenLevel(twilioRaw);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -79,6 +118,7 @@ Deno.serve(async (req) => {
 
   try {
     const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
+    const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
     if (!authToken) {
       console.error("[twilio-voice-status] Missing TWILIO_AUTH_TOKEN");
       return new Response(EMPTY_TWIML, { status: 500, headers: twimlHeaders });
@@ -96,6 +136,11 @@ Deno.serve(async (req) => {
     const callStatus = params["CallStatus"] ?? "";
     const callDuration = parseDurationSeconds(params["CallDuration"]);
     const sipResponseCode = params["SipResponseCode"] ?? "";
+    const webhookStirRaw =
+      params["StirVerstat"] ??
+      params["StirShakenStatus"] ??
+      params["StirShaken"] ??
+      "";
     const from = params["From"] ?? "";
     const to = params["To"] ?? "";
 
@@ -104,6 +149,7 @@ Deno.serve(async (req) => {
       callStatus,
       callDuration,
       sipResponseCode: sipResponseCode || "(none)",
+      stirShaken: webhookStirRaw || "(none)",
       from,
       to,
     });
@@ -141,6 +187,8 @@ Deno.serve(async (req) => {
     }
 
     const patch: Record<string, unknown> = { updated_at: nowIso };
+    const webhookStir = normalizeStirShakenLevel(webhookStirRaw);
+    if (webhookStir) patch.shaken_stir = webhookStir;
 
     switch (callStatus) {
       case "ringing": {
@@ -161,6 +209,10 @@ Deno.serve(async (req) => {
           const startMs = new Date(existing.started_at).getTime();
           const computed = Math.max(0, Math.round((Date.now() - startMs) / 1000));
           patch.duration = computed;
+        }
+        if (!patch.shaken_stir && accountSid) {
+          const fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, callSid);
+          if (fetched) patch.shaken_stir = fetched;
         }
         break;
       }

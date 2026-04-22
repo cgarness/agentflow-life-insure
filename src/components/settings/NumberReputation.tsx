@@ -25,6 +25,7 @@ type PhoneNumber = {
   daily_call_limit: number | null;
   created_at: string | null;
   last_outbound_shaken_stir: string | null;
+  calls_today: number;
 };
 
 const normStatus = (s: string | null) => (s ?? "").toLowerCase().replace(/\s+/g, "_");
@@ -37,6 +38,8 @@ const getAttestationBadge = (level: string | null) => {
       return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">B</Badge>;
     case "C":
       return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">C</Badge>;
+    case "U":
+      return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30">U</Badge>;
     default:
       return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30">Unknown</Badge>;
   }
@@ -140,13 +143,14 @@ const OUTBOUND_DIRECTIONS = new Set([
 function normalizeAttestationLetter(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const s = String(raw).toUpperCase().trim();
-  if (s === "A" || s === "B" || s === "C") return s;
-  const word = s.match(/\b([ABC])\b/);
+  if (s === "A" || s === "B" || s === "C" || s === "U") return s;
+  const word = s.match(/\b([ABCU])\b/);
   if (word) return word[1]!;
-  const letters = s.replace(/[^ABC]/g, "");
+  const letters = s.replace(/[^ABCU]/g, "");
   if (letters.includes("A")) return "A";
   if (letters.includes("B")) return "B";
   if (letters.includes("C")) return "C";
+  if (letters.includes("U")) return "U";
   return null;
 }
 
@@ -252,16 +256,26 @@ const NumberReputation: React.FC = () => {
       }
 
       const lastOutboundByNumber = new Map<string, string | null>();
+      const callsTodayByNumber = new Map<string, number>();
+      const now = new Date();
+      const localDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const localDayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       for (const call of callsData ?? []) {
         const callerId = call.caller_id_used;
-        if (!callerId || lastOutboundByNumber.has(callerId)) continue;
+        if (!callerId) continue;
         if (!isOutboundDirection(call.direction)) continue;
+        const created = call.created_at ? new Date(call.created_at) : null;
+        if (created && created >= localDayStart && created < localDayEnd) {
+          callsTodayByNumber.set(callerId, (callsTodayByNumber.get(callerId) ?? 0) + 1);
+        }
+        if (lastOutboundByNumber.has(callerId)) continue;
         lastOutboundByNumber.set(callerId, normalizeAttestationLetter(call.shaken_stir));
       }
 
       return phoneRows.map((row) => ({
         ...row,
         last_outbound_shaken_stir: lastOutboundByNumber.get(row.phone_number) ?? null,
+        calls_today: callsTodayByNumber.get(row.phone_number) ?? 0,
       }));
     },
   });
@@ -466,6 +480,7 @@ const NumberReputation: React.FC = () => {
                 <th className="px-3 py-3 text-left font-medium">Phone number</th>
                 <th className="px-3 py-3 text-left font-medium">Attestation</th>
                 <th className="px-3 py-3 text-left font-medium">Spam likely</th>
+                <th className="px-3 py-3 text-left font-medium">Calls today</th>
                 <th className="px-3 py-3 text-left font-medium">AT&amp;T</th>
                 <th className="px-3 py-3 text-left font-medium">Verizon</th>
                 <th className="px-3 py-3 text-left font-medium">T-Mobile</th>
@@ -516,6 +531,7 @@ const NumberReputation: React.FC = () => {
                       <td className="px-3 py-3 font-mono text-xs text-foreground">{num.phone_number}</td>
                       <td className="px-3 py-3">{getAttestationBadge(attestation)}</td>
                       <td className="px-3 py-3">{spamLikelyBadge(num.spam_status)}</td>
+                      <td className="px-3 py-3 text-xs font-medium text-slate-700 dark:text-slate-300">{num.calls_today}</td>
                       <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
                       <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
                       <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
@@ -547,7 +563,7 @@ const NumberReputation: React.FC = () => {
                     <AnimatePresence>
                       {expanded && (
                         <tr>
-                          <td colSpan={9} className="p-0">
+                          <td colSpan={10} className="p-0">
                             <motion.div
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: "auto", opacity: 1 }}
