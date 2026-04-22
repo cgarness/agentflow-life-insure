@@ -12,6 +12,7 @@ import LeaderboardAgentAvatar from "@/components/leaderboard/LeaderboardAgentAva
 import TVMode from "@/components/leaderboard/TVMode";
 import { Badge as BadgeType, AgentFireStatus, computeBadges, computeFireStatus } from "@/components/leaderboard/useLeaderboardBadges";
 import { useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 type Period = "Today" | "This Week" | "This Month";
 type Metric = "Policies Sold" | "Calls Made" | "Appointments Set" | "Talk Time" | "Conversion Rate";
@@ -439,7 +440,14 @@ const Leaderboard: React.FC = () => {
         <>
           {/* Podium */}
           {topAgents.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 items-end max-w-3xl mx-auto lg:max-w-4xl">
+            <div
+              className={cn(
+                "grid grid-cols-1 gap-3 md:gap-4 items-end mx-auto w-full justify-items-stretch",
+                topAgents.length >= 3 && "sm:grid-cols-3 max-w-3xl lg:max-w-4xl",
+                topAgents.length === 2 && "sm:grid-cols-2 max-w-2xl",
+                topAgents.length === 1 && "max-w-sm"
+              )}
+            >
               {topAgents.map(a => {
                 const mc = metalConfig(a.rank);
                 const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
