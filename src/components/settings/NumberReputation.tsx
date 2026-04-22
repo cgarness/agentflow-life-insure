@@ -158,9 +158,9 @@ const NumberReputation: React.FC = () => {
         base.toLowerCase().includes("unauthorized");
       if (is401) {
         throw new Error(
-          `${base} — If this persists, open the browser Network tab: the request host must be ` +
-            `${AGENTFLOW_SUPABASE_PROJECT_REF}.supabase.co (same project as your login). ` +
-            `Fix Vercel VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY if the host is wrong.`,
+          `${base} — Confirm the request URL is ` +
+            `https://${AGENTFLOW_SUPABASE_PROJECT_REF}.supabase.co/functions/v1/twilio-reputation-check. ` +
+            `If the host is already correct, sign out and sign back in (stale session), then retry.`,
         );
       }
       throw new Error(base);

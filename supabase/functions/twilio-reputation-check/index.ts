@@ -87,20 +87,26 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!supabaseUrl || !serviceKey) {
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!supabaseUrl || !serviceKey || !anonKey) {
     return jsonResponse({ error: "Server configuration error" }, 500);
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey);
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
   const jwt = authHeader.replace("Bearer ", "");
-  const { data: authData, error: authErr } = await supabase.auth.getUser(jwt);
+
+  // Validate the caller JWT with the **anon** client. GoTrue `/user` + user JWT
+  // is unreliable when the client was created with the service role key only.
+  const supabaseAuth = createClient(supabaseUrl, anonKey);
+  const { data: authData, error: authErr } = await supabaseAuth.auth.getUser(jwt);
   if (authErr || !authData?.user) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
   const user = authData.user;
   const email = String(user.email ?? "").toLowerCase();
   const isSuperEmail = email === SUPER_ADMIN_EMAIL.toLowerCase();
