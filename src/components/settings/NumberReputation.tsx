@@ -71,17 +71,46 @@ const getSpamLikelyLabel = (status: string | null): { text: string; variant: "ye
 
 const spamLikelyBadge = (status: string | null) => {
   const { text, variant } = getSpamLikelyLabel(status);
-  const cls =
-    variant === "yes"
-      ? "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30"
-      : variant === "maybe"
-        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
-        : variant === "no"
-          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-          : "bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30";
+  if (variant === "no") {
+    return (
+      <Badge
+        className="h-6 w-6 justify-center border-emerald-500/30 bg-emerald-500/15 px-0 text-emerald-700 dark:text-emerald-400"
+        title={`${text} spam likelihood`}
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        <span className="sr-only">{text}</span>
+      </Badge>
+    );
+  }
+  if (variant === "maybe") {
+    return (
+      <Badge
+        className="h-6 w-6 justify-center border-amber-500/30 bg-amber-500/15 px-0 text-amber-800 dark:text-amber-400"
+        title={`${text} spam likelihood`}
+      >
+        <AlertTriangle className="h-3.5 w-3.5" />
+        <span className="sr-only">{text}</span>
+      </Badge>
+    );
+  }
+  if (variant === "yes") {
+    return (
+      <Badge
+        className="h-6 w-6 justify-center border-red-500/30 bg-red-500/15 px-0 text-red-700 dark:text-red-400"
+        title={`${text} spam likelihood`}
+      >
+        <Flag className="h-3.5 w-3.5" />
+        <span className="sr-only">{text}</span>
+      </Badge>
+    );
+  }
   return (
-    <Badge className={cn("border", cls)} title="Low = clean, Medium = at risk, High = flagged, Unknown = not enough signal.">
-      {text}
+    <Badge
+      className="h-6 w-6 justify-center border-slate-500/30 bg-slate-500/15 px-0 text-slate-600 dark:text-slate-400"
+      title={`${text} spam likelihood`}
+    >
+      <span className="text-xs font-semibold">?</span>
+      <span className="sr-only">{text}</span>
     </Badge>
   );
 };
