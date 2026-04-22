@@ -406,6 +406,7 @@ const Dashboard: React.FC = () => {
         return <GoalProgressWidget userId={userId} stats={stats} />;
       case "leaderboard":
         return <LeaderboardWidget userId={userId} />;
+      case "missed_calls":
         return (
           <MissedCallsWidget
             userId={userId}
@@ -435,14 +436,14 @@ const Dashboard: React.FC = () => {
       {/* Controls Row: Filters, Perspective & Edit Actions */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-2">
         <div className="flex items-center gap-4">
-          <div className="inline-flex p-1 bg-white shadow-sm rounded-2xl border border-border/40">
+          <div className="inline-flex p-1 bg-card shadow-sm rounded-2xl border border-border/40">
             <Tabs value={timeRange} onValueChange={(v: any) => setTimeRange(v)} className="w-auto">
               <TabsList className="bg-transparent h-9 p-0 gap-1">
                 {["day", "week", "month", "year"].map((t) => (
                   <TabsTrigger 
                     key={t}
                     value={t} 
-                    className={`rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm`}
+                    className={`rounded-xl px-4 h-8 text-[10px] font-bold uppercase tracking-wider text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm`}
                   >
                     {t}
                   </TabsTrigger>
@@ -452,7 +453,7 @@ const Dashboard: React.FC = () => {
           </div>
 
           {(role === "Admin" || role === "Team Leader") && (
-            <div className="flex items-center gap-2 bg-white shadow-sm px-3 py-1.5 rounded-2xl border border-border/40">
+            <div className="flex items-center gap-2 bg-card shadow-sm px-3 py-1.5 rounded-2xl border border-border/40">
               <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">Perspective</span>
               <button
                 onClick={() =>
@@ -475,8 +476,8 @@ const Dashboard: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={() => setEditMode(!editMode)}
-            className={`transition-all rounded-xl h-10 px-4 bg-white shadow-sm border-slate-200 ${
-              editMode ? "text-primary border-primary bg-primary/5" : "text-muted-foreground hover:bg-slate-50"
+            className={`transition-all rounded-xl h-10 px-4 bg-card shadow-sm border-border ${
+              editMode ? "text-primary border-primary bg-primary/5" : "text-muted-foreground hover:bg-accent"
             }`}
           >
             <Pencil className="h-3.5 w-3.5 mr-2 text-primary" />

@@ -98,7 +98,7 @@ const StatCards: React.FC<StatCardsProps> = ({
         <div
           key={card.id}
           onClick={() => onCardClick?.(card.id)}
-          className={`relative overflow-hidden bg-white rounded-2xl shadow-xl transition-all duration-300 cursor-pointer hover:-translate-y-1 h-[140px] group border border-slate-100 ${card.shadow}`}
+          className={`relative overflow-hidden bg-card text-card-foreground rounded-2xl shadow-xl transition-all duration-300 cursor-pointer hover:-translate-y-1 h-[140px] group border border-border ${card.shadow}`}
         >
           {/* Subtle Accent Glow */}
           <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-[0.03] blur-2xl group-hover:opacity-[0.08] transition-opacity duration-500 ${card.gradient}`} />
@@ -117,7 +117,7 @@ const StatCards: React.FC<StatCardsProps> = ({
                   </div>
                 ) : (
                   <div>
-                    <p className="text-3xl font-extrabold tracking-tight text-slate-900">
+                    <p className="text-3xl font-extrabold tracking-tight text-foreground">
                       {formatValue(card.value)}
                     </p>
                     
