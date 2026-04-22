@@ -193,7 +193,7 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
           )}
         </div>
 
-        {footer ? <div className="flex justify-end pt-2 border-t border-border/50">{footer}</div> : null}
+        {footer ? <div className="flex justify-start pt-2 border-t border-border/50">{footer}</div> : null}
     </>
   );
 

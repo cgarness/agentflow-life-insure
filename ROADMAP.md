@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | My Profile — section order, header icons, primary save alignment**
+  *What:* **Change Password** moved to the **bottom** of the tab (after Preferences and My Goals). **Profile Information** plus every collapsible header now uses the same **icon + title + short description** pattern (`User`, `Globe`, `Shield`, `SlidersHorizontal`, `Target`, `KeyRound`). All **Save / Update** actions use the default **primary** button and sit **bottom-left** with a top border row; **Insurance Carriers** footer alignment updated in **`ProfileCarriersSection`**. Photo crop modal puts **Save Photo** first (left).
+  *Files:* **`src/components/settings/MyProfile.tsx`**, **`src/components/settings/ProfileCarriersSection.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | My Profile — collapsible sections below Profile Information**
   *What:* **Settings → My Profile** keeps **Profile Information** always visible; **Licensed States**, **Insurance Carriers**, **Change Password**, **Preferences**, and **My Goals** (when shown) are **expand/collapse** panels (closed by default) with a row header and chevron, using Radix **Collapsible**. **User Management** profile carrier editor unchanged (optional **`collapsible`** prop on **`ProfileCarriersSection`**).
   *Files:* **`src/components/settings/MyProfile.tsx`**, **`src/components/settings/ProfileCarriersSection.tsx`**, **`ROADMAP.md`**.

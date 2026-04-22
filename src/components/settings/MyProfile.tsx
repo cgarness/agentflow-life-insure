@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import {
   Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Trash2, Plus, ChevronDown,
+  KeyRound, SlidersHorizontal, Target,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -331,7 +332,17 @@ const MyProfile: React.FC = () => {
     <div className="space-y-6">
       {/* CARD 1 — Profile Info */}
       <Card className="bg-card border-border rounded-xl mb-6">
-        <CardHeader><CardTitle className="text-base">Profile Information</CardTitle></CardHeader>
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+              <User className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Profile Information</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">Your name, contact details, and availability</p>
+            </div>
+          </div>
+        </CardHeader>
         <CardContent className="space-y-6">
           {/* Avatar */}
           <div className="flex items-center gap-5">
@@ -424,8 +435,8 @@ const MyProfile: React.FC = () => {
 
           </div>
 
-          <div className="flex justify-end pt-4">
-            <Button onClick={handleSaveProfile} disabled={profileSaving} className="px-6 rounded-lg transition-all hover:scale-[1.02]">
+          <div className="flex justify-start pt-4 border-t border-border/50">
+            <Button onClick={handleSaveProfile} disabled={profileSaving} className="px-6 rounded-lg">
               {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Profile Information"}
             </Button>
           </div>
@@ -513,8 +524,8 @@ const MyProfile: React.FC = () => {
             )}
           </div>
 
-          <div className="flex justify-end pt-2 border-t border-border/50">
-            <Button onClick={handleSaveProfile} disabled={profileSaving} variant="outline" className="px-6 rounded-lg transition-all hover:bg-primary/5">
+          <div className="flex justify-start pt-2 border-t border-border/50">
+            <Button onClick={handleSaveProfile} disabled={profileSaving} className="px-6 rounded-lg">
               {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Licenses"}
             </Button>
           </div>
@@ -528,13 +539,13 @@ const MyProfile: React.FC = () => {
         carriers={selectedCarriers}
         onChange={setSelectedCarriers}
         footer={
-          <Button onClick={handleSaveProfile} disabled={profileSaving} variant="outline" className="px-6 rounded-lg transition-all hover:bg-primary/5">
+          <Button onClick={handleSaveProfile} disabled={profileSaving} className="px-6 rounded-lg">
             {profileSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Update Carriers"}
           </Button>
         }
       />
 
-      {/* CARD 2 — Change Password */}
+      {/* Preferences */}
       <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
         <Collapsible defaultOpen={false} className="group">
           <CollapsibleTrigger asChild>
@@ -542,53 +553,15 @@ const MyProfile: React.FC = () => {
               type="button"
               className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
             >
-              <CardTitle className="text-base">Change Password</CardTitle>
-              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-4 max-w-md border-t border-border/50 pt-6">
-          <PasswordField label="Current Password" value={currentPw} onChange={setCurrentPw} show={showCurrentPw} onToggle={() => setShowCurrentPw(!showCurrentPw)} />
-          <div>
-            <PasswordField label="New Password" value={newPw} onChange={setNewPw} show={showNewPw} onToggle={() => setShowNewPw(!showNewPw)} />
-            {newPw && pwStrength && (
-              <div className="mt-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
-                    <div className={`h-full rounded-full ${pwStrength.color} transition-all duration-300`} style={{ width: pwStrength.width }} />
-                  </div>
-                  <span className={`text-xs font-medium ${pwStrength.textColor} whitespace-nowrap`}>{pwStrength.label}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+                  <SlidersHorizontal className="w-5 h-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <CardTitle className="text-lg">Preferences</CardTitle>
+                  <p className="text-xs text-muted-foreground">Theme, sounds, notifications, and timezone</p>
                 </div>
               </div>
-            )}
-            <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-              <li>At least 8 characters</li>
-              <li>One uppercase letter</li>
-              <li>One number</li>
-              <li>One special character (!@#$%^&*)</li>
-            </ul>
-          </div>
-          <div>
-            <PasswordField label="Confirm New Password" value={confirmPw} onChange={setConfirmPw} show={showConfirmPw} onToggle={() => setShowConfirmPw(!showConfirmPw)} />
-            {pwMismatch && <p className="text-xs text-destructive mt-1">Passwords do not match</p>}
-          </div>
-          <Button onClick={handleUpdatePassword} disabled={!pwAllFilled || pwMismatch || pwSaving} className="px-6">
-            {pwSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Updating...</> : "Update Password"}
-          </Button>
-            </CardContent>
-          </CollapsibleContent>
-        </Collapsible>
-      </Card>
-
-      {/* CARD 3 — Preferences */}
-      <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
-        <Collapsible defaultOpen={false} className="group">
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
-            >
-              <CardTitle className="text-base">Preferences</CardTitle>
               <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
             </button>
           </CollapsibleTrigger>
@@ -648,15 +621,17 @@ const MyProfile: React.FC = () => {
               ))}
             </select>
           </div>
-          <Button onClick={handleSavePreferences} disabled={prefSaving} className="px-6">
-            {prefSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Preferences"}
-          </Button>
+          <div className="flex justify-start pt-4 border-t border-border/50">
+            <Button onClick={handleSavePreferences} disabled={prefSaving} className="px-6 rounded-lg">
+              {prefSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Preferences"}
+            </Button>
+          </div>
             </CardContent>
           </CollapsibleContent>
         </Collapsible>
       </Card>
 
-      {/* CARD 4 — Agent Goals */}
+      {/* My Goals */}
       {showGoals && (
         <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
           <Collapsible defaultOpen={false} className="group">
@@ -665,7 +640,15 @@ const MyProfile: React.FC = () => {
                 type="button"
                 className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
               >
-                <CardTitle className="text-base">My Goals</CardTitle>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+                    <Target className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <CardTitle className="text-lg">My Goals</CardTitle>
+                    <p className="text-xs text-muted-foreground">Dialing and production targets</p>
+                  </div>
+                </div>
                 <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
               </button>
             </CollapsibleTrigger>
@@ -675,14 +658,72 @@ const MyProfile: React.FC = () => {
             <GoalField label="Monthly Policies Goal" unit="policies per month" value={monthlyPolicies} onChange={setMonthlyPolicies} error={goalErrors.monthlyPolicies} />
             <GoalField label="Weekly Appointments Goal" unit="appointments per week" value={weeklyAppts} onChange={setWeeklyAppts} error={goalErrors.weeklyAppts} />
             <GoalField label="Monthly Talk Time Goal" unit="minutes per month" value={monthlyTalkTime} onChange={setMonthlyTalkTime} error={goalErrors.monthlyTalkTime} />
-            <Button onClick={handleSaveGoals} disabled={goalSaving} className="px-6">
-              {goalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Goals"}
-            </Button>
+            <div className="flex justify-start pt-2 border-t border-border/50">
+              <Button onClick={handleSaveGoals} disabled={goalSaving} className="px-6 rounded-lg">
+                {goalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Goals"}
+              </Button>
+            </div>
               </CardContent>
             </CollapsibleContent>
           </Collapsible>
         </Card>
       )}
+
+      {/* Change Password (last) */}
+      <Card className="bg-card border-border rounded-lg mb-6 overflow-hidden">
+        <Collapsible defaultOpen={false} className="group">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+                  <KeyRound className="w-5 h-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <CardTitle className="text-lg">Change Password</CardTitle>
+                  <p className="text-xs text-muted-foreground">Update the password you use to sign in</p>
+                </div>
+              </div>
+              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4 max-w-md border-t border-border/50 pt-6">
+          <PasswordField label="Current Password" value={currentPw} onChange={setCurrentPw} show={showCurrentPw} onToggle={() => setShowCurrentPw(!showCurrentPw)} />
+          <div>
+            <PasswordField label="New Password" value={newPw} onChange={setNewPw} show={showNewPw} onToggle={() => setShowNewPw(!showNewPw)} />
+            {newPw && pwStrength && (
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full ${pwStrength.color} transition-all duration-300`} style={{ width: pwStrength.width }} />
+                  </div>
+                  <span className={`text-xs font-medium ${pwStrength.textColor} whitespace-nowrap`}>{pwStrength.label}</span>
+                </div>
+              </div>
+            )}
+            <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+              <li>At least 8 characters</li>
+              <li>One uppercase letter</li>
+              <li>One number</li>
+              <li>One special character (!@#$%^&*)</li>
+            </ul>
+          </div>
+          <div>
+            <PasswordField label="Confirm New Password" value={confirmPw} onChange={setConfirmPw} show={showConfirmPw} onToggle={() => setShowConfirmPw(!showConfirmPw)} />
+            {pwMismatch && <p className="text-xs text-destructive mt-1">Passwords do not match</p>}
+          </div>
+          <div className="flex justify-start pt-2 border-t border-border/50">
+            <Button onClick={handleUpdatePassword} disabled={!pwAllFilled || pwMismatch || pwSaving} className="px-6 rounded-lg">
+              {pwSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Updating...</> : "Update Password"}
+            </Button>
+          </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      </Card>
 
       {/* Crop Modal */}
       {cropModalOpen && (
@@ -692,9 +733,9 @@ const MyProfile: React.FC = () => {
             <div className="w-48 h-48 rounded-full overflow-hidden mx-auto border-2 border-border mb-4">
               <img src={cropPreview} alt="Crop preview" className="w-full h-full object-cover" />
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setCropModalOpen(false)}>Cancel</Button>
+            <div className="flex justify-start gap-2">
               <Button onClick={handleSaveAvatar}>Save Photo</Button>
+              <Button variant="outline" onClick={() => setCropModalOpen(false)}>Cancel</Button>
             </div>
           </div>
         </div>
