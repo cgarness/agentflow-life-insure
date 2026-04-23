@@ -76,3 +76,7 @@ verify_jwt = false
 # Trust Hub — JWT; Admin/Super Admin only for register/assign; Twilio credentials from phone_settings.
 [functions.twilio-trust-hub]
 verify_jwt = false
+
+# Import Contacts — JWT validated in-code via anon client auth.getUser(); verify_jwt=false to allow ES256 access tokens.
+[functions.import-contacts]
+verify_jwt = false
