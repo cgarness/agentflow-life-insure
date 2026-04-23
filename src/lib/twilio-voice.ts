@@ -124,6 +124,11 @@ function wireDeviceListeners(device: Device, opts?: InitTwilioDeviceOptions): vo
  */
 export async function initTwilioDevice(opts?: InitTwilioDeviceOptions): Promise<Device> {
   if (twilioDevice && twilioDevice.state === Device.State.Registered) {
+    try {
+      twilioDevice.audio?.outgoing(false);
+    } catch {
+      /* ignore */
+    }
     return twilioDevice;
   }
   if (registering) return registering;
@@ -142,6 +147,13 @@ export async function initTwilioDevice(opts?: InitTwilioDeviceOptions): Promise<
 
     wireDeviceListeners(device, opts);
     await device.register();
+
+    // Twilio plays a short "outgoing" chime when the PSTN leg connects — turn it off; call audio is unchanged.
+    try {
+      device.audio?.outgoing(false);
+    } catch {
+      /* older SDKs may omit audio helper */
+    }
 
     twilioDevice = device;
     return device;
