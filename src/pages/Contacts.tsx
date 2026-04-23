@@ -442,6 +442,7 @@ const Contacts: React.FC = () => {
 
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAllLeadsMode, setSelectAllLeadsMode] = useState(false);
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [selectedRecruitIds, setSelectedRecruitIds] = useState<Set<string>>(new Set());
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
@@ -825,11 +826,13 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Reset pages to 0 whenever any filter changes (not when page itself changes)
+  // Reset pages and select-all mode whenever any filter changes (not when page itself changes)
   useEffect(() => {
     setLeadsPage(0);
     setClientsPage(0);
     setRecruitsPage(0);
+    setSelectAllLeadsMode(false);
+    setSelectedIds(new Set());
   }, [searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds]);
 
   // Fetch pipeline stage colors and names from settings
@@ -997,7 +1000,34 @@ const Contacts: React.FC = () => {
     fetchData();
   };
 
+  const buildLeadFiltersForSelectAll = () => {
+    let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
+    if (!agentIdFilter && user?.role === "Agent" && user?.id) agentIdFilter = [user.id];
+    return {
+      search: searchQuery || undefined,
+      status: statusFilter || undefined,
+      source: sourceFilter || undefined,
+      state: stateFilter || undefined,
+      startDate: startDate?.toISOString(),
+      endDate: endDate?.toISOString(),
+      assignedAgentIds: agentIdFilter,
+    };
+  };
+
   const handleBulkDeleteLeads = async () => {
+    if (selectAllLeadsMode) {
+      const count = leadsTotalCount;
+      try {
+        await leadsSupabaseApi.deleteAllMatching(buildLeadFiltersForSelectAll());
+        toast.error(`Deleted ${count} leads.`, { duration: 3000, position: "bottom-right" });
+        setSelectedIds(new Set());
+        setSelectAllLeadsMode(false);
+        fetchData();
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Bulk delete failed");
+      }
+      return;
+    }
     const count = selectedIds.size;
     for (const id of selectedIds) await leadsSupabaseApi.delete(id);
     toast.error(`Deleted ${count} leads.`, { duration: 3000, position: "bottom-right" });
@@ -1006,6 +1036,20 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkStatusChange = async (status: LeadStatus) => {
+    if (selectAllLeadsMode) {
+      const count = leadsTotalCount;
+      try {
+        await leadsSupabaseApi.updateStatusAllMatching(status, buildLeadFiltersForSelectAll());
+        toast.success(`Updated status for ${count} leads.`, { duration: 3000, position: "bottom-right" });
+        setSelectedIds(new Set());
+        setSelectAllLeadsMode(false);
+        setBulkStatusOpen(false);
+        fetchData();
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Bulk update failed");
+      }
+      return;
+    }
     const ids = [...selectedIds];
     const count = ids.length;
     try {
@@ -1106,8 +1150,8 @@ const Contacts: React.FC = () => {
   };
 
   // ===== Selection helpers =====
-  const toggleSelect = (id: string) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const toggleAll = () => setSelectedIds(prev => prev.size === leads.length ? new Set() : new Set(leads.map(l => l.id)));
+  const toggleSelect = (id: string) => { setSelectAllLeadsMode(false); setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
+  const toggleAll = () => { setSelectAllLeadsMode(false); setSelectedIds(prev => prev.size === leads.length ? new Set() : new Set(leads.map(l => l.id))); };
   const toggleClientSelect = (id: string) => setSelectedClientIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAllClients = () => setSelectedClientIds(prev => prev.size === clients.length ? new Set() : new Set(clients.map(c => c.id)));
   const toggleRecruitSelect = (id: string) => setSelectedRecruitIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -1557,10 +1601,34 @@ const Contacts: React.FC = () => {
       {!loading && tab === "Leads" && view === "table" && (
         <>
           {/* Bulk Actions */}
-          {selectedIds.size > 0 && renderBulkActions(
-            selectedIds.size,
-            () => setSelectedIds(new Set()),
+          {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
+            selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
+            () => { setSelectedIds(new Set()); setSelectAllLeadsMode(false); },
             { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus), onDelete: handleBulkDeleteLeads }
+          )}
+
+          {/* Select-all-across-pages banner */}
+          {isAllSelected && !selectAllLeadsMode && leadsTotalCount > PAGE_SIZE && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
+              All {leads.length} leads on this page are selected.{" "}
+              <button
+                onClick={() => setSelectAllLeadsMode(true)}
+                className="text-primary font-medium hover:underline"
+              >
+                Select all {leadsTotalCount} leads
+              </button>
+            </div>
+          )}
+          {selectAllLeadsMode && (
+            <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
+              All {leadsTotalCount} leads are selected.{" "}
+              <button
+                onClick={() => { setSelectAllLeadsMode(false); setSelectedIds(new Set()); }}
+                className="text-primary font-medium hover:underline"
+              >
+                Clear selection
+              </button>
+            </div>
           )}
 
           {/* Leads Table */}
@@ -1606,8 +1674,8 @@ const Contacts: React.FC = () => {
                   {`${leadsTotalCount} total \u00B7 Page ${leadsPage + 1} of ${Math.ceil(leadsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={leadsPage === 0} onClick={() => { setLeadsPage(p => p - 1); setSelectedIds(new Set()); }}>Previous</Button>
-                  <Button variant="outline" size="sm" disabled={leadsPage >= Math.ceil(leadsTotalCount / PAGE_SIZE) - 1} onClick={() => { setLeadsPage(p => p + 1); setSelectedIds(new Set()); }}>Next</Button>
+                  <Button variant="outline" size="sm" disabled={leadsPage === 0} onClick={() => { setLeadsPage(p => p - 1); setSelectedIds(new Set()); setSelectAllLeadsMode(false); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={leadsPage >= Math.ceil(leadsTotalCount / PAGE_SIZE) - 1} onClick={() => { setLeadsPage(p => p + 1); setSelectedIds(new Set()); setSelectAllLeadsMode(false); }}>Next</Button>
                 </div>
               </div>
               </>

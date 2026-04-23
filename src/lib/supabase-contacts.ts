@@ -48,8 +48,10 @@ export const leadsSupabaseApi = {
     const selectCols = needsCallJoin ? "*, calls(status, created_at)" : "*";
 
     // Count + data in parallel (faster than sequential round-trips).
+    // Over-fetch by 5x to account for client-side filtering (timezone, callableNow, etc.)
+    // but the window starts at page * pageSize so we stay on the right page.
     const batchSize = pageSize * 5;
-    const batchOffset = page * batchSize;
+    const batchOffset = page * pageSize;
     const countPromise = applyServerFilters(
       supabase.from("leads").select("id", { count: "exact", head: true })
     );
@@ -189,6 +191,64 @@ export const leadsSupabaseApi = {
   async delete(id: string): Promise<void> {
     const { error } = await supabase.from("leads").delete().eq("id", id);
     if (error) throw new Error(error.message);
+  },
+
+  async deleteAllMatching(filters?: {
+    status?: string;
+    source?: string;
+    state?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    assignedAgentIds?: string[];
+  }): Promise<number> {
+    let q = supabase.from("leads").delete().select("id");
+    if (filters?.status) q = q.eq("status", filters.status) as typeof q;
+    if (filters?.source) q = q.eq("lead_source", filters.source) as typeof q;
+    if (filters?.state) q = q.eq("state", filters.state) as typeof q;
+    if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+      q = (filters.assignedAgentIds.length === 1
+        ? q.eq("user_id", filters.assignedAgentIds[0])
+        : q.in("user_id", filters.assignedAgentIds)) as typeof q;
+    }
+    if (filters?.startDate) q = q.gte("created_at", filters.startDate) as typeof q;
+    if (filters?.endDate) q = q.lte("created_at", filters.endDate) as typeof q;
+    if (filters?.search) {
+      const s = filters.search;
+      q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`) as typeof q;
+    }
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return data?.length ?? 0;
+  },
+
+  async updateStatusAllMatching(status: string, filters?: {
+    status?: string;
+    source?: string;
+    state?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    assignedAgentIds?: string[];
+  }): Promise<number> {
+    let q = supabase.from("leads").update({ status, updated_at: new Date().toISOString() }).select("id");
+    if (filters?.status) q = q.eq("status", filters.status) as typeof q;
+    if (filters?.source) q = q.eq("lead_source", filters.source) as typeof q;
+    if (filters?.state) q = q.eq("state", filters.state) as typeof q;
+    if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+      q = (filters.assignedAgentIds.length === 1
+        ? q.eq("user_id", filters.assignedAgentIds[0])
+        : q.in("user_id", filters.assignedAgentIds)) as typeof q;
+    }
+    if (filters?.startDate) q = q.gte("created_at", filters.startDate) as typeof q;
+    if (filters?.endDate) q = q.lte("created_at", filters.endDate) as typeof q;
+    if (filters?.search) {
+      const s = filters.search;
+      q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`) as typeof q;
+    }
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return data?.length ?? 0;
   },
 
   async import(data: Partial<Lead>[], organizationId: string | null = null): Promise<{ imported: number; duplicates: number; errors: number }> {
