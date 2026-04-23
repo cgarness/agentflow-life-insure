@@ -2089,6 +2089,7 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-23 | [DONE] | **Fix CSV import "Unauthorized" — explicit auth token in ImportLeadsModal:** Replaced `supabase.functions.invoke` in `doImport` with an explicit `fetch` that first calls `supabase.auth.getSession()`, gates on a valid session, and passes `Authorization: Bearer <access_token>` + `apikey` headers directly. Stale/missing cached tokens can no longer produce `Bearer undefined` or expired JWTs. No Edge Function changes; no new env vars. |
 | 2026-04-23 | [DONE] | **Fix imported leads `user_id` + remove ghost `health_status`:** `import-contacts` edge function: added `user_id: assigned_agent_id` to `mappedRow` for leads only (spread conditional); confirmed `health_status` was already absent. Added `[functions.import-contacts] verify_jwt = false` to `config.toml`. Redeploy required with `SUPABASE_ACCESS_TOKEN` set. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring:** `twilio-search-numbers` + `twilio-buy-number` (JWT, per-org Twilio creds from `phone_settings`); purchase sets voice/SMS/status webhooks to Supabase functions URL; inserts `phone_numbers` with `twilio_sid`. `NumberManagementSection`: search/buy live, Twilio SID column, released-number tooltip; release remains DB-only. Config: `verify_jwt = true` for both. Not deployed yet. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 8 — PhoneSettings UI Rewrite:** Replaced Telnyx credential fields with Twilio Account SID, Auth Token, API Key, TwiML App SID. Added Trust Hub status display, SHAKEN/STIR toggle, inbound routing strategy selector (`assigned` / `all-ring`, round-robin disabled), voicemail toggle, recording toggle. Number management UI preserved but purchase/search disabled pending Phase 9. |
@@ -2121,3 +2122,21 @@ This document should be the first file read by any agent tasking with "Dialer" o
 **Deviations:** Spec mentioned “three new columns”; the provided SQL added **two** (`attachments`, `category`) — shipped as written. Bucket creation is in the migration (not client-side). `TemplateModal` props use `organizationId: string | null` so save stays disabled if org is missing.
 
 **Test next:** Run migration on Supabase; confirm storage policies allow upload/delete for an org member; create/edit email with attachments and signed link open; SMS counter near 160/70 boundaries; duplicate + category filter; preview token replacement.
+
+### Context Snapshot — 2026-04-23 — Fix CSV Import "Unauthorized" (Explicit Auth Token)
+
+**What was changed:** One block inside `doImport` in `src/components/contacts/ImportLeadsModal.tsx`.
+
+**Root cause:** `supabase.functions.invoke` attaches the session token from the client's internal cache. When that cache is stale or the token has expired, the Authorization header becomes `Bearer undefined` or an expired JWT, causing `supabase.auth.getUser()` inside the Edge Function to return Unauthorized (401).
+
+**Fix:** Replaced the `supabase.functions.invoke("import-contacts", ...)` call with:
+1. `supabase.auth.getSession()` — fetches a guaranteed-fresh session (refreshes automatically if expired).
+2. Session guard — shows a user-facing toast and returns early if no valid session exists.
+3. A native `fetch` POST to `${VITE_SUPABASE_URL}/functions/v1/import-contacts` with explicit `Authorization: Bearer <access_token>` and `apikey` headers.
+4. Error handling via `response.ok` and `data.success` — the old `error` variable and error-body parsing logic were removed as they are no longer needed.
+
+**Files touched:** `src/components/contacts/ImportLeadsModal.tsx` (lines 506–538, `doImport` only).
+
+**No new env vars or migrations required.** `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` were already present throughout the codebase.
+
+**Test next:** Log in, let the session sit idle for >1 hour (or manually clear the Supabase session cache), then attempt a CSV import. Confirm the import completes without a 401/Unauthorized error and each inserted `leads` row has the correct `user_id`.
