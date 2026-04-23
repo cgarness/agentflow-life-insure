@@ -64,6 +64,47 @@ function timeAgo(dateStr: string): string {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+function digitsOnly(s: string): string {
+  return s.replace(/\D/g, "");
+}
+
+/** Last 10 digits for NANP-style equality (strips leading country 1 when 11+ digits). */
+function corePhoneDigitsForMatch(s: string): string {
+  const d = digitsOnly(s);
+  if (d.length >= 11 && d.startsWith("1")) return d.slice(-10);
+  if (d.length > 10) return d.slice(-10);
+  return d;
+}
+
+function phonesMatch(a: string, b: string): boolean {
+  const ca = corePhoneDigitsForMatch(a);
+  const cb = corePhoneDigitsForMatch(b);
+  return ca.length >= 10 && cb.length >= 10 && ca === cb;
+}
+
+/** True when the field is only phone-friendly characters (digits, spacing, +, dial symbols). */
+const PHONE_ENTRY_LIKE_RE = /^[+\d\s().*#-]*$/;
+
+function mapLeadRowToContact(l: {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  status: string | null;
+}): ContactResult {
+  return {
+    id: l.id,
+    first_name: l.first_name,
+    last_name: l.last_name,
+    phone: l.phone,
+    type: (l.status === "Closed Won" ? "client" : "lead") as ContactResult["type"],
+  };
+}
+
+function sanitizeIlikeFragment(s: string): string {
+  return s.replace(/%/g, "").replace(/_/g, "");
+}
+
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
@@ -214,6 +255,7 @@ const FloatingDialer: React.FC = () => {
           setSelectedCallerNumber(detail.fromNumber);
         }
         setSearchTerm(detail.name || detail.phone);
+        setDialedNumber(digitsOnly(detail.phone));
         setActiveTab("dial");
         void primeIncomingCallAudio();
         setOpen(true);
@@ -332,24 +374,58 @@ const FloatingDialer: React.FC = () => {
   }, [activeTab, fetchRecentCalls]);
 
   // --- Search with debounce ---
-  const doSearch = useCallback(async (term: string) => {
-    if (term.length < 2) {
+  const doSearch = useCallback(async (term: string, digitString: string, phoneMode: boolean) => {
+    const safeTerm = sanitizeIlikeFragment(term.trim());
+    const safeDigits = sanitizeIlikeFragment(digitString);
+    if (safeTerm.length < 2 && safeDigits.length < 2) {
       setSearchResults([]);
       setShowDropdown(false);
       return;
     }
     setSearchLoading(true);
     try {
+      if (phoneMode && safeDigits.length >= 10) {
+        const probe =
+          safeDigits.length >= 11 && safeDigits.startsWith("1")
+            ? safeDigits.slice(1, 11)
+            : safeDigits.slice(-10);
+        const { data } = await supabase
+          .from("leads")
+          .select("id, first_name, last_name, phone, status")
+          .ilike("phone", `%${probe}%`)
+          .limit(25);
+
+        const rows = (data || []).map(mapLeadRowToContact);
+        const exact = rows.filter((r) => phonesMatch(r.phone, safeDigits));
+        if (exact.length === 1) {
+          const m = exact[0];
+          setSelectedContact(m);
+          setDialedNumber(digitsOnly(m.phone));
+          setSearchTerm(`${m.first_name} ${m.last_name}`.trim());
+          setSearchResults([]);
+          setShowDropdown(false);
+          return;
+        }
+        if (exact.length > 1) {
+          setSearchResults(exact.slice(0, 5));
+          setShowDropdown(true);
+          return;
+        }
+        setSearchResults(rows.slice(0, 5));
+        setShowDropdown(rows.length > 0);
+        return;
+      }
+
+      const phonePart = phoneMode && safeDigits.length >= 2 ? safeDigits : safeTerm;
       const { data } = await supabase
         .from("leads")
         .select("id, first_name, last_name, phone, status")
-        .or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,phone.ilike.%${term}%`)
+        .or(
+          `first_name.ilike.%${safeTerm}%,last_name.ilike.%${safeTerm}%,phone.ilike.%${phonePart}%`
+        )
         .limit(5);
-      
-      setSearchResults((data || []).map(l => ({
-        ...l,
-        type: (l.status === 'Closed Won' ? 'client' : 'lead') as any
-      })));
+
+      setSearchResults((data || []).map(mapLeadRowToContact));
       setShowDropdown(true);
     } catch {
       setSearchResults([]);
@@ -359,21 +435,39 @@ const FloatingDialer: React.FC = () => {
   }, []);
 
   const handleSearchChange = (val: string) => {
+    const hadContact = selectedContact;
+    if (hadContact) {
+      const displayName = `${hadContact.first_name} ${hadContact.last_name}`.trim();
+      if (val !== displayName) {
+        setSelectedContact(null);
+      }
+    }
+
     setSearchTerm(val);
-    setSelectedContact(null);
+    const trimmed = val.trim();
+    const digitString = digitsOnly(val);
+    const phoneMode = trimmed === "" || PHONE_ENTRY_LIKE_RE.test(val);
+
+    if (phoneMode) {
+      setDialedNumber(digitString);
+    } else {
+      setDialedNumber("");
+    }
+
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (val.length < 2) {
+    if (trimmed.length < 2 && digitString.length < 2) {
       setSearchResults([]);
       setShowDropdown(false);
       return;
     }
-    searchTimerRef.current = setTimeout(() => doSearch(val), 300);
+    searchTimerRef.current = setTimeout(() => void doSearch(trimmed, digitString, phoneMode), 300);
   };
 
   const handleSelectContact = (c: ContactResult) => {
     setSelectedContact(c);
+    setDialedNumber(digitsOnly(c.phone));
     setShowDropdown(false);
-    setSearchTerm(`${c.first_name} ${c.last_name}`);
+    setSearchTerm(`${c.first_name} ${c.last_name}`.trim());
   };
 
   const clearSearch = () => {
@@ -381,15 +475,31 @@ const FloatingDialer: React.FC = () => {
     setSearchResults([]);
     setShowDropdown(false);
     setSelectedContact(null);
+    setDialedNumber("");
   };
 
-  // --- Keypad ---
+  // --- Keypad (keeps top field in sync when no contact card is showing a name) ---
   const handleKeyPress = (key: string) => {
-    setDialedNumber((prev) => prev + key);
+    if (selectedContact) {
+      setSelectedContact(null);
+      setDialedNumber(key);
+      setSearchTerm(key);
+      return;
+    }
+    setDialedNumber((prev) => {
+      const next = prev + key;
+      setSearchTerm(next);
+      return next;
+    });
   };
 
   const handleBackspace = () => {
-    setDialedNumber((prev) => prev.slice(0, -1));
+    setSelectedContact(null);
+    setDialedNumber((prev) => {
+      const next = prev.slice(0, -1);
+      setSearchTerm(next);
+      return next;
+    });
   };
 
   // --- Call logic ---
@@ -822,6 +932,7 @@ const FloatingDialer: React.FC = () => {
                           const name = call.contact_name || call.phone;
                           const parts = name.includes(" ") ? name.split(" ") : [name, ""];
                           setSelectedContact({ id: call.id, first_name: parts[0], last_name: parts.slice(1).join(" "), phone: call.phone, type: call.contact_type });
+                          setDialedNumber(digitsOnly(call.phone));
                           setSearchTerm(name);
                           setActiveTab("dial");
                         }}
@@ -1029,7 +1140,7 @@ const FloatingDialer: React.FC = () => {
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                       <input
                         type="text"
-                        placeholder="Search..."
+                        placeholder="Name or phone number…"
                         value={searchTerm}
                         onChange={(e) => handleSearchChange(e.target.value)}
                         className="w-full h-9 pl-8 pr-7 rounded-lg bg-muted text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
