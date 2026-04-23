@@ -73,6 +73,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-23 | [DONE] | CSV import Review — Lead Status visibility**
+  *What:* Coerce **`importStatus`** whenever pipeline stages load so the status `<select>` never shows blank; Lead status on its own row with helper text; campaign list **`max-h-48`** instead of **85vh** so Lead Settings stays discoverable.
+  *Files:* **`src/components/contacts/ImportLeadsModal.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-23 | [DONE] | CSV import modal — custom fields, campaigns, sources, assign-to-me**
   *What:* Removed **Auto-collect as Custom Field** (unmatched columns default to **Do Not Import**). Modal now **loads org custom fields** from Supabase on open and passes **`organization_id`** when creating fields so they persist in Settings. Added custom field types **Email** and **Phone number** (DB check constraint migration + Settings UI). **Campaign assignment:** new campaigns use a real DB UUID insert from **`Contacts.tsx`**; after import, inserted lead ids from **`import-contacts`** drive **`add_leads_to_campaign`** (shared **`src/lib/supabase-campaign-leads.ts`**). **Lead sources:** “+ Add new lead source…” on Review saves via **`lead_sources`**. **Assign to me** shows the signed-in user’s **name** (profile / roster), not the UUID. Edge **`import-contacts`** returns **`inserted_lead_ids`** for the campaign step.
   *Files:* **`ImportLeadsModal.tsx`**, **`Contacts.tsx`**, **`import-contacts/index.ts`**, **`supabase-campaign-leads.ts`** (new), **`AddToCampaignModal.tsx`**, **`ContactManagement.tsx`**, **`types.ts`**, **`supabase/migrations/20260423183000_custom_fields_email_phone_types.sql`**, **`ROADMAP.md`**. *Deploy:* run **`db push`** for the migration; redeploy **`import-contacts`**.

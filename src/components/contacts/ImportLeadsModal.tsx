@@ -274,6 +274,16 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     if (open) loadSettings();
   }, [open]);
 
+  // Keep Lead Status select valid when pipeline stages load or change (avoids blank <select>).
+  useEffect(() => {
+    if (pipelineStages.length === 0) return;
+    const names = pipelineStages.map(s => s.name);
+    setImportStatus(prev => {
+      if (names.includes(prev)) return prev;
+      return (pipelineStages.find(s => s.isDefault) || pipelineStages[0]).name;
+    });
+  }, [pipelineStages]);
+
   // ---- CSV Parsing ----
   const handleFile = useCallback((f: File) => {
     const isCsv = f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
@@ -988,7 +998,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                       className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none mb-1"
                       placeholder="Search or select a campaign..."
                     />
-                    <div className="max-h-[85vh] overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 rounded-md bg-background">
+                    <div className="max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 rounded-md bg-background border border-border">
                       {filteredCampaigns.length === 0 ? (
                         <p className="text-xs text-muted-foreground p-2">No campaigns yet</p>
                       ) : filteredCampaigns.map(c => (
@@ -1049,80 +1059,78 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Lead Settings</span>
           </div>
           <div className="border rounded-lg p-4 bg-muted/20 space-y-4">
-            {/* Initial Status & Source */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">Lead Status</label>
-                <select
-                  value={importStatus}
-                  onChange={e => setImportStatus(e.target.value)}
-                  className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                >
-                  {pipelineStages.map(s => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
-                  ))}
-                  {pipelineStages.length === 0 && (
-                    <>
-                      <option value="New">New</option>
-                      <option value="Contacted">Contacted</option>
-                    </>
-                  )}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">Source</label>
-                <select
-                  key={sourceDropdownKey}
-                  value={selectedSource}
-                  onChange={e => {
-                    const v = e.target.value;
-                    if (v === "__add_new__") {
-                      setSourceDropdownKey(k => k + 1);
-                      setAddingLeadSource(true);
-                      setNewLeadSourceDraft("");
-                      return;
-                    }
-                    setSelectedSource(v);
-                  }}
-                  className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                >
-                  <option value="">{`Use CSV source (or "CSV Import")`}</option>
-                  {leadSources.map(s => (
-                    <option key={s.id} value={s.name}>{s.name}</option>
-                  ))}
-                  <option value="__divider__" disabled>──────────</option>
-                  <option value="__add_new__">+ Add new lead source…</option>
-                </select>
-                {addingLeadSource && (
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-xs text-muted-foreground mb-1 block">New lead source name</label>
-                      <input
-                        value={newLeadSourceDraft}
-                        onChange={e => setNewLeadSourceDraft(e.target.value)}
-                        className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                        placeholder="e.g., Direct mail — term"
-                        maxLength={80}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void saveNewLeadSourceInline()}
-                      disabled={!newLeadSourceDraft.trim() || savingLeadSource}
-                      className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-40"
-                    >
-                      {savingLeadSource ? "Saving…" : "Save source"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setAddingLeadSource(false); setNewLeadSourceDraft(""); }}
-                      className="h-8 px-3 rounded-md border border-border bg-background text-muted-foreground text-sm hover:bg-accent"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">Lead status for imported leads</label>
+              <select
+                value={importStatus}
+                onChange={e => setImportStatus(e.target.value)}
+                className="w-full max-w-md h-9 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              >
+                {pipelineStages.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+                {pipelineStages.length === 0 && (
+                  <>
+                    <option value="New">New</option>
+                    <option value="Contacted">Contacted</option>
+                  </>
                 )}
-              </div>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">Every imported lead gets this pipeline stage.</p>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">Source</label>
+              <select
+                key={sourceDropdownKey}
+                value={selectedSource}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === "__add_new__") {
+                    setSourceDropdownKey(k => k + 1);
+                    setAddingLeadSource(true);
+                    setNewLeadSourceDraft("");
+                    return;
+                  }
+                  setSelectedSource(v);
+                }}
+                className="w-full max-w-md h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              >
+                <option value="">{`Use CSV source (or "CSV Import")`}</option>
+                {leadSources.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+                <option value="__divider__" disabled>──────────</option>
+                <option value="__add_new__">+ Add new lead source…</option>
+              </select>
+              {addingLeadSource && (
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs text-muted-foreground mb-1 block">New lead source name</label>
+                    <input
+                      value={newLeadSourceDraft}
+                      onChange={e => setNewLeadSourceDraft(e.target.value)}
+                      className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                      placeholder="e.g., Direct mail — term"
+                      maxLength={80}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void saveNewLeadSourceInline()}
+                    disabled={!newLeadSourceDraft.trim() || savingLeadSource}
+                    className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-40"
+                  >
+                    {savingLeadSource ? "Saving…" : "Save source"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddingLeadSource(false); setNewLeadSourceDraft(""); }}
+                    className="h-8 px-3 rounded-md border border-border bg-background text-muted-foreground text-sm hover:bg-accent"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Tags */}
