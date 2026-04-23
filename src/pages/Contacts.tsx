@@ -524,6 +524,8 @@ const Contacts: React.FC = () => {
     | null
   >(null);
   const [allLeadSources, setAllLeadSources] = useState<string[]>([]);
+  /** Lead source name → hex from Settings → Lead Sources */
+  const [leadSourceColorMap, setLeadSourceColorMap] = useState<Record<string, string>>({});
   const [filterOpen, setFilterOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
@@ -889,7 +891,14 @@ const Contacts: React.FC = () => {
 
     // Fetch dynamic settings for filters
     leadSourcesSupabaseApi.getAll().then(sources => {
-      if (sources.length > 0) setAllLeadSources(sources.map(s => s.name));
+      if (sources.length > 0) {
+        setAllLeadSources(sources.map(s => s.name));
+        const colors: Record<string, string> = {};
+        sources.forEach(s => {
+          colors[s.name] = s.color || "#3B82F6";
+        });
+        setLeadSourceColorMap(colors);
+      }
     });
 
     // Fetch agent profiles for display
@@ -904,6 +913,26 @@ const Contacts: React.FC = () => {
 
   const getLeadStatusColor = (status: string) => leadStageColors[status] || fallbackStatusColors[status] || "#6B7280";
   const getRecruitStatusColor = (status: string) => recruitStageColors[status] || fallbackRecruitColors[status] || "#6B7280";
+  const getLeadSourceHex = (name: string) => {
+    const key = name.trim();
+    if (!key) return "#6B7280";
+    return leadSourceColorMap[key] ?? "#6B7280";
+  };
+
+  const renderLeadSourceBadge = (raw: string) => {
+    const text = String(raw ?? "").trim();
+    if (!text) return <span className="text-muted-foreground">—</span>;
+    const hex = getLeadSourceHex(text);
+    return (
+      <span
+        className="inline-flex max-w-full items-center px-2 py-0.5 rounded-full text-xs font-medium border truncate align-middle"
+        style={getStatusColorStyle(hex)}
+        title={text}
+      >
+        {text}
+      </span>
+    );
+  };
 
   const fetchImportHistory = useCallback(async () => {
     const { data, error } = await supabase
@@ -1334,7 +1363,7 @@ const Contacts: React.FC = () => {
           <ChevronDown className="w-3 h-3 absolute right-0.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/status:opacity-60 transition-opacity" />
         </div>
       );
-      case "source": return <span className="text-muted-foreground">{l.leadSource}</span>;
+      case "source": return renderLeadSourceBadge(l.leadSource);
       case "score": {
         const sc = l.leadScore;
         return <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${sc >= 8 ? "bg-success/10 text-success" : sc >= 5 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"}`}>{sc}</span>;
@@ -1349,7 +1378,7 @@ const Contacts: React.FC = () => {
       }
       case "dob": return <span className="text-muted-foreground text-xs">{l.dateOfBirth || "—"}</span>;
       case "bestTime": return <span className="text-muted-foreground text-xs">{l.bestTimeToCall || "—"}</span>;
-      case "leadSourceAlias": return <span className="text-muted-foreground">{l.leadSource}</span>;
+      case "leadSourceAlias": return renderLeadSourceBadge(l.leadSource);
       case "createdDate": return <span className="text-muted-foreground text-xs">{formatDate(l.createdAt)}</span>;
       case "lastContacted": return <span className="text-muted-foreground text-xs">{l.lastContactedAt ? formatDate(l.lastContactedAt) : "Never"}</span>;
       default: return null;
@@ -1851,9 +1880,9 @@ const Contacts: React.FC = () => {
                       <span className="text-xs text-muted-foreground">{l.state}</span>
                       <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${l.leadScore >= 8 ? "bg-success/10 text-success" : "bg-warning/10 text-warning"} `}>{l.leadScore}</span>
                     </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-muted-foreground">{l.leadSource}</span>
-                      <div className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">{getAgentInitials(l.assignedAgentId, agentProfiles)}</div>
+                    <div className="flex items-center justify-between mt-2 gap-2 min-w-0">
+                      <span className="min-w-0 flex-1">{renderLeadSourceBadge(l.leadSource)}</span>
+                      <div className="w-6 h-6 shrink-0 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">{getAgentInitials(l.assignedAgentId, agentProfiles)}</div>
                     </div>
                   </div>
                 ))}
