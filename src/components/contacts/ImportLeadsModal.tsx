@@ -515,8 +515,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       
       setImportProgress(100);
 
-      if (error || !data.success) {
-        throw new Error(error?.message || data?.error || "Unknown Edge Function Error");
+      // Surface the real error message from the function response body
+      if (error) {
+        let realMessage = error.message;
+        try {
+          const body = await (error as any).context?.json?.();
+          if (body?.error) realMessage = body.error;
+        } catch { /* ignore parse failures */ }
+        throw new Error(realMessage);
+      }
+      if (!data?.success) {
+        throw new Error(data?.error || "Import failed — unknown error");
       }
 
       setImportResult({ 
