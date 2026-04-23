@@ -50,6 +50,10 @@ interface RecentCall {
   disposition_color: string | null;
   created_at: string;
   contact_type?: "lead" | "client" | "recruit";
+  /** Primary line: CRM name when `leads.phone` matches, else call snapshot. */
+  display_name: string;
+  matched_lead_id: string | null;
+  matched_contact_type?: "lead" | "client" | "recruit";
 }
 
 function timeAgo(dateStr: string): string {
@@ -66,6 +70,11 @@ function timeAgo(dateStr: string): string {
 
 function digitsOnly(s: string): string {
   return s.replace(/\D/g, "");
+}
+
+/** Allow digits, dial symbols, and leading + for manual / keypad dial strings. */
+function dialStringFromRaw(raw: string): string {
+  return raw.replace(/[^\d*#+]/g, "");
 }
 
 /** Last 10 digits for NANP-style equality (strips leading country 1 when 11+ digits). */
@@ -347,17 +356,81 @@ const FloatingDialer: React.FC = () => {
 
       if (error) throw error;
 
-      const mapped: RecentCall[] = (data || []).map(c => ({
-        id: c.id,
-        contact_name: c.contact_name,
-        phone: c.contact_phone || "",
-        disposition_name: c.disposition_name,
-        disposition_color: null,
-        created_at: c.started_at || c.created_at || new Date().toISOString(),
-        contact_type: c.contact_type as any
-      }));
+      const rows: RecentCall[] = (data || []).map((c) => {
+        const phone = c.contact_phone || "";
+        const snap = (c.contact_name && String(c.contact_name).trim()) || "";
+        return {
+          id: c.id,
+          contact_name: c.contact_name,
+          phone,
+          disposition_name: c.disposition_name,
+          disposition_color: null,
+          created_at: c.started_at || c.created_at || new Date().toISOString(),
+          contact_type: c.contact_type as RecentCall["contact_type"],
+          display_name: snap || phone || "Unknown",
+          matched_lead_id: null,
+          matched_contact_type: undefined,
+        };
+      });
 
-      setRecentCalls(mapped);
+      const probes = [
+        ...new Set(
+          rows
+            .map((r) => corePhoneDigitsForMatch(r.phone))
+            .filter((k) => k.length >= 10)
+        ),
+      ];
+
+      let enriched: RecentCall[] = rows;
+      if (probes.length > 0) {
+        try {
+          const orClause = probes
+            .map((p) => `phone.ilike.%${sanitizeIlikeFragment(p)}%`)
+            .join(",");
+          const { data: leadRows, error: leadErr } = await supabase
+            .from("leads")
+            .select("id, first_name, last_name, phone, status")
+            .or(orClause)
+            .limit(80);
+
+          if (!leadErr && leadRows) {
+            const byCore10 = new Map<string, ContactResult>();
+            for (const row of leadRows) {
+              const cr = mapLeadRowToContact(
+                row as {
+                  id: string;
+                  first_name: string;
+                  last_name: string;
+                  phone: string;
+                  status: string | null;
+                }
+              );
+              const k = corePhoneDigitsForMatch(cr.phone);
+              if (k.length < 10) continue;
+              if (!byCore10.has(k)) byCore10.set(k, cr);
+            }
+
+            enriched = rows.map((r) => {
+              const k = corePhoneDigitsForMatch(r.phone);
+              if (k.length < 10) return r;
+              const m = byCore10.get(k);
+              if (!m) return r;
+              return {
+                ...r,
+                matched_lead_id: m.id,
+                matched_contact_type: m.type,
+                display_name: `${m.first_name} ${m.last_name}`.trim(),
+              };
+            });
+          } else if (leadErr) {
+            console.warn("[FloatingDialer] recent CRM name lookup failed", leadErr);
+          }
+        } catch (e) {
+          console.warn("[FloatingDialer] recent CRM name lookup", e);
+        }
+      }
+
+      setRecentCalls(enriched);
     } catch (err) {
       console.error("Error fetching recent calls:", err);
       setRecentError(true);
@@ -400,7 +473,7 @@ const FloatingDialer: React.FC = () => {
         if (exact.length === 1) {
           const m = exact[0];
           setSelectedContact(m);
-          setDialedNumber(digitsOnly(m.phone));
+          setDialedNumber(dialStringFromRaw(m.phone));
           setSearchTerm(`${m.first_name} ${m.last_name}`.trim());
           setSearchResults([]);
           setShowDropdown(false);
@@ -449,7 +522,7 @@ const FloatingDialer: React.FC = () => {
     const phoneMode = trimmed === "" || PHONE_ENTRY_LIKE_RE.test(val);
 
     if (phoneMode) {
-      setDialedNumber(digitString);
+      setDialedNumber(dialStringFromRaw(val));
     } else {
       setDialedNumber("");
     }
@@ -463,9 +536,26 @@ const FloatingDialer: React.FC = () => {
     searchTimerRef.current = setTimeout(() => void doSearch(trimmed, digitString, phoneMode), 300);
   };
 
+  const handleManualDialChange = (val: string) => {
+    const cleaned = dialStringFromRaw(val);
+    setSelectedContact(null);
+    setDialedNumber(cleaned);
+    setSearchTerm(cleaned);
+    const trimmed = cleaned.trim();
+    const digitString = digitsOnly(cleaned);
+    const phoneMode = trimmed === "" || /^[+\d*#]*$/.test(cleaned);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (trimmed.length < 2 && digitString.length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => void doSearch(trimmed, digitString, phoneMode), 300);
+  };
+
   const handleSelectContact = (c: ContactResult) => {
     setSelectedContact(c);
-    setDialedNumber(digitsOnly(c.phone));
+    setDialedNumber(dialStringFromRaw(c.phone));
     setShowDropdown(false);
     setSearchTerm(`${c.first_name} ${c.last_name}`.trim());
   };
@@ -585,7 +675,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const handleCallFromKeypad = () => {
-    if (dialedNumber.length < 10) return;
+    if (digitsOnly(dialedNumber).length < 10) return;
     initiateCall(dialedNumber, null);
   };
 
@@ -929,24 +1019,30 @@ const FloatingDialer: React.FC = () => {
                       <button
                         key={call.id}
                         onClick={() => {
-                          const name = call.contact_name || call.phone;
+                          const name = call.display_name;
                           const parts = name.includes(" ") ? name.split(" ") : [name, ""];
-                          setSelectedContact({ id: call.id, first_name: parts[0], last_name: parts.slice(1).join(" "), phone: call.phone, type: call.contact_type });
-                          setDialedNumber(digitsOnly(call.phone));
-                          setSearchTerm(name);
+                          setSelectedContact({
+                            id: call.matched_lead_id || "",
+                            first_name: parts[0],
+                            last_name: parts.slice(1).join(" "),
+                            phone: call.phone,
+                            type: call.matched_contact_type || call.contact_type || "lead",
+                          });
+                          setDialedNumber(dialStringFromRaw(call.phone));
+                          setSearchTerm(call.display_name);
                           setActiveTab("dial");
                         }}
                         className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-accent text-left"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <p className="font-semibold text-sm text-foreground truncate">{call.contact_name || call.phone}</p>
-                            {call.contact_type && (
+                            <p className="font-semibold text-sm text-foreground truncate">{call.display_name}</p>
+                            {(call.matched_contact_type || call.contact_type) && (
                               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                                call.contact_type === 'recruit' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' :
-                                call.contact_type === 'client' ? 'bg-green-500/10 text-green-500 border border-green-500/20' :
+                                (call.matched_contact_type || call.contact_type) === 'recruit' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' :
+                                (call.matched_contact_type || call.contact_type) === 'client' ? 'bg-green-500/10 text-green-500 border border-green-500/20' :
                                 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
-                              }`}>{call.contact_type}</span>
+                              }`}>{call.matched_contact_type || call.contact_type}</span>
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground">{call.phone} • {timeAgo(call.created_at)}</p>
@@ -1196,9 +1292,15 @@ const FloatingDialer: React.FC = () => {
 
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-1.5">
-                        <div className="flex-1 h-9 px-2.5 rounded-lg bg-muted flex items-center min-w-0">
-                          <span className="font-mono text-sm truncate">{dialedNumber}</span>
-                        </div>
+                        <input
+                          type="text"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          placeholder="Phone number"
+                          value={dialedNumber}
+                          onChange={(e) => handleManualDialChange(e.target.value)}
+                          className="flex-1 h-9 min-w-0 px-2.5 rounded-lg bg-muted font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        />
                         <button type="button" onClick={handleBackspace} className="w-9 h-9 shrink-0 rounded-lg bg-muted flex items-center justify-center hover:bg-accent"><Delete className="w-4 h-4" /></button>
                       </div>
                       <div className="grid grid-cols-3 gap-1">
@@ -1213,7 +1315,7 @@ const FloatingDialer: React.FC = () => {
                           </button>
                         ))}
                       </div>
-                      {dialedNumber.length >= 10 && (
+                      {digitsOnly(dialedNumber).length >= 10 && (
                         <button
                           type="button"
                           disabled={!canPlaceCall}
