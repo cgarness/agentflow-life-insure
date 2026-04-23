@@ -13,7 +13,6 @@ import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
-import { importLeadsToSupabase } from "@/lib/supabase-leads";
 import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
@@ -1973,16 +1972,15 @@ const Contacts: React.FC = () => {
           }
         }}
         onImportComplete={async (newLeads, historyEntry, strategy) => {
-          const result = await importLeadsToSupabase(newLeads, organizationId, strategy as any);
           // Insert import history row into Supabase
           await supabase.from("import_history").insert({
             file_name: historyEntry.fileName,
             total_records: historyEntry.totalRecords,
-            imported: result.imported,
-            duplicates: historyEntry.duplicates + result.duplicates,
-            errors: historyEntry.errors + result.errors,
+            imported: historyEntry.imported,
+            duplicates: historyEntry.duplicates,
+            errors: historyEntry.errors,
             agent_id: user?.id || null,
-            imported_lead_ids: result.importedLeadIds,
+            imported_lead_ids: historyEntry.importedLeadIds,
             organization_id: organizationId,
           } as any);
           await fetchImportHistory();
