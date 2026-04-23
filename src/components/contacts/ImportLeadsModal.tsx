@@ -70,23 +70,35 @@ const TEMPLATE_ROWS = [
 // Redundant LEAD_STATUSES removed
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  // Strip a UTF-8 BOM if present — Excel and other spreadsheet tools routinely
+  // emit CSVs that begin with ﻿, which otherwise becomes an invisible
+  // prefix on the first header and breaks the fuzzy-match against "First Name".
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim());
   if (lines.length === 0) return { headers: [], rows: [] };
+
   const parseLine = (line: string): string[] => {
     const result: string[] = [];
     let current = "";
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
-      if (ch === '"') { inQuotes = !inQuotes; }
-      else if (ch === "," && !inQuotes) { result.push(current.trim()); current = ""; }
-      else { current += ch; }
+      if (ch === '"') {
+        // Handle escaped double-quote ("") inside a quoted field.
+        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === "," && !inQuotes) {
+        result.push(current.trim()); current = "";
+      } else {
+        current += ch;
+      }
     }
     result.push(current.trim());
     return result;
   };
   const headers = parseLine(lines[0]);
-  const rows = lines.slice(1).map(parseLine);
+  const rows = lines.slice(1).map(parseLine).filter(r => r.some(cell => cell.length > 0));
   return { headers, rows };
 }
 
@@ -239,15 +251,38 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   // ---- CSV Parsing ----
   const handleFile = useCallback((f: File) => {
-    if (!f.name.endsWith(".csv")) return;
-    if (f.size > 50 * 1024 * 1024) return;
+    const isCsv = f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
+    if (!isCsv) {
+      toast.error("Unsupported file — please upload a .csv file");
+      return;
+    }
+    if (f.size > 50 * 1024 * 1024) {
+      toast.error("File is too large — max size is 50MB");
+      return;
+    }
+    if (f.size === 0) {
+      toast.error("That CSV file is empty");
+      return;
+    }
     setFile(f);
     setParsing(true);
     const reader = new FileReader();
     reader.onload = (e) => {
-      setTimeout(() => {
-        const text = e.target?.result as string;
+      try {
+        const text = (e.target?.result as string) || "";
         const { headers, rows } = parseCSV(text);
+        if (headers.length === 0) {
+          toast.error("No columns found in CSV. Check that it has a header row.");
+          setFile(null);
+          setParsing(false);
+          return;
+        }
+        if (rows.length === 0) {
+          toast.error("No data rows found in CSV — only a header is present.");
+          setFile(null);
+          setParsing(false);
+          return;
+        }
         setCsvHeaders(headers);
         setCsvRows(rows);
         const autoMap: Record<number, string> = {};
@@ -256,8 +291,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           autoMap[i] = match || AUTO_COLLECT;
         });
         setMappings(autoMap);
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+        toast.error(`Failed to parse CSV: ${err?.message || "unknown error"}`);
+        setFile(null);
+      } finally {
         setParsing(false);
-      }, 800);
+      }
+    };
+    reader.onerror = () => {
+      toast.error("Could not read the file — please try again");
+      setFile(null);
+      setParsing(false);
     };
     reader.readAsText(f);
   }, []);
@@ -529,12 +573,18 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         }
       );
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(`Import failed (${response.status}) — non-JSON response from server`);
+      }
 
       setImportProgress(100);
 
-      if (!response.ok || !data.success) {
-        throw new Error(data?.error || `Import failed (${response.status})`);
+      if (!response.ok || !data?.success) {
+        const detail = data?.stage ? ` [${data.stage}]` : "";
+        throw new Error((data?.error || `Import failed (${response.status})`) + detail);
       }
 
       setImportResult({ 
