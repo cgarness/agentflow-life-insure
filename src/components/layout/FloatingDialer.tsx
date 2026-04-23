@@ -85,10 +85,14 @@ const FloatingDialer: React.FC = () => {
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDragging) return;
-    const newX = Math.max(0, Math.min(window.innerWidth - 340, e.clientX - dragOffset.current.x));
-    const newY = Math.max(0, Math.min(window.innerHeight - 200, e.clientY - dragOffset.current.y));
+    const el = panelRef.current;
+    const panelW = el?.offsetWidth ?? (minimized ? 240 : 320);
+    const panelH = el?.offsetHeight ?? (minimized ? 48 : 560);
+    const margin = 16;
+    const newX = Math.max(0, Math.min(window.innerWidth - panelW - margin, e.clientX - dragOffset.current.x));
+    const newY = Math.max(0, Math.min(window.innerHeight - panelH - margin, e.clientY - dragOffset.current.y));
     setPosition({ x: newX, y: newY });
-  }, [isDragging]);
+  }, [isDragging, minimized]);
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
@@ -661,7 +665,7 @@ const FloatingDialer: React.FC = () => {
           }}
           className={minimized
             ? "fixed w-[240px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
-            : "fixed w-[320px] max-w-[calc(100vw-2rem)] h-[540px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
+            : "fixed w-[320px] max-w-[calc(100vw-2rem)] h-[min(600px,calc(100vh-5rem))] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
           }
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
@@ -702,7 +706,7 @@ const FloatingDialer: React.FC = () => {
           {/* Panel Header — drag handle only here so body controls receive clicks reliably */}
           {!minimized && (
             <div
-              className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0 select-none"
+              className="flex items-center justify-between px-3 h-10 border-b border-border shrink-0 select-none"
               style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
@@ -747,15 +751,15 @@ const FloatingDialer: React.FC = () => {
 
           {!minimized && (<>
           {/* Tab Bar */}
-          <div className="px-3 pt-2 pb-1 shrink-0">
+          <div className="px-3 pt-1 pb-0.5 shrink-0">
             <div className="flex bg-accent rounded-lg p-0.5">
               <button
                 onClick={() => setActiveTab("dial")}
-                className={`flex-1 py-1.5 text-xs rounded-md text-center transition-colors ${activeTab === "dial" ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex-1 py-1 text-xs rounded-md text-center transition-colors ${activeTab === "dial" ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
               >Dial</button>
               <button
                 onClick={() => setActiveTab("recent")}
-                className={`flex-1 py-1.5 text-xs rounded-md text-center transition-colors ${activeTab === "recent" ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex-1 py-1 text-xs rounded-md text-center transition-colors ${activeTab === "recent" ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
               >Recent</button>
             </div>
           </div>
@@ -763,8 +767,8 @@ const FloatingDialer: React.FC = () => {
           {twilioIsReady &&
             !incomingCallAlerts.optIn &&
             twilioCallState !== "incoming" && (
-            <div className="mx-3 mt-2 shrink-0 rounded-lg border border-border bg-muted/50 px-3 py-2.5">
-              <p className="text-[11px] text-muted-foreground leading-snug mb-2">
+            <div className="mx-3 mt-1.5 shrink-0 rounded-lg border border-border bg-muted/50 px-2.5 py-2">
+              <p className="text-[10px] text-muted-foreground leading-snug mb-1.5">
                 One tap unlocks optional desktop pop-ups for inbound life-insurance calls (Twilio rings in the browser; your browser may require this for notifications).
               </p>
               <Button
@@ -841,7 +845,7 @@ const FloatingDialer: React.FC = () => {
             )}
 
             {activeTab === "dial" && (
-              <div className="px-3 py-2 space-y-3">
+              <div className="px-3 py-1.5 space-y-2">
                 {twilioCallState === "dialing" && (
                   <div className="flex flex-col items-center gap-2 py-3 rounded-lg border border-border bg-muted/30">
                     <DialerCallPhaseLabel
@@ -991,19 +995,19 @@ const FloatingDialer: React.FC = () => {
                 )}
 
                 {!onCall && !showDisposition && twilioCallState !== "incoming" && (
-                  <div className="space-y-4">
+                  <div className="space-y-2">
                     {!canPlaceCall && twilioStatus !== 'error' && (
-                      <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/40 px-3 py-2">
+                      <p className="text-[11px] text-muted-foreground rounded-md border border-border bg-muted/40 px-2.5 py-1.5 leading-snug">
                         Wait for <span className="font-medium text-foreground">Ready</span> in the header before placing a call.
                       </p>
                     )}
-                    <div className="p-3 bg-accent/40 rounded-lg border border-border transition-colors hover:border-primary/50">
+                    <div className="p-2 bg-accent/40 rounded-lg border border-border transition-colors hover:border-primary/50">
                       <div className="flex flex-col flex-1">
-                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight mb-1">Calling From</span>
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight mb-0.5">Calling From</span>
                         <select 
                           value={selectedCallerNumber}
                           onChange={(e) => setSelectedCallerNumber(e.target.value)}
-                          className="bg-transparent border-none text-sm font-bold focus:ring-0 p-0 h-auto cursor-pointer w-full text-foreground"
+                          className="bg-transparent border-none text-xs font-bold focus:ring-0 p-0 h-auto cursor-pointer w-full text-foreground leading-tight"
                         >
                           <option value="">AI Local Presence</option>
                           {availableNumbers.map(n => (
@@ -1016,15 +1020,15 @@ const FloatingDialer: React.FC = () => {
                     </div>
 
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                       <input
                         type="text"
                         placeholder="Search..."
                         value={searchTerm}
                         onChange={(e) => handleSearchChange(e.target.value)}
-                        className="w-full h-10 pl-9 pr-8 rounded-lg bg-muted text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        className="w-full h-9 pl-8 pr-7 rounded-lg bg-muted text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
                       />
-                      {searchTerm && <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2"><X className="w-3.5 h-3.5" /></button>}
+                      {searchTerm && <button onClick={clearSearch} className="absolute right-2.5 top-1/2 -translate-y-1/2"><X className="w-3.5 h-3.5" /></button>}
                       
                       {showDropdown && (
                         <div className="absolute top-full mt-1 w-full bg-card border rounded-lg shadow-lg z-10 py-1 max-h-60 overflow-y-auto">
@@ -1050,39 +1054,46 @@ const FloatingDialer: React.FC = () => {
                     </div>
 
                     {selectedContact && (
-                      <div className="bg-accent/50 rounded-lg p-3 flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold text-sm">{selectedContact.first_name} {selectedContact.last_name}</p>
-                          <p className="text-xs font-medium text-primary">{selectedContact.phone}</p>
+                      <div className="bg-accent/50 rounded-lg px-2 py-1.5 flex items-center justify-between gap-2 min-h-0">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-xs leading-tight truncate">{selectedContact.first_name} {selectedContact.last_name}</p>
+                          <p className="text-[11px] font-medium text-primary truncate">{selectedContact.phone}</p>
                         </div>
                         <button
                           type="button"
                           disabled={!canPlaceCall}
                           title={!canPlaceCall ? "Wait until the dialer shows Ready" : undefined}
                           onClick={() => void handleCallFromContact()}
-                          className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                          className="shrink-0 px-2.5 py-1.5 rounded-md bg-green-500 hover:bg-green-600 text-white text-xs font-semibold inline-flex items-center gap-1 disabled:opacity-50 disabled:pointer-events-none"
                         >
-                          <Phone className="w-4 h-4" /> Call
+                          <Phone className="w-3.5 h-3.5" /> Call
                         </button>
                       </div>
                     )}
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 py-0.5">
                       <div className="flex-1 h-px bg-border" />
-                      <span className="text-xs text-muted-foreground italic">or dial manually</span>
+                      <span className="text-[10px] text-muted-foreground italic whitespace-nowrap">or dial manually</span>
                       <div className="flex-1 h-px bg-border" />
                     </div>
 
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-10 px-3 rounded-lg bg-muted flex items-center">
-                          <span className="font-mono text-lg truncate">{dialedNumber}</span>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex-1 h-9 px-2.5 rounded-lg bg-muted flex items-center min-w-0">
+                          <span className="font-mono text-sm truncate">{dialedNumber}</span>
                         </div>
-                        <button onClick={handleBackspace} className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center hover:bg-accent"><Delete className="w-5 h-5" /></button>
+                        <button type="button" onClick={handleBackspace} className="w-9 h-9 shrink-0 rounded-lg bg-muted flex items-center justify-center hover:bg-accent"><Delete className="w-4 h-4" /></button>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-1">
                         {keypadKeys.map(key => (
-                          <button key={key} onClick={() => handleKeyPress(key)} className="h-10 rounded-lg bg-muted text-base font-semibold hover:bg-accent">{key}</button>
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => handleKeyPress(key)}
+                            className="h-8 rounded-md bg-muted text-sm font-semibold hover:bg-accent active:scale-[0.98]"
+                          >
+                            {key}
+                          </button>
                         ))}
                       </div>
                       {dialedNumber.length >= 10 && (
@@ -1091,9 +1102,9 @@ const FloatingDialer: React.FC = () => {
                           disabled={!canPlaceCall}
                           title={!canPlaceCall ? "Wait until the dialer shows Ready" : undefined}
                           onClick={() => void handleCallFromKeypad()}
-                          className="w-full py-2.5 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                          className="w-full py-2 rounded-md bg-green-500 hover:bg-green-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
                         >
-                          <Phone className="w-4 h-4" /> Call
+                          <Phone className="w-3.5 h-3.5" /> Call
                         </button>
                       )}
                     </div>
