@@ -662,10 +662,16 @@ const FloatingDialer: React.FC = () => {
             transition: isDragging ? 'none' : 'opacity 150ms ease-out, transform 150ms ease-out',
             left: `${position.x}px`,
             top: `${position.y}px`,
+            ...(!minimized
+              ? {
+                  maxHeight: "min(600px, calc(100vh - 5rem))",
+                  height: "min(max-content, min(600px, calc(100vh - 5rem)))",
+                }
+              : {}),
           }}
           className={minimized
             ? "fixed w-[240px] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
-            : "fixed w-[320px] max-w-[calc(100vw-2rem)] h-[min(600px,calc(100vh-5rem))] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
+            : "fixed w-[320px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl z-[1000] flex flex-col overflow-hidden"
           }
         >
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
