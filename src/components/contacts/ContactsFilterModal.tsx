@@ -62,6 +62,7 @@ interface ContactsFilterModalProps {
   onFiltersChange: (filters: ContactsFilterValues) => void;
   downlineAgents: DownlineAgent[];
   filterStatuses: string[];
+  leadSources: string[];
 }
 
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -74,6 +75,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
   onFiltersChange,
   downlineAgents,
   filterStatuses,
+  leadSources,
 }) => {
   // Local copy of filters for editing before applying
   const [local, setLocal] = useState<ContactsFilterValues>(filters);
@@ -143,6 +145,33 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
                 <SelectContent>
                   <SelectItem value="_all">All Statuses</SelectItem>
                   {filterStatuses.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* ===== Source (Leads only) ===== */}
+          {showLeadFields && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">
+                Source
+              </label>
+              <Select
+                value={local.sourceFilter || "_all"}
+                onValueChange={(v) =>
+                  update({ sourceFilter: v === "_all" ? "" : v })
+                }
+              >
+                <SelectTrigger className="w-full bg-muted border-border">
+                  <SelectValue placeholder="All Sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All Sources</SelectItem>
+                  {leadSources.map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>
