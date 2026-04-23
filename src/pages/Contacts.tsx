@@ -1583,6 +1583,7 @@ const Contacts: React.FC = () => {
           }}
           downlineAgents={downlineAgents}
           filterStatuses={filterStatuses}
+          leadSources={allLeadSources}
         />
         <div className="flex-1" />
         {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
