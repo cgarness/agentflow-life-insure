@@ -9,10 +9,34 @@ interface AddToCampaignModalProps {
   open: boolean;
   onClose: () => void;
   selectedContacts: Array<{ id: string; firstName: string; lastName: string; phone: string; email: string; state: string; age?: number }>;
+  /** When set (e.g. select-all-leads or cross-page selection), every ID is sent to the campaign RPC instead of only rows in `selectedContacts`. */
+  leadIds?: string[] | null;
   onSuccess: () => void;
 }
 
-const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, selectedContacts, onSuccess }) => {
+const RPC_BATCH_SIZE = 500;
+
+async function addLeadsToCampaignBatched(
+  campaignId: string,
+  leadIds: string[]
+): Promise<{ added: number; skipped: number }> {
+  let added = 0;
+  let skipped = 0;
+  for (let i = 0; i < leadIds.length; i += RPC_BATCH_SIZE) {
+    const batch = leadIds.slice(i, i + RPC_BATCH_SIZE);
+    const { data, error } = await supabase.rpc("add_leads_to_campaign", {
+      p_campaign_id: campaignId,
+      p_lead_ids: batch,
+    });
+    if (error) throw error;
+    const result = data as { added: number; skipped: number };
+    added += result.added ?? 0;
+    skipped += result.skipped ?? 0;
+  }
+  return { added, skipped };
+}
+
+const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, selectedContacts, leadIds, onSuccess }) => {
   const { organizationId } = useOrganization();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,23 +86,22 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
     setLoading(false);
   };
 
+  const effectiveLeadIds = leadIds && leadIds.length > 0 ? leadIds : selectedContacts.map(c => c.id);
+  const contactCount = effectiveLeadIds.length;
+
   const handleAdd = async () => {
     if (!selectedCampaignId) {
       toast.error("Please select a campaign");
       return;
     }
+    if (contactCount === 0) {
+      toast.error("No contacts selected");
+      return;
+    }
 
     setSaving(true);
     try {
-      const leadIds = selectedContacts.map(c => c.id);
-      const { data, error } = await supabase.rpc("add_leads_to_campaign", {
-        p_campaign_id: selectedCampaignId,
-        p_lead_ids: leadIds,
-      });
-
-      if (error) throw error;
-
-      const result = data as { added: number; skipped: number; skipped_ids: string[] };
+      const result = await addLeadsToCampaignBatched(selectedCampaignId, effectiveLeadIds);
       const campaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
 
       if (result.added === 0 && result.skipped > 0) {
@@ -103,6 +126,10 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
       toast.error("Please enter a campaign name");
       return;
     }
+    if (contactCount === 0) {
+      toast.error("No contacts selected");
+      return;
+    }
 
     setCreating(true);
     try {
@@ -120,14 +147,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
 
       if (createError) throw createError;
 
-      const leadIds = selectedContacts.map(c => c.id);
-      const { data: rpcResult, error: insertError } = await supabase.rpc("add_leads_to_campaign", {
-        p_campaign_id: newCampaign.id,
-        p_lead_ids: leadIds,
-      });
-      if (insertError) throw insertError;
-
-      const result = rpcResult as { added: number; skipped: number; skipped_ids: string[] };
+      const result = await addLeadsToCampaignBatched(newCampaign.id, effectiveLeadIds);
       if (result.skipped > 0) {
         toast.success(`Campaign created — ${result.added} leads added, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
       } else {
@@ -184,7 +204,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         {activeTab === "existing" && (
           <>
             <p className="text-sm text-muted-foreground">
-              Select an active campaign to add {selectedContacts.length} contact{selectedContacts.length > 1 ? "s" : ""} to.
+              Select an active campaign to add {contactCount} contact{contactCount !== 1 ? "s" : ""} to.
             </p>
 
             <div className="relative">
@@ -249,7 +269,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         {activeTab === "new" && (
           <>
             <p className="text-sm text-muted-foreground">
-              Create a new campaign and add {selectedContacts.length} contact{selectedContacts.length > 1 ? "s" : ""} to it.
+              Create a new campaign and add {contactCount} contact{contactCount !== 1 ? "s" : ""} to it.
             </p>
 
             <div>

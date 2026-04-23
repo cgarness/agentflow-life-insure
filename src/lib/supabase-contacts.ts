@@ -102,6 +102,55 @@ export const leadsSupabaseApi = {
     return { data: processedLeads.slice(0, pageSize), totalCount: totalCount ?? 0 };
   },
 
+  /** All lead IDs matching the same server-side filters as `getAll` (no client-only filters). Paginates in chunks for large orgs. */
+  async getAllLeadIdsMatching(filters?: {
+    status?: string;
+    source?: string;
+    state?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    assignedAgentIds?: string[];
+  }): Promise<string[]> {
+    const applyServerFilters = (q: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (filters?.status) q = q.eq("status", filters.status);
+      if (filters?.source) q = q.eq("lead_source", filters.source);
+      if (filters?.state) q = q.eq("state", filters.state);
+      if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
+        q = filters.assignedAgentIds.length === 1
+          ? q.eq("user_id", filters.assignedAgentIds[0])
+          : q.in("user_id", filters.assignedAgentIds);
+      }
+      if (filters?.startDate) q = q.gte("created_at", filters.startDate);
+      if (filters?.endDate) q = q.lte("created_at", filters.endDate);
+      if (filters?.search) {
+        const s = filters.search;
+        q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
+      }
+      return q;
+    };
+
+    const chunkSize = 1000;
+    const ids: string[] = [];
+    let offset = 0;
+    for (;;) {
+      let q = applyServerFilters(
+        supabase.from("leads").select("id").order("created_at", { ascending: false })
+      );
+      q = q.range(offset, offset + chunkSize - 1);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        if ((row as { id?: string }).id) ids.push((row as { id: string }).id);
+      }
+      if (rows.length < chunkSize) break;
+      offset += chunkSize;
+    }
+    return ids;
+  },
+
   async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> { // eslint-disable-line @typescript-eslint/no-explicit-any
     const { data, error } = await supabase.from("leads").select("*").eq("id", id).single();
     if (error) throw new Error(error.message);

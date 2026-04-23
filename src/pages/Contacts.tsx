@@ -530,6 +530,9 @@ const Contacts: React.FC = () => {
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
   const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
+  /** Full lead ID list for Add to Campaign (cross-page + select-all-leads); only used when tab is Leads. */
+  const [campaignLeadIds, setCampaignLeadIds] = useState<string[] | null>(null);
+  const [campaignIdsLoading, setCampaignIdsLoading] = useState(false);
 
   // Column visibility per tab with localStorage persistence (Power Dialer Requirement)
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(() => {
@@ -1060,6 +1063,28 @@ const Contacts: React.FC = () => {
     };
   };
 
+  const handleOpenAddToCampaign = async () => {
+    if (tab === "Leads") {
+      setCampaignIdsLoading(true);
+      try {
+        if (selectAllLeadsMode) {
+          const ids = await leadsSupabaseApi.getAllLeadIdsMatching(buildLeadFiltersForSelectAll());
+          setCampaignLeadIds(ids);
+        } else {
+          setCampaignLeadIds([...selectedIds]);
+        }
+        setAddToCampaignOpen(true);
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Could not load selected leads");
+      } finally {
+        setCampaignIdsLoading(false);
+      }
+    } else {
+      setCampaignLeadIds(null);
+      setAddToCampaignOpen(true);
+    }
+  };
+
   const handleBulkDeleteLeads = async () => {
     if (selectAllLeadsMode) {
       const count = leadsTotalCount;
@@ -1574,8 +1599,13 @@ const Contacts: React.FC = () => {
         </div>
       )}
       <button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button>
-      <button onClick={() => setAddToCampaignOpen(true)} className="text-sm text-foreground hover:text-primary flex items-center gap-1.5 transition-colors">
-        <Megaphone className="w-3.5 h-3.5" />
+      <button
+        type="button"
+        disabled={campaignIdsLoading}
+        onClick={() => void handleOpenAddToCampaign()}
+        className="text-sm text-foreground hover:text-primary flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+      >
+        {campaignIdsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
         Add to Campaign
       </button>
       {tab === "Leads" && (
@@ -2225,7 +2255,11 @@ const Contacts: React.FC = () => {
       {/* Add to Campaign Modal */}
       <AddToCampaignModal
         open={addToCampaignOpen}
-        onClose={() => setAddToCampaignOpen(false)}
+        onClose={() => {
+          setAddToCampaignOpen(false);
+          setCampaignLeadIds(null);
+        }}
+        leadIds={tab === "Leads" ? campaignLeadIds : null}
         selectedContacts={(() => {
           if (tab === "Leads") {
             return leads.filter(l => selectedIds.has(l.id)).map(l => ({
@@ -2262,6 +2296,8 @@ const Contacts: React.FC = () => {
         })()}
         onSuccess={() => {
           setSelectedIds(new Set());
+          setSelectAllLeadsMode(false);
+          setCampaignLeadIds(null);
           setSelectedClientIds(new Set());
           setSelectedRecruitIds(new Set());
         }}
