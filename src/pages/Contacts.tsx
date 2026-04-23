@@ -233,7 +233,7 @@ const DeleteConfirmModal: React.FC<{
 
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
-  const { user, isBuildingOrganization } = useAuth();
+  const { user, profile, isBuildingOrganization } = useAuth();
   const { organizationId, role } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
   const location = useLocation();
@@ -2184,25 +2184,31 @@ const Contacts: React.FC = () => {
         onClose={() => setImportModalOpen(false)}
         existingLeads={leads}
         campaigns={realCampaigns}
+        organizationId={organizationId}
         currentUserId={user?.id}
+        currentUserDisplayName={[profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim()}
         agentProfiles={agentProfiles}
         onCampaignCreated={async (campaign) => {
-          const { error } = await supabase.from("campaigns").insert({
-            id: campaign.id,
-            name: campaign.name,
-            type: campaign.type,
-            description: campaign.description,
-            status: "Active",
-            organization_id: organizationId,
-            created_by: user?.id,
-          });
-          if (error) {
-            toast.error("Failed to create campaign during import");
-          } else {
-            // Refresh campaigns list
-            const { data } = await supabase.from("campaigns").select("id, name, type, status");
-            if (data) setRealCampaigns(data);
+          const { data, error } = await supabase
+            .from("campaigns")
+            .insert({
+              name: campaign.name,
+              type: campaign.type,
+              description: campaign.description,
+              status: "Active",
+              total_leads: 0,
+              organization_id: organizationId,
+              created_by: user?.id,
+            } as Record<string, unknown>)
+            .select("id")
+            .maybeSingle();
+          if (error || !data?.id) {
+            toast.error(error?.message || "Failed to create campaign during import");
+            return null;
           }
+          const { data: list } = await supabase.from("campaigns").select("id, name, type, status");
+          if (list) setRealCampaigns(list);
+          return { id: data.id as string };
         }}
         onImportComplete={async (newLeads, historyEntry, strategy) => {
           // Insert import history row into Supabase

@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { Campaign } from "@/lib/types";
+import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 
 interface AddToCampaignModalProps {
   open: boolean;
@@ -12,28 +13,6 @@ interface AddToCampaignModalProps {
   /** When set (e.g. select-all-leads or cross-page selection), every ID is sent to the campaign RPC instead of only rows in `selectedContacts`. */
   leadIds?: string[] | null;
   onSuccess: () => void;
-}
-
-const RPC_BATCH_SIZE = 500;
-
-async function addLeadsToCampaignBatched(
-  campaignId: string,
-  leadIds: string[]
-): Promise<{ added: number; skipped: number }> {
-  let added = 0;
-  let skipped = 0;
-  for (let i = 0; i < leadIds.length; i += RPC_BATCH_SIZE) {
-    const batch = leadIds.slice(i, i + RPC_BATCH_SIZE);
-    const { data, error } = await supabase.rpc("add_leads_to_campaign", {
-      p_campaign_id: campaignId,
-      p_lead_ids: batch,
-    });
-    if (error) throw error;
-    const result = data as { added: number; skipped: number };
-    added += result.added ?? 0;
-    skipped += result.skipped ?? 0;
-  }
-  return { added, skipped };
 }
 
 const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, selectedContacts, leadIds, onSuccess }) => {

@@ -298,7 +298,7 @@ export interface PipelineStage {
 export interface CustomField {
   id: string;
   name: string;
-  type: "Text" | "Number" | "Date" | "Dropdown";
+  type: "Text" | "Number" | "Date" | "Dropdown" | "Email" | "Phone";
   appliesTo: ("Leads" | "Clients" | "Recruits")[];
   required: boolean;
   active: boolean;

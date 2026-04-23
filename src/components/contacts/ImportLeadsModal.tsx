@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { supabase } from "@/integrations/supabase/client";
+import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import { 
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -39,8 +40,6 @@ const AGENTFLOW_FIELDS = [
 ] as const;
 
 type AgentFlowField = typeof AGENTFLOW_FIELDS[number];
-const AUTO_COLLECT = "Auto-collect as Custom Field";
-
 
 const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
   "First Name": ["first name", "firstname", "first", "fname", "given name", "customer first name", "lead first name"],
@@ -167,13 +166,26 @@ interface ImportLeadsModalProps {
   existingLeads: Lead[];
   onImportComplete: (newLeads: Lead[], historyEntry: ImportHistoryEntry, strategy: DuplicateHandling) => void;
   campaigns?: CampaignOption[];
-  onCampaignCreated?: (campaign: { id: string; name: string; type: string; description: string }) => void;
+  /** Create a real campaign row and return its id (used when user chooses "Create new campaign" before import). */
+  onCampaignCreated?: (campaign: { name: string; type: string; description: string }) => Promise<{ id: string } | null>;
+  organizationId?: string | null;
   currentUserId?: string;
+  /** Shown next to "Assign to me" instead of the raw user id. */
+  currentUserDisplayName?: string;
   agentProfiles?: { id: string; firstName: string; lastName: string }[];
 }
 
 const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
-  open, onClose, existingLeads, onImportComplete, campaigns = [], onCampaignCreated, currentUserId = "u1", agentProfiles = [],
+  open,
+  onClose,
+  existingLeads,
+  onImportComplete,
+  campaigns = [],
+  onCampaignCreated,
+  organizationId = null,
+  currentUserId = "u1",
+  currentUserDisplayName = "",
+  agentProfiles = [],
 }) => {
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -190,7 +202,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [customFieldNames, setCustomFieldNames] = useState<string[]>([]);
   const [creatingFieldForCol, setCreatingFieldForCol] = useState<number | null>(null);
   const [newFieldLabel, setNewFieldLabel] = useState("");
-  const [newFieldType, setNewFieldType] = useState<"Text" | "Number" | "Date" | "Dropdown">("Text");
+  const [newFieldType, setNewFieldType] = useState<CustomField["type"]>("Text");
   const [newFieldDropdownOpts, setNewFieldDropdownOpts] = useState("");
   const [newFieldRequired, setNewFieldRequired] = useState(false);
   const [newFieldError, setNewFieldError] = useState("");
@@ -210,6 +222,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
   const [selectedSource, setSelectedSource] = useState<string>("");
   const [tags, setTags] = useState<string[]>([]);
+  const [sourceDropdownKey, setSourceDropdownKey] = useState(0);
+  const [addingLeadSource, setAddingLeadSource] = useState(false);
+  const [newLeadSourceDraft, setNewLeadSourceDraft] = useState("");
+  const [savingLeadSource, setSavingLeadSource] = useState(false);
 
   // Step 4-5
   const [importProgress, setImportProgress] = useState(0);
@@ -226,18 +242,27 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setImportStatus(pipelineStages.find(s => s.isDefault)?.name || "New");
     setSelectedSource("");
     setTags([]);
+    setSourceDropdownKey(0);
+    setAddingLeadSource(false);
+    setNewLeadSourceDraft("");
+    setSavingLeadSource(false);
   };
 
   // ---- Fetch Settings ----
   useEffect(() => {
     async function loadSettings() {
       try {
-        const [stages, sources] = await Promise.all([
+        const [stages, sources, fields] = await Promise.all([
           pipelineSupabaseApi.getLeadStages(),
-          leadSourcesSupabaseApi.getAll()
+          leadSourcesSupabaseApi.getAll(),
+          customFieldsApi.getAll(),
         ]);
         setPipelineStages(stages);
         setLeadSources(sources);
+        const leadCustomNames = fields
+          .filter(f => f.active && Array.isArray(f.appliesTo) && f.appliesTo.includes("Leads"))
+          .map(f => f.name);
+        setCustomFieldNames(leadCustomNames);
         if (stages.length > 0) {
           const defaultStage = stages.find(s => s.isDefault) || stages[0];
           setImportStatus(defaultStage.name);
@@ -288,7 +313,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         const autoMap: Record<number, string> = {};
         headers.forEach((h, i) => {
           const match = fuzzyMatch(h);
-          autoMap[i] = match || AUTO_COLLECT;
+          autoMap[i] = match || "Do Not Import";
         });
         setMappings(autoMap);
       } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -388,7 +413,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         active: true,
         defaultValue: "",
         dropdownOptions: newFieldType === "Dropdown" ? newFieldDropdownOpts.split(",").map(s => s.trim()).filter(Boolean) : [],
-      });
+      }, organizationId);
       setCustomFieldNames(prev => [...prev, trimmedName]);
       setMappings(prev => ({ ...prev, [creatingFieldForCol!]: trimmedName }));
       setCreatingFieldForCol(null);
@@ -468,6 +493,45 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     if (t && !tags.includes(t)) setTags(prev => [...prev, t]);
   };
 
+  const saveNewLeadSourceInline = async () => {
+    const name = newLeadSourceDraft.trim();
+    if (!name) return;
+    if (!organizationId) {
+      toast.error("Organization is not loaded yet. Please try again in a moment.");
+      return;
+    }
+    setSavingLeadSource(true);
+    try {
+      const nextOrder = leadSources.length === 0 ? 0 : Math.max(...leadSources.map(s => s.order), 0) + 1;
+      const created = await leadSourcesSupabaseApi.create(
+        { name, color: "#3B82F6", active: true, order: nextOrder },
+        organizationId
+      );
+      setLeadSources(prev => [...prev, created].sort((a, b) => a.order - b.order));
+      setSelectedSource(created.name);
+      setAddingLeadSource(false);
+      setNewLeadSourceDraft("");
+      setSourceDropdownKey(k => k + 1);
+      toast.success(`Lead source "${created.name}" saved`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not save lead source";
+      toast.error(msg);
+    } finally {
+      setSavingLeadSource(false);
+    }
+  };
+
+  const assignToMeLabel = (() => {
+    const fromProp = currentUserDisplayName?.trim();
+    if (fromProp) return `Assign to me (${fromProp})`;
+    const fromRoster = agentProfiles.find(p => p.id === currentUserId);
+    if (fromRoster) {
+      const n = `${fromRoster.firstName} ${fromRoster.lastName}`.trim();
+      if (n) return `Assign to me (${n})`;
+    }
+    return "Assign to me";
+  })();
+
   // ---- Filtered campaigns ----
   const filteredCampaigns = useMemo(() => {
     if (!campaignSearch) return campaigns;
@@ -477,6 +541,35 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   // ---- Step 4-5: Import ----
   const doImport = async () => {
+    let resolvedCampaignId: string | undefined;
+
+    if (campaignMode === "existing") {
+      if (!selectedCampaignId) {
+        toast.error("Select a campaign from the list, or choose a different campaign option.");
+        return;
+      }
+      resolvedCampaignId = selectedCampaignId;
+    } else if (campaignMode === "new") {
+      if (!newCampaignName.trim()) {
+        toast.error("Enter a name for the new campaign.");
+        return;
+      }
+      if (!onCampaignCreated) {
+        toast.error("Campaign creation is not available. Try again or contact support.");
+        return;
+      }
+      const created = await onCampaignCreated({
+        name: newCampaignName.trim(),
+        type: newCampaignType,
+        description: newCampaignDesc.trim(),
+      });
+      if (!created?.id) {
+        toast.error("Could not create the campaign — import was not started.");
+        return;
+      }
+      resolvedCampaignId = created.id;
+    }
+
     setStep(4);
     setImportProgress(20);
 
@@ -489,15 +582,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       const idx = fieldToColIdx[field];
       return idx !== undefined ? row[idx]?.trim() || "" : "";
     };
-
-    let campaignId: string | undefined;
-    if (campaignMode === "existing" && selectedCampaignId) {
-      campaignId = selectedCampaignId;
-    } else if (campaignMode === "new" && newCampaignName.trim()) {
-      const newId = "cmp" + Math.random().toString(36).slice(2, 8);
-      campaignId = newId;
-      onCampaignCreated?.({ id: newId, name: newCampaignName.trim(), type: newCampaignType, description: newCampaignDesc });
-    }
 
     const contactData = analysisResult
       .filter(r => r.status === "ready" || r.status === "duplicate")
@@ -513,17 +597,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         }
 
         const customFieldsData: Record<string, any> = {
-          ...(campaignId ? { campaignId } : {}),
           ...(tags.length > 0 ? { tags } : {}),
           ...(rawFullName ? { "Full Name": rawFullName } : {}),
         };
 
         Object.entries(mappings).forEach(([idx, field]) => {
-          if (field === AUTO_COLLECT) {
-            const header = csvHeaders[Number(idx)];
-            const val = r.row[Number(idx)]?.trim();
-            if (val) customFieldsData[header] = val;
-          } else if (field !== "Do Not Import" && !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && field !== "Full Name") {
+          if (field !== "Do Not Import" && !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && field !== "Full Name") {
             const val = r.row[Number(idx)]?.trim();
             if (val) customFieldsData[field] = val;
           }
@@ -585,6 +664,19 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       if (!response.ok || !data?.success) {
         const detail = data?.stage ? ` [${data.stage}]` : "";
         throw new Error((data?.error || `Import failed (${response.status})`) + detail);
+      }
+
+      const insertedLeadIds: string[] = Array.isArray(data.inserted_lead_ids) ? data.inserted_lead_ids : [];
+      if (resolvedCampaignId && insertedLeadIds.length > 0) {
+        try {
+          const { added, skipped } = await addLeadsToCampaignBatched(resolvedCampaignId, insertedLeadIds);
+          if (skipped > 0) {
+            toast.message(`Campaign: ${added} leads queued, ${skipped} skipped (rules or duplicates in queue).`, { duration: 5000 });
+          }
+        } catch (campErr: unknown) {
+          const msg = campErr instanceof Error ? campErr.message : "Unknown error";
+          toast.error(`Leads imported, but adding them to the campaign failed: ${msg}`);
+        }
       }
 
       setImportResult({ 
@@ -722,12 +814,14 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               <label className="text-xs text-muted-foreground mb-1 block">Field Type</label>
               <select
                 value={newFieldType}
-                onChange={e => setNewFieldType(e.target.value as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
+                onChange={e => setNewFieldType(e.target.value as CustomField["type"])}
                 className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
               >
                 <option value="Text">Text</option>
                 <option value="Number">Number</option>
                 <option value="Date">Date</option>
+                <option value="Email">Email</option>
+                <option value="Phone">Phone number</option>
                 <option value="Dropdown">Dropdown</option>
               </select>
             </div>
@@ -802,7 +896,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                         }`}
                       >
                         <option value="Do Not Import">Do Not Import</option>
-                        <option value={AUTO_COLLECT}>{AUTO_COLLECT}</option>
                         {AGENTFLOW_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
                         {customFieldNames.map(f => <option key={f} value={f}>{f} (Custom)</option>)}
                         <option disabled>──────────</option>
@@ -811,11 +904,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                       {isAutoMatched && (
                         <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Auto-matched</span>
                       )}
-                      {mapped === AUTO_COLLECT && (
-                        <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded-full whitespace-nowrap">Auto-collecting</span>
-                      )}
                       {isCustomField && (
-                        <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Custom field created</span>
+                        <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Custom field</span>
                       )}
                       {!isAutoMatched && !isCustomField && mapped === "Do Not Import" && (
                         <span className="text-xs px-1.5 py-0.5 bg-yellow-500/10 text-yellow-500 rounded-full whitespace-nowrap">Review needed</span>
@@ -982,15 +1072,56 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               <div>
                 <label className="text-xs text-muted-foreground mb-1.5 block">Source</label>
                 <select
+                  key={sourceDropdownKey}
                   value={selectedSource}
-                  onChange={e => setSelectedSource(e.target.value)}
+                  onChange={e => {
+                    const v = e.target.value;
+                    if (v === "__add_new__") {
+                      setSourceDropdownKey(k => k + 1);
+                      setAddingLeadSource(true);
+                      setNewLeadSourceDraft("");
+                      return;
+                    }
+                    setSelectedSource(v);
+                  }}
                   className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
                 >
-                  <option value="">Use CSV source (or "CSV Import")</option>
+                  <option value="">{`Use CSV source (or "CSV Import")`}</option>
                   {leadSources.map(s => (
                     <option key={s.id} value={s.name}>{s.name}</option>
                   ))}
+                  <option value="__divider__" disabled>──────────</option>
+                  <option value="__add_new__">+ Add new lead source…</option>
                 </select>
+                {addingLeadSource && (
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="text-xs text-muted-foreground mb-1 block">New lead source name</label>
+                      <input
+                        value={newLeadSourceDraft}
+                        onChange={e => setNewLeadSourceDraft(e.target.value)}
+                        className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                        placeholder="e.g., Direct mail — term"
+                        maxLength={80}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void saveNewLeadSourceInline()}
+                      disabled={!newLeadSourceDraft.trim() || savingLeadSource}
+                      className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-40"
+                    >
+                      {savingLeadSource ? "Saving…" : "Save source"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setAddingLeadSource(false); setNewLeadSourceDraft(""); }}
+                      className="h-8 px-3 rounded-md border border-border bg-background text-muted-foreground text-sm hover:bg-accent"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1013,7 +1144,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             <div className="flex flex-col gap-3">
               <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
                 <input type="radio" checked={assignmentStrategy === "self"} onChange={() => setAssignmentStrategy("self")} className="accent-primary" />
-                Assign to me ({currentUserId})
+                {assignToMeLabel}
               </label>
               
               <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">

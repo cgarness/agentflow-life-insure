@@ -38,6 +38,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260423183000` | `custom_fields_email_phone_types.sql` | Extends **`custom_fields.type`** check constraint with **`Email`** and **`Phone`** (CSV import + Settings). |
 | `20260423100000` | `calls_expired_recording_batch_and_retention_cron.sql` | Adds **`calls_expired_recording_batch`** (service_role only) for org + cutoff batching; schedules **`recording-retention-purge-daily`** pg_cron (**`08:15` UTC**) → Edge **`recording-retention-purge`**. Cron header wiring superseded by **`20260423140000`** (`private.recording_retention_cron_secret`). |
 | `20260420180000` | `campaigns_ring_timeout_seconds.sql` | Adds nullable **`ring_timeout_seconds`** on **`public.campaigns`** for per-campaign outbound ring timeout; **`NOTIFY pgrst, 'reload schema'`**. |
 | `2026-04-20 (ops)` | Production **`db push`** + Edge redeploys | Orphan remote migration **`20260418180637`** marked reverted (**`npx supabase migration repair --status reverted 20260418180637`**). **`npx supabase db push --yes`** applied **`20260418170001`–`07`**, **`20260418170010`**, **`20260418_enhance_message_templates`**. Twilio + **`inbound-call-claim`** Edge Functions redeployed to **`jncvvsvckxhqgqvkppmj`**. |
@@ -71,6 +72,10 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-23 | [DONE] | CSV import modal — custom fields, campaigns, sources, assign-to-me**
+  *What:* Removed **Auto-collect as Custom Field** (unmatched columns default to **Do Not Import**). Modal now **loads org custom fields** from Supabase on open and passes **`organization_id`** when creating fields so they persist in Settings. Added custom field types **Email** and **Phone number** (DB check constraint migration + Settings UI). **Campaign assignment:** new campaigns use a real DB UUID insert from **`Contacts.tsx`**; after import, inserted lead ids from **`import-contacts`** drive **`add_leads_to_campaign`** (shared **`src/lib/supabase-campaign-leads.ts`**). **Lead sources:** “+ Add new lead source…” on Review saves via **`lead_sources`**. **Assign to me** shows the signed-in user’s **name** (profile / roster), not the UUID. Edge **`import-contacts`** returns **`inserted_lead_ids`** for the campaign step.
+  *Files:* **`ImportLeadsModal.tsx`**, **`Contacts.tsx`**, **`import-contacts/index.ts`**, **`supabase-campaign-leads.ts`** (new), **`AddToCampaignModal.tsx`**, **`ContactManagement.tsx`**, **`types.ts`**, **`supabase/migrations/20260423183000_custom_fields_email_phone_types.sql`**, **`ROADMAP.md`**. *Deploy:* run **`db push`** for the migration; redeploy **`import-contacts`**.
 
 - **2026-04-23 | [DONE] | CSV Import — surface real Edge Function error + remove legacy double-insert**
   *What:* Fixed two bugs in the CSV import flow. (1) **Error surfacing:** `ImportLeadsModal.tsx` `doImport` now attempts to parse the JSON body from `error.context` when `supabase.functions.invoke` returns a `FunctionsHttpError`, so the real `{ error: "..." }` message from the Edge Function is shown in the toast instead of the generic "Edge Function returned a non-2xx status code". Falls back gracefully if the JSON parse fails. (2) **Dead-code removal:** `Contacts.tsx` `onImportComplete` no longer calls `importLeadsToSupabase(newLeads, ...)` — `newLeads` was always `[]` and the Edge Function handles all DB inserts. The `import_history` row is now written using counts directly from `historyEntry`. The `importLeadsToSupabase` import was removed from `Contacts.tsx`.

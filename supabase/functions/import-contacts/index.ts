@@ -213,15 +213,20 @@ serve(async (req: Request) => {
 
     stage = "insert";
     let imported = 0;
+    let insertedLeadIds: string[] = [];
     if (readyToInsert.length > 0) {
-      const { error: insertError } = await serviceClient
+      const { data: insertedRows, error: insertError } = await serviceClient
         .from(tableName)
-        .insert(readyToInsert);
+        .insert(readyToInsert)
+        .select("id");
 
       if (insertError) {
         throw new Error(`Batch insert failed: ${insertError.message}`);
       }
       imported = readyToInsert.length;
+      if (tableName === "leads" && Array.isArray(insertedRows)) {
+        insertedLeadIds = insertedRows.map((r: { id: string }) => r.id).filter(Boolean);
+      }
     }
 
     return new Response(
@@ -230,6 +235,7 @@ serve(async (req: Request) => {
         imported,
         conflicts_count: conflicts.length,
         conflicts,
+        inserted_lead_ids: insertedLeadIds,
       }),
       { status: 200, headers }
     );

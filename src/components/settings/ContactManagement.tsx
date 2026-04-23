@@ -344,7 +344,7 @@ const PipelineStagesTab: React.FC = () => {
 
 interface FieldFormState {
   name: string;
-  type: "Text" | "Number" | "Date" | "Dropdown";
+  type: "Text" | "Number" | "Date" | "Dropdown" | "Email" | "Phone";
   appliesTo: ("Leads" | "Clients" | "Recruits")[];
   required: boolean;
   defaultValue: string;
@@ -357,6 +357,8 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
   Number: "bg-blue-500/10 text-blue-500",
   Date: "bg-purple-500/10 text-purple-500",
   Dropdown: "bg-teal-500/10 text-teal-500",
+  Email: "bg-amber-500/10 text-amber-600",
+  Phone: "bg-emerald-500/10 text-emerald-600",
 };
 
 const CustomFieldsTab: React.FC = () => {
@@ -402,7 +404,7 @@ const CustomFieldsTab: React.FC = () => {
     try {
       const data = {
         name: form.name, type: form.type, appliesTo: form.appliesTo, required: form.required, active: true,
-        defaultValue: ["Text", "Number"].includes(form.type) ? form.defaultValue : undefined,
+        defaultValue: ["Text", "Number", "Email", "Phone"].includes(form.type) ? form.defaultValue : undefined,
         dropdownOptions: form.type === "Dropdown" ? form.dropdownOptions.filter(o => o.trim()) : undefined,
       };
       if (editingId) {
@@ -505,7 +507,9 @@ const CustomFieldsTab: React.FC = () => {
               <Select value={form.type} onValueChange={(v: FieldFormState["type"]) => setForm(f => ({ ...f, type: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["Text", "Number", "Date", "Dropdown"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  {(["Text", "Number", "Date", "Email", "Phone", "Dropdown"] as const).map(t => (
+                    <SelectItem key={t} value={t}>{t === "Phone" ? "Phone number" : t}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
