@@ -75,6 +75,10 @@ const FloatingDialer: React.FC = () => {
   const dragOffset = useRef({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const [open, setOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
+
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button, input, select, [role="listbox"], [role="option"], [data-radix-popper-content-wrapper]')) return;
     setIsDragging(true);
@@ -126,10 +130,6 @@ const FloatingDialer: React.FC = () => {
     enableIncomingCallAlerts,
     destroyClient: twilioDestroy,
   } = useTwilio();
-
-  const [open, setOpen] = useState(false);
-  const [minimized, setMinimized] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dial" | "recent">("dial");
 
   // --- Recent calls state ---
   const [recentCalls, setRecentCalls] = useState<RecentCall[]>([]);
