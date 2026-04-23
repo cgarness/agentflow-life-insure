@@ -504,28 +504,37 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setImportProgress(60);
 
     try {
-      const { data, error } = await supabase.functions.invoke("import-contacts", {
-        body: {
-          type: "leads",
-          contactData,
-          assignment: { strategy: assignmentStrategy, targetAgentId, targetAgentIds },
-          duplicateDetectionRule: "phone_or_email"
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Your session has expired. Please refresh the page and try again.");
+        setStep(3);
+        return;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/import-contacts`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            type: "leads",
+            contactData,
+            assignment: { strategy: assignmentStrategy, targetAgentId, targetAgentIds },
+            duplicateDetectionRule: "phone_or_email",
+          }),
         }
-      });
-      
+      );
+
+      const data = await response.json();
+
       setImportProgress(100);
 
-      // Surface the real error message from the function response body
-      if (error) {
-        let realMessage = error.message;
-        try {
-          const body = await (error as any).context?.json?.();
-          if (body?.error) realMessage = body.error;
-        } catch { /* ignore parse failures */ }
-        throw new Error(realMessage);
-      }
-      if (!data?.success) {
-        throw new Error(data?.error || "Import failed — unknown error");
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || `Import failed (${response.status})`);
       }
 
       setImportResult({ 
