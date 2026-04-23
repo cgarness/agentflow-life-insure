@@ -1,14 +1,13 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, CheckCircle2, ChevronRight, Flag, Loader2, Phone, RefreshCw, Shield } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Flag, Loader2, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CarrierReputationPanel } from "@/components/settings/phone/CarrierReputationPanel";
 import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
 
 type PhoneNumber = {
@@ -230,8 +229,6 @@ function carrierBadge(signal: CarrierSignal) {
 }
 
 const NumberReputation: React.FC = () => {
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [bulkScanning, setBulkScanning] = useState(false);
   const [scanningIds, setScanningIds] = useState<string[]>([]);
 
   const { data: phoneNumbers, refetch, isLoading } = useQuery({
@@ -281,14 +278,6 @@ const NumberReputation: React.FC = () => {
       }));
     },
   });
-
-  const toggleRow = (id: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
 
   type ReputationFnResponse = {
     success?: boolean;
@@ -365,35 +354,6 @@ const NumberReputation: React.FC = () => {
     }
   };
 
-  const handleCheckAll = async () => {
-    if (!phoneNumbers?.length) return;
-    setBulkScanning(true);
-    try {
-      let ok = 0;
-      for (let i = 0; i < phoneNumbers.length; i++) {
-        const n = phoneNumbers[i];
-        setScanningIds([n.id]);
-        await new Promise((r) => setTimeout(r, 200));
-        try {
-          await withClientTimeout(
-            invokeReputationCheck(n.phone_number),
-            CHECK_TIMEOUT_MS,
-            "Check timed out after 90 seconds. Twilio may still be compiling this report — refresh in a minute.",
-          );
-          ok++;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          toast.error(`${n.phone_number}: ${msg}`);
-        }
-      }
-      toast.success(ok === phoneNumbers.length ? "All lines scanned." : `Scanned ${ok} of ${phoneNumbers.length} lines (see errors).`);
-      await refetch();
-    } finally {
-      setBulkScanning(false);
-      setScanningIds([]);
-    }
-  };
-
   const handleCheckOne = async (id: string, e164: string) => {
     setScanningIds([id]);
     try {
@@ -413,7 +373,7 @@ const NumberReputation: React.FC = () => {
     }
   };
 
-  const busy = bulkScanning || scanningIds.length > 0;
+  const busy = scanningIds.length > 0;
 
   if (!isLoading && (!phoneNumbers || phoneNumbers.length === 0)) {
     return (
@@ -448,37 +408,13 @@ const NumberReputation: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
-          <p className="text-sm text-muted-foreground">
-            Clean table view of your caller ID reputation, attestation, and carrier signals.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={busy}>
-            <RefreshCw className="mr-1 h-4 w-4" /> Refresh
-          </Button>
-          <Button size="sm" onClick={handleCheckAll} disabled={busy || !phoneNumbers?.length}>
-            {bulkScanning ? (
-              <>
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Scanning all…
-              </>
-            ) : (
-              <>
-                <Shield className="mr-1 h-4 w-4" /> Scan all lines
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+      <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50 text-slate-700 dark:from-accent/60 dark:via-accent/50 dark:to-accent/40 dark:text-muted-foreground">
               <tr>
-                <th className="w-10 px-3 py-3" />
                 <th className="px-3 py-3 text-left font-medium">Phone number</th>
                 <th className="px-3 py-3 text-left font-medium">Attestation</th>
                 <th className="px-3 py-3 text-left font-medium">Spam likely</th>
@@ -492,7 +428,6 @@ const NumberReputation: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-border">
               {phoneNumbers?.map((num) => {
-                const expanded = expandedRows.has(num.id);
                 const scanning = scanningIds.includes(num.id);
                 const attestation =
                   normalizeAttestationLetter(num.last_outbound_shaken_stir) ??
@@ -500,90 +435,65 @@ const NumberReputation: React.FC = () => {
                   normalizeAttestationLetter(num.attestation_level) ??
                   getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
                 return (
-                  <React.Fragment key={num.id}>
-                    <motion.tr
-                      onClick={() => toggleRow(num.id)}
-                      className={cn(
-                        "cursor-pointer transition-colors hover:bg-sky-50/70 dark:hover:bg-accent/30",
-                        scanning && "bg-cyan-500/[0.07]",
+                  <motion.tr
+                    key={num.id}
+                    className={cn(
+                      "transition-colors hover:bg-sky-50/70 dark:hover:bg-accent/30",
+                      scanning && "bg-cyan-500/[0.07]",
+                    )}
+                    animate={
+                      scanning
+                        ? {
+                            boxShadow: [
+                              "inset 0 0 0 0 rgba(34,211,238,0)",
+                              "inset 0 0 0 1px rgba(34,211,238,0.45)",
+                              "inset 0 0 0 0 rgba(34,211,238,0)",
+                            ],
+                          }
+                        : {}
+                    }
+                    transition={scanning ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" } : {}}
+                  >
+                    <td className="relative px-3 py-3 align-middle font-mono text-xs text-foreground">
+                      {num.phone_number}
+                      {scanning && (
+                        <motion.div
+                          className="pointer-events-none absolute left-2 h-9 w-1 rounded-full bg-gradient-to-b from-transparent via-cyan-400 to-transparent opacity-90 motion-reduce:hidden"
+                          animate={{ top: ["10%", "62%", "10%"] }}
+                          transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
+                        />
                       )}
-                      animate={
-                        scanning
-                          ? {
-                              boxShadow: [
-                                "inset 0 0 0 0 rgba(34,211,238,0)",
-                                "inset 0 0 0 1px rgba(34,211,238,0.45)",
-                                "inset 0 0 0 0 rgba(34,211,238,0)",
-                              ],
-                            }
-                          : {}
-                      }
-                      transition={scanning ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" } : {}}
-                    >
-                      <td className="relative px-3 py-3 align-middle">
-                        <motion.div animate={{ rotate: expanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        </motion.div>
-                        {scanning && (
-                          <motion.div
-                            className="pointer-events-none absolute left-2 h-9 w-1 rounded-full bg-gradient-to-b from-transparent via-cyan-400 to-transparent opacity-90 motion-reduce:hidden"
-                            animate={{ top: ["10%", "62%", "10%"] }}
-                            transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
-                          />
+                    </td>
+                    <td className="px-3 py-3">{getAttestationBadge(attestation)}</td>
+                    <td className="px-3 py-3">{spamLikelyBadge(num.spam_status)}</td>
+                    <td className="px-3 py-3 text-xs font-medium text-slate-700 dark:text-slate-300">{num.calls_today}</td>
+                    <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
+                    <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
+                    <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {num.spam_checked_at
+                        ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
+                        : "Never"}
+                    </td>
+                    <td className="px-3 py-3">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="font-mono text-xs"
+                        disabled={busy}
+                        onClick={() => handleCheckOne(num.id, num.phone_number)}
+                      >
+                        {scanning ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            Scanning
+                          </>
+                        ) : (
+                          "Check"
                         )}
-                      </td>
-                      <td className="px-3 py-3 font-mono text-xs text-foreground">{num.phone_number}</td>
-                      <td className="px-3 py-3">{getAttestationBadge(attestation)}</td>
-                      <td className="px-3 py-3">{spamLikelyBadge(num.spam_status)}</td>
-                      <td className="px-3 py-3 text-xs font-medium text-slate-700 dark:text-slate-300">{num.calls_today}</td>
-                      <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
-                      <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
-                      <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">
-                        {num.spam_checked_at
-                          ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
-                          : "Never"}
-                      </td>
-                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="font-mono text-xs"
-                          disabled={busy}
-                          onClick={() => handleCheckOne(num.id, num.phone_number)}
-                        >
-                          {scanning ? (
-                            <>
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              Scanning
-                            </>
-                          ) : (
-                            "Check"
-                          )}
-                        </Button>
-                      </td>
-                    </motion.tr>
-
-                    <AnimatePresence>
-                      {expanded && (
-                        <tr>
-                          <td colSpan={10} className="p-0">
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.22 }}
-                              className="overflow-hidden border-t border-slate-200 bg-slate-50/70 dark:border-border dark:bg-accent/20"
-                            >
-                              <div className="px-5 py-4">
-                                <CarrierReputationPanel data={num.carrier_reputation_data} />
-                              </div>
-                            </motion.div>
-                          </td>
-                        </tr>
-                      )}
-                    </AnimatePresence>
-                  </React.Fragment>
+                      </Button>
+                    </td>
+                  </motion.tr>
                 );
               })}
             </tbody>

@@ -68,6 +68,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-22 | [DONE] | Settings — Number Reputation table only**
+  *What:* **Settings → Number Reputation** no longer expands rows. Removed the chevron column and the inline **CarrierReputationPanel** block (stats, score factors, carrier detail). Header is title only (no subtitle); removed **Refresh** and **Scan all lines** — per-row **Check** still runs **`twilio-reputation-check`** and refetches data.
+  *Files:* **`src/components/settings/NumberReputation.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-22 | [DONE] | Floating dialer — no campaign ring timeout**
   *What:* Outbound calls from **`FloatingDialer`** pass **`applyOutboundRingTimeout: false`** into **`TwilioContext.makeCall`**. **`makeCall`** only starts the outbound ring-timeout watchdog when that flag is not false, so power-dialer / **`DialerPage`** behavior is unchanged (default remains on). **`DialerPage.tsx`** was not modified.
   *Files:* **`src/contexts/TwilioContext.tsx`** (**`MakeCallOptions`**, **`makeCall`**), **`src/components/layout/FloatingDialer.tsx`**, **`ROADMAP.md`**.
