@@ -24,7 +24,7 @@ COMMENT ON FUNCTION public.calls_expired_recording_batch(uuid, timestamptz, inte
 REVOKE ALL ON FUNCTION public.calls_expired_recording_batch(uuid, timestamptz, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.calls_expired_recording_batch(uuid, timestamptz, integer) TO service_role;
 
--- Daily purge: set app.settings.recording_retention_cron_secret on the database to match Edge secret RECORDING_RETENTION_CRON_SECRET.
+-- Daily purge: cron header secret was originally read from app.settings (not settable on hosted Supabase); superseded by private.recording_retention_cron_secret in 20260423140000.
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
