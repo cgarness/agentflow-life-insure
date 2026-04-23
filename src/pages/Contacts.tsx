@@ -179,15 +179,38 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
         <Clipboard className="w-3.5 h-3.5" />
       </button>
     </div>
-  );;
+  );
 };
 
 // ---- Delete Confirm ----
-const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: () => void; onClose: () => void; title?: string }> = ({ open, count, onConfirm, onClose, title }) => {
+const DeleteConfirmModal: React.FC<{
+  open: boolean;
+  count: number;
+  onConfirm: () => void | Promise<void>;
+  onClose: () => void;
+  title?: string;
+  confirmLabel?: string;
+}> = ({ open, count, onConfirm, onClose, title, confirmLabel }) => {
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (!open) setSubmitting(false);
+  }, [open]);
   if (!open) return null;
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    try {
+      await onConfirm();
+      onClose();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={() => { if (!submitting) onClose(); }} />
       <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4 animate-in fade-in zoom-in-95">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-destructive" /></div>
@@ -197,8 +220,11 @@ const DeleteConfirmModal: React.FC<{ open: boolean; count: number; onConfirm: ()
           </div>
         </div>
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 h-9 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent sidebar-transition">Cancel</button>
-          <button onClick={() => { onConfirm(); onClose(); }} className="flex-1 h-9 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 sidebar-transition">Delete</button>
+          <button type="button" disabled={submitting} onClick={onClose} className="flex-1 h-9 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent sidebar-transition disabled:opacity-50">Cancel</button>
+          <button type="button" disabled={submitting} onClick={() => void handleConfirm()} className="flex-1 h-9 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 sidebar-transition disabled:opacity-50 inline-flex items-center justify-center gap-2">
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {confirmLabel || "Delete"}
+          </button>
         </div>
       </div>
     </div>
@@ -254,14 +280,15 @@ const Contacts: React.FC = () => {
   const [realCampaigns, setRealCampaigns] = useState<{ id: string; name: string; type: string; status: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
     if (!user?.id || isBuildingOrganization) {
       console.warn(`fetchData: ${!user?.id ? "No user" : "Building organization"}, skipping fetch.`);
-      setLoading(false);
+      if (!silent) setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!silent) setLoading(true);
     // Secure diagnostic logging (no PII)
     console.info(`[Diagnostic] Session Ready. User: ${user.id.slice(0, 8)}... | Role: ${role} | Org: ${organizationId?.slice(0, 8)}...`);
     try {
@@ -427,7 +454,7 @@ const Contacts: React.FC = () => {
       console.error("fetchData: Failed to load contacts data:", err);
       toast.error(`Critical Error: ${err.message || "Failed to fetch contacts"}`);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [user?.id, isBuildingOrganization, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
 
@@ -490,7 +517,12 @@ const Contacts: React.FC = () => {
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [editRecruit, setEditRecruit] = useState<Recruit | null>(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [rowDeletePending, setRowDeletePending] = useState<
+    | { kind: "lead"; id: string; label: string }
+    | { kind: "client"; id: string; label: string }
+    | { kind: "recruit"; id: string; label: string }
+    | null
+  >(null);
   const [allLeadSources, setAllLeadSources] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -994,10 +1026,24 @@ const Contacts: React.FC = () => {
   };
 
   const handleDeleteLead = async (id: string) => {
-    await leadsSupabaseApi.delete(id);
-    toast.success("Lead deleted");
-    closeContact();
-    fetchData();
+    try {
+      await leadsSupabaseApi.delete(id);
+      setLeads(prev => prev.filter(l => l.id !== id));
+      setLeadsTotalCount(c => Math.max(0, c - 1));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      const openId = searchParams.get("contact");
+      if (openId === id || selectedLead?.id === id) closeContact();
+      toast.success("Lead deleted");
+      void fetchData({ silent: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      toast.error(msg);
+      void fetchData({ silent: true });
+    }
   };
 
   const buildLeadFiltersForSelectAll = () => {
@@ -1019,20 +1065,36 @@ const Contacts: React.FC = () => {
       const count = leadsTotalCount;
       try {
         await leadsSupabaseApi.deleteAllMatching(buildLeadFiltersForSelectAll());
-        toast.error(`Deleted ${count} leads.`, { duration: 3000, position: "bottom-right" });
+        setLeads([]);
+        setLeadsTotalCount(0);
         setSelectedIds(new Set());
         setSelectAllLeadsMode(false);
-        fetchData();
+        toast.success(`Deleted ${count} lead${count === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+        void fetchData({ silent: true });
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : "Bulk delete failed");
+        void fetchData({ silent: true });
       }
       return;
     }
-    const count = selectedIds.size;
-    for (const id of selectedIds) await leadsSupabaseApi.delete(id);
-    toast.error(`Deleted ${count} leads.`, { duration: 3000, position: "bottom-right" });
-    setSelectedIds(new Set());
-    fetchData();
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    try {
+      for (const id of ids) {
+        await leadsSupabaseApi.delete(id);
+      }
+      setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+      setLeadsTotalCount(c => Math.max(0, c - ids.length));
+      setSelectedIds(new Set());
+      const openId = searchParams.get("contact");
+      if ((openId && ids.includes(openId)) || (selectedLead && ids.includes(selectedLead.id))) closeContact();
+      toast.success(`Deleted ${ids.length} lead${ids.length === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+      void fetchData({ silent: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Bulk delete failed";
+      toast.error(msg);
+      void fetchData({ silent: true });
+    }
   };
 
   const handleBulkStatusChange = async (status: LeadStatus) => {
@@ -1091,17 +1153,45 @@ const Contacts: React.FC = () => {
   };
 
   const handleDeleteClient = async (id: string) => {
-    await clientsSupabaseApi.delete(id);
-    toast.success("Client deleted");
-    fetchData();
+    try {
+      await clientsSupabaseApi.delete(id);
+      setClients(prev => prev.filter(c => c.id !== id));
+      setClientsTotalCount(c => Math.max(0, c - 1));
+      setSelectedClientIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      const openId = searchParams.get("contact");
+      if (openId === id || selectedClient?.id === id) closeContact();
+      toast.success("Client deleted");
+      void fetchData({ silent: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      toast.error(msg);
+      void fetchData({ silent: true });
+    }
   };
 
   const handleBulkDeleteClients = async () => {
-    const count = selectedClientIds.size;
-    for (const id of selectedClientIds) await clientsSupabaseApi.delete(id);
-    toast.error(`Deleted ${count} clients.`, { duration: 3000, position: "bottom-right" });
-    setSelectedClientIds(new Set());
-    fetchData();
+    const ids = [...selectedClientIds];
+    if (ids.length === 0) return;
+    try {
+      for (const id of ids) {
+        await clientsSupabaseApi.delete(id);
+      }
+      setClients(prev => prev.filter(c => !ids.includes(c.id)));
+      setClientsTotalCount(c => Math.max(0, c - ids.length));
+      setSelectedClientIds(new Set());
+      const openId = searchParams.get("contact");
+      if ((openId && ids.includes(openId)) || (selectedClient && ids.includes(selectedClient.id))) closeContact();
+      toast.success(`Deleted ${ids.length} client${ids.length === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+      void fetchData({ silent: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Bulk delete failed";
+      toast.error(msg);
+      void fetchData({ silent: true });
+    }
   };
 
   // ===== Recruit CRUD =====
@@ -1112,17 +1202,45 @@ const Contacts: React.FC = () => {
   };
 
   const handleDeleteRecruit = async (id: string) => {
-    await recruitsSupabaseApi.delete(id);
-    toast.success("Recruit deleted");
-    fetchData();
+    try {
+      await recruitsSupabaseApi.delete(id);
+      setRecruits(prev => prev.filter(r => r.id !== id));
+      setRecruitsTotalCount(c => Math.max(0, c - 1));
+      setSelectedRecruitIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      const openId = searchParams.get("contact");
+      if (openId === id || selectedRecruit?.id === id) closeContact();
+      toast.success("Recruit deleted");
+      void fetchData({ silent: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      toast.error(msg);
+      void fetchData({ silent: true });
+    }
   };
 
   const handleBulkDeleteRecruits = async () => {
-    const count = selectedRecruitIds.size;
-    for (const id of selectedRecruitIds) await recruitsSupabaseApi.delete(id);
-    toast.error(`Deleted ${count} recruits.`, { duration: 3000, position: "bottom-right" });
-    setSelectedRecruitIds(new Set());
-    fetchData();
+    const ids = [...selectedRecruitIds];
+    if (ids.length === 0) return;
+    try {
+      for (const id of ids) {
+        await recruitsSupabaseApi.delete(id);
+      }
+      setRecruits(prev => prev.filter(r => !ids.includes(r.id)));
+      setRecruitsTotalCount(c => Math.max(0, c - ids.length));
+      setSelectedRecruitIds(new Set());
+      const openId = searchParams.get("contact");
+      if ((openId && ids.includes(openId)) || (selectedRecruit && ids.includes(selectedRecruit.id))) closeContact();
+      toast.success(`Deleted ${ids.length} recruit${ids.length === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+      void fetchData({ silent: true });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Bulk delete failed";
+      toast.error(msg);
+      void fetchData({ silent: true });
+    }
   };
 
   const handleBulkRecruitStatusChange = async (status: string) => {
@@ -1427,7 +1545,7 @@ const Contacts: React.FC = () => {
   };
 
   // Generic bulk actions toolbar
-  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void; onDelete: () => void }) => (
+  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void }) => (
     <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center gap-3 animate-in slide-in-from-top-2 fade-in duration-200">
       <span className="text-sm font-medium text-primary">{count} selected</span>
       <div className="w-px h-5 bg-primary/20" />
@@ -1605,7 +1723,7 @@ const Contacts: React.FC = () => {
           {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
             selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
             () => { setSelectedIds(new Set()); setSelectAllLeadsMode(false); },
-            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus), onDelete: handleBulkDeleteLeads }
+            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
           )}
 
           {/* Select-all-across-pages banner */}
@@ -1662,7 +1780,7 @@ const Contacts: React.FC = () => {
                             <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderCell(l, col.key, aging)}</td>
                           ))}
                           <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
-                            {renderActionMenu(l.id, () => setEditLead(l), () => handleDeleteLead(l.id))}
+                            {renderActionMenu(l.id, () => setEditLead(l), () => setRowDeletePending({ kind: "lead", id: l.id, label: `${l.firstName} ${l.lastName}`.trim() || "this lead" }))}
                           </td>
                         </tr>
                       );
@@ -1722,7 +1840,7 @@ const Contacts: React.FC = () => {
           {selectedClientIds.size > 0 && renderBulkActions(
             selectedClientIds.size,
             () => setSelectedClientIds(new Set()),
-            { showAssign: true, onDelete: handleBulkDeleteClients }
+            { showAssign: true }
           )}
           <div className="bg-card rounded-xl border">
             {clients.length === 0 ? (
@@ -1751,7 +1869,7 @@ const Contacts: React.FC = () => {
                           <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderClientCell(c, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
-                          {renderActionMenu(c.id, () => setEditClient(c), () => handleDeleteClient(c.id))}
+                          {renderActionMenu(c.id, () => setEditClient(c), () => setRowDeletePending({ kind: "client", id: c.id, label: `${c.firstName} ${c.lastName}`.trim() || "this client" }))}
                         </td>
                       </tr>
                     ))}
@@ -1779,7 +1897,7 @@ const Contacts: React.FC = () => {
           {selectedRecruitIds.size > 0 && view === "table" && renderBulkActions(
             selectedRecruitIds.size,
             () => setSelectedRecruitIds(new Set()),
-            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange, onDelete: handleBulkDeleteRecruits }
+            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange }
           )}
           <div className="bg-card rounded-xl border">
             {recruits.length === 0 ? (
@@ -1808,7 +1926,7 @@ const Contacts: React.FC = () => {
                           <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)}`} style={{ width: columnWidths[tab]?.[col.key], minWidth: columnWidths[tab]?.[col.key] }}>{renderRecruitCell(r, col.key)}</td>
                         ))}
                         <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
-                          {renderActionMenu(r.id, () => setEditRecruit(r), () => handleDeleteRecruit(r.id))}
+                          {renderActionMenu(r.id, () => setEditRecruit(r), () => setRowDeletePending({ kind: "recruit", id: r.id, label: `${r.firstName} ${r.lastName}`.trim() || "this recruit" }))}
                         </td>
                       </tr>
                     ))}
@@ -2005,13 +2123,29 @@ const Contacts: React.FC = () => {
         />
       )}
       <AgentModal agent={selectedAgent} onClose={closeContact} />
-      <DeleteConfirmModal open={deleteConfirmOpen} count={selectedIds.size} onConfirm={handleBulkDeleteLeads} onClose={() => setDeleteConfirmOpen(false)} />
       <DeleteConfirmModal
         open={bulkDeleteOpen}
-        count={tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size}
-        title={`Delete ${tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size} ${tab}?`}
+        count={tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size}
+        title={(() => {
+          const n = tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size;
+          const label = tab === "Leads" ? "lead" : tab === "Clients" ? "client" : "recruit";
+          return `Delete ${n} ${label}${n !== 1 ? "s" : ""}?`;
+        })()}
         onConfirm={tab === "Leads" ? handleBulkDeleteLeads : tab === "Clients" ? handleBulkDeleteClients : handleBulkDeleteRecruits}
         onClose={() => setBulkDeleteOpen(false)}
+      />
+      <DeleteConfirmModal
+        open={rowDeletePending !== null}
+        count={1}
+        title={rowDeletePending ? `Delete ${rowDeletePending.label}?` : "Delete contact?"}
+        onConfirm={async () => {
+          if (!rowDeletePending) return;
+          const { kind, id } = rowDeletePending;
+          if (kind === "lead") await handleDeleteLead(id);
+          else if (kind === "client") await handleDeleteClient(id);
+          else await handleDeleteRecruit(id);
+        }}
+        onClose={() => setRowDeletePending(null)}
       />
 
       {/* Import Modal */}
