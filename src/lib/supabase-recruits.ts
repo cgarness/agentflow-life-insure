@@ -31,19 +31,21 @@ export const recruitsSupabaseApi = {
             return q;
         };
 
-        const { count: totalCount, error: countError } = await applyFilters(
-            (supabase as any).from("recruits").select("id", { count: "exact", head: true })
-        );
-        if (countError) throw new Error(countError.message);
-
         const from = page * pageSize;
         const to = from + pageSize - 1;
-        let query = applyFilters(
+        const countPromise = applyFilters(
+            (supabase as any).from("recruits").select("id", { count: "exact", head: true })
+        );
+        let dataQuery = applyFilters(
             (supabase as any).from("recruits").select("*").order("created_at", { ascending: false })
         );
-        query = query.range(from, to);
+        dataQuery = dataQuery.range(from, to);
 
-        const { data, error } = await query;
+        const [
+            { count: totalCount, error: countError },
+            { data, error },
+        ] = await Promise.all([countPromise, dataQuery]);
+        if (countError) throw new Error(countError.message);
         if (error) throw new Error(error.message);
         return { data: (data ?? []).map(rowToRecruit), totalCount: totalCount ?? 0 };
     },

@@ -266,6 +266,28 @@ const Contacts: React.FC = () => {
     // Secure diagnostic logging (no PII)
     console.info(`[Diagnostic] Session Ready. User: ${user.id.slice(0, 8)}... | Role: ${role} | Org: ${organizationId?.slice(0, 8)}...`);
     try {
+      // Import History has no grid data — avoid loading every contact list.
+      if (tab === "Import History") {
+        const pendingOnly = pendingContactId.current;
+        if (pendingOnly) {
+          leadsSupabaseApi.getById(pendingOnly).then(res => {
+            setSelectedLead(res.lead);
+            pendingContactId.current = null;
+          }).catch(() => {
+            clientsSupabaseApi.getById(pendingOnly).then(client => {
+              setSelectedClient(client);
+              pendingContactId.current = null;
+            }).catch(() => {
+              recruitsSupabaseApi.getById(pendingOnly).then(recruit => {
+                setSelectedRecruit(recruit);
+                pendingContactId.current = null;
+              }).catch(() => { /* contact not found */ });
+            });
+          });
+        }
+        return;
+      }
+
       // Only pass assignedAgentIds when the user has explicitly selected specific
       // downline agents. When the array is empty, omit the filter entirely so that
       // RLS hierarchical policies (Team Leader, Admin) return ALL accessible records.
@@ -309,56 +331,78 @@ const Contacts: React.FC = () => {
         pageSize: PAGE_SIZE,
       };
 
-      const [leadResult, clientResult, recruitResult, agentData, stats] = await Promise.all([
-        leadsSupabaseApi.getAll(leadFilters).catch(e => { console.error("Error fetching leads:", e); toast.error(`Failed to load leads: ${e.message}`); return { data: [] as Lead[], totalCount: 0 }; }),
-        clientsSupabaseApi.getAll(clientFilters).catch(e => { console.error("Error fetching clients:", e); return { data: [] as Client[], totalCount: 0 }; }),
-        recruitsSupabaseApi.getAll(recruitFilters).catch(e => { console.error("Error fetching recruits:", e); return { data: [] as Recruit[], totalCount: 0 }; }),
-        usersApi.getAll({ search: searchQuery }).catch(e => { console.error("Error fetching agents:", e); return []; }),
-        leadsSupabaseApi.getSourceStats().catch(e => { console.error("Error fetching lead stats:", e); return []; }),
-      ]);
+      let leadSnapshot: Lead[] | null = null;
+      let clientSnapshot: Client[] | null = null;
+      let recruitSnapshot: Recruit[] | null = null;
+      let leadTotal = 0;
+      let clientTotal = 0;
+      let recruitTotal = 0;
 
-      const leadData = leadResult.data;
-      const clientData = clientResult.data;
-      const recruitData = recruitResult.data;
+      if (tab === "Leads") {
+        const leadResult = await leadsSupabaseApi.getAll(leadFilters).catch(e => {
+          console.error("Error fetching leads:", e);
+          toast.error(`Failed to load leads: ${e.message}`);
+          return { data: [] as Lead[], totalCount: 0 };
+        });
+        leadSnapshot = leadResult.data;
+        leadTotal = leadResult.totalCount;
+        setLeads(leadResult.data);
+        setLeadsTotalCount(leadResult.totalCount);
+        setSelectedLead((prev) => {
+          if (!prev) return null;
+          const next = leadResult.data.find((l) => l.id === prev.id);
+          return next ?? prev;
+        });
+      } else if (tab === "Clients") {
+        const clientResult = await clientsSupabaseApi.getAll(clientFilters).catch(e => {
+          console.error("Error fetching clients:", e);
+          toast.error(`Failed to load clients: ${e.message}`);
+          return { data: [] as Client[], totalCount: 0 };
+        });
+        clientSnapshot = clientResult.data;
+        clientTotal = clientResult.totalCount;
+        setClients(clientResult.data);
+        setClientsTotalCount(clientResult.totalCount);
+        setSelectedClient((prev) => {
+          if (!prev) return null;
+          const next = clientResult.data.find((c) => c.id === prev.id);
+          return next ?? prev;
+        });
+      } else if (tab === "Recruits") {
+        const recruitResult = await recruitsSupabaseApi.getAll(recruitFilters).catch(e => {
+          console.error("Error fetching recruits:", e);
+          toast.error(`Failed to load recruits: ${e.message}`);
+          return { data: [] as Recruit[], totalCount: 0 };
+        });
+        recruitSnapshot = recruitResult.data;
+        recruitTotal = recruitResult.totalCount;
+        setRecruits(recruitResult.data);
+        setRecruitsTotalCount(recruitResult.totalCount);
+        setSelectedRecruit((prev) => {
+          if (!prev) return null;
+          const next = recruitResult.data.find((r) => r.id === prev.id);
+          return next ?? prev;
+        });
+      } else if (tab === "Agents") {
+        const agentData = await usersApi.getAll({ search: searchQuery }).catch(e => {
+          console.error("Error fetching agents:", e);
+          return [] as UserWithProfile[];
+        });
+        setAgents(agentData);
+        setSelectedAgent((prev) => {
+          if (!prev) return null;
+          const next = agentData.find((u) => u.id === prev.id);
+          return next ?? prev;
+        });
+      }
 
-      setLeads(leadData);
-      setLeadsTotalCount(leadResult.totalCount);
-      setClients(clientData);
-      setClientsTotalCount(clientResult.totalCount);
-      setRecruits(recruitData);
-      setRecruitsTotalCount(recruitResult.totalCount);
-      setAgents(agentData);
-      setSourceStats(stats);
-
-      setSelectedLead((prev) => {
-        if (!prev) return null;
-        const next = leadData.find((l) => l.id === prev.id);
-        return next ?? prev;
-      });
-      setSelectedClient((prev) => {
-        if (!prev) return null;
-        const next = clientData.find((c) => c.id === prev.id);
-        return next ?? prev;
-      });
-      setSelectedRecruit((prev) => {
-        if (!prev) return null;
-        const next = recruitData.find((r) => r.id === prev.id);
-        return next ?? prev;
-      });
-      setSelectedAgent((prev) => {
-        if (!prev) return null;
-        const next = agentData.find((u) => u.id === prev.id);
-        return next ?? prev;
-      });
-
-      // Deep-link fallback: if pendingContactId is not in the current page, fetch directly by ID
+      // Deep-link fallback: if pendingContactId is not in the loaded tab slice, fetch by ID
       const pendingId = pendingContactId.current;
       if (pendingId) {
-        const inLeads = leadData.find(l => l.id === pendingId);
-        const inClients = clientData.find(c => c.id === pendingId);
-        const inRecruits = recruitData.find(r => r.id === pendingId);
+        const inLeads = leadSnapshot?.some(l => l.id === pendingId);
+        const inClients = clientSnapshot?.some(c => c.id === pendingId);
+        const inRecruits = recruitSnapshot?.some(r => r.id === pendingId);
         if (!inLeads && !inClients && !inRecruits) {
-          // Try each contact type until one resolves
           leadsSupabaseApi.getById(pendingId).then(res => {
             setSelectedLead(res.lead);
             pendingContactId.current = null;
@@ -376,14 +420,17 @@ const Contacts: React.FC = () => {
         }
       }
 
-      console.log(`fetchData: Load complete. Leads: ${leadData.length}/${leadResult.totalCount}, Clients: ${clientData.length}/${clientResult.totalCount}, Recruits: ${recruitData.length}/${recruitResult.totalCount}`);
+      const logLeads = leadSnapshot?.length ?? 0;
+      const logClients = clientSnapshot?.length ?? 0;
+      const logRecruits = recruitSnapshot?.length ?? 0;
+      console.log(`fetchData: Load complete (${tab}). Leads: ${logLeads}/${leadTotal || "—"}, Clients: ${logClients}/${clientTotal || "—"}, Recruits: ${logRecruits}/${recruitTotal || "—"}`);
     } catch (err: any) {
       console.error("fetchData: Failed to load contacts data:", err);
       toast.error(`Critical Error: ${err.message || "Failed to fetch contacts"}`);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
+  }, [user?.id, isBuildingOrganization, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -444,7 +491,6 @@ const Contacts: React.FC = () => {
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [editRecruit, setEditRecruit] = useState<Recruit | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [sourceStats, setSourceStats] = useState<{ source: string; leads: number; contacted: string; conversion: string; sold: number }[]>([]);
   const [allLeadSources, setAllLeadSources] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -928,8 +974,21 @@ const Contacts: React.FC = () => {
   };
 
   const handleUpdateLead = async (id: string, data: Partial<Lead>) => {
-    await leadsSupabaseApi.update(id, data);
-    fetchData();
+    try {
+      const updated = await leadsSupabaseApi.update(id, data);
+      const leavesFilteredView =
+        Boolean(statusFilter) && data.status !== undefined && updated.status !== statusFilter;
+      setLeads(prev => {
+        const mapped = prev.map(l => (l.id === id ? updated : l));
+        if (leavesFilteredView) return mapped.filter(l => l.id !== id);
+        return mapped;
+      });
+      if (leavesFilteredView) setLeadsTotalCount(c => Math.max(0, c - 1));
+      setSelectedLead(prev => (prev?.id === id ? updated : prev));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Update failed";
+      toast.error(msg);
+    }
   };
 
   const handleDeleteLead = async (id: string) => {
@@ -948,12 +1007,27 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkStatusChange = async (status: LeadStatus) => {
-    const count = selectedIds.size;
-    for (const id of selectedIds) await leadsSupabaseApi.update(id, { status });
-    toast.success(`Updated status for ${count} leads.`, { duration: 3000, position: "bottom-right" });
-    setSelectedIds(new Set());
-    setBulkStatusOpen(false);
-    fetchData();
+    const ids = [...selectedIds];
+    const count = ids.length;
+    try {
+      for (const id of ids) {
+        await leadsSupabaseApi.update(id, { status });
+      }
+      const leavesFilteredView = Boolean(statusFilter) && status !== statusFilter;
+      setLeads(prev => {
+        let next = prev.map(l => (ids.includes(l.id) ? { ...l, status } : l));
+        if (leavesFilteredView) next = next.filter(l => !ids.includes(l.id));
+        return next;
+      });
+      if (leavesFilteredView) setLeadsTotalCount(c => Math.max(0, c - count));
+      setSelectedLead(prev => (prev && ids.includes(prev.id) ? { ...prev, status } : prev));
+      toast.success(`Updated status for ${count} leads.`, { duration: 3000, position: "bottom-right" });
+      setSelectedIds(new Set());
+      setBulkStatusOpen(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Bulk update failed";
+      toast.error(msg);
+    }
   };
 
   const handleBulkAssign = async (agentName: string) => {
@@ -1009,12 +1083,21 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkRecruitStatusChange = async (status: string) => {
-    const count = selectedRecruitIds.size;
-    for (const id of selectedRecruitIds) await recruitsSupabaseApi.update(id, { status });
-    toast.success(`Updated status for ${count} recruits.`, { duration: 3000, position: "bottom-right" });
-    setSelectedRecruitIds(new Set());
-    setBulkStatusOpen(false);
-    fetchData();
+    const ids = [...selectedRecruitIds];
+    const count = ids.length;
+    try {
+      for (const id of ids) {
+        await recruitsSupabaseApi.update(id, { status });
+      }
+      setRecruits(prev => prev.map(r => (ids.includes(r.id) ? { ...r, status } : r)));
+      setSelectedRecruit(prev => (prev && ids.includes(prev.id) ? { ...prev, status } : prev));
+      toast.success(`Updated status for ${count} recruits.`, { duration: 3000, position: "bottom-right" });
+      setSelectedRecruitIds(new Set());
+      setBulkStatusOpen(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Bulk update failed";
+      toast.error(msg);
+    }
   };
 
   const handleBulkAgentStatusChange = async (status: string) => {
@@ -1117,9 +1200,13 @@ const Contacts: React.FC = () => {
             value={r.status}
             onChange={(e) => {
               e.stopPropagation();
-              recruitsSupabaseApi.update(r.id, { status: e.target.value }).then(() => {
-                toast.success(`Status changed to ${e.target.value}`);
-                fetchData();
+              const nextStatus = e.target.value;
+              recruitsSupabaseApi.update(r.id, { status: nextStatus }).then((updated) => {
+                setRecruits(prev => prev.map(x => (x.id === updated.id ? updated : x)));
+                setSelectedRecruit(prev => (prev?.id === r.id ? updated : prev));
+                toast.success(`Status changed to ${nextStatus}`);
+              }).catch((err: unknown) => {
+                toast.error(err instanceof Error ? err.message : "Update failed");
               });
             }}
             onClick={(e) => e.stopPropagation()}

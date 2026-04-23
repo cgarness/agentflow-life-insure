@@ -41,26 +41,28 @@ export const leadsSupabaseApi = {
       return q;
     };
 
-    // Count query — server-side filters only, no range
-    const countQuery = applyServerFilters(
-      supabase.from("leads").select("id", { count: "exact", head: true })
-    );
-    const { count: totalCount, error: countError } = await countQuery;
-    if (countError) throw new Error(countError.message);
+    // Nested `calls` is only needed for attempt-count / last-disposition filters and derived fields.
+    const needsCallJoin =
+      (filters?.attemptCounts && filters.attemptCounts.length > 0) ||
+      !!filters?.lastDisposition;
+    const selectCols = needsCallJoin ? "*, calls(status, created_at)" : "*";
 
-    // Two-pass fetch: over-fetch to absorb client-side filter shrinkage
-    // (timezones, attemptCounts, callableNow, lastDisposition are all client-side)
+    // Count + data in parallel (faster than sequential round-trips).
     const batchSize = pageSize * 5;
     const batchOffset = page * batchSize;
+    const countPromise = applyServerFilters(
+      supabase.from("leads").select("id", { count: "exact", head: true })
+    );
     let dataQuery = applyServerFilters(
-      supabase
-        .from("leads")
-        .select(`*, calls(status, created_at)`)
-        .order("created_at", { ascending: false })
+      supabase.from("leads").select(selectCols).order("created_at", { ascending: false })
     );
     dataQuery = dataQuery.range(batchOffset, batchOffset + batchSize - 1);
 
-    const { data, error } = await dataQuery;
+    const [
+      { count: totalCount, error: countError },
+      { data, error },
+    ] = await Promise.all([countPromise, dataQuery]);
+    if (countError) throw new Error(countError.message);
     if (error) throw new Error(error.message);
 
     let processedLeads = (data ?? []).map(rowToLead);
