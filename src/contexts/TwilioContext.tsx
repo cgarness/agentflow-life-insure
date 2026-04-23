@@ -133,6 +133,11 @@ export interface MakeCallOptions {
   contactName?: string | null;
   contactPhone?: string | null;
   contactType?: string | null;
+  /**
+   * When false, skips the outbound ring-timeout watchdog for this call (manual / floating dialer).
+   * Omitted or true: power-dialer behavior — hang up if the line rings past the configured limit.
+   */
+  applyOutboundRingTimeout?: boolean;
 }
 
 /** Optional campaign-level override for `getSmartCallerId` (falls back to org Phone Settings). */
@@ -1973,8 +1978,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       activeCallControlIdRef.current = null;
       callIdsDbSyncedRef.current = false;
       recordingStartedRef.current = false;
-      outboundRingStartedAtRef.current = Date.now();
-      setOutboundRingSessionId(callRecord.id);
+
+      const applyOutboundRingTimeout = opts?.applyOutboundRingTimeout !== false;
+      if (applyOutboundRingTimeout) {
+        outboundRingStartedAtRef.current = Date.now();
+        setOutboundRingSessionId(callRecord.id);
+      } else {
+        outboundRingStartedAtRef.current = 0;
+        setOutboundRingSessionId(null);
+      }
 
       if (!getTwilioDevice()) {
         throw new Error("Twilio Device is not ready. Wait for Ready status and try again.");

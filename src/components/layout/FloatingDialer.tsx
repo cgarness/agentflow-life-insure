@@ -403,6 +403,7 @@ const FloatingDialer: React.FC = () => {
       contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : null,
       contactPhone: destinationNumber,
       contactType: selectedContact?.type || null,
+      applyOutboundRingTimeout: false,
     };
     const callId = await twilioMakeCall(destinationNumber, callerNumber || undefined, opts);
     if (!callId) return;
