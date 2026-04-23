@@ -40,6 +40,16 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function supabasePublicOrigin(): string {
+  return (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
+}
+
+function edgeFunctionAbsoluteUrl(req: Request, slug: string): string {
+  const origin = supabasePublicOrigin();
+  const search = new URL(req.url).search;
+  return `${origin}/functions/v1/${slug}${search}`;
+}
+
 async function validateTwilioSignature(
   req: Request,
   authToken: string,
@@ -48,9 +58,7 @@ async function validateTwilioSignature(
   const signature = req.headers.get("x-twilio-signature");
   if (!signature) return false;
 
-  const fullUrl =
-    "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/twilio-voice-inbound" +
-    new URL(req.url).search;
+  const fullUrl = edgeFunctionAbsoluteUrl(req, "twilio-voice-inbound");
 
   const sortedKeys = Object.keys(params).sort();
   let signingString = fullUrl;
@@ -80,19 +88,13 @@ async function parseFormBody(req: Request): Promise<Record<string, string>> {
   return params;
 }
 
-function baseUrl(req: Request): string {
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  return `${proto}://${host}`;
-}
-
-function selfUrl(req: Request, query: Record<string, string>): string {
+function selfUrl(query: Record<string, string>): string {
   const qs = new URLSearchParams(query).toString();
-  return `${baseUrl(req)}/functions/v1/twilio-voice-inbound${qs ? `?${qs}` : ""}`;
+  return `${supabasePublicOrigin()}/functions/v1/twilio-voice-inbound${qs ? `?${qs}` : ""}`;
 }
 
-function recordingStatusUrl(req: Request): string {
-  return `${baseUrl(req)}/functions/v1/twilio-recording-status`;
+function recordingStatusUrl(): string {
+  return `${supabasePublicOrigin()}/functions/v1/twilio-recording-status`;
 }
 
 function digitsOnly(raw: string): string {
@@ -408,13 +410,13 @@ async function handleFallback(
     }
   }
 
-  const hangupUrl = selfUrl(req, {
+  const hangupUrl = selfUrl({
     fallback: "hangup",
     ...(callRowId ? { call_row_id: callRowId } : {}),
     ...(orgId ? { org_id: orgId } : {}),
   });
 
-  const twiml = buildVoicemailTwiml(recordingStatusUrl(req), hangupUrl);
+  const twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl);
   return new Response(twiml, { status: 200, headers: twimlHeaders });
 }
 
@@ -534,16 +536,16 @@ async function handleInitialInbound(
         );
       }
     }
-    const hangupUrl = selfUrl(req, {
+    const hangupUrl = selfUrl({
       fallback: "hangup",
       ...(callRowId ? { call_row_id: callRowId } : {}),
       org_id: organizationId,
     });
-    const twiml = buildVoicemailTwiml(recordingStatusUrl(req), hangupUrl);
+    const twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl);
     return new Response(twiml, { status: 200, headers: twimlHeaders });
   }
 
-  const actionUrl = selfUrl(req, {
+  const actionUrl = selfUrl({
     fallback: "voicemail",
     ...(callRowId ? { call_row_id: callRowId } : {}),
     org_id: organizationId,
@@ -553,7 +555,7 @@ async function handleInitialInbound(
     identities,
     actionUrl,
     settings.recording_enabled,
-    recordingStatusUrl(req),
+    recordingStatusUrl(),
   );
   return new Response(twiml, { status: 200, headers: twimlHeaders });
 }

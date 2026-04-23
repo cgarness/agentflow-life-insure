@@ -10,6 +10,16 @@ const corsHeaders = {
 const twimlHeaders = { ...corsHeaders, "Content-Type": "text/xml" };
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
+function supabasePublicOrigin(): string {
+  return (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
+}
+
+function edgeFunctionAbsoluteUrl(req: Request, slug: string): string {
+  const origin = supabasePublicOrigin();
+  const search = new URL(req.url).search;
+  return `${origin}/functions/v1/${slug}${search}`;
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
@@ -31,9 +41,7 @@ async function validateTwilioSignature(
   const signature = req.headers.get("x-twilio-signature");
   if (!signature) return false;
 
-  const fullUrl =
-    "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/twilio-voice-status" +
-    new URL(req.url).search;
+  const fullUrl = edgeFunctionAbsoluteUrl(req, "twilio-voice-status");
 
   const sortedKeys = Object.keys(params).sort();
   let signingString = fullUrl;

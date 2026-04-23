@@ -11,6 +11,17 @@ const twimlHeaders = { ...corsHeaders, "Content-Type": "text/xml" };
 
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
+/** Public API origin (no trailing slash) — Twilio signs this host; must match embedded TwiML URLs. */
+function supabasePublicOrigin(): string {
+  return (Deno.env.get("SUPABASE_URL") ?? "").trim().replace(/\/+$/, "");
+}
+
+function edgeFunctionAbsoluteUrl(req: Request, slug: string): string {
+  const origin = supabasePublicOrigin();
+  const search = new URL(req.url).search;
+  return `${origin}/functions/v1/${slug}${search}`;
+}
+
 function xmlEscape(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -46,9 +57,7 @@ async function validateTwilioSignature(
   const signature = req.headers.get("x-twilio-signature");
   if (!signature) return false;
 
-  const fullUrl =
-    "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/twilio-voice-webhook" +
-    new URL(req.url).search;
+  const fullUrl = edgeFunctionAbsoluteUrl(req, "twilio-voice-webhook");
 
   const sortedKeys = Object.keys(params).sort();
   let signingString = fullUrl;
@@ -109,12 +118,6 @@ async function resolveOrgFromPhoneNumber(
     if (data?.organization_id) return data.organization_id as string;
   }
   return null;
-}
-
-function buildStatusCallbackUrl(req: Request): string {
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  return `${proto}://${host}/functions/v1/twilio-voice-status`;
 }
 
 function buildDialTwiml(toNumber: string, callerId: string, statusCallbackUrl: string): string {
@@ -226,7 +229,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const statusCallbackUrl = buildStatusCallbackUrl(req);
+    const statusCallbackUrl = `${supabasePublicOrigin()}/functions/v1/twilio-voice-status`;
 
     const twiml = buildDialTwiml(toNumber, outboundCallerId, statusCallbackUrl);
 
