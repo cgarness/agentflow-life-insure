@@ -2,6 +2,41 @@ import { supabase } from "@/integrations/supabase/client";
 import { Lead, Client } from "@/lib/types";
 import { triggerWin } from "./win-trigger";
 
+/** Extra policies at conversion time (primary policy maps to `clients` columns). Stored on the client row under `custom_fields.additional_policies`. */
+export type AdditionalPolicyPayload = {
+  policyType: string;
+  carrier: string;
+  policyNumber: string;
+  faceAmount: string;
+  premiumAmount: string;
+  issueDate: string | null;
+  effectiveDate: string | null;
+};
+
+export type LeadConversionPayload = Partial<Client> & {
+  additionalPolicies?: AdditionalPolicyPayload[];
+};
+
+const ADDITIONAL_POLICIES_KEY = "additional_policies";
+
+function mergeCustomFieldsOnConversion(
+  lead: Lead,
+  additionalPolicies: AdditionalPolicyPayload[] | undefined
+): Record<string, unknown> | null {
+  const base =
+    lead.customFields && typeof lead.customFields === "object" && !Array.isArray(lead.customFields)
+      ? { ...(lead.customFields as Record<string, unknown>) }
+      : {};
+
+  if (additionalPolicies && additionalPolicies.length > 0) {
+    base[ADDITIONAL_POLICIES_KEY] = additionalPolicies;
+  } else {
+    delete base[ADDITIONAL_POLICIES_KEY];
+  }
+
+  return Object.keys(base).length > 0 ? base : null;
+}
+
 export const conversionSupabaseApi = {
   /**
    * Converts a lead to a client by:
@@ -9,7 +44,9 @@ export const conversionSupabaseApi = {
    * 2. Updating related notes and activities to point to the new client ID and change contact_type to 'client'.
    * 3. Deleting the original lead record.
    */
-  async convertLeadToClient(lead: Lead, policyInfo: Partial<Client>, organizationId: string | null = null): Promise<string> {
+  async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null): Promise<string> {
+    const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
+
     // 1. Create the client record
     const clientData = {
       first_name: lead.firstName,
@@ -29,7 +66,7 @@ export const conversionSupabaseApi = {
       notes: policyInfo.notes || lead.notes || null,
       assigned_agent_id: lead.assignedAgentId,
       organization_id: organizationId,
-      custom_fields: lead.customFields || null,
+      custom_fields,
     };
 
     const { data: client, error: clientError } = await (supabase as any)
