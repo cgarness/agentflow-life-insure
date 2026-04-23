@@ -45,6 +45,7 @@ import {
   stopRecording as stopBrowserCallRecording,
   uploadCallRecording,
 } from "@/lib/browser-recording";
+import { isCallRecordingEnabledDb } from "@/lib/call-recording-policy";
 import { getStateByAreaCode } from "@/lib/caller-id-selection";
 import {
   CALLER_ID_STICKY_MIN_DURATION_SEC,
@@ -1620,9 +1621,23 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             (profile as { organization_id?: string | null })?.organization_id || organizationId || "";
           const micSnap = mediaStreamRef.current;
           setTimeout(() => {
-            void startBrowserCallRecording(rowId, orgForRec, {
-              agentMicStream: micSnap,
-            });
+            void (async () => {
+              if (!rowId || !orgForRec) return;
+              const { data: ps, error: recPolicyErr } = await supabase
+                .from("phone_settings")
+                .select("recording_enabled")
+                .eq("organization_id", orgForRec)
+                .maybeSingle();
+              if (recPolicyErr) {
+                console.warn("[TwilioContext] recording_enabled lookup failed:", recPolicyErr.message);
+              }
+              if (!isCallRecordingEnabledDb(ps?.recording_enabled as boolean | null | undefined)) {
+                return;
+              }
+              await startBrowserCallRecording(rowId, orgForRec, {
+                agentMicStream: micSnap,
+              });
+            })();
           }, 1000);
         }
       });

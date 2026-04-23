@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 22, 2026
+**Owner:** Chris Garness | **Last Updated:** April 23, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -35,6 +35,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260423100000` | `calls_expired_recording_batch_and_retention_cron.sql` | Adds **`calls_expired_recording_batch`** (service_role only) for org + cutoff batching; schedules **`recording-retention-purge-daily`** pg_cron (**`08:15` UTC**) → Edge **`recording-retention-purge`** with **`x-cron-secret`** from **`app.settings.recording_retention_cron_secret`**. |
 | `20260420180000` | `campaigns_ring_timeout_seconds.sql` | Adds nullable **`ring_timeout_seconds`** on **`public.campaigns`** for per-campaign outbound ring timeout; **`NOTIFY pgrst, 'reload schema'`**. |
 | `2026-04-20 (ops)` | Production **`db push`** + Edge redeploys | Orphan remote migration **`20260418180637`** marked reverted (**`npx supabase migration repair --status reverted 20260418180637`**). **`npx supabase db push --yes`** applied **`20260418170001`–`07`**, **`20260418170010`**, **`20260418_enhance_message_templates`**. Twilio + **`inbound-call-claim`** Edge Functions redeployed to **`jncvvsvckxhqgqvkppmj`**. |
 | `20260418160000` | `leaderboard_tv_banner_team_leader_update.sql` | Adds **`leaderboard_tv_banner_text`** on `company_settings` (optional TV ticker override). New RLS policy **`company_settings_team_leader_update`**: **Team Leader** / **Team Lead** may **UPDATE** their org’s `company_settings` row (Admins unchanged via existing **`company_settings_write`**). `NOTIFY pgrst, 'reload schema'`. |
@@ -67,6 +68,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-23 | [DONE] | Call Recording — dialer respects toggle + retention purge**
+  *What:* **Outbound browser recording** now reads **`phone_settings.recording_enabled`** at call accept (same rule as inbound TwiML: only explicit **`false`** turns recording off; null defaults to on). **Recording Settings** and **Phone System** use shared **`isCallRecordingEnabledDb`** in **`src/lib/call-recording-policy.ts`**. **Retention:** new Edge Function **`recording-retention-purge`** (cron secret **`RECORDING_RETENTION_CRON_SECRET`**) deletes **`call-recordings`** objects and clears **`calls.recording_*`** for rows past each org’s **`recording_retention_days`**. Migration adds RPC **`calls_expired_recording_batch`** + daily pg_cron.
+  *Ops (2026-04-23 applied):* Edge secret **`RECORDING_RETENTION_CRON_SECRET`** is set on **`jncvvsvckxhqgqvkppmj`**, **`recording-retention-purge`** is deployed, and migrations are pushed (including **`calls_expired_recording_batch`** + pg_cron). **`supabase db query --linked`** cannot run **`ALTER DATABASE ... SET app.settings.*`** (permission denied); **`pg_cron`** must send the same secret in **`x-cron-secret`**. A one-time helper file **`recording-cron-secret.txt.local`** (gitignored `*.local`) was generated in the repo root: line 2 is the hex secret, line 6+ is the exact **`ALTER DATABASE postgres SET app.settings.recording_retention_cron_secret = '...'`** to paste into **Supabase Dashboard → SQL Editor** as postgres — run it once, then delete the helper file.
+  *Files:* **`src/contexts/TwilioContext.tsx`**, **`src/components/settings/CallRecordingSettings.tsx`**, **`src/components/settings/phone/usePhoneSettingsController.ts`**, **`src/lib/call-recording-policy.ts`**, **`src/lib/call-recording-policy.test.ts`**, **`supabase/functions/recording-retention-purge/index.ts`**, **`supabase/migrations/20260423100000_calls_expired_recording_batch_and_retention_cron.sql`**, **`supabase/config.toml`**, **`src/integrations/supabase/types.ts`**, **`ROADMAP.md`**.
 
 - **2026-04-22 | [DONE] | Settings — Number Reputation table only**
   *What:* **Settings → Number Reputation** no longer expands rows. Removed the chevron column and the inline **CarrierReputationPanel** block (stats, score factors, carrier detail). Header is title only (no subtitle); removed **Refresh** and **Scan all lines** — per-row **Check** still runs **`twilio-reputation-check`** and refetches data.

@@ -10,6 +10,7 @@ import {
   type InboundRoutingStrategy,
   type PhoneSettingsSecretBundle,
 } from "./phoneSettingsSecretJson";
+import { isCallRecordingEnabledDb } from "@/lib/call-recording-policy";
 import type { PhoneNumberRow } from "./NumberManagementSection";
 
 export interface Profile {
@@ -147,7 +148,7 @@ export function usePhoneSettingsController() {
       setAuthToken(row.auth_token || "");
       setApiKeySid(row.api_key || "");
       setApplicationSid(row.application_sid || "");
-      setRecordingEnabled(row.recording_enabled !== false);
+      setRecordingEnabled(isCallRecordingEnabledDb(row.recording_enabled));
       setTrustHubProfileSid(row.trust_hub_profile_sid ?? null);
       setShakenStirEnabled(row.shaken_stir_enabled !== false);
 
@@ -162,7 +163,7 @@ export function usePhoneSettingsController() {
         apiKeySid: row.api_key || "",
         apiKeySecret: secretFromJson,
         applicationSid: row.application_sid || "",
-        recordingEnabled: row.recording_enabled !== false,
+        recordingEnabled: isCallRecordingEnabledDb(row.recording_enabled),
       });
     } else {
       setPhoneSettingsId(null);

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Mic, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { isCallRecordingEnabledDb } from "@/lib/call-recording-policy";
 
 const CallRecordingSettings: React.FC = () => {
   const { organizationId } = useOrganization();
@@ -42,11 +43,11 @@ const CallRecordingSettings: React.FC = () => {
     if (data) {
       const d = data as any;
       setPhoneSettingsRowId(d.id ?? null);
-      setRecordingEnabled(!!d.recording_enabled);
+      setRecordingEnabled(isCallRecordingEnabledDb(d.recording_enabled));
       setTranscriptionEnabled(!!d.transcription_enabled);
       setRetentionDays(String(d.recording_retention_days ?? 0));
       setOriginals({
-        recordingEnabled: !!d.recording_enabled,
+        recordingEnabled: isCallRecordingEnabledDb(d.recording_enabled),
         retentionDays: String(d.recording_retention_days ?? 0),
       });
     } else {
@@ -126,7 +127,10 @@ const CallRecordingSettings: React.FC = () => {
             <Mic className="w-5 h-5 text-primary" />
             Call Recording
           </CardTitle>
-          <CardDescription>Control how calls are recorded and how long recordings are retained.</CardDescription>
+          <CardDescription>
+            Control how outbound browser recordings are captured and how long finished call recordings stay in storage.
+            When you choose a retention period, older recordings are removed during nightly cleanup.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {/* Enable Recording */}

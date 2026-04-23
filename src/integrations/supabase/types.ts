@@ -2879,6 +2879,10 @@ export type Database = {
         Args: { target_user_id: string }
         Returns: unknown
       }
+      calls_expired_recording_batch: {
+        Args: { p_cutoff: string; p_limit?: number; p_organization_id: string }
+        Returns: { id: string; recording_storage_path: string }[]
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       fetch_and_lock_next_lead: {
         Args: { p_campaign_id: string; p_filters?: Json }
