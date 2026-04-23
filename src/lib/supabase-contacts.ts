@@ -202,7 +202,9 @@ export const leadsSupabaseApi = {
     endDate?: string;
     assignedAgentIds?: string[];
   }): Promise<number> {
-    let q = supabase.from("leads").delete().select("id");
+    // PostgREST rejects DELETE with zero filters ("Delete requires a where clause").
+    // RLS still restricts which rows are visible; `id IS NOT NULL` is always true for real rows.
+    let q = supabase.from("leads").delete().select("id").not("id", "is", null);
     if (filters?.status) q = q.eq("status", filters.status) as typeof q;
     if (filters?.source) q = q.eq("lead_source", filters.source) as typeof q;
     if (filters?.state) q = q.eq("state", filters.state) as typeof q;
@@ -231,7 +233,11 @@ export const leadsSupabaseApi = {
     endDate?: string;
     assignedAgentIds?: string[];
   }): Promise<number> {
-    let q = supabase.from("leads").update({ status, updated_at: new Date().toISOString() }).select("id");
+    let q = supabase
+      .from("leads")
+      .update({ status, updated_at: new Date().toISOString() })
+      .select("id")
+      .not("id", "is", null);
     if (filters?.status) q = q.eq("status", filters.status) as typeof q;
     if (filters?.source) q = q.eq("lead_source", filters.source) as typeof q;
     if (filters?.state) q = q.eq("state", filters.state) as typeof q;
