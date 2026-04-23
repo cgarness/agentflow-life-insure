@@ -124,6 +124,7 @@ serve(async (req: Request) => {
         [tableName === "leads" ? "lead_source" : "source"]: row.leadSource || "CSV Import",
         lead_score: row.leadScore ?? 5,
         assigned_agent_id,
+        ...(tableName === "leads" ? { user_id: assigned_agent_id } : {}),
         organization_id: orgId, // Always stamp orgId centrally
         age: row.age || null,
         date_of_birth: row.dateOfBirth || null,

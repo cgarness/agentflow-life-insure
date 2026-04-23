@@ -2085,11 +2085,26 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-23 | [DONE] | **Fix imported leads `user_id` + remove ghost `health_status`:** `import-contacts` edge function: added `user_id: assigned_agent_id` to `mappedRow` for leads only (spread conditional); confirmed `health_status` was already absent. Added `[functions.import-contacts] verify_jwt = false` to `config.toml`. Redeploy required with `SUPABASE_ACCESS_TOKEN` set. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring:** `twilio-search-numbers` + `twilio-buy-number` (JWT, per-org Twilio creds from `phone_settings`); purchase sets voice/SMS/status webhooks to Supabase functions URL; inserts `phone_numbers` with `twilio_sid`. `NumberManagementSection`: search/buy live, Twilio SID column, released-number tooltip; release remains DB-only. Config: `verify_jwt = true` for both. Not deployed yet. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 8 — PhoneSettings UI Rewrite:** Replaced Telnyx credential fields with Twilio Account SID, Auth Token, API Key, TwiML App SID. Added Trust Hub status display, SHAKEN/STIR toggle, inbound routing strategy selector (`assigned` / `all-ring`, round-robin disabled), voicemail toggle, recording toggle. Number management UI preserved but purchase/search disabled pending Phase 9. |
 | 2026-04-18 | [DONE] | **Templates modal UX:** SMS templates can attach files (stored like email); header `pr-12` so close control clears Preview. |
 | 2026-04-18 | [DONE] | **Template Modal Enhancement — 7 features:** merge fields + emoji pickers (popovers), email attachments (private `template-attachments` bucket + signed URLs), SMS segment counter, live preview with sample life-insurance data, duplicate row action, category tags + filter. Migration `20260418_enhance_message_templates.sql`. List split: `EmailSMSTemplates.tsx` + `TemplatesListView.tsx` / `TemplatesFiltersRow.tsx`; modal in `TemplateModal.tsx` + hooks/utils. |
 | 2026-04-16 | [DONE] | Hotfix: JSX pagination footer — template literal fix for Unicode separator |
+
+### Context Snapshot — 2026-04-23 — Import Contacts Edge Function Bugfixes
+
+**What was changed:** Two targeted fixes to `supabase/functions/import-contacts/index.ts`, plus a new `config.toml` entry.
+
+**Root cause 1 — Missing `user_id`:** The `mappedRow` object stamped `assigned_agent_id` but omitted `user_id`. The `leads` table has a `user_id` column that is expected to mirror `assigned_agent_id` (consistent with direct lead creation elsewhere in the app). Fix: added `...(tableName === "leads" ? { user_id: assigned_agent_id } : {})` after the `assigned_agent_id` line. The conditional spread ensures `clients` and `recruits` inserts are unaffected.
+
+**Root cause 2 — `health_status` ghost column:** The task description flagged `health_status: row.healthStatus || null` as mapping to a non-existent `leads` column. Inspection confirmed this line was already absent from the function code — no removal was needed.
+
+**Config:** Added `[functions.import-contacts] verify_jwt = false` to `supabase/config.toml` so the Supabase gateway does not reject ES256 access tokens; the function performs its own JWT validation via `anon` client `auth.getUser()`.
+
+**Files touched:** `supabase/functions/import-contacts/index.ts`, `supabase/config.toml`.
+
+**Test next:** Import a CSV of leads via the Import Leads modal; confirm each inserted `leads` row has `user_id` equal to `assigned_agent_id`; confirm `clients` and `recruits` imports still succeed without a `user_id` column error; confirm the function redeploys cleanly with `--no-verify-jwt`.
 
 ### Context Snapshot — 2026-04-18 — Template Modal Enhancement
 
