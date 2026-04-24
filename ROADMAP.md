@@ -10,6 +10,7 @@
 ### 🔐 Authentication & Tenant Isolation `[STABLE]`
 - **State**: Supabase Auth triggers `profiles` mirroring. Multi-tenant isolation is enforced via custom JWT claims (`organization_id`, `role`) and hierarchical `ltree` logic for downline management.
 - **Recent Update**: Standardized `leads.user_id` and implemented `standardize_leads_user_id.sql` to ensure perfect ownership tracking.
+- **Recent update (2026-04-24):** **`create-user`** Edge Function sends **email confirmation** via **Resend** after `auth.admin.createUser`: **`auth.admin.generateLink`** (`type: signup`, `redirectTo` = **`PUBLIC_SITE_URL`** + **`/dashboard`**), CTA uses **`properties.action_link`**. Missing **`RESEND_API_KEY`**, **`generateLink` errors, or send failures do not fail signup** — response includes **`email_sent`** (`true`/`false`). **Deploy:** **`supabase functions deploy create-user`**. Ensure Supabase **Auth → URL configuration** allowlists that redirect URL.
 - **Next Up**: Finalize invitation logic for Managers to invite downline Agents with auto-assigned `upline_path`.
 
 ### 🏗️ Database Infrastructure `[AUDITED — REWORKING]`
