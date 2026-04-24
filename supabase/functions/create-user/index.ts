@@ -77,7 +77,7 @@ serve(async (req: Request) => {
     );
 
     const body = await req.json();
-    const { email, password, first_name, last_name, organization_id, upline_id, role, licensed_states, commission_level } = body;
+    const { email, password, first_name, last_name, organization_id, upline_id, role, licensed_states, commission_level, signup_source } = body;
 
     if (!email || !password) {
       return new Response(
@@ -98,6 +98,8 @@ serve(async (req: Request) => {
         role: role || "Agent",
         licensed_states: licensed_states || [],
         commission_level: commission_level || "0%",
+        needs_app_wizard: true,
+        signup_source: signup_source === "invite" ? "invite" : "self_serve",
       },
     });
 

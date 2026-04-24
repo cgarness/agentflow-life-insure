@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { resolvePostAuthPath } from "@/lib/onboarding-wizard";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import AnimatedBackground from "@/components/AnimatedBackground";
 
@@ -20,9 +21,9 @@ const LoginPage: React.FC = () => {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
+      const signedInUser = await login(email, password);
       setAccessGranted(true);
-      setTimeout(() => navigate("/dashboard"), 1200);
+      setTimeout(() => navigate(resolvePostAuthPath(signedInUser)), 1200);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
       setError(err.message || "Invalid credentials");
     } finally {

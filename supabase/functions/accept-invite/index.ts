@@ -50,7 +50,7 @@ serve(async (req: Request) => {
     // Validate the invitation using service role (bypasses RLS)
     const { data: invitation, error: queryError } = await supabaseAdmin
       .from("invitations")
-      .select("id, email, role, first_name, last_name, organization_id, status, expires_at")
+      .select("id, email, role, first_name, last_name, organization_id, status, expires_at, upline_id, licensed_states, commission_level")
       .eq("token", token)
       .eq("status", "Pending")
       .gt("expires_at", new Date().toISOString())
@@ -81,6 +81,11 @@ serve(async (req: Request) => {
           last_name: invitation.last_name,
           organization_id: invitation.organization_id,
           role: invitation.role,
+          upline_id: invitation.upline_id ?? null,
+          licensed_states: invitation.licensed_states ?? [],
+          commission_level: invitation.commission_level ?? "0%",
+          needs_app_wizard: true,
+          signup_source: "invite",
         },
       });
 

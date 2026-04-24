@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
 
 export interface Profile {
   id: string;
@@ -46,7 +47,7 @@ interface AuthContextType {
   isBuildingOrganization: boolean;
   impersonatedUser: Profile | null;
   isImpersonating: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<SupabaseUser>;
   signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -187,11 +188,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [session, profile]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    if (!data.user) throw new Error("No user returned from sign-in");
+    return data.user;
   }, []);
 
   const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => {
+    const signupSource = orgId ? "invite" : "self_serve";
     let resolvedOrgId = orgId;
     let resolvedRole = role || "Agent";
 
@@ -224,6 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: resolvedRole,
         licensed_states: licensedStates || [],
         commission_level: commissionLevel || "0%",
+        signup_source: signupSource,
       },
     });
     if (createError) throw createError;
@@ -259,6 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkProfileSetupNeeded = useCallback((): boolean => {
     if (!user || !profile) return false;
+    if (needsAppOnboardingWizard(user)) return false;
 
     const isComplete = !!(
       profile.first_name?.trim() &&

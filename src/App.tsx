@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -40,6 +40,8 @@ import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
+import OnboardingPage from "./pages/OnboardingPage";
+import { needsAppOnboardingWizard, resolvePostAuthPath } from "@/lib/onboarding-wizard";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
@@ -48,9 +50,22 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
+const OnboardingShell: React.FC = () => {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  if (isLoading) return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!needsAppOnboardingWizard(user)) return <Navigate to="/dashboard" replace />;
+  return <OnboardingPage />;
+};
+
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading, user, checkProfileSetupNeeded, markProfileSetupSeen } = useAuth();
   const [showProfileSetup, setShowProfileSetup] = useState(false);
+  const location = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
 
@@ -67,6 +82,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     </div>
   );
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user && needsAppOnboardingWizard(user)) {
+    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
+  }
   return (
     <>
       {children}
@@ -86,9 +104,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   if (isLoading) return null;
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated) return <Navigate to={resolvePostAuthPath(user)} replace />;
   return <>{children}</>;
 };
 
@@ -115,6 +133,7 @@ const App = () => (
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/auth/callback" element={<AuthCallback />} />
+                        <Route path="/onboarding" element={<OnboardingShell />} />
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
