@@ -415,70 +415,75 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
           setPurchaseOpen(o);
         }}
       >
-        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5 text-primary" />
-              Purchase number
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Area code</label>
-                <Input
-                  placeholder="e.g. 213"
-                  value={searchAreaCode}
-                  onChange={(e) => setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
-                  autoComplete="off"
-                />
+        <DialogContent className="flex max-h-[min(90vh,720px)] w-[calc(100vw-2rem)] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:p-0">
+          <div className="border-b px-6 pb-4 pt-6 pr-14">
+            <DialogHeader className="text-left">
+              <DialogTitle className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-primary" />
+                Purchase number
+              </DialogTitle>
+            </DialogHeader>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-4 px-0.5 pt-0.5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Area code</label>
+                  <Input
+                    placeholder="e.g. 213"
+                    value={searchAreaCode}
+                    onChange={(e) => setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">State (2-letter)</label>
+                  <Input
+                    placeholder="e.g. CA"
+                    value={searchState}
+                    onChange={(e) => setSearchState(e.target.value.toUpperCase().slice(0, 2))}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-xs font-medium text-muted-foreground">City</label>
+                  <Input placeholder="e.g. Los Angeles" value={searchLocality} onChange={(e) => setSearchLocality(e.target.value)} autoComplete="off" />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">State (2-letter)</label>
-                <Input
-                  placeholder="e.g. CA"
-                  value={searchState}
-                  onChange={(e) => setSearchState(e.target.value.toUpperCase().slice(0, 2))}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-1.5 col-span-2">
-                <label className="text-xs font-medium text-muted-foreground">City</label>
-                <Input placeholder="e.g. Los Angeles" value={searchLocality} onChange={(e) => setSearchLocality(e.target.value)} autoComplete="off" />
-              </div>
-            </div>
-            <Button type="button" className="w-full" onClick={() => void handleSearchAvailable()} disabled={searching || purchasingBatch}>
-              {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
-              Search available numbers
-            </Button>
-            {searchResults.length > 0 && (
-              <div className="border rounded-md max-h-52 overflow-y-auto divide-y">
-                {searchResults.map((r) => {
-                  const inCart = purchaseCart.some((x) => x.phone_number === r.phone_number);
-                  return (
-                    <div key={r.phone_number} className="flex items-center gap-2 p-2 text-sm">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-mono font-medium truncate">{r.phone_number}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {[r.locality, r.region, r.postal_code].filter(Boolean).join(", ") || "US local"}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-xs font-semibold text-primary">${TWILIO_NUMBER_PRICE_USD.toFixed(2)}</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={inCart ? "secondary" : "default"}
-                        className="shrink-0"
-                        disabled={inCart || !!purchasingNumber || purchasingBatch}
-                        onClick={() => addToCart(r)}
-                      >
-                        {inCart ? "In cart" : "Add to cart"}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+              <Button type="button" className="w-full" onClick={() => void handleSearchAvailable()} disabled={searching || purchasingBatch}>
+                {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
+                Search available numbers
+              </Button>
+              {searchResults.length > 0 && (
+                <div className="rounded-lg border max-h-52 overflow-y-auto px-2.5 py-2">
+                  <div className="divide-y">
+                    {searchResults.map((r) => {
+                      const inCart = purchaseCart.some((x) => x.phone_number === r.phone_number);
+                      return (
+                        <div key={r.phone_number} className="flex items-center gap-3 py-2.5 pl-1 pr-2 text-sm sm:gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-mono font-medium truncate">{r.phone_number}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {[r.locality, r.region, r.postal_code].filter(Boolean).join(", ") || "US local"}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-xs font-semibold tabular-nums text-primary">${TWILIO_NUMBER_PRICE_USD.toFixed(2)}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={inCart ? "secondary" : "default"}
+                            className="shrink-0 whitespace-nowrap px-3"
+                            disabled={inCart || !!purchasingNumber || purchasingBatch}
+                            onClick={() => addToCart(r)}
+                          >
+                            {inCart ? "In cart" : "Add to cart"}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
             {purchaseCart.length > 0 && (
               <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 space-y-2">
@@ -538,6 +543,7 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                 )}
               </div>
             )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
