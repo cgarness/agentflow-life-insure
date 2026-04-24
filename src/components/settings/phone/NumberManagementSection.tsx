@@ -4,16 +4,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search } from "lucide-react";
-import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
+import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X } from "lucide-react";
+import { formatPhoneNumber } from "@/utils/phoneUtils";
 
 const formatPhone = formatPhoneNumber;
+
+/** Display-only estimate shown in the purchase UI (Twilio bills separately). */
+const TWILIO_NUMBER_PRICE_USD = 3;
 
 export interface PhoneNumberRow {
   id: string;
@@ -65,6 +68,9 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
   const [searchResults, setSearchResults] = useState<TwilioAvailableNumber[]>([]);
   const [searching, setSearching] = useState(false);
   const [purchasingNumber, setPurchasingNumber] = useState<string | null>(null);
+  const [purchasingBatch, setPurchasingBatch] = useState(false);
+  const [purchaseCart, setPurchaseCart] = useState<TwilioAvailableNumber[]>([]);
+  const [cartDetailOpen, setCartDetailOpen] = useState(false);
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
 
@@ -111,6 +117,9 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
     setSearchLocality("");
     setSearchState("");
     setSearchResults([]);
+    setPurchaseCart([]);
+    setCartDetailOpen(false);
+    setPurchasingBatch(false);
   };
 
   const readInvokeError = async (data: unknown, error: unknown): Promise<string> => {
@@ -166,28 +175,64 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
     return undefined;
   };
 
-  const handleBuyTwilioNumber = async (e164: string, listing?: TwilioAvailableNumber) => {
-    setPurchasingNumber(e164);
-    try {
-      const friendly_name = listing ? defaultFriendlyFromListing(listing) : undefined;
-      const { data, error } = await supabase.functions.invoke("twilio-buy-number", {
-        body: {
-          phone_number: e164,
-          ...(friendly_name ? { friendly_name } : {}),
-        },
-      });
-      if (error || (data && typeof data === "object" && "error" in data && (data as { error?: string }).error)) {
-        toast.error(await readInvokeError(data, error));
-        return;
-      }
-      await onRefresh();
-      toast.success("Number purchased and wired to AgentFlow webhooks.");
+  /** Purchase one number via Edge function; returns whether Twilio + DB succeeded. */
+  const purchaseSingleNumber = async (e164: string, listing?: TwilioAvailableNumber): Promise<boolean> => {
+    const friendly_name = listing ? defaultFriendlyFromListing(listing) : undefined;
+    const { data, error } = await supabase.functions.invoke("twilio-buy-number", {
+      body: {
+        phone_number: e164,
+        ...(friendly_name ? { friendly_name } : {}),
+      },
+    });
+    if (error || (data && typeof data === "object" && "error" in data && (data as { error?: string }).error)) {
+      toast.error(await readInvokeError(data, error));
+      return false;
+    }
+    return true;
+  };
+
+  const addToCart = (r: TwilioAvailableNumber) => {
+    setPurchaseCart((prev) => {
+      if (prev.some((x) => x.phone_number === r.phone_number)) return prev;
+      return [...prev, r];
+    });
+    toast.success("Added to cart");
+  };
+
+  const removeFromCart = (e164: string) => {
+    setPurchaseCart((prev) => prev.filter((x) => x.phone_number !== e164));
+  };
+
+  const handleCheckoutCart = async () => {
+    if (purchaseCart.length === 0) return;
+    setPurchasingBatch(true);
+    const queue = [...purchaseCart];
+    const failed: TwilioAvailableNumber[] = [];
+    for (const item of queue) {
+      setPurchasingNumber(item.phone_number);
+      const ok = await purchaseSingleNumber(item.phone_number, item);
+      if (!ok) failed.push(item);
+    }
+    setPurchasingNumber(null);
+    setPurchasingBatch(false);
+    setPurchaseCart(failed);
+    await onRefresh();
+    const purchasedCount = queue.length - failed.length;
+    if (purchasedCount > 0) {
+      toast.success(
+        failed.length === 0
+          ? `Purchased ${purchasedCount} number(s).`
+          : `${purchasedCount} purchased; ${failed.length} still in cart — fix issues and try again.`,
+      );
+    }
+    if (failed.length === 0) {
+      setCartDetailOpen(false);
       setPurchaseOpen(false);
       resetPurchaseModal();
-    } finally {
-      setPurchasingNumber(null);
     }
   };
+
+  const cartTotalUsd = purchaseCart.length * TWILIO_NUMBER_PRICE_USD;
 
   return (
     <>
@@ -370,17 +415,14 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
           setPurchaseOpen(o);
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-primary" />
               Purchase number
             </DialogTitle>
-            <DialogDescription>
-              Search Twilio inventory, then purchase. New numbers are pointed at AgentFlow voice and SMS webhooks automatically.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Area code</label>
@@ -405,30 +447,97 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                 <Input placeholder="e.g. Los Angeles" value={searchLocality} onChange={(e) => setSearchLocality(e.target.value)} autoComplete="off" />
               </div>
             </div>
-            <Button type="button" className="w-full" onClick={() => void handleSearchAvailable()} disabled={searching}>
+            <Button type="button" className="w-full" onClick={() => void handleSearchAvailable()} disabled={searching || purchasingBatch}>
               {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
               Search available numbers
             </Button>
             {searchResults.length > 0 && (
-              <div className="border rounded-md max-h-56 overflow-y-auto divide-y">
-                {searchResults.map((r) => (
-                  <div key={r.phone_number} className="flex items-center justify-between gap-2 p-2 text-sm">
-                    <div className="min-w-0">
-                      <p className="font-mono font-medium truncate">{r.phone_number}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {[r.locality, r.region, r.postal_code].filter(Boolean).join(", ") || "US local"}
-                      </p>
+              <div className="border rounded-md max-h-52 overflow-y-auto divide-y">
+                {searchResults.map((r) => {
+                  const inCart = purchaseCart.some((x) => x.phone_number === r.phone_number);
+                  return (
+                    <div key={r.phone_number} className="flex items-center gap-2 p-2 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono font-medium truncate">{r.phone_number}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {[r.locality, r.region, r.postal_code].filter(Boolean).join(", ") || "US local"}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs font-semibold text-primary">${TWILIO_NUMBER_PRICE_USD.toFixed(2)}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={inCart ? "secondary" : "default"}
+                        className="shrink-0"
+                        disabled={inCart || !!purchasingNumber || purchasingBatch}
+                        onClick={() => addToCart(r)}
+                      >
+                        {inCart ? "In cart" : "Add to cart"}
+                      </Button>
                     </div>
-                    <Button type="button" size="sm" disabled={!!purchasingNumber} onClick={() => void handleBuyTwilioNumber(r.phone_number, r)}>
-                      {purchasingNumber === r.phone_number ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buy"}
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
-            <p className="text-xs text-muted-foreground text-center">
-              Releasing a number here only updates AgentFlow; it stays on your Twilio account until you remove it in the Twilio Console.
-            </p>
+
+            {purchaseCart.length > 0 && (
+              <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">{purchaseCart.length} in cart</span>
+                    <span className="mx-1.5 text-muted-foreground">·</span>
+                    <span className="font-semibold text-foreground">Total ${cartTotalUsd.toFixed(2)}</span>
+                    <span className="ml-1.5 text-[10px] text-muted-foreground">(estimate)</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setPurchaseCart([])} disabled={purchasingBatch}>
+                      Clear cart
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setCartDetailOpen((v) => !v)} disabled={purchasingBatch}>
+                      {cartDetailOpen ? "Hide cart" : "View cart"}
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => void handleCheckoutCart()} disabled={purchasingBatch}>
+                      {purchasingBatch ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Purchasing…
+                        </>
+                      ) : (
+                        "Purchase all"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                {cartDetailOpen && (
+                  <ul className="max-h-40 overflow-y-auto divide-y rounded-md border border-border/60 bg-background text-sm">
+                    {purchaseCart.map((c) => (
+                      <li key={c.phone_number} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="min-w-0">
+                          <p className="font-mono text-xs truncate">{c.phone_number}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {[c.locality, c.region].filter(Boolean).join(", ") || "—"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-medium">${TWILIO_NUMBER_PRICE_USD.toFixed(2)}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={purchasingBatch}
+                            onClick={() => removeFromCart(c.phone_number)}
+                            aria-label={`Remove ${c.phone_number} from cart`}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
