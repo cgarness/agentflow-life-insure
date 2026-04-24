@@ -8,6 +8,7 @@ import {
 /** `?section=` values that render the Phone System tabbed UI (legacy bookmarks + sidebar highlight). */
 export const PHONE_SYSTEM_LEGACY_SECTION_SLUGS: readonly string[] = [
   "phone-system",
+  "phone-numbers",
   "inbound-routing",
   "call-recording",
   "recordings",

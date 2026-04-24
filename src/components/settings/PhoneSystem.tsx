@@ -2,7 +2,8 @@ import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PhoneSettings from "./PhoneSettings";
-import PhoneNumbersPanel, { type PhoneNumbersSubTab } from "./PhoneNumbersPanel";
+import NumberManagementSection from "./phone/NumberManagementSection";
+import NumberReputation from "./NumberReputation";
 import InboundCallRouting from "./InboundCallRouting";
 import CallRecordingSettings from "./CallRecordingSettings";
 import CallRecordingLibrary from "./CallRecordingLibrary";
@@ -12,6 +13,7 @@ import { usePhoneSettingsController } from "./phone/usePhoneSettingsController";
 export type PhoneSystemTab =
   | "phone"
   | "phone-numbers"
+  | "number-reputation"
   | "inbound-routing"
   | "call-recording"
   | "recordings"
@@ -19,27 +21,22 @@ export type PhoneSystemTab =
 
 export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
   if (slug === "phone-system") return "phone";
-  if (slug === "number-reputation") return "phone-numbers";
   if (
+    slug === "phone-numbers" ||
+    slug === "number-reputation" ||
     slug === "inbound-routing" ||
     slug === "call-recording" ||
     slug === "recordings" ||
     slug === "monitoring"
   ) {
-    return slug;
+    return slug as PhoneSystemTab;
   }
   return "phone";
 }
 
-export function settingsSlugToPhoneNumbersSubTab(slug: string): PhoneNumbersSubTab {
-  return slug === "number-reputation" ? "reputation" : "purchase";
-}
-
 interface PhoneSystemProps {
-  /** Inner tab shown when this screen first mounts (from `?section=` or default). */
+  /** Tab shown when this screen first mounts (from `?section=` or default). */
   defaultTab?: PhoneSystemTab;
-  /** When opening the Phone Numbers area, which nested tab to show first. */
-  defaultPhoneNumbersSubTab?: PhoneNumbersSubTab;
 }
 
 const tabTriggerClass =
@@ -49,10 +46,7 @@ const tabTriggerClass =
   "data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground " +
   "focus-visible:ring-primary/40";
 
-const PhoneSystem: React.FC<PhoneSystemProps> = ({
-  defaultTab = "phone",
-  defaultPhoneNumbersSubTab = "purchase",
-}) => {
+const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
   const phone = usePhoneSettingsController();
 
   if (phone.loading) {
@@ -76,17 +70,16 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({
         <span className="h-6 w-1 shrink-0 rounded-full bg-primary shadow-sm" aria-hidden />
         <span className="text-primary">Phone System</span>
       </h3>
-      <Tabs
-        key={`${defaultTab}-${defaultPhoneNumbersSubTab}`}
-        defaultValue={defaultTab}
-        className="w-full"
-      >
+      <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-primary/25 bg-primary/10 p-1.5 shadow-sm">
           <TabsTrigger value="phone" className={tabTriggerClass}>
             Phone & Numbers
           </TabsTrigger>
           <TabsTrigger value="phone-numbers" className={tabTriggerClass}>
             Phone Numbers
+          </TabsTrigger>
+          <TabsTrigger value="number-reputation" className={tabTriggerClass}>
+            Number reputation
           </TabsTrigger>
           <TabsTrigger value="inbound-routing" className={tabTriggerClass}>
             Inbound Routing
@@ -107,11 +100,17 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({
         </TabsContent>
 
         <TabsContent value="phone-numbers" className="mt-4">
-          <PhoneNumbersPanel
-            phone={phone}
-            defaultSubTab={defaultPhoneNumbersSubTab}
-            tabTriggerClass={tabTriggerClass}
+          <NumberManagementSection
+            organizationId={phone.organizationId ?? null}
+            numbers={phone.numbers}
+            setNumbers={phone.setNumbers}
+            agents={phone.agents}
+            onRefresh={phone.fetchData}
           />
+        </TabsContent>
+
+        <TabsContent value="number-reputation" className="mt-4">
+          <NumberReputation />
         </TabsContent>
 
         <TabsContent value="inbound-routing" className="mt-4">

@@ -10,7 +10,7 @@ import { formatPhone, type PhoneSettingsController } from "./phone/usePhoneSetti
  * TODO: Add `phone_settings.inbound_routing` and `voicemail_enabled` columns when migrations ship;
  * until then both live in `api_secret` JSON with `twilio_api_key_secret` and `local_presence_enabled`.
  *
- * Number inventory / purchase lives under Phone System → Phone Numbers (`PhoneNumbersPanel`).
+ * Number inventory / purchase lives under Phone System → **Phone Numbers** tab (`NumberManagementSection`).
  */
 export interface PhoneSettingsProps {
   phone: PhoneSettingsController;
