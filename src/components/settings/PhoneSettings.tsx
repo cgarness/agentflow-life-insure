@@ -28,26 +28,28 @@ const PhoneSettings: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <TwilioCredentialsSection
-        accountSid={s.accountSid}
-        setAccountSid={s.setAccountSid}
-        authToken={s.authToken}
-        setAuthToken={s.setAuthToken}
-        apiKeySid={s.apiKeySid}
-        setApiKeySid={s.setApiKeySid}
-        apiKeySecret={s.apiKeySecret}
-        setApiKeySecret={s.setApiKeySecret}
-        applicationSid={s.applicationSid}
-        setApplicationSid={s.setApplicationSid}
-        recordingEnabled={s.recordingEnabled}
-        setRecordingEnabled={s.setRecordingEnabled}
-        hasChanges={s.hasChanges}
-        saving={s.saving}
-        onSave={s.handleSave}
-        testing={s.testing}
-        onTest={s.handleTest}
-        testResult={s.testResult}
-      />
+      {isSuperAdmin && (
+        <TwilioCredentialsSection
+          accountSid={s.accountSid}
+          setAccountSid={s.setAccountSid}
+          authToken={s.authToken}
+          setAuthToken={s.setAuthToken}
+          apiKeySid={s.apiKeySid}
+          setApiKeySid={s.setApiKeySid}
+          apiKeySecret={s.apiKeySecret}
+          setApiKeySecret={s.setApiKeySecret}
+          applicationSid={s.applicationSid}
+          setApplicationSid={s.setApplicationSid}
+          recordingEnabled={s.recordingEnabled}
+          setRecordingEnabled={s.setRecordingEnabled}
+          hasChanges={s.hasChanges}
+          saving={s.saving}
+          onSave={s.handleSave}
+          testing={s.testing}
+          onTest={s.handleTest}
+          testResult={s.testResult}
+        />
+      )}
 
       <TrustHubSection
         trustHubProfileSid={s.trustHubProfileSid}

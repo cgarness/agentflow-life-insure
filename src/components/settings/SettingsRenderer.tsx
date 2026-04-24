@@ -3,22 +3,17 @@ import MyProfile from "@/components/settings/MyProfile";
 import CompanyBranding from "@/components/settings/CompanyBranding";
 import UserManagement from "@/components/settings/UserManagement";
 import CallScripts from "@/components/settings/CallScripts";
-import PhoneSystem from "@/components/settings/PhoneSystem";
+import PhoneSystem, { settingsSlugToPhoneSystemTab } from "@/components/settings/PhoneSystem";
 import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
 import CalendarSettings from "@/components/settings/CalendarSettings";
 import Permissions from "@/components/settings/Permissions";
 import EmailSMSTemplates from "@/components/settings/EmailSMSTemplates";
 import Carriers from "@/components/settings/Carriers";
-import CallRecordingSettings from "@/components/settings/CallRecordingSettings";
-import CallRecordingLibrary from "@/components/settings/CallRecordingLibrary";
-import InboundCallRouting from "@/components/settings/InboundCallRouting";
 import GoalSetting from "@/components/settings/GoalSetting";
-import CallMonitoring from "@/components/settings/CallMonitoring";
 import DNCSettings from "@/components/settings/DNCSettings";
 import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
-import NumberReputation from "@/components/settings/NumberReputation";
 import MasterAdmin from "@/components/settings/MasterAdmin";
 import { Settings } from "lucide-react";
 import { ALL_SETTINGS_SECTIONS } from "@/config/settingsConfig";
@@ -34,22 +29,23 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isMaste
     case "company-branding": return <CompanyBranding />;
     case "user-management": return <UserManagement />;
     case "call-scripts": return <CallScripts />;
-    case "phone-system": return <PhoneSystem />;
+    case "phone-system":
+    case "inbound-routing":
+    case "call-recording":
+    case "recordings":
+    case "monitoring":
+    case "number-reputation":
+      return <PhoneSystem defaultTab={settingsSlugToPhoneSystemTab(activeSlug)} />;
     case "dispositions": return <DispositionsManager />;
     case "contact-management": return <ContactManagement />;
     case "calendar-settings": return <CalendarSettings />;
     case "permissions": return <Permissions />;
     case "templates": return <EmailSMSTemplates />;
     case "carriers": return <Carriers />;
-    case "call-recording": return <CallRecordingSettings />;
-    case "recordings": return <CallRecordingLibrary />;
-    case "inbound-routing": return <InboundCallRouting />;
     case "goals": return <GoalSetting />;
-    case "monitoring": return <CallMonitoring />;
     case "dnc": return <DNCSettings />;
     case "menu-links": return <CustomMenuLinks />;
     case "activity-log": return <ActivityLog />;
-    case "number-reputation": return <NumberReputation />;
     case "master-admin": return isMasterAdmin ? <MasterAdmin /> : <MyProfile />;
     case "ai": return (
       <div className="space-y-4">

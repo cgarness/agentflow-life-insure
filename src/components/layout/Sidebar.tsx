@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useBranding } from "@/contexts/BrandingContext";
 import { useOrganization } from "@/hooks/useOrganization";
-import { SETTINGS_CONFIG } from "@/config/settingsConfig";
+import { SETTINGS_CONFIG, isPhoneSystemSettingsSection } from "@/config/settingsConfig";
 import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useCustomMenuLinks } from "@/hooks/useCustomMenuLinks";
@@ -39,6 +39,7 @@ const Sidebar: React.FC = () => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isSettings = location.pathname.startsWith("/settings");
+  const settingsSection = searchParams.get("section");
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
@@ -59,10 +60,23 @@ const Sidebar: React.FC = () => {
             {SETTINGS_CONFIG.map(cat => (
               <div key={cat.label} className="mb-4">
                 {!collapsed && <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">{cat.label}</p>}
-                {cat.sections.map(s => (
-              <SettingsNavItem key={s.slug} icon={s.icon} label={s.label} collapsed={collapsed} isActive={searchParams.get("section") === s.slug || (!searchParams.get("section") && s.slug === "my-profile")}
-                onClick={() => { setSearchParams({ section: s.slug }); setMobileOpen(false); }} />
-            ))}
+                {cat.sections.map((s) => (
+                  <SettingsNavItem
+                    key={s.slug}
+                    icon={s.icon}
+                    label={s.label}
+                    collapsed={collapsed}
+                    isActive={
+                      settingsSection === s.slug ||
+                      (!settingsSection && s.slug === "my-profile") ||
+                      (s.slug === "phone-system" && isPhoneSystemSettingsSection(settingsSection))
+                    }
+                    onClick={() => {
+                      setSearchParams({ section: s.slug });
+                      setMobileOpen(false);
+                    }}
+                  />
+                ))}
           </div>
         ))}
       </>

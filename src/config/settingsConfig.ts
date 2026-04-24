@@ -1,9 +1,24 @@
-import { 
-  Building2, Users, Phone, FileText, List, Zap, Mail, Shield, 
-  Mic, Headphones, Target, PhoneIncoming, Settings, Bot, Ban, 
-  Webhook, Link, Clock, Database, PlayCircle, Lock, 
-  CalendarDays, UserCircle, SlidersHorizontal, ScanLine
+import {
+  Building2, Users, Phone, FileText, List, Zap, Mail, Shield,
+  Target, Bot, Ban,
+  Webhook, Link, Clock, Database, Lock,
+  CalendarDays, UserCircle, SlidersHorizontal,
 } from "lucide-react";
+
+/** `?section=` values that render the Phone System tabbed UI (legacy bookmarks + sidebar highlight). */
+export const PHONE_SYSTEM_LEGACY_SECTION_SLUGS: readonly string[] = [
+  "phone-system",
+  "inbound-routing",
+  "call-recording",
+  "recordings",
+  "monitoring",
+  "number-reputation",
+];
+
+export function isPhoneSystemSettingsSection(section: string | null): boolean {
+  if (!section) return false;
+  return (PHONE_SYSTEM_LEGACY_SECTION_SLUGS as readonly string[]).includes(section);
+}
 
 export type SettingsSection = {
   slug: string;
@@ -29,14 +44,7 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
   },
   {
     label: "Telephony Stack",
-    sections: [
-      { slug: "phone-system", icon: Phone, label: "Phone System" },
-      { slug: "inbound-routing", icon: PhoneIncoming, label: "Inbound Routing" },
-      { slug: "call-recording", icon: Mic, label: "Recording Settings" },
-      { slug: "recordings", icon: PlayCircle, label: "Recording Library" },
-      { slug: "monitoring", icon: Headphones, label: "Call Monitoring" },
-      { slug: "number-reputation", icon: ScanLine, label: "Number Reputation" },
-    ],
+    sections: [{ slug: "phone-system", icon: Phone, label: "Phone System" }],
   },
   {
     label: "Sales Strategy",
