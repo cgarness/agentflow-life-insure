@@ -48,8 +48,6 @@ export function usePhoneSettingsController() {
   const [recordingEnabled, setRecordingEnabled] = useState(true);
 
   const [trustHubProfileSid, setTrustHubProfileSid] = useState<string | null>(null);
-  const [shakenStirEnabled, setShakenStirEnabled] = useState(true);
-  const [savingShaken, setSavingShaken] = useState(false);
 
   const [secretBundle, setSecretBundle] = useState<PhoneSettingsSecretBundle>(parsePhoneSettingsSecretBundle(null));
 
@@ -105,7 +103,7 @@ export function usePhoneSettingsController() {
           api_secret: apiSecretStr,
           application_sid: applicationSid || null,
           recording_enabled: recordingEnabled,
-          shaken_stir_enabled: shakenStirEnabled,
+          shaken_stir_enabled: true,
           trust_hub_profile_sid: trustHubProfileSid,
           updated_at: new Date().toISOString(),
         } as Record<string, unknown>,
@@ -128,7 +126,6 @@ export function usePhoneSettingsController() {
       apiKeySecret,
       applicationSid,
       recordingEnabled,
-      shakenStirEnabled,
       trustHubProfileSid,
       buildSecretPayload,
     ],
@@ -152,7 +149,6 @@ export function usePhoneSettingsController() {
       setApplicationSid(row.application_sid || "");
       setRecordingEnabled(isCallRecordingEnabledDb(row.recording_enabled));
       setTrustHubProfileSid(row.trust_hub_profile_sid ?? null);
-      setShakenStirEnabled(row.shaken_stir_enabled !== false);
 
       const bundle = parsePhoneSettingsSecretBundle(row.api_secret);
       const secretFromJson = bundle[TWILIO_API_KEY_SECRET_JSON_KEY] || "";
@@ -176,7 +172,6 @@ export function usePhoneSettingsController() {
       setApplicationSid("");
       setRecordingEnabled(true);
       setTrustHubProfileSid(null);
-      setShakenStirEnabled(true);
       setSecretBundle(parsePhoneSettingsSecretBundle(null));
       setOriginals({
         accountSid: "",
@@ -213,7 +208,7 @@ export function usePhoneSettingsController() {
         api_secret: apiSecretStr,
         application_sid: applicationSid.trim(),
         recording_enabled: recordingEnabled,
-        shaken_stir_enabled: shakenStirEnabled,
+        shaken_stir_enabled: true,
         trust_hub_profile_sid: trustHubProfileSid,
         updated_at: new Date().toISOString(),
       } as Record<string, unknown>,
@@ -271,36 +266,6 @@ export function usePhoneSettingsController() {
     await persistSecretBundle({ voicemail_enabled: enabled }, enabled ? "Voicemail on" : "Voicemail off");
   };
 
-  const handleShakenStirChange = async (enabled: boolean) => {
-    if (!organizationId) return;
-    setSavingShaken(true);
-    setShakenStirEnabled(enabled);
-    const { error } = await supabase.from("phone_settings").upsert(
-      {
-        id: phoneSettingsId || undefined,
-        organization_id: organizationId,
-        provider: "twilio",
-        account_sid: accountSid || null,
-        auth_token: authToken || null,
-        api_key: apiKeySid || null,
-        api_secret: stringifyPhoneSettingsSecretBundle(buildSecretPayload({})),
-        application_sid: applicationSid || null,
-        recording_enabled: recordingEnabled,
-        shaken_stir_enabled: enabled,
-        trust_hub_profile_sid: trustHubProfileSid,
-        updated_at: new Date().toISOString(),
-      } as Record<string, unknown>,
-      { onConflict: "organization_id" },
-    );
-    setSavingShaken(false);
-    if (error) {
-      toast.error(error.message);
-      setShakenStirEnabled(!enabled);
-      return;
-    }
-    toast.success(enabled ? "SHAKEN/STIR preference on" : "SHAKEN/STIR preference off");
-  };
-
   const uniqueAreaCodes = [...new Set(numbers.filter((n) => n.status === "active").map((n) => n.area_code).filter(Boolean))] as string[];
 
   return {
@@ -324,8 +289,6 @@ export function usePhoneSettingsController() {
     recordingEnabled,
     setRecordingEnabled,
     trustHubProfileSid,
-    shakenStirEnabled,
-    savingShaken,
     secretBundle,
     hasChanges,
     saving,
@@ -337,6 +300,5 @@ export function usePhoneSettingsController() {
     handleLocalPresenceToggle,
     handleInboundRoutingChange,
     handleVoicemailToggle,
-    handleShakenStirChange,
   };
 }

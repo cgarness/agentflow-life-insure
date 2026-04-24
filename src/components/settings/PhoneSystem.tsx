@@ -3,6 +3,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PhoneSettings from "./PhoneSettings";
 import { NumberManagementSection } from "./phone/NumberManagementSection";
+import { InboundRoutingSection } from "./phone/InboundRoutingSection";
+import { LocalPresenceSection } from "./phone/LocalPresenceSection";
 import NumberReputation from "./NumberReputation";
 import InboundCallRouting from "./InboundCallRouting";
 import CallRecordingSettings from "./CallRecordingSettings";
@@ -73,7 +75,7 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
       <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-primary/25 bg-primary/10 p-1.5 shadow-sm">
           <TabsTrigger value="phone" className={tabTriggerClass}>
-            Phone & Numbers
+            Trust Hub
           </TabsTrigger>
           <TabsTrigger value="phone-numbers" className={tabTriggerClass}>
             Phone Numbers
@@ -99,7 +101,7 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           <PhoneSettings phone={phone} />
         </TabsContent>
 
-        <TabsContent value="phone-numbers" className="mt-4">
+        <TabsContent value="phone-numbers" className="mt-4 space-y-6">
           <NumberManagementSection
             organizationId={phone.organizationId ?? null}
             numbers={phone.numbers}
@@ -107,13 +109,24 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
             agents={phone.agents}
             onRefresh={phone.fetchData}
           />
+          <LocalPresenceSection
+            localPresenceEnabled={phone.secretBundle.local_presence_enabled !== false}
+            onToggle={(v) => void phone.handleLocalPresenceToggle(v)}
+            uniqueAreaCodes={phone.uniqueAreaCodes}
+          />
         </TabsContent>
 
         <TabsContent value="number-reputation" className="mt-4">
           <NumberReputation />
         </TabsContent>
 
-        <TabsContent value="inbound-routing" className="mt-4">
+        <TabsContent value="inbound-routing" className="mt-4 space-y-6">
+          <InboundRoutingSection
+            inboundRouting={phone.inboundRouting}
+            onInboundRoutingChange={(v) => void phone.handleInboundRoutingChange(v)}
+            voicemailEnabled={phone.secretBundle.voicemail_enabled !== false}
+            onVoicemailEnabledChange={(v) => void phone.handleVoicemailToggle(v)}
+          />
           <InboundCallRouting />
         </TabsContent>
 

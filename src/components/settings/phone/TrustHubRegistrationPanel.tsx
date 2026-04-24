@@ -34,7 +34,6 @@ type Props = {
   canManageTrustHub: boolean;
   trustHubProfileSid: string | null;
   numbers: TrustNumberRow[];
-  formatPhone: (n: string) => string;
   onRefresh: () => Promise<void>;
 };
 
@@ -57,7 +56,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
   canManageTrustHub,
   trustHubProfileSid,
   numbers,
-  formatPhone,
   onRefresh,
 }) => {
   const [form, setForm] = useState<TrustHubRegistrationFormInput>(emptyForm);
@@ -66,7 +64,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
   const [checking, setChecking] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const [assignmentBySid, setAssignmentBySid] = useState<Record<string, { ok: boolean; error?: string }>>({});
 
   const runCheckStatus = useCallback(async () => {
     setChecking(true);
@@ -151,7 +148,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       return;
     }
     setAssigning(true);
-    setAssignmentBySid({});
     try {
       const { data, error } = await supabase.functions.invoke<TwilioTrustHubResponse>("twilio-trust-hub", {
         body: { action: "assign-numbers", twilio_sids: sids },
@@ -161,11 +157,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         toast.error(data.error);
         return;
       }
-      const map: Record<string, { ok: boolean; error?: string }> = {};
-      for (const r of data?.results ?? []) {
-        map[r.twilio_sid] = { ok: r.ok, error: r.error };
-      }
-      setAssignmentBySid(map);
       const okCount = (data?.results ?? []).filter((r) => r.ok).length;
       toast.success(okCount ? `Linked ${okCount} number(s) to Trust Hub.` : "No numbers were linked.");
       await onRefresh();
@@ -367,40 +358,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
             {registering ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span className={registering ? "ml-2" : ""}>Submit to Trust Hub</span>
           </Button>
-        </div>
-      )}
-
-      {numbers.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">Per-number reputation</p>
-          <ul className="max-h-52 overflow-y-auto divide-y divide-border/60 rounded-lg border border-border/50">
-            {numbers.map((n) => {
-              const att = (n.shaken_stir_attestation || n.attestation_level || "—").toString();
-              const th = (n.trust_hub_status || "—").toString();
-              const sid = n.twilio_sid ?? "";
-              const assignHint = sid && assignmentBySid[sid];
-              return (
-                <li key={n.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
-                  <span className="font-mono text-foreground">{formatPhone(n.phone_number)}</span>
-                  <div className="flex flex-col items-end gap-0.5">
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-                        STIR {att}
-                      </Badge>
-                      <Badge variant="secondary" className="text-[10px]">
-                        Trust {th}
-                      </Badge>
-                    </div>
-                    {assignHint && (
-                      <span className={`text-[10px] ${assignHint.ok ? "text-emerald-600" : "text-destructive"}`}>
-                        {assignHint.ok ? "Linked to profile" : assignHint.error || "Link failed"}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
         </div>
       )}
     </div>

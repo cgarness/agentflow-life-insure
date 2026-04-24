@@ -2,15 +2,14 @@ import React from "react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { TwilioCredentialsSection } from "./phone/TwilioCredentialsSection";
 import { TrustHubSection } from "./phone/TrustHubSection";
-import { InboundRoutingSection } from "./phone/InboundRoutingSection";
-import { LocalPresenceSection } from "./phone/LocalPresenceSection";
-import { formatPhone, type PhoneSettingsController } from "./phone/usePhoneSettingsController";
+import type { PhoneSettingsController } from "./phone/usePhoneSettingsController";
 
 /**
  * TODO: Add `phone_settings.inbound_routing` and `voicemail_enabled` columns when migrations ship;
  * until then both live in `api_secret` JSON with `twilio_api_key_secret` and `local_presence_enabled`.
  *
- * Number inventory / purchase lives under Phone System → **Phone Numbers** tab (`NumberManagementSection`).
+ * Inbound routing (WebRTC strategy) and local presence live under Phone System → **Inbound Routing** and **Phone Numbers** tabs.
+ * Number inventory / purchase: **Phone Numbers** tab (`NumberManagementSection`).
  */
 export interface PhoneSettingsProps {
   phone: PhoneSettingsController;
@@ -47,26 +46,9 @@ const PhoneSettings: React.FC<PhoneSettingsProps> = ({ phone: s }) => {
 
       <TrustHubSection
         trustHubProfileSid={s.trustHubProfileSid}
-        shakenStirEnabled={s.shakenStirEnabled}
-        savingShaken={s.savingShaken}
-        onShakenStirChange={(v) => void s.handleShakenStirChange(v)}
         numbers={s.numbers}
-        formatPhone={formatPhone}
         canManageTrustHub={canManageTrustHub}
         onTrustHubRefresh={s.fetchData}
-      />
-
-      <InboundRoutingSection
-        inboundRouting={s.inboundRouting}
-        onInboundRoutingChange={(v) => void s.handleInboundRoutingChange(v)}
-        voicemailEnabled={s.secretBundle.voicemail_enabled !== false}
-        onVoicemailEnabledChange={(v) => void s.handleVoicemailToggle(v)}
-      />
-
-      <LocalPresenceSection
-        localPresenceEnabled={s.secretBundle.local_presence_enabled !== false}
-        onToggle={(v) => void s.handleLocalPresenceToggle(v)}
-        uniqueAreaCodes={s.uniqueAreaCodes}
       />
     </div>
   );
