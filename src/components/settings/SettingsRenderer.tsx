@@ -3,7 +3,10 @@ import MyProfile from "@/components/settings/MyProfile";
 import CompanyBranding from "@/components/settings/CompanyBranding";
 import UserManagement from "@/components/settings/UserManagement";
 import CallScripts from "@/components/settings/CallScripts";
-import PhoneSystem, { settingsSlugToPhoneSystemTab } from "@/components/settings/PhoneSystem";
+import PhoneSystem, {
+  settingsSlugToPhoneNumbersSubTab,
+  settingsSlugToPhoneSystemTab,
+} from "@/components/settings/PhoneSystem";
 import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
 import CalendarSettings from "@/components/settings/CalendarSettings";
@@ -35,7 +38,12 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isMaste
     case "recordings":
     case "monitoring":
     case "number-reputation":
-      return <PhoneSystem defaultTab={settingsSlugToPhoneSystemTab(activeSlug)} />;
+      return (
+        <PhoneSystem
+          defaultTab={settingsSlugToPhoneSystemTab(activeSlug)}
+          defaultPhoneNumbersSubTab={settingsSlugToPhoneNumbersSubTab(activeSlug)}
+        />
+      );
     case "dispositions": return <DispositionsManager />;
     case "contact-management": return <ContactManagement />;
     case "calendar-settings": return <CalendarSettings />;

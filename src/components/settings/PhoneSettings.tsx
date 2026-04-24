@@ -1,30 +1,24 @@
 import React from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useOrganization } from "@/hooks/useOrganization";
 import { TwilioCredentialsSection } from "./phone/TwilioCredentialsSection";
 import { TrustHubSection } from "./phone/TrustHubSection";
 import { InboundRoutingSection } from "./phone/InboundRoutingSection";
-import { NumberManagementSection } from "./phone/NumberManagementSection";
 import { LocalPresenceSection } from "./phone/LocalPresenceSection";
-import { formatPhone, usePhoneSettingsController } from "./phone/usePhoneSettingsController";
+import { formatPhone, type PhoneSettingsController } from "./phone/usePhoneSettingsController";
 
 /**
  * TODO: Add `phone_settings.inbound_routing` and `voicemail_enabled` columns when migrations ship;
  * until then both live in `api_secret` JSON with `twilio_api_key_secret` and `local_presence_enabled`.
+ *
+ * Number inventory / purchase lives under Phone System → Phone Numbers (`PhoneNumbersPanel`).
  */
-const PhoneSettings: React.FC = () => {
-  const s = usePhoneSettingsController();
+export interface PhoneSettingsProps {
+  phone: PhoneSettingsController;
+}
+
+const PhoneSettings: React.FC<PhoneSettingsProps> = ({ phone: s }) => {
   const { role, isSuperAdmin } = useOrganization();
   const canManageTrustHub = isSuperAdmin || role === "Admin" || role === "Super Admin";
-
-  if (s.loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -67,14 +61,6 @@ const PhoneSettings: React.FC = () => {
         onInboundRoutingChange={(v) => void s.handleInboundRoutingChange(v)}
         voicemailEnabled={s.secretBundle.voicemail_enabled !== false}
         onVoicemailEnabledChange={(v) => void s.handleVoicemailToggle(v)}
-      />
-
-      <NumberManagementSection
-        organizationId={s.organizationId ?? null}
-        numbers={s.numbers}
-        setNumbers={s.setNumbers}
-        agents={s.agents}
-        onRefresh={s.fetchData}
       />
 
       <LocalPresenceSection

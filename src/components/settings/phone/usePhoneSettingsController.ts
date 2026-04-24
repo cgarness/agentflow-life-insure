@@ -33,6 +33,8 @@ type PhoneSettingsRow = {
 
 export const formatPhone = formatPhoneNumber;
 
+export type PhoneSettingsController = ReturnType<typeof usePhoneSettingsController>;
+
 export function usePhoneSettingsController() {
   const { organizationId } = useOrganization();
   const [loading, setLoading] = useState(true);
