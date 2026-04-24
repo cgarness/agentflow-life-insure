@@ -965,6 +965,9 @@
 - **2026-04-22 | [DONE] Dashboard — dark/light theme for stat cards & controls**
   *What:* **`StatCards.tsx`** — replaced hardcoded white/slate surfaces with **`bg-card`**, **`border-border`**, **`text-foreground`**. **`Dashboard.tsx`** — time range + perspective chrome and **Customize Layout** use **`bg-card`**, **`border-border`**, **`hover:bg-accent`**; inactive tab labels use **`text-muted-foreground`**. Fixed **`renderWidget`** so **`missed_calls`** maps to **`MissedCallsWidget`** (was unreachable after **`leaderboard`**).
 
+- **2026-04-24 | [DONE] Dashboard — remove Daily Briefing welcome popup**
+  *What:* Removed **`DailyBriefingModal`** (morning/afternoon greeting + stat rows + **Let's Go**) and all auto-open / **`localStorage`** briefing logic from **`Dashboard.tsx`**. Removed **View Daily Briefing** from the notifications panel in **`TopBar.tsx`**. Deleted **`src/components/dashboard/DailyBriefingModal.tsx`**. The **`daily-briefing`** Edge Function remains in the repo for possible future reuse.
+
 - **2026-04-23 | [DONE] Dashboard — Callbacks detail row opens contact full view**
   *What:* **`DashboardDetailModal`** — **`callbacks`** rows used the same navigation as **`appointments`** (**`/calendar`**). Row click now goes to **`/contacts?contact=<contact_id>`** (from the **`appointments`** row) so **`FullScreenContactView`** opens via the existing Contacts deep link; missing **`contact_id`** shows a toast. **`appointments`** detail unchanged (**`/calendar`**).
 

@@ -20,7 +20,6 @@ import { toast } from "sonner";
 import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
-import DailyBriefingModal from "@/components/dashboard/DailyBriefingModal";
 import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
@@ -156,7 +155,6 @@ const Dashboard: React.FC = () => {
   const { user, profile } = useAuth();
   const userId = user?.id || "";
   const role = profile?.role || "Agent";
-  const firstName = profile?.first_name || "Agent";
 
   // Perspective states
   const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("my"); // Default to personal
@@ -178,9 +176,6 @@ const Dashboard: React.FC = () => {
   const [widgetOrder, setWidgetOrder] = useState<string[]>(DEFAULT_WIDGET_ORDER);
   const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
-
-  // Daily briefing
-  const [showBriefing, setShowBriefing] = useState(false);
 
   // Detail Modal
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -245,22 +240,6 @@ const Dashboard: React.FC = () => {
     loadPrefs();
   }, [userId]);
 
-  // Daily briefing check and pre-fetch
-  useEffect(() => {
-    if (!userId) return;
-    
-    // Use local date for briefing logic to avoid UTC mismatch
-    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-    const storageKey = `agentflow_briefing_${userId}_${today}`;
-    const isDismissed = localStorage.getItem(storageKey) === "dismissed";
-    
-    if (!isDismissed) {
-      setShowBriefing(true);
-      // Mark as seen immediately so it doesn't pop up again on refresh
-      localStorage.setItem(storageKey, "dismissed");
-    }
-  }, [userId]);
-
   // Unsaved changes guard
   useEffect(() => {
     if (!editMode) return;
@@ -270,31 +249,6 @@ const Dashboard: React.FC = () => {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [editMode]);
-
-  const dismissBriefing = useCallback(() => {
-    const today = new Date().toLocaleDateString('en-CA');
-    const storageKey = `agentflow_briefing_${userId}_${today}`;
-    localStorage.setItem(storageKey, "dismissed");
-    setShowBriefing(false);
-  }, [userId]);
-
-  const openBriefing = useCallback(() => {
-    setShowBriefing(true);
-  }, [firstName]);
-
-  // Listen for custom event to reopen briefing from TopBar
-  useEffect(() => {
-    window.addEventListener("open-daily-briefing", openBriefing);
-    return () => window.removeEventListener("open-daily-briefing", openBriefing);
-  }, [openBriefing]);
-
-
-  const scrollToWidget = useCallback((widgetId: string) => {
-    const el = widgetRefs.current[widgetId];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, []);
 
   const visibleWidgets = widgetOrder.filter(
     (k) => !hiddenWidgets.includes(k)
@@ -485,18 +439,6 @@ const Dashboard: React.FC = () => {
           </Button>
         </div>
       </div>
-
-      {/* Daily Briefing Modal */}
-      {showBriefing && userId && (
-        <DailyBriefingModal
-          userId={userId}
-          firstName={firstName}
-          role={role}
-          onClose={dismissBriefing}
-          onDismiss={dismissBriefing}
-          onScrollTo={scrollToWidget}
-        />
-      )}
 
       {/* Stat Cards */}
       {userId && (
