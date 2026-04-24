@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 23, 2026
+**Owner:** Chris Garness | **Last Updated:** April 24, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -80,6 +80,10 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-04-24 | [DONE] | Marketing landing — hero badge clears fixed nav**
+  *What:* Hero section used **`pt-16`**, matching the fixed **`MarketingNav`** height with no gap, so the “Built for Life Insurance Professionals” pill sat flush under the header and could read as clipped. Increased to **`pt-24 md:pt-28`** so the badge sits clearly below the bar.
+  *Files:* **`src/pages/LandingPage.tsx`**, **`ROADMAP.md`**.
 
 - **2026-04-23 | [DONE] | CSV import Review — Lead Status visibility**
   *What:* Coerce **`importStatus`** whenever pipeline stages load so the status `<select>` never shows blank; Lead status on its own row with helper text; campaign list **`max-h-48`** instead of **85vh** so Lead Settings stays discoverable.
@@ -955,6 +959,9 @@
 
 - **2026-04-22 | [DONE] Dashboard — dark/light theme for stat cards & controls**
   *What:* **`StatCards.tsx`** — replaced hardcoded white/slate surfaces with **`bg-card`**, **`border-border`**, **`text-foreground`**. **`Dashboard.tsx`** — time range + perspective chrome and **Customize Layout** use **`bg-card`**, **`border-border`**, **`hover:bg-accent`**; inactive tab labels use **`text-muted-foreground`**. Fixed **`renderWidget`** so **`missed_calls`** maps to **`MissedCallsWidget`** (was unreachable after **`leaderboard`**).
+
+- **2026-04-23 | [DONE] Dashboard — Callbacks detail row opens contact full view**
+  *What:* **`DashboardDetailModal`** — **`callbacks`** rows used the same navigation as **`appointments`** (**`/calendar`**). Row click now goes to **`/contacts?contact=<contact_id>`** (from the **`appointments`** row) so **`FullScreenContactView`** opens via the existing Contacts deep link; missing **`contact_id`** shows a toast. **`appointments`** detail unchanged (**`/calendar`**).
 
 - **2026-04-13 | [DONE] Dashboard — Calls Made & talk time outbound-only**
   *Issue:* **Calls Made** and **talk time** counted every **`calls`** row (including **inbound**), so stats looked inflated vs real power-dialer activity. *Fix:* **`OUTBOUND_CALL_DIRECTIONS`** + **`isCallsRowOutboundDirection`** in **`telnyxInboundCaller.ts`**. **`useDashboardStats`** — count + duration queries filter **`direction` ∈ `outbound` / `outgoing`**. **`DashboardDetailModal`** **calls_today** list matches. **`GoalProgressWidget`** fallback queries aligned. Vitest for **`isCallsRowOutboundDirection`**. No UI hint on the stat card (per Chris).

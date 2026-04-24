@@ -78,7 +78,7 @@ const LandingPage: React.FC = () => {
       {/* ════════════════════════════════════════
           SECTION 2 — HERO
          ════════════════════════════════════════ */}
-      <section className="relative min-h-screen flex flex-col items-center justify-center pt-16 overflow-hidden">
+      <section className="relative min-h-screen flex flex-col items-center justify-center pt-24 md:pt-28 overflow-hidden">
         {/* Background effects */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--primary)/0.05)_0%,transparent_70%)]" />
         <div
