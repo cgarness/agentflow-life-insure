@@ -2,7 +2,7 @@ import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PhoneSettings from "./PhoneSettings";
-import NumberManagementSection from "./phone/NumberManagementSection";
+import { NumberManagementSection } from "./phone/NumberManagementSection";
 import NumberReputation from "./NumberReputation";
 import InboundCallRouting from "./InboundCallRouting";
 import CallRecordingSettings from "./CallRecordingSettings";
