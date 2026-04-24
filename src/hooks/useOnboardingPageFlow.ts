@@ -5,7 +5,25 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { isSelfServeSignup, needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
 import type { TeamSizeIntent } from "@/components/onboarding/wizard/OnboardingStepAgency";
-import { COMMISSION_LEVELS } from "@/constants/us-geo";
+
+function digitsFromCommission(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return String(raw).replace(/\D/g, "");
+}
+
+/** RLS uses JWT app_metadata.role/org; refresh until the profile trigger has stamped claims. */
+async function refreshSessionUntilClaimsReady(maxAttempts = 12): Promise<void> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) throw error;
+    const meta = data.session?.user?.app_metadata as Record<string, unknown> | undefined;
+    const role = meta?.role as string | undefined;
+    const org = meta?.organization_id as string | undefined;
+    if (role && org) return;
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  throw new Error("Session is still missing organization or role claims. Try signing out and back in, then finish setup.");
+}
 
 export function useOnboardingPageFlow() {
   const navigate = useNavigate();
@@ -23,7 +41,8 @@ export function useOnboardingPageFlow() {
   const [npn, setNpn] = useState("");
   const [licensedStates, setLicensedStates] = useState<string[]>([]);
   const [timezone, setTimezone] = useState("Eastern Time (US & Canada)");
-  const [commissionLevel, setCommissionLevel] = useState("Street");
+  /** Digits only (e.g. 105); persisted as typed. */
+  const [commissionDigits, setCommissionDigits] = useState("");
   const [agencyName, setAgencyName] = useState("");
   const [agencyTimezone, setAgencyTimezone] = useState("Eastern Time (US & Canada)");
   const [teamSize, setTeamSize] = useState<TeamSizeIntent>("solo");
@@ -45,13 +64,7 @@ export function useOnboardingPageFlow() {
     const ls = profile.licensed_states;
     setLicensedStates(Array.isArray(ls) ? (ls as string[]) : []);
     setTimezone(profile.timezone || "Eastern Time (US & Canada)");
-    const rawCl = profile.commission_level || COMMISSION_LEVELS[0];
-    if (!isFounder) setCommissionLevel(rawCl);
-    else {
-      setCommissionLevel(
-        (COMMISSION_LEVELS as readonly string[]).includes(rawCl) ? rawCl : COMMISSION_LEVELS[0],
-      );
-    }
+    setCommissionDigits(digitsFromCommission(profile.commission_level));
     if (isFounder) setAgencyTimezone(profile.timezone || "Eastern Time (US & Canada)");
   }, [profile, isFounder]);
 
@@ -97,11 +110,9 @@ export function useOnboardingPageFlow() {
   }, [firstName, lastName, phone, residentState]);
 
   const validateStep1 = useCallback(() => {
-    const e: Record<string, string> = {};
-    if (!npn.trim()) e.npn = "NPN is required for insurance producers";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }, [npn]);
+    setErrors({});
+    return true;
+  }, []);
 
   const validateStep2 = useCallback(() => {
     if (!isFounder) return true;
@@ -115,17 +126,23 @@ export function useOnboardingPageFlow() {
     if (!user || !profile) return;
     setSaving(true);
     try {
-      await updateProfile({
+      await refreshSessionUntilClaimsReady();
+
+      const npnVal = npn.trim();
+      const commissionVal = commissionDigits.trim();
+      const patch: Partial<Profile> = {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone: phone.trim(),
         resident_state: residentState,
-        npn: npn.trim(),
         licensed_states: licensedStates as unknown as Profile["licensed_states"],
         timezone: isFounder ? agencyTimezone : timezone,
-        commission_level: commissionLevel,
         onboarding_complete: true,
-      });
+      };
+      if (npnVal !== "") patch.npn = npnVal;
+      if (commissionVal !== "") patch.commission_level = commissionVal;
+
+      await updateProfile(patch);
 
       if (isFounder && profile.organization_id && agencyName.trim()) {
         const { error: orgErr } = await supabase
@@ -149,7 +166,16 @@ export function useOnboardingPageFlow() {
       navigate("/dashboard", { replace: true });
     } catch (err) {
       console.error(err);
-      toast.error("Could not finish setup. Please try again.");
+      const fromObj =
+        err &&
+        typeof err === "object" &&
+        "message" in err &&
+        typeof (err as { message: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : null;
+      const msg =
+        err instanceof Error ? err.message : fromObj || "Could not finish setup. Please try again.";
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -165,7 +191,7 @@ export function useOnboardingPageFlow() {
     licensedStates,
     timezone,
     agencyTimezone,
-    commissionLevel,
+    commissionDigits,
     isFounder,
     agencyName,
     teamSize,
@@ -211,8 +237,8 @@ export function useOnboardingPageFlow() {
     setLicensedStates,
     timezone,
     setTimezone,
-    commissionLevel,
-    setCommissionLevel,
+    commissionDigits,
+    setCommissionDigits,
     agencyName,
     setAgencyName,
     agencyTimezone,

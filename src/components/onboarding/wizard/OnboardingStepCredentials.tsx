@@ -8,25 +8,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { US_STATE_NAMES, US_TIMEZONES, COMMISSION_LEVELS } from "@/constants/us-geo";
+import { US_STATE_NAMES, US_TIMEZONES } from "@/constants/us-geo";
 import { cn } from "@/lib/utils";
 
 interface Props {
   npn: string;
   licensedStates: string[];
   timezone: string;
-  commissionLevel: string;
-  commissionReadOnly: boolean;
+  commissionDigits: string;
   errors: Record<string, string>;
-  onChange: (patch: Partial<{ npn: string; licensedStates: string[]; timezone: string; commissionLevel: string }>) => void;
+  onChange: (patch: Partial<{ npn: string; licensedStates: string[]; timezone: string; commissionDigits: string }>) => void;
 }
 
 export function OnboardingStepCredentials({
   npn,
   licensedStates,
   timezone,
-  commissionLevel,
-  commissionReadOnly,
+  commissionDigits,
   errors,
   onChange,
 }: Props) {
@@ -47,11 +45,11 @@ export function OnboardingStepCredentials({
       <div>
         <h2 className="text-lg font-semibold text-foreground">Your credentials</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          NPN and licensed states help keep your life insurance work compliant. Timezone is used for callbacks and calendar.
+          Everything on this step is optional. Add what you have now; you can always update these later in settings.
         </p>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="ob-npn">National Producer Number (NPN)</Label>
+        <Label htmlFor="ob-npn">National Producer Number (NPN) (optional)</Label>
         <Input
           id="ob-npn"
           value={npn}
@@ -62,7 +60,7 @@ export function OnboardingStepCredentials({
         {errors.npn && <p className="text-xs text-destructive">{errors.npn}</p>}
       </div>
       <div className="space-y-1.5">
-        <Label>Licensed states</Label>
+        <Label>Licensed states (optional)</Label>
         <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2 bg-muted/10">
           <div className="flex items-center gap-2 pb-2 border-b">
             <Checkbox id="ob-ls-all" checked={all} onCheckedChange={toggleAll} />
@@ -87,7 +85,7 @@ export function OnboardingStepCredentials({
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label>Your timezone</Label>
+        <Label>Your timezone (optional)</Label>
         <Select value={timezone} onValueChange={(v) => onChange({ timezone: v })}>
           <SelectTrigger>
             <SelectValue />
@@ -102,23 +100,22 @@ export function OnboardingStepCredentials({
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label>Commission level</Label>
-        {commissionReadOnly ? (
-          <p className="text-sm py-2 px-3 rounded-md bg-muted text-foreground">{commissionLevel || "—"}</p>
-        ) : (
-          <Select value={commissionLevel} onValueChange={(v) => onChange({ commissionLevel: v })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select level" />
-            </SelectTrigger>
-            <SelectContent>
-              {COMMISSION_LEVELS.map((l) => (
-                <SelectItem key={l} value={l}>
-                  {l}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Label htmlFor="ob-commission">Commission level (optional)</Label>
+        <Input
+          id="ob-commission"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          placeholder="e.g. 105"
+          value={commissionDigits}
+          onChange={(e) => {
+            const next = e.target.value.replace(/\D/g, "");
+            onChange({ commissionDigits: next });
+          }}
+          className={cn(errors.commissionDigits && "border-destructive")}
+        />
+        <p className="text-xs text-muted-foreground">Numbers only (no % sign).</p>
+        {errors.commissionDigits && <p className="text-xs text-destructive">{errors.commissionDigits}</p>}
       </div>
     </div>
   );

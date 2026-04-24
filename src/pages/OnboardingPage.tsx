@@ -31,8 +31,8 @@ export default function OnboardingPage() {
     setLicensedStates,
     timezone,
     setTimezone,
-    commissionLevel,
-    setCommissionLevel,
+    commissionDigits,
+    setCommissionDigits,
     agencyName,
     setAgencyName,
     agencyTimezone,
@@ -87,14 +87,13 @@ export default function OnboardingPage() {
             npn={npn}
             licensedStates={licensedStates}
             timezone={timezone}
-            commissionLevel={commissionLevel}
-            commissionReadOnly={!isFounder}
+            commissionDigits={commissionDigits}
             errors={errors}
             onChange={(p) => {
               if (p.npn !== undefined) setNpn(p.npn);
               if (p.licensedStates !== undefined) setLicensedStates(p.licensedStates);
               if (p.timezone !== undefined) setTimezone(p.timezone);
-              if (p.commissionLevel !== undefined) setCommissionLevel(p.commissionLevel);
+              if (p.commissionDigits !== undefined) setCommissionDigits(p.commissionDigits);
             }}
           />
         )}
