@@ -50,6 +50,7 @@
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260424100000` | `profiles_onboarding_complete.sql` | Adds **`profiles.onboarding_complete`** if missing (**`NOT NULL DEFAULT false`**) + **`NOTIFY pgrst, 'reload schema'`** — fixes onboarding wizard finish when prod **`profiles`** never received older heal migrations. **Apply:** **`npx supabase db push --yes`** (or SQL Editor) on the linked project. |
 | `20260423183000` | `custom_fields_email_phone_types.sql` | Extends **`custom_fields.type`** check constraint with **`Email`** and **`Phone`** (CSV import + Settings). |
 | `20260423100000` | `calls_expired_recording_batch_and_retention_cron.sql` | Adds **`calls_expired_recording_batch`** (service_role only) for org + cutoff batching; schedules **`recording-retention-purge-daily`** pg_cron (**`08:15` UTC**) → Edge **`recording-retention-purge`**. Cron header wiring superseded by **`20260423140000`** (`private.recording_retention_cron_secret`). |
 | `20260420180000` | `campaigns_ring_timeout_seconds.sql` | Adds nullable **`ring_timeout_seconds`** on **`public.campaigns`** for per-campaign outbound ring timeout; **`NOTIFY pgrst, 'reload schema'`**. |
