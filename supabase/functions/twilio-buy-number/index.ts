@@ -19,6 +19,8 @@ function extractAreaCode(e164: string): string | null {
 
 type BuyBody = {
   phone_number?: string;
+  /** Optional display label (e.g. "Los Angeles, CA"); otherwise Twilio's friendly name / number is used. */
+  friendly_name?: string | null;
 };
 
 Deno.serve(async (req) => {
@@ -176,8 +178,11 @@ Deno.serve(async (req) => {
     }
 
     const twilioSid = String(twJson.sid ?? "");
-    const friendlyName = (twJson.friendly_name as string) || (twJson.phone_number as string) || phoneNumber;
+    const twilioFriendly = (twJson.friendly_name as string) || (twJson.phone_number as string) || phoneNumber;
     const e164 = (twJson.phone_number as string) || phoneNumber;
+    const clientFriendly =
+      typeof body.friendly_name === "string" && body.friendly_name.trim().length > 0 ? body.friendly_name.trim() : null;
+    const friendlyName = clientFriendly ?? twilioFriendly;
 
     if (!twilioSid.startsWith("PN")) {
       console.error(`${FN} Unexpected Twilio sid:`, twilioSid);

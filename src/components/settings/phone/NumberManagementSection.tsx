@@ -156,11 +156,25 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
     }
   };
 
-  const handleBuyTwilioNumber = async (e164: string) => {
+  /** City + state from Twilio inventory row for default friendly name (still editable in the table). */
+  const defaultFriendlyFromListing = (r: TwilioAvailableNumber): string | undefined => {
+    const city = r.locality?.trim();
+    const st = r.region?.trim();
+    if (city && st) return `${city}, ${st}`;
+    if (city) return city;
+    if (st) return st;
+    return undefined;
+  };
+
+  const handleBuyTwilioNumber = async (e164: string, listing?: TwilioAvailableNumber) => {
     setPurchasingNumber(e164);
     try {
+      const friendly_name = listing ? defaultFriendlyFromListing(listing) : undefined;
       const { data, error } = await supabase.functions.invoke("twilio-buy-number", {
-        body: { phone_number: e164 },
+        body: {
+          phone_number: e164,
+          ...(friendly_name ? { friendly_name } : {}),
+        },
       });
       if (error || (data && typeof data === "object" && "error" in data && (data as { error?: string }).error)) {
         toast.error(await readInvokeError(data, error));
@@ -405,7 +419,7 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                         {[r.locality, r.region, r.postal_code].filter(Boolean).join(", ") || "US local"}
                       </p>
                     </div>
-                    <Button type="button" size="sm" disabled={!!purchasingNumber} onClick={() => void handleBuyTwilioNumber(r.phone_number)}>
+                    <Button type="button" size="sm" disabled={!!purchasingNumber} onClick={() => void handleBuyTwilioNumber(r.phone_number, r)}>
                       {purchasingNumber === r.phone_number ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buy"}
                     </Button>
                   </div>
