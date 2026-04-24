@@ -8,6 +8,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import SettingsRenderer from "@/components/settings/SettingsRenderer";
+import { isPhoneSystemSettingsSection } from "@/config/settingsConfig";
 
 const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
 const MASTER_ADMIN_UID = "u1";
@@ -40,15 +41,25 @@ const SettingsInner: React.FC = () => {
 
   const cancelNavigation = () => setPendingSlug(null);
 
+  const phoneStackPage = isPhoneSystemSettingsSection(activeSlug);
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground capitalize">
-          {activeSlug.replace(/-/g, ' ')} Settings
+        <h1
+          className={`text-2xl font-bold capitalize ${
+            phoneStackPage ? "text-primary" : "text-foreground"
+          }`}
+        >
+          {activeSlug.replace(/-/g, " ")} Settings
         </h1>
       </div>
 
-      <div className="bg-card rounded-xl border p-6 min-h-[600px]">
+      <div
+        className={`rounded-xl border bg-card p-6 min-h-[600px] ${
+          phoneStackPage ? "border-primary/25 shadow-sm shadow-primary/5" : ""
+        }`}
+      >
         <SettingsRenderer activeSlug={activeSlug} isMasterAdmin={isMasterAdmin} />
       </div>
 
