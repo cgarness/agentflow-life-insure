@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
+import { PROFILE_FETCH_FALLBACK_SELECT } from "@/lib/profile-fetch-columns";
 
 export interface Profile {
   id: string;
@@ -70,40 +71,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isBuildingOrganization, setIsBuildingOrganization] = useState(false);
 
   const fetchProfile = useCallback(async (userId: string) => {
-    // Try full fetch first
-    const { data, error } = await supabase
+    const applyRow = (row: Record<string, unknown>) => {
+      if (row.status === "Inactive") {
+        console.warn("User account is inactive. Logging out.");
+        void supabase.auth.signOut();
+        return;
+      }
+      setProfile(row as unknown as Profile);
+    };
+
+    // Prefer full row; on schema drift, fall back to an explicit wide column list (not the legacy 10-col subset,
+    // which wiped phone / resident_state / timezone from React after onboarding when USER_UPDATED refetched).
+    let { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
 
-    if (error && error.message.includes("does not exist")) {
-      console.warn("Retrying profile fetch with safe column set due to schema mismatch:", error.message);
-      // Fallback to minimal core columns that are guaranteed to exist
-      const { data: safeData, error: safeError } = await supabase
+    if (error?.message?.includes("does not exist")) {
+      console.warn("Profile fetch: retrying with explicit columns:", error.message);
+      const second = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, email, role, status, availability_status, avatar_url, theme_preference, is_super_admin")
+        .select(PROFILE_FETCH_FALLBACK_SELECT)
         .eq("id", userId)
-        .single();
-      
-      if (!safeError && safeData) {
-        if (safeData.status === "Inactive") {
-          await supabase.auth.signOut();
-          return;
-        }
-        setProfile(safeData as unknown as Profile);
-      }
+        .maybeSingle();
+      data = second.data as typeof data;
+      error = second.error;
+    }
+
+    if (error) {
+      console.error("fetchProfile failed:", error.message);
       return;
     }
 
-    if (!error && data) {
-      if (data.status === "Inactive") {
-        console.warn("User account is inactive. Logging out.");
-        await supabase.auth.signOut();
-        return;
-      }
-      setProfile(data as unknown as Profile);
-    }
+    if (data) applyRow(data as Record<string, unknown>);
   }, []);
 
   useEffect(() => {
@@ -254,12 +255,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfile = useCallback(async (data: Partial<Profile>) => {
     if (!user) return;
-    const { error } = await supabase
+    const { data: row, error } = await supabase
       .from("profiles")
       .update(data)
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .select()
+      .maybeSingle();
     if (error) throw error;
-    setProfile(prev => prev ? { ...prev, ...data } : prev);
+    if (row) setProfile(row as unknown as Profile);
+    else setProfile((prev) => (prev ? { ...prev, ...data } : prev));
   }, [user]);
 
   const checkProfileSetupNeeded = useCallback((): boolean => {
