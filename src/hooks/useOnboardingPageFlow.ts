@@ -4,6 +4,7 @@ import { useAuth, type Profile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { isSelfServeSignup, needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
+import { BRANDING_DEFAULTS } from "@/components/settings/brandingConfig";
 import type { TeamSizeIntent } from "@/components/onboarding/wizard/OnboardingStepAgency";
 
 function digitsFromCommission(raw: string | null | undefined): string {
@@ -71,12 +72,12 @@ export function useOnboardingPageFlow() {
   useEffect(() => {
     if (!profile?.organization_id) return;
     void (async () => {
-      const { data } = await supabase
-        .from("organizations")
-        .select("name")
-        .eq("id", profile.organization_id!)
-        .maybeSingle();
-      const name = data?.name || "";
+      const orgId = profile.organization_id!;
+      const [{ data: orgRow }, { data: brandRow }] = await Promise.all([
+        supabase.from("organizations").select("name").eq("id", orgId).maybeSingle(),
+        supabase.from("company_settings").select("company_name").eq("organization_id", orgId).maybeSingle(),
+      ]);
+      const name = brandRow?.company_name?.trim() || orgRow?.name || "";
       setOrgName(name || "Your agency");
       if (isFounder && name) setAgencyName(name);
     })();
@@ -145,13 +146,42 @@ export function useOnboardingPageFlow() {
       await updateProfile(patch);
 
       if (isFounder && profile.organization_id && agencyName.trim()) {
-        const { error: orgErr } = await supabase
-          .from("organizations")
-          .update({ name: agencyName.trim(), updated_at: new Date().toISOString() })
-          .eq("id", profile.organization_id);
+        const orgId = profile.organization_id;
+        const trimmed = agencyName.trim();
+        const [{ error: orgErr }, { error: brandErr }] = await Promise.all([
+          supabase
+            .from("organizations")
+            .update({ name: trimmed, updated_at: new Date().toISOString() })
+            .eq("id", orgId),
+          supabase.from("company_settings").upsert(
+            {
+              organization_id: orgId,
+              company_name: trimmed,
+              logo_url: null,
+              logo_name: null,
+              favicon_url: null,
+              favicon_name: null,
+              timezone: agencyTimezone || BRANDING_DEFAULTS.timezone,
+              time_format: BRANDING_DEFAULTS.timeFormat,
+              company_phone: "",
+              website_url: "",
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "organization_id" }
+          ),
+        ]);
         if (orgErr) {
           console.warn("Onboarding: could not update organization name", orgErr);
-          toast.message("Agency name could not be saved yet — you can ask a super admin or retry from settings later.");
+        }
+        if (brandErr) {
+          console.warn("Onboarding: could not save company branding (agency name)", brandErr);
+          toast.message(
+            "Agency display name could not be saved to Company Branding yet — you can set it under Settings later."
+          );
+        } else if (orgErr) {
+          toast.message(
+            "Agency name could not be saved on the organization record — you can retry from Settings later."
+          );
         }
       }
 

@@ -3,13 +3,12 @@ import { useNavigate } from "react-router-dom";
 import {
   Building2, Users, PhoneCall, DollarSign, Plus, Search,
   MoreHorizontal, ExternalLink, Loader2, CheckCircle2, ArrowRight,
-  ShieldCheck, Fingerprint,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -21,6 +20,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { usersSupabaseApi } from "@/lib/supabase-users";
+import { BRANDING_DEFAULTS } from "@/components/settings/brandingConfig";
 
 // ---- Types ----
 interface Organization {
@@ -29,6 +29,8 @@ interface Organization {
   slug: string | null;
   logo_url: string | null;
   created_at: string;
+  /** Company Branding (`company_settings.company_name`); falls back to `organizations.name`. */
+  displayName: string;
   userCount?: number;
   leadCount?: number;
 }
@@ -100,8 +102,34 @@ const ProvisioningWizard: React.FC<{
         .select("id")
         .single();
       if (error) throw error;
-      setCreatedOrgId(data.id);
-      toast({ title: "Agency created", description: `"${form.orgName}" is ready.` });
+      const orgId = data.id;
+      const { error: brandError } = await supabase.from("company_settings").upsert(
+        {
+          organization_id: orgId,
+          company_name: form.orgName.trim(),
+          logo_url: null,
+          logo_name: null,
+          favicon_url: null,
+          favicon_name: null,
+          timezone: BRANDING_DEFAULTS.timezone,
+          time_format: BRANDING_DEFAULTS.timeFormat,
+          company_phone: "",
+          website_url: "",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "organization_id" }
+      );
+      if (brandError) {
+        console.warn("Provision wizard: company_settings upsert", brandError);
+        toast({
+          title: "Agency created",
+          description: `Organization row is ready; Company Branding could not be saved yet (${brandError.message}).`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Agency created", description: `"${form.orgName}" is ready.` });
+      }
+      setCreatedOrgId(orgId);
       setStep(2);
     } catch (e: any) {
       toast({ title: "Failed to create agency", description: e.message, variant: "destructive" });
@@ -245,7 +273,7 @@ const ProvisioningWizard: React.FC<{
           {step === 1 && (
             <Button onClick={handleCreateOrg} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Create Organization
+              Create agency
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           )}
@@ -288,11 +316,18 @@ const SuperAdminDashboard: React.FC = () => {
     setLoading(true);
     try {
       // Fetch all organizations
-      const { data: orgData, error: orgError } = await supabase
-        .from("organizations")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const [{ data: orgData, error: orgError }, { data: brandingRows }] = await Promise.all([
+        supabase.from("organizations").select("*").order("created_at", { ascending: false }),
+        supabase.from("company_settings").select("organization_id, company_name"),
+      ]);
       if (orgError) throw orgError;
+
+      const brandingByOrg: Record<string, string> = {};
+      (brandingRows || []).forEach((row: { organization_id: string | null; company_name: string | null }) => {
+        if (row.organization_id && row.company_name?.trim()) {
+          brandingByOrg[row.organization_id] = row.company_name.trim();
+        }
+      });
 
       // Fetch user counts per org
       const { data: profileData } = await supabase
@@ -327,6 +362,7 @@ const SuperAdminDashboard: React.FC = () => {
 
       const enriched = (orgData || []).map((org: any) => ({
         ...org,
+        displayName: brandingByOrg[org.id] || org.name || "Agency",
         userCount: userCounts[org.id] || 0,
         leadCount: leadCounts[org.id] || 0,
       }));
@@ -394,10 +430,8 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  const filtered = orgs.filter(
-    (o) =>
-      o.name.toLowerCase().includes(search.toLowerCase()) ||
-      (o.slug || "").toLowerCase().includes(search.toLowerCase())
+  const filtered = orgs.filter((o) =>
+    (o.displayName || o.name).toLowerCase().includes(search.toLowerCase())
   );
   
   const handleViewDetail = (id: string) => {
@@ -409,8 +443,8 @@ const SuperAdminDashboard: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Super Admin Command Center</h1>
-          <p className="text-muted-foreground text-sm">Platform-wide organization management</p>
+          <h1 className="text-2xl font-bold tracking-tight">Agencies</h1>
+          <p className="text-muted-foreground text-sm">Manage all agencies on the platform</p>
         </div>
         <div className="flex gap-2">
           <Button 
@@ -423,7 +457,7 @@ const SuperAdminDashboard: React.FC = () => {
           </Button>
           <Button onClick={() => setWizardOpen(true)} className="gap-2">
             <Plus className="w-4 h-4" />
-            New Organization
+            New Agency
           </Button>
         </div>
       </div>
@@ -432,7 +466,7 @@ const SuperAdminDashboard: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <HealthTile
           icon={<Building2 className="w-5 h-5 text-white" />}
-          label="Total Organizations"
+          label="Total Agencies"
           value={orgs.length}
           color="bg-blue-600"
         />
@@ -457,15 +491,15 @@ const SuperAdminDashboard: React.FC = () => {
         />
       </div>
 
-      {/* Organizations Table */}
+      {/* Agencies table */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Organizations</CardTitle>
+            <CardTitle className="text-lg">Agencies</CardTitle>
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search organizations..."
+                placeholder="Search agencies…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9 h-9"
@@ -484,7 +518,6 @@ const SuperAdminDashboard: React.FC = () => {
                 <thead>
                   <tr className="border-b bg-muted/30">
                     <th className="text-left font-medium text-muted-foreground px-6 py-3">Agency</th>
-                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Slug</th>
                     <th className="text-center font-medium text-muted-foreground px-4 py-3">Users</th>
                     <th className="text-center font-medium text-muted-foreground px-4 py-3">Leads</th>
                     <th className="text-left font-medium text-muted-foreground px-4 py-3">Created</th>
@@ -498,11 +531,8 @@ const SuperAdminDashboard: React.FC = () => {
                       className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer group"
                       onClick={() => handleViewDetail(org.id)}
                     >
-                      <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors">{org.name}</td>
-                      <td className="px-4 py-4">
-                        <Badge variant="secondary" className="font-mono text-xs">
-                          {org.slug || "—"}
-                        </Badge>
+                      <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors">
+                        {org.displayName}
                       </td>
                       <td className="px-4 py-4 text-center">{org.userCount}</td>
                       <td className="px-4 py-4 text-center">{org.leadCount}</td>
@@ -538,7 +568,7 @@ const SuperAdminDashboard: React.FC = () => {
                   ))}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <td colSpan={5} className="text-center py-8 text-muted-foreground">
                         {search ? "No agencies match your search." : "No agencies yet."}
                       </td>
                     </tr>

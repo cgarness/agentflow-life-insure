@@ -81,19 +81,21 @@ const SuperAdminOrgDetail: React.FC = () => {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  /** Company Branding display name (`company_settings.company_name`). */
+  const [agencyDisplayName, setAgencyDisplayName] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
       // 1. Fetch Org Basic Info
-      const { data: orgData, error: orgError } = await supabase
-        .from("organizations")
-        .select("*")
-        .eq("id", id)
-        .single();
+      const [{ data: orgData, error: orgError }, { data: brandRow }] = await Promise.all([
+        supabase.from("organizations").select("*").eq("id", id).single(),
+        supabase.from("company_settings").select("company_name").eq("organization_id", id).maybeSingle(),
+      ]);
       if (orgError) throw orgError;
       setOrg(orgData);
+      setAgencyDisplayName(brandRow?.company_name?.trim() || null);
 
       // 2. Fetch Aggregates in Parallel
       const [
@@ -167,12 +169,9 @@ const SuperAdminOrgDetail: React.FC = () => {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-bold tracking-tight">{org.name}</h1>
-              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 font-mono text-xs uppercase tracking-tighter">
-                {org.slug || "NO-SLUG"}
-              </Badge>
-            </div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {agencyDisplayName || org.name}
+            </h1>
             <p className="text-muted-foreground text-sm flex items-center gap-2 mt-1">
               <Shield className="w-3.5 h-3.5" />
               Created on {new Date(org.created_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
