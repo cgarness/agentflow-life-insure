@@ -2,34 +2,34 @@ import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
-import { toast } from "@/hooks/use-toast";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import SettingsRenderer from "@/components/settings/SettingsRenderer";
 import { isPhoneSystemSettingsSection } from "@/config/settingsConfig";
-
-const MASTER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
-const MASTER_ADMIN_UID = "u1";
+import { useOrganization } from "@/hooks/useOrganization";
 
 const SettingsInner: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSlug = searchParams.get("section") || "my-profile";
-  const { user, profile } = useAuth();
+  const { isLoading } = useAuth();
+  const { isSuperAdmin } = useOrganization();
 
   useEffect(() => {
     if (searchParams.get("section") === "spam") {
       setSearchParams({ section: "number-reputation" }, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (activeSlug === "master-admin" && !isSuperAdmin) {
+      setSearchParams({ section: "my-profile" }, { replace: true });
+    }
+  }, [activeSlug, isSuperAdmin, isLoading, setSearchParams]);
   const { isAnyDirty, clearAll } = useUnsavedChanges();
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
-
-  const isMasterAdmin =
-    user?.email === MASTER_ADMIN_EMAIL ||
-    profile?.email === MASTER_ADMIN_EMAIL ||
-    user?.id === MASTER_ADMIN_UID;
 
   const confirmNavigation = () => {
     if (pendingSlug) {
@@ -60,7 +60,7 @@ const SettingsInner: React.FC = () => {
           phoneStackPage ? "border-primary/25 shadow-sm shadow-primary/5" : ""
         }`}
       >
-        <SettingsRenderer activeSlug={activeSlug} isMasterAdmin={isMasterAdmin} />
+        <SettingsRenderer activeSlug={activeSlug} isSuperAdmin={isSuperAdmin} />
       </div>
 
       <AlertDialog open={!!pendingSlug} onOpenChange={(open) => { if (!open) cancelNavigation(); }}>

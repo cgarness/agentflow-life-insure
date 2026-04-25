@@ -60,7 +60,9 @@ const Sidebar: React.FC = () => {
             {SETTINGS_CONFIG.map(cat => (
               <div key={cat.label} className="mb-4">
                 {!collapsed && <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">{cat.label}</p>}
-                {cat.sections.map((s) => (
+                {cat.sections
+                  .filter((s) => s.slug !== "master-admin" || isSuperAdmin)
+                  .map((s) => (
                   <SettingsNavItem
                     key={s.slug}
                     icon={s.icon}

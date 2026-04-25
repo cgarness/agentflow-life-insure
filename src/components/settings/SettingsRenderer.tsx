@@ -20,10 +20,10 @@ import { ALL_SETTINGS_SECTIONS } from "@/config/settingsConfig";
 
 interface SettingsRendererProps {
   activeSlug: string;
-  isMasterAdmin: boolean;
+  isSuperAdmin: boolean;
 }
 
-const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isMasterAdmin }) => {
+const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuperAdmin }) => {
   switch (activeSlug) {
     case "my-profile": return <MyProfile />;
     case "company-branding": return <CompanyBranding />;
@@ -47,7 +47,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isMaste
     case "dnc": return <DNCSettings />;
     case "menu-links": return <CustomMenuLinks />;
     case "activity-log": return <ActivityLog />;
-    case "master-admin": return isMasterAdmin ? <MasterAdmin /> : <MyProfile />;
+    case "master-admin": return isSuperAdmin ? <MasterAdmin /> : <MyProfile />;
     case "ai": return (
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">AI Settings</h3>
