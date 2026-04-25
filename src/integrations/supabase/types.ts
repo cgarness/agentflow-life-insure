@@ -1236,6 +1236,7 @@ export type Database = {
           active: boolean | null
           applies_to: Json
           created_at: string | null
+          created_by: string | null
           default_value: string | null
           dropdown_options: Json | null
           id: string
@@ -1250,6 +1251,7 @@ export type Database = {
           active?: boolean | null
           applies_to?: Json
           created_at?: string | null
+          created_by?: string | null
           default_value?: string | null
           dropdown_options?: Json | null
           id?: string
@@ -1264,6 +1266,7 @@ export type Database = {
           active?: boolean | null
           applies_to?: Json
           created_at?: string | null
+          created_by?: string | null
           default_value?: string | null
           dropdown_options?: Json | null
           id?: string

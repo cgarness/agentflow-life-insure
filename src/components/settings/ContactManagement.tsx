@@ -349,8 +349,10 @@ interface FieldFormState {
   required: boolean;
   defaultValue: string;
   dropdownOptions: string[];
+  /** Admin / Team Leader: create as org-wide template (created_by NULL) */
+  orgWide: boolean;
 }
-const emptyFieldForm: FieldFormState = { name: "", type: "Text", appliesTo: [], required: false, defaultValue: "", dropdownOptions: ["", ""] };
+const emptyFieldForm: FieldFormState = { name: "", type: "Text", appliesTo: [], required: false, defaultValue: "", dropdownOptions: ["", ""], orgWide: false };
 
 const TYPE_BADGE_COLORS: Record<string, string> = {
   Text: "bg-muted text-muted-foreground",
@@ -363,6 +365,7 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
 
 const CustomFieldsTab: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { profile } = useAuth();
   const [fields, setFields] = useState<CustomField[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -372,16 +375,28 @@ const CustomFieldsTab: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<CustomField | null>(null);
 
-  const load = useCallback(async () => { setFields(await customFieldsApi.getAll()); }, []);
+  const canOfferOrgWide =
+    profile?.role === "Admin" ||
+    profile?.role === "Team Leader" ||
+    profile?.role === "Team Lead";
+
+  const load = useCallback(async () => {
+    if (!organizationId) {
+      setFields([]);
+      return;
+    }
+    setFields(await customFieldsApi.getAll(organizationId));
+  }, [organizationId]);
   useEffect(() => { load(); }, [load]);
 
-  const openAdd = () => { setEditingId(null); setForm(emptyFieldForm); setShowModal(true); };
+  const openAdd = () => { setEditingId(null); setForm({ ...emptyFieldForm }); setShowModal(true); };
   const openEdit = (f: CustomField) => {
     setEditingId(f.id);
     setForm({
       name: f.name, type: f.type, appliesTo: [...f.appliesTo],
       required: f.required, defaultValue: f.defaultValue || "",
       dropdownOptions: f.dropdownOptions?.length ? [...f.dropdownOptions] : ["", ""],
+      orgWide: false,
     });
     setShowModal(true);
   };
@@ -411,7 +426,9 @@ const CustomFieldsTab: React.FC = () => {
         await customFieldsApi.update(editingId, data);
         toast({ title: "Custom field updated" });
       } else {
-        await customFieldsApi.create(data, organizationId);
+        await customFieldsApi.create(data, organizationId, {
+          orgWide: Boolean(form.orgWide && canOfferOrgWide),
+        });
         toast({ title: "Custom field created" });
       }
       setShowModal(false);
@@ -457,7 +474,7 @@ const CustomFieldsTab: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-base font-semibold text-foreground">Custom Fields</h4>
-          <p className="text-sm text-muted-foreground">Create additional fields that appear on contact records for your agents to fill in.</p>
+          <p className="text-sm text-muted-foreground">Create fields for your own workflow, or (as Admin / Team Leader) org-wide fields everyone in the agency can see.</p>
         </div>
         <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
       </div>
@@ -531,6 +548,15 @@ const CustomFieldsTab: React.FC = () => {
               </div>
               <Switch checked={form.required} onCheckedChange={v => setForm(f => ({ ...f, required: v }))} />
             </div>
+            {!editingId && canOfferOrgWide && (
+              <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Organization-wide field</p>
+                  <p className="text-xs text-muted-foreground">Visible to all agents. Leave off to keep this field private to you.</p>
+                </div>
+                <Switch checked={form.orgWide} onCheckedChange={v => setForm(f => ({ ...f, orgWide: v }))} />
+              </div>
+            )}
             {["Text", "Number"].includes(form.type) && (
               <div>
                 <label className="text-sm font-medium text-foreground block mb-1.5">Default Value (optional)</label>
@@ -1695,13 +1721,18 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   const [saving, setSaving] = useState(false);
 
   const fetchCustomFields = useCallback(async () => {
+    const oid = settings?.organizationId;
+    if (!oid) {
+      setCustomFields([]);
+      return;
+    }
     try {
-      const data = await customFieldsApi.getAll();
+      const data = await customFieldsApi.getAll(oid);
       setCustomFields(data);
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [settings?.organizationId]);
 
   useEffect(() => {
     fetchCustomFields();

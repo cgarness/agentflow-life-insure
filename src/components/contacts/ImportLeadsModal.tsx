@@ -255,7 +255,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         const [stages, sources, fields] = await Promise.all([
           pipelineSupabaseApi.getLeadStages(),
           leadSourcesSupabaseApi.getAll(),
-          customFieldsApi.getAll(),
+          customFieldsApi.getAll(organizationId),
         ]);
         setPipelineStages(stages);
         setLeadSources(sources);
@@ -272,7 +272,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       }
     }
     if (open) loadSettings();
-  }, [open]);
+  }, [open, organizationId]);
 
   // Keep Lead Status select valid when pipeline stages load or change (avoids blank <select>).
   useEffect(() => {

@@ -305,6 +305,8 @@ export interface CustomField {
   defaultValue?: string;
   dropdownOptions?: string[];
   usageCount: number;
+  /** Profile id of the creator; undefined/null on legacy org-wide definitions */
+  createdBy?: string | null;
 }
 
 export interface LeadSource {

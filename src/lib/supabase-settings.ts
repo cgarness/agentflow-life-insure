@@ -100,31 +100,53 @@ function rowToCustomField(row: any): CustomField {
     defaultValue: row.default_value,
     dropdownOptions: row.dropdown_options,
     usageCount: row.usage_count,
+    createdBy: row.created_by ?? null,
   };
 }
 
+export type CreateCustomFieldOptions = {
+  /** Admin / Team Leader only: org-wide template (created_by NULL) */
+  orgWide?: boolean;
+};
+
 export const customFieldsSupabaseApi = {
-  async getAll(): Promise<CustomField[]> {
+  /** Pass organizationId so the query is scoped even if JWT claims lag; RLS still enforces access. */
+  async getAll(organizationId: string | null | undefined): Promise<CustomField[]> {
+    if (!organizationId) return [];
     const { data, error } = await (supabase as any)
       .from("custom_fields")
       .select("*")
+      .eq("organization_id", organizationId)
       .order("name", { ascending: true });
     if (error) throw error;
     return (data || []).map(rowToCustomField);
   },
-  async create(data: Omit<CustomField, "id" | "usageCount">, organizationId: string | null = null): Promise<CustomField> {
+  async create(
+    data: Omit<CustomField, "id" | "usageCount" | "createdBy">,
+    organizationId: string | null = null,
+    options?: CreateCustomFieldOptions
+  ): Promise<CustomField> {
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    const uid = userData.user?.id;
+    if (!uid) throw new Error("You must be signed in to create a custom field.");
+
+    const orgWide = Boolean(options?.orgWide);
+    const payload: Record<string, unknown> = {
+      name: data.name,
+      type: data.type,
+      applies_to: data.appliesTo,
+      required: data.required,
+      active: data.active,
+      default_value: data.defaultValue,
+      dropdown_options: data.dropdownOptions,
+      organization_id: organizationId,
+      created_by: orgWide ? null : uid,
+    };
+
     const { data: result, error } = await (supabase as any)
       .from("custom_fields")
-      .insert({
-        name: data.name,
-        type: data.type,
-        applies_to: data.appliesTo,
-        required: data.required,
-        active: data.active,
-        default_value: data.defaultValue,
-        dropdown_options: data.dropdownOptions,
-        organization_id: organizationId,
-      })
+      .insert(payload)
       .select()
       .single();
     if (error) throw error;

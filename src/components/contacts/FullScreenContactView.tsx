@@ -347,7 +347,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         try {
           const [sources, fields] = await Promise.all([
             leadSourcesSupabaseApi.getAll(),
-            customFieldsSupabaseApi.getAll(),
+            customFieldsSupabaseApi.getAll(organizationId),
           ]);
           let settings: Record<string, unknown> | null = null;
           if (organizationId) {
