@@ -125,7 +125,7 @@ const SuperAdminOrgDetail: React.FC = () => {
 
       setProfiles(profilesRes.data || []);
     } catch (e: any) {
-      toast({ title: "Failed to load organization", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to load agency", description: e.message, variant: "destructive" });
       navigate("/super-admin");
     } finally {
       setLoading(false);
@@ -146,7 +146,7 @@ const SuperAdminOrgDetail: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
-        <p className="text-muted-foreground animate-pulse">Loading organization details...</p>
+        <p className="text-muted-foreground animate-pulse">Loading agency details…</p>
       </div>
     );
   }
@@ -259,7 +259,7 @@ const SuperAdminOrgDetail: React.FC = () => {
           <Card className="border-border/50 shadow-sm overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6 bg-muted/5">
               <div>
-                <CardTitle>Organization Users</CardTitle>
+                <CardTitle>Agency team</CardTitle>
                 <CardDescription>Manage team members and their platform permissions</CardDescription>
               </div>
               <div className="relative w-64">
@@ -331,7 +331,7 @@ const SuperAdminOrgDetail: React.FC = () => {
                     {filteredProfiles.length === 0 && (
                       <tr>
                         <td colSpan={6} className="text-center py-12 text-muted-foreground">
-                          {search ? "No users match your criteria." : "No users found in this organization."}
+                          {search ? "No users match your criteria." : "No users found in this agency."}
                         </td>
                       </tr>
                     )}
@@ -380,12 +380,12 @@ const SuperAdminOrgDetail: React.FC = () => {
           <Card className="border-border/50 bg-muted/5">
             <CardContent className="py-12 flex flex-col items-center justify-center text-center">
               <Building2 className="w-12 h-12 text-muted-foreground/20 mb-4" />
-              <h3 className="text-lg font-medium">Tenant Configuration</h3>
+              <h3 className="text-lg font-medium">Agency configuration</h3>
               <p className="text-sm text-muted-foreground max-w-xs mt-1">
-                Administrative settings and tenant-level limits for {org.name}
+                Administrative settings and limits for {org.name}
               </p>
               <Button variant="outline" className="mt-6 border-dashed">
-                Configure Organization
+                Configure agency
               </Button>
             </CardContent>
           </Card>

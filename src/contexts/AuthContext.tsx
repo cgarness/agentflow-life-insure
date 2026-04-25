@@ -315,7 +315,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const stopImpersonation = useCallback(() => {
     setImpersonatedUser(null);
     localStorage.removeItem("agentflow_impersonation");
-    // Return to Super Admin dashboard
+    // Return to Agencies (super-admin) dashboard
     window.location.href = "/super-admin";
   }, []);
 

@@ -115,7 +115,17 @@ const Sidebar: React.FC = () => {
           isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
           onClick={() => setMobileOpen(false)}
         />
-        {isSuperAdmin && <MainNavItem icon={ShieldAlert} label="Super Admin" path="/super-admin" collapsed={collapsed} isActive={location.pathname === "/super-admin"} variant="warning" onClick={() => setMobileOpen(false)} />}
+        {isSuperAdmin && (
+          <MainNavItem
+            icon={ShieldAlert}
+            label="Agencies"
+            path="/super-admin"
+            collapsed={collapsed}
+            isActive={location.pathname === "/super-admin" || location.pathname.startsWith("/super-admin/")}
+            variant="warning"
+            onClick={() => setMobileOpen(false)}
+          />
+        )}
       </>
     )}
   </nav>

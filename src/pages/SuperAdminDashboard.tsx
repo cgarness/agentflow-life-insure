@@ -88,7 +88,7 @@ const ProvisioningWizard: React.FC<{
 
   const handleCreateOrg = async () => {
     if (!form.orgName.trim()) {
-      toast({ title: "Organization name is required", variant: "destructive" });
+      toast({ title: "Agency name is required", variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -101,10 +101,10 @@ const ProvisioningWizard: React.FC<{
         .single();
       if (error) throw error;
       setCreatedOrgId(data.id);
-      toast({ title: "Organization created", description: `"${form.orgName}" is ready.` });
+      toast({ title: "Agency created", description: `"${form.orgName}" is ready.` });
       setStep(2);
     } catch (e: any) {
-      toast({ title: "Failed to create organization", description: e.message, variant: "destructive" });
+      toast({ title: "Failed to create agency", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -150,9 +150,9 @@ const ProvisioningWizard: React.FC<{
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Provision New Organization</DialogTitle>
+          <DialogTitle>Provision New Agency</DialogTitle>
           <DialogDescription>
-            {step === 1 && "Step 1 of 3 — Create the organization."}
+            {step === 1 && "Step 1 of 3 — Create the agency."}
             {step === 2 && "Step 2 of 3 — Invite the first Admin."}
             {step === 3 && "Step 3 of 3 — All done!"}
           </DialogDescription>
@@ -179,7 +179,7 @@ const ProvisioningWizard: React.FC<{
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <Label>Organization Name *</Label>
+              <Label>Agency Name *</Label>
               <Input
                 value={form.orgName}
                 onChange={(e) => setForm((p) => ({ ...p, orgName: e.target.value }))}
@@ -233,7 +233,7 @@ const ProvisioningWizard: React.FC<{
         {step === 3 && (
           <div className="text-center py-6 space-y-3">
             <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto" />
-            <h3 className="text-lg font-semibold">Organization Provisioned!</h3>
+            <h3 className="text-lg font-semibold">Agency provisioned</h3>
             <p className="text-sm text-muted-foreground">
               <strong>{form.orgName}</strong> has been created and an invitation has been sent to{" "}
               <strong>{form.adminEmail}</strong>.
@@ -483,7 +483,7 @@ const SuperAdminDashboard: React.FC = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/30">
-                    <th className="text-left font-medium text-muted-foreground px-6 py-3">Organization</th>
+                    <th className="text-left font-medium text-muted-foreground px-6 py-3">Agency</th>
                     <th className="text-left font-medium text-muted-foreground px-4 py-3">Slug</th>
                     <th className="text-center font-medium text-muted-foreground px-4 py-3">Users</th>
                     <th className="text-center font-medium text-muted-foreground px-4 py-3">Leads</th>
@@ -539,7 +539,7 @@ const SuperAdminDashboard: React.FC = () => {
                   {filtered.length === 0 && (
                     <tr>
                       <td colSpan={6} className="text-center py-8 text-muted-foreground">
-                        {search ? "No organizations match your search." : "No organizations yet."}
+                        {search ? "No agencies match your search." : "No agencies yet."}
                       </td>
                     </tr>
                   )}
