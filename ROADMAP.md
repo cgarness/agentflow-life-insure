@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 24, 2026
+**Owner:** Chris Garness | **Last Updated:** April 26, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -29,6 +29,7 @@
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (**Twilio Voice.js**) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
+- **Recent update (2026-04-26):** **Max call attempts (end-to-end)** — `getCampaignLeads` applies the campaign’s finite `max_attempts` to every non-terminal `campaign_leads` row (not only `Called`). **`get_next_queue_lead`** enforces the same cap from `campaigns.max_attempts` for Team / Open Pool (optional `queue_filters` max is unchanged). **Dialer** calling-settings save optimistically updates `max_attempts` in local campaign state and prunes the in-memory queue so the active contact cannot stay over the new cap. *Files:* **`src/lib/dialer-api.ts`**, **`src/lib/dialer-api-attempt-cap.test.ts`**, **`src/pages/DialerPage.tsx`**, migration **`20260426120000_get_next_queue_lead_campaign_max_attempts.sql`**, **`docs/CAMPAIGN_AND_DIALER_ARCHITECTURE.md`**. **Apply:** run the migration (e.g. **`npx supabase db push`**) on each environment.
 - **Recent update (2026-04-20):** Production **`db push`** applied the Twilio Phase 1 migration pack (after **`migration repair --status reverted 20260418180637`** cleared an orphan remote-only history row). All Twilio voice/SMS/Trust Hub functions plus **`inbound-call-claim`** were redeployed to **`jncvvsvckxhqgqvkppmj`** (webhook deploys used **`--no-verify-jwt`**).
 - **Recent update (2026-04-23):** **Outbound connect chime** — Twilio Voice.js plays a built-in **“outgoing”** UI sound when the PSTN leg connects. **`initTwilioDevice`** now calls **`device.audio?.outgoing(false)`** after **`register()`** (and when returning an already-registered singleton) so agents only hear the live call, not the SDK chime. *File:* **`src/lib/twilio-voice.ts`**.
 - **Recent update (2026-04-23):** **Twilio “application error” at call end** — Twilio plays that message when a **`<Dial action>`** URL returns **403** (often **signature mismatch**). Outbound TwiML built **`action`** from **`X-Forwarded-Host`** while **`twilio-voice-status`** validated signatures against a **hardcoded** `*.supabase.co` host; any mismatch fails verification. **Fix:** derive **both** the embedded callback URLs and signature base URL from **`SUPABASE_URL`** (same helpers in **`twilio-voice-webhook`**, **`twilio-voice-status`**, **`twilio-voice-inbound`**, **`twilio-recording-status`**). **Redeploy** all four Edge functions to production after merge.

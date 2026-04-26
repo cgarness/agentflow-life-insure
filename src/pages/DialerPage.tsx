@@ -2008,6 +2008,35 @@ export default function DialerPage() {
       console.error("Save error:", { campaignError, phoneError });
     } else {
       toast.success("Calling settings saved");
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === effectiveCampaignId
+            ? { ...c, max_attempts: isUnlimited ? null : maxAttemptsValue }
+            : c
+        )
+      );
+
+      if (effectiveCampaignId === selectedCampaignId && !isUnlimited) {
+        const cap = maxAttemptsValue;
+        let nextIndex = 0;
+        setLeadQueue((prev) => {
+          const current = prev[currentLeadIndex];
+          const filtered = prev.filter((l) => (l.call_attempts ?? 0) < cap);
+          if (filtered.length === 0) {
+            nextIndex = 0;
+            return filtered;
+          }
+          if (!current) {
+            nextIndex = 0;
+            return filtered;
+          }
+          const at = filtered.findIndex((l) => l.id === current.id);
+          nextIndex = at >= 0 ? at : 0;
+          return filtered;
+        });
+        setCurrentLeadIndex(nextIndex);
+      }
+
       const { data: ringRow } = await supabase
         .from("campaigns")
         .select("ring_timeout_seconds")

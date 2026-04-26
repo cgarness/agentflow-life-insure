@@ -88,6 +88,18 @@ export async function getCampaigns(organizationId: string | null = null) {
 /** Lowercase `removed` was written historically by the dialer — exclude both. */
 const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Closed Won'];
 
+/**
+ * Campaign `max_attempts === null` means unlimited. When set, a row is over cap when
+ * `call_attempts >= max_attempts` (same as UI: dial while `attempts < cap`).
+ */
+export function isOverCampaignAttemptCap(
+  callAttempts: number | null | undefined,
+  campaignMaxAttempts: number | null | undefined
+): boolean {
+  if (campaignMaxAttempts == null) return false;
+  return (callAttempts ?? 0) >= campaignMaxAttempts;
+}
+
 export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
   // Fetch campaign settings for maxAttempts and retryInterval logic
   const { data: campaign } = await supabase
@@ -96,8 +108,7 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
     .eq("id", campaignId)
     .maybeSingle();
 
-  // Fix 2: NULL max_attempts means "Unlimited" — never block re-queuing
-  const maxAttempts = campaign?.max_attempts ?? 9999;
+  const campaignMaxAttempts = campaign?.max_attempts ?? null;
   const retryIntervalHours = campaign?.retry_interval_hours ?? 0;
 
   // Fix 3: Query campaign_leads directly, filtering by both campaign_id and organization_id
@@ -121,15 +132,17 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
 
   const now = new Date();
 
-  // Fix 1: Exclude only terminal statuses. NULL / Pending / New / Queued / unrecognized → dialable.
-  // For "Called" leads, still enforce maxAttempts + retryInterval.
+  // Fix 1: Exclude terminal statuses. For finite max_attempts, block any non-terminal
+  // lead at or over the cap (not only status "Called" — dispositions can differ).
+  // For "Called" leads, still enforce retry_interval wait when configured.
   const dialable = ((data as any[]) ?? []).filter(row => {
     const status: string | null = row.status;
 
     if (status && TERMINAL_STATUSES.includes(status)) return false;
 
+    if (isOverCampaignAttemptCap(row.call_attempts, campaignMaxAttempts)) return false;
+
     if (status === 'Called') {
-      if ((row.call_attempts ?? 0) >= maxAttempts) return false;
       if (retryIntervalHours > 0 && row.last_called_at) {
         const hoursSince = (now.getTime() - new Date(row.last_called_at).getTime()) / 3_600_000;
         if (hoursSince < retryIntervalHours) return false;
