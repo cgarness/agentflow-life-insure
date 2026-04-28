@@ -223,7 +223,7 @@ const CalendarPage: React.FC = () => {
     }
 
     const localPayload = {
-      user_id: user?.id,
+      user_id: (data as any).user_id || user?.id,
       title: data.title,
       contact_name: data.contactName,
       contact_id: contactId || null,

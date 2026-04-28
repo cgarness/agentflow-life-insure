@@ -94,6 +94,14 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-28 | [DONE] | AppointmentModal — 3-part fix (header cleanup, assignee user_id, past-status enforcement)**
+  *What:*
+  **(1) Header cleanup:** Removed CALL, SMS, and EMAIL shortcut buttons from the modal header. Deleted associated `handleStartCall` / `handleComingSoon` handlers and the `Phone`, `MessageSquare`, `Mail` lucide imports. Header now shows only title + close (X).
+  **(2) Assignee → Assigned Agent (user_id-based):** Renamed field label to **Assigned Agent**. `agent` state renamed to `assignedAgentId` (stores UUID). Agents useEffect now scopes by role — **Team Leader** fetches self + direct reports (`upline_id = current user`); **Admin/Super Admin** fetches all active org members (`.eq("organization_id", organizationId)` filter added); **Agent** role skips the fetch entirely and shows their own name as read-only text. On modal open for new appointments, `assignedAgentId` defaults to `auth.uid()`; for editing, it loads from `editing.user_id`. `handleSave` resolves the agent display name from the agents list and passes `user_id: assignedAgentId` in the payload. `CalendarPage.handleSave` updated to use `(data as any).user_id || user?.id` so the assignee choice persists to the DB.
+  **(3) Past-appointment enforcement:** Added `nonTerminalStatuses` (STATUSES minus "Completed", "Cancelled", "No Show"). `isPastUnresolved` is `true` when the appointment date is before today AND the status is non-terminal. Renders an amber warning banner (`bg-amber-50 / border-amber-200 / text-amber-800`) above the footer when true. CONFIRM button is `disabled` when `isPastUnresolved` — agents must change status to a terminal value to save.
+  *Developer note:* `upline_id` confirmed present on `profiles` (validated via `types.ts` FK constraint `profiles_upline_id_fkey`). No new migrations required — only frontend logic changes. No BLOCKER.
+  *Files:* **`src/components/calendar/AppointmentModal.tsx`**, **`src/pages/CalendarPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-24 | [DONE] | Marketing landing — hero badge clears fixed nav**
   *What:* Hero section used **`pt-16`**, matching the fixed **`MarketingNav`** height with no gap, so the “Built for Life Insurance Professionals” pill sat flush under the header and could read as clipped. Increased to **`pt-24 md:pt-28`** so the badge sits clearly below the bar.
   *Files:* **`src/pages/LandingPage.tsx`**, **`ROADMAP.md`**.
