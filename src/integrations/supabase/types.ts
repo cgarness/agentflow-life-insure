@@ -2419,7 +2419,7 @@ export type Database = {
           monthly_call_goal: number | null
           monthly_policies_goal: number | null
           monthly_talk_time_goal: number | null
-          monthly_talk_time_goal_hours: number | null
+          monthly_premium_goal: number | null
           npn: string | null
           organization_id: string | null
           phone: string | null
@@ -2458,7 +2458,7 @@ export type Database = {
           monthly_call_goal?: number | null
           monthly_policies_goal?: number | null
           monthly_talk_time_goal?: number | null
-          monthly_talk_time_goal_hours?: number | null
+          monthly_premium_goal?: number | null
           npn?: string | null
           organization_id?: string | null
           phone?: string | null
@@ -2497,7 +2497,7 @@ export type Database = {
           monthly_call_goal?: number | null
           monthly_policies_goal?: number | null
           monthly_talk_time_goal?: number | null
-          monthly_talk_time_goal_hours?: number | null
+          monthly_premium_goal?: number | null
           npn?: string | null
           organization_id?: string | null
           phone?: string | null
@@ -3050,7 +3050,7 @@ export type Database = {
           monthly_call_goal: number | null
           monthly_policies_goal: number | null
           monthly_talk_time_goal: number | null
-          monthly_talk_time_goal_hours: number | null
+          monthly_premium_goal: number | null
           npn: string | null
           organization_id: string | null
           phone: string | null

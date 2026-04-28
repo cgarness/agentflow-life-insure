@@ -42,7 +42,7 @@ export interface UserProfile {
   monthlyCallGoal: number;
   monthlyPoliciesGoal: number;
   weeklyAppointmentGoal: number;
-  monthlyTalkTimeGoalHours: number;
+  monthlyPremiumGoal: number;
   onboardingItems?: any;
   npn: string;
   timezone: string;
