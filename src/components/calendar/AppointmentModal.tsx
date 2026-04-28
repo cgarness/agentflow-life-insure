@@ -218,6 +218,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [newPhone, setNewPhone] = useState("");
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
 
+  const { user, profile } = useAuth();
+  const isAgent = profile?.role === "Agent";
+
   useEffect(() => {
     if (!organizationId || !user?.id || profile?.role === "Agent") return;
     const uid = user.id;
@@ -236,9 +239,6 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const { user, profile } = useAuth();
-  const isAgent = profile?.role === "Agent";
 
   const nonTerminalStatuses = STATUSES.filter(s => s !== "Completed" && s !== "Cancelled" && s !== "No Show");
   const isPastUnresolved = (() => {
