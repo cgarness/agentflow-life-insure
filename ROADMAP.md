@@ -94,6 +94,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-28 | [DONE] | Campaigns — redesign campaign card stat section to 4-box 2×2 grid**
+  *What:* Replaced the inline 3-number flex row (Total / Contacted / Converted) in `Campaigns.tsx` campaign cards with a `grid grid-cols-2 gap-2` layout of 4 individually boxed stat tiles: **Total**, **Called**, **Contacted**, **Converted**. Each tile uses `bg-muted/40 rounded-lg p-3 text-center` with a muted 10px uppercase label and bold `text-xl` number. `leads_called` added to the `Campaign` interface; falls back to `0` (nullish coalesce in the data map) because the `campaigns` table does not yet have a `leads_called` column — TODO comments left in code, no migration created. `LeadHealthBar` retained below the grid. All Tailwind, no inline styles.
+  *Developer note:* `leads_called` must be added as a DB column and trigger (similar to `leads_contacted`/`leads_converted`) in a future migration before the fallback `0` becomes live data. Remove both TODO comments at that time.
+  *Files:* **`src/pages/Campaigns.tsx`**.
+
 - **2026-04-28 | [DONE] | AppointmentModal — fix TDZ crash ("Cannot access 'ie' before initialization") on Calendar page load**
   *What:* `const { user, profile } = useAuth()` was declared on line 240, below the first `useEffect` (line 221) that referenced both values in its callback and dependency array. Bundler minified the reference into `ie`, triggering a Temporal Dead Zone error and crashing the Calendar page. Fix: moved `useAuth()` destructuring and the derived `isAgent` const above the first `useEffect` that uses them — 3-line move, no logic changed.
   *Developer note:* Always declare `useAuth()` / `useOrganization()` hooks before any `useEffect` or derived `const` that depends on them; React hook-call order is preserved, but TDZ fires if a `const` binding is read before its declaration in the module execution order.

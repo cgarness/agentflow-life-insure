@@ -22,6 +22,8 @@ interface Campaign {
   assigned_agent_ids: string[];
   tags: string[];
   total_leads: number;
+  // TODO: add leads_called column to campaigns table and remove fallback
+  leads_called: number;
   leads_contacted: number;
   leads_converted: number;
   created_by: string | null;
@@ -184,6 +186,8 @@ const Campaigns: React.FC = () => {
         ...r,
         assigned_agent_ids: r.assigned_agent_ids || [],
         tags: r.tags || [],
+        // TODO: remove fallback once leads_called column exists on campaigns table
+        leads_called: r.leads_called ?? 0,
       })));
     }
     setLoading(false);
@@ -295,19 +299,18 @@ const Campaigns: React.FC = () => {
                   ))}
                 </div>
               )}
-              <div className="flex gap-4 mb-3">
-                <div className="text-center">
-                  <p className="text-lg font-bold text-foreground">{c.total_leads}</p>
-                  <p className="text-[10px] text-muted-foreground">Total</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-foreground">{c.leads_contacted}</p>
-                  <p className="text-[10px] text-muted-foreground">Contacted</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-foreground">{c.leads_converted}</p>
-                  <p className="text-[10px] text-muted-foreground">Converted</p>
-                </div>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {[
+                  { label: "Total", value: c.total_leads },
+                  { label: "Called", value: c.leads_called },
+                  { label: "Contacted", value: c.leads_contacted },
+                  { label: "Converted", value: c.leads_converted },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-muted/40 rounded-lg p-3 text-center">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
+                    <p className="text-xl font-bold text-foreground">{value}</p>
+                  </div>
+                ))}
               </div>
               {/* Lead Health Bar */}
               <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />
