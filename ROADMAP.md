@@ -94,6 +94,11 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-28 | [DONE] | AppointmentModal — fix TDZ crash ("Cannot access 'ie' before initialization") on Calendar page load**
+  *What:* `const { user, profile } = useAuth()` was declared on line 240, below the first `useEffect` (line 221) that referenced both values in its callback and dependency array. Bundler minified the reference into `ie`, triggering a Temporal Dead Zone error and crashing the Calendar page. Fix: moved `useAuth()` destructuring and the derived `isAgent` const above the first `useEffect` that uses them — 3-line move, no logic changed.
+  *Developer note:* Always declare `useAuth()` / `useOrganization()` hooks before any `useEffect` or derived `const` that depends on them; React hook-call order is preserved, but TDZ fires if a `const` binding is read before its declaration in the module execution order.
+  *Files:* **`src/components/calendar/AppointmentModal.tsx`**.
+
 - **2026-04-28 | [DONE] | AppointmentModal — 3-part fix (header cleanup, assignee user_id, past-status enforcement)**
   *What:*
   **(1) Header cleanup:** Removed CALL, SMS, and EMAIL shortcut buttons from the modal header. Deleted associated `handleStartCall` / `handleComingSoon` handlers and the `Phone`, `MessageSquare`, `Mail` lucide imports. Header now shows only title + close (X).
