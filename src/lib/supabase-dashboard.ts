@@ -399,6 +399,7 @@ export const dashboardSupabaseApi = {
     const [
       { count: dailyCalls },
       { count: monthlyPolicies },
+      { data: winsData },
     ] = await Promise.all([
       supabase
         .from("calls")
@@ -410,15 +411,26 @@ export const dashboardSupabaseApi = {
         .select("id", { count: "exact", head: true })
         .eq("agent_id", userId)
         .gte("created_at", ranges.monthStart.toISOString()),
+      supabase
+        .from("wins")
+        .select("premium_amount")
+        .eq("agent_id", userId)
+        .gte("created_at", ranges.monthStart.toISOString()),
     ]);
-    
+
+    const premiumThisMonth = (winsData ?? []).reduce(
+      (sum, w) => sum + (Number((w as any).premium_amount) || 0),
+      0
+    );
+
     const goalMap = new Map((goals ?? []).map(g => [g.metric, g]));
     const result: GoalProgress[] = [];
-    
+
     // Map goals to progress
     const metricsConfig: { metric: string; label: string; currentValue: number }[] = [
       { metric: "daily_calls", label: "Daily Calls", currentValue: dailyCalls ?? 0 },
       { metric: "monthly_policies", label: "Monthly Policies", currentValue: monthlyPolicies ?? 0 },
+      { metric: "Monthly Premium", label: "Monthly Premium", currentValue: premiumThisMonth },
     ];
     
     for (const config of metricsConfig) {

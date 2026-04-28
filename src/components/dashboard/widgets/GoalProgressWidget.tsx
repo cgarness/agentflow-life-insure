@@ -16,8 +16,8 @@ interface GoalData {
   callsTarget: number;
   policiesMonth: number;
   policiesTarget: number;
-  talkTimeMinutes: number;
-  talkTimeTarget: number;
+  premiumSold: number;
+  premiumTarget: number;
   hasGoals: boolean;
 }
 
@@ -27,9 +27,11 @@ const ProgressBar: React.FC<{
   label: string;
   icon: React.ElementType;
   gradient: string;
-}> = ({ current, target, label, icon: Icon, gradient }) => {
+  formatValue?: (v: number) => string;
+}> = ({ current, target, label, icon: Icon, gradient, formatValue }) => {
   const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
-  
+  const fmt = formatValue ?? ((v: number) => String(v));
+
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-end px-1">
@@ -40,7 +42,7 @@ const ProgressBar: React.FC<{
           <span className="text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
         </div>
         <span className="text-[10px] font-bold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
-          {current} / {target}
+          {fmt(current)} / {fmt(target)}
         </span>
       </div>
       <div className="relative h-3 bg-muted/30 rounded-full overflow-hidden border border-white/5 shadow-inner">
@@ -58,6 +60,9 @@ const ProgressBar: React.FC<{
   );
 };
 
+const fmtCurrency = (v: number) =>
+  v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
 const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }) => {
   const navigate = useNavigate();
   const [data, setData] = useState<GoalData | null>(null);
@@ -66,19 +71,26 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
   useEffect(() => {
     const fetchGoalsAndStats = async () => {
       if (!userId) return;
-      
+
       try {
-        // We only need to fetch the goals from the DB if they weren't passed in.
-        // Actually, even if stats are passed in, we still need the targets from the goals table.
-        const { data: goalsResult, error: goalsError } = await supabase
-          .from("goals")
-          .select("*");
-        
-        if (goalsError) throw goalsError;
-        const goals = goalsResult ?? [];
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+        // Always fetch goals + current-month premium from wins
+        const [goalsRes, winsRes] = await Promise.all([
+          supabase.from("goals").select("*"),
+          supabase
+            .from("wins")
+            .select("premium_amount")
+            .eq("agent_id", userId)
+            .gte("created_at", startOfMonth),
+        ]);
+
+        if (goalsRes.error) throw goalsRes.error;
+        const goals = goalsRes.data ?? [];
 
         if (goals.length === 0) {
-          setData({ callsToday: 0, callsTarget: 0, policiesMonth: 0, policiesTarget: 0, talkTimeMinutes: 0, talkTimeTarget: 0, hasGoals: false });
+          setData({ callsToday: 0, callsTarget: 0, policiesMonth: 0, policiesTarget: 0, premiumSold: 0, premiumTarget: 0, hasGoals: false });
           setLoading(false);
           return;
         }
@@ -88,27 +100,30 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
           return g?.target_value ?? 0;
         };
 
-        // If stats are provided from the parent, use them to avoid redundant network calls.
+        const premiumSold = (winsRes.data ?? []).reduce(
+          (sum, w) => sum + (Number(w.premium_amount) || 0),
+          0
+        );
+
+        // Use stats from parent when available to avoid redundant network calls
         if (stats) {
           setData({
             callsToday: stats.callsToday,
             callsTarget: findTarget("Daily Calls"),
             policiesMonth: stats.policiesThisMonth,
             policiesTarget: findTarget("Monthly Policies"),
-            talkTimeMinutes: stats.talkTimeMinutes,
-            talkTimeTarget: findTarget("Monthly Talk Time") * 60, // Assuming goal is in hours
+            premiumSold,
+            premiumTarget: findTarget("Monthly Premium"),
             hasGoals: true,
           });
           setLoading(false);
           return;
         }
 
-        // Fallback for independent use (though redirected to central stats normally)
-        const now = new Date();
+        // Fallback for independent use
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-        const [callsResult, winsResult, talkTimeResult] = await Promise.all([
+        const [callsResult, winsResult] = await Promise.all([
           supabase
             .from("calls")
             .select("id", { count: "exact", head: true })
@@ -120,28 +135,15 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
             .select("id", { count: "exact", head: true })
             .eq("assigned_agent_id", userId)
             .gte("created_at", startOfMonth),
-          supabase
-            .from("calls")
-            .select("duration")
-            .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
-            .eq("agent_id", userId)
-            .gte("created_at", startOfMonth),
         ]);
-
-        const talkTimeMinutes = Math.round(
-          (talkTimeResult.data ?? []).reduce(
-            (sum, c) => sum + (c.duration ?? 0),
-            0
-          ) / 60
-        );
 
         setData({
           callsToday: callsResult.count ?? 0,
-          callsTarget: findTarget("calls_daily") || findTarget("calls"),
+          callsTarget: findTarget("Daily Calls"),
           policiesMonth: winsResult.count ?? 0,
-          policiesTarget: findTarget("policies_monthly") || findTarget("policies"),
-          talkTimeMinutes,
-          talkTimeTarget: findTarget("talk_time_monthly") || findTarget("talk_time"),
+          policiesTarget: findTarget("Monthly Policies"),
+          premiumSold,
+          premiumTarget: findTarget("Monthly Premium"),
           hasGoals: true,
         });
       } catch {
@@ -203,17 +205,18 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
           gradient="premium-gradient-emerald"
         />
       )}
-      {data.talkTimeTarget > 0 && (
+      {data.premiumTarget > 0 && (
         <ProgressBar
-          current={data.talkTimeMinutes}
-          target={data.talkTimeTarget}
-          label="Total Talk Time"
+          current={data.premiumSold}
+          target={data.premiumTarget}
+          label="Monthly Premium"
           icon={TrendingUp}
           gradient="premium-gradient-violet"
+          formatValue={fmtCurrency}
         />
       )}
-      
-      {data.callsTarget === 0 && data.policiesTarget === 0 && data.talkTimeTarget === 0 && (
+
+      {data.callsTarget === 0 && data.policiesTarget === 0 && data.premiumTarget === 0 && (
         <div className="text-center py-4 bg-muted/20 rounded-xl border border-dashed border-muted-foreground/20">
           <p className="text-xs font-medium text-muted-foreground px-4">Targets are not yet configured for your metrics</p>
           <button
