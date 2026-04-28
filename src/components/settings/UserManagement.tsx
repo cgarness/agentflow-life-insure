@@ -1309,8 +1309,11 @@ const UserManagement: React.FC = () => {
       // Admin sees everyone in organization (already RLS-filtered)
       if (role === "admin") return true;
       
-      // Manager sees self + downline (already RLS-filtered)
-      if (role === "team leader") return true;
+      // Team Leader: self is always visible; only show users whose direct upline is this leader.
+      // RLS enforces the deep ltree hierarchy — this is a shallow frontend defense-in-depth layer.
+      if (role === "team leader") {
+        return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
+      }
       
       // Agent sees ONLY themselves
       if (role === "agent") {
@@ -1437,6 +1440,23 @@ const UserManagement: React.FC = () => {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
+
+  if (isCurrentUserSuperAdmin) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center p-8 border border-border/50 rounded-2xl bg-card shadow-xl shadow-black/5 max-w-md w-full space-y-4">
+          <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+            <ShieldCheck className="w-7 h-7 text-primary" />
+          </div>
+          <h3 className="text-xl font-bold text-foreground tracking-tight">Super Admin View</h3>
+          <p className="text-sm text-muted-foreground">
+            Super Admins manage users across all agencies from the Agencies panel rather than from individual org settings.
+          </p>
+          <Button onClick={() => navigate("/super-admin")}>Go to Agencies Panel</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

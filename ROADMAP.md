@@ -94,6 +94,17 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-28 | [DONE] | User Management — Role-Scoped Visibility Fix (BUGFIX)**
+  *What:* Two frontend hardening changes to `src/components/settings/UserManagement.tsx`. No DB migrations, no RLS changes, no other files modified.
+  **(1) API Audit:** Confirmed `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` uses the anon/JWT Supabase client (not `service_role`). RLS policy `profiles_select_hierarchical` already enforces correct visibility tiers at the DB layer. **No BLOCKER — no changes to `supabase-users.ts`.**
+  **(2) `filteredUsers` defense-in-depth (Part 2):** Replaced the unconditional `return true` for the `"team leader"` role branch with an explicit downline check: `return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id`. Field name confirmed as `u.profile.uplineId` (mapped from `profiles.upline_id` via `rowToUser`). RLS handles the deep ltree hierarchy; this is a shallow frontend-only layer.
+  **(3) Super Admin gate (Part 3):** Added an early return at the top of the `UserManagement` render. When `isCurrentUserSuperAdmin` is true, renders a centered card with heading "Super Admin View", descriptive subtext, and a "Go to Agencies Panel" button. Button calls `navigate("/super-admin")` — the route already exists (`App.tsx` lines 157–158). No toast fallback needed.
+  *Context Snapshot:*
+  - **What changed:** `filteredUsers` Team Leader branch now validates `uplineId` match; Super Admins see a redirect card instead of the org team list.
+  - **`/super-admin` route status:** EXISTS — `<Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />` in `App.tsx`. The "Go to Agencies Panel" button navigates there successfully.
+  - **Next step for Agencies Panel:** The full cross-org user management surface (viewing/editing users across all agencies from `/super-admin`) is a separate future build. `SuperAdminDashboard.tsx` and `SuperAdminOrgDetail.tsx` are the entry points for that work.
+  *Files:* **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-28 | [DONE] | Rename Monthly Talk Time Goal → Monthly Premium Goal (full stack)**
   *What:* Replaced the "Monthly Talk Time Goal" KPI with "Monthly Premium Goal" (dollars) across every layer of the stack.
   **(1) DB Migration** `20260428120000_rename_monthly_talk_time_to_premium_goal.sql`: renames `profiles.monthly_talk_time_goal_hours` → `monthly_premium_goal`, sets `DEFAULT 0`, and back-fills the `goals` table — rows with `metric IN ('Monthly Talk Time', 'Monthly Talk Time Goal')` updated to `'Monthly Premium'`.
