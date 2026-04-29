@@ -27,7 +27,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
-import { emailSupabaseApi } from "@/lib/supabase-email";
+import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -286,6 +286,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
+  const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
+  const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const latestContactIdRef = useRef<string | null>(null);
@@ -477,6 +479,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       setStatusDropdownOpen(false);
       setShowAppt(false);
       setEmailSubject("");
+      const userConnections = await emailSupabaseApi.getMyConnections();
+      const connectedConnections = userConnections.filter((connection) => connection.status === "connected");
+      setEmailConnections(connectedConnections);
+      setSelectedEmailConnectionId(connectedConnections[0]?.id || "");
 
       if (!isCurrent()) return;
 
@@ -652,24 +658,26 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { toast.error("You must be logged in to send messages"); setMessageSending(false); return; }
-      const base = import.meta.env.VITE_SUPABASE_URL as string;
       if (composeTab === "Email") {
         if (!contact.email) {
           toast.error("This contact has no email address.");
           setMessageSending(false);
           return;
         }
-        const res = await fetch(`${base}/functions/v1/email-send-contact-message`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({
-            contact_id: contact.id,
-            to_email: contact.email,
-            subject: emailSubject.trim() || `Message from ${AGENT_NAME}`,
-            body_text: composeText.trim(),
-          }),
+        if (!selectedEmailConnectionId) {
+          toast.error("No connected inbox found. Connect one in Settings > Email Setup.");
+          setMessageSending(false);
+          return;
+        }
+        const selectedConnection = emailConnections.find((connection) => connection.id === selectedEmailConnectionId);
+        const result = await emailSupabaseApi.sendContactEmail({
+          contact_id: contact.id,
+          to_email: contact.email,
+          subject: emailSubject.trim() || `Message from ${AGENT_NAME}`,
+          body_text: composeText.trim(),
+          connection_id: selectedEmailConnectionId,
+          from_email: selectedConnection?.provider_account_email,
         });
-        const result = await res.json();
         if (!result.success) {
           toast.error(result.error || "Failed to send email");
           setMessageSending(false);
@@ -690,6 +698,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           setMessageSending(false);
           return;
         }
+        const base = import.meta.env.VITE_SUPABASE_URL as string;
         const res = await fetch(`${base}/functions/v1/twilio-sms`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
@@ -1193,12 +1202,32 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
              </div>
              <div className="flex flex-col gap-2 bg-accent/50 p-2 rounded-xl border border-border focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all">
                 {composeTab === "Email" && (
-                   <input 
-                     value={emailSubject}
-                     onChange={e => setEmailSubject(e.target.value)}
-                     placeholder="Subject Line"
-                     className="w-full px-3 py-2 bg-transparent text-sm font-bold border-b border-border/50 focus:outline-none placeholder:text-muted-foreground/50"
-                   />
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50">
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">From:</span>
+                      <select
+                        value={selectedEmailConnectionId}
+                        onChange={(e) => setSelectedEmailConnectionId(e.target.value)}
+                        className="bg-transparent text-xs font-medium focus:outline-none"
+                      >
+                        {emailConnections.length === 0 ? (
+                          <option value="">No inbox connected</option>
+                        ) : (
+                          emailConnections.map((connection) => (
+                            <option key={connection.id} value={connection.id}>
+                              {connection.provider_account_email}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                    <input 
+                      value={emailSubject}
+                      onChange={e => setEmailSubject(e.target.value)}
+                      placeholder="Subject Line"
+                      className="w-full px-3 py-2 bg-transparent text-sm font-bold border-b border-border/50 focus:outline-none placeholder:text-muted-foreground/50"
+                    />
+                  </>
                 )}
                 <div className="flex items-end gap-2">
                   <textarea 
@@ -1220,7 +1249,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     </button>
                     <button 
                       onClick={handleSendMessage} 
-                      disabled={!composeText.trim() || messageSending || (composeTab === "SMS" && !contact.phone) || (composeTab === "Email" && !contact.email)}
+                      disabled={!composeText.trim() || messageSending || (composeTab === "SMS" && !contact.phone) || (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))}
                       className="h-9 px-4 rounded-md bg-primary text-primary-foreground font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 transition-all shrink-0 shadow-sm"
                     >
                        {messageSending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}

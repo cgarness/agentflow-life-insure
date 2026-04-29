@@ -71,5 +71,26 @@ export const emailSupabaseApi = {
     if (error) throw new Error(error.message);
     return data ?? [];
   },
-};
 
+  async sendContactEmail(payload: {
+    contact_id: string;
+    to_email: string;
+    subject: string;
+    body_text: string;
+    connection_id?: string;
+    from_email?: string;
+  }): Promise<{ success: boolean; message_id?: string; error?: string }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("You must be logged in");
+    const base = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${base}/functions/v1/email-send-contact-message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  },
+};

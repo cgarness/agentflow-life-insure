@@ -6,6 +6,33 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function toBase64Url(value: string): string {
+  return btoa(unescape(encodeURIComponent(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function refreshGoogleAccessToken(refreshToken: string) {
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+  if (!clientId || !clientSecret) throw new Error("Missing Google OAuth env vars");
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const data = await res.json();
+  if (!res.ok || !data?.access_token) {
+    throw new Error(data?.error_description || data?.error || "Failed to refresh Google token");
+  }
+  return { accessToken: data.access_token as string, expiresIn: Number(data.expires_in ?? 3600) };
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -58,15 +85,23 @@ serve(async (req: Request) => {
       });
     }
 
-    const { data: connection } = await admin
+    const requestedConnectionId = typeof payload?.connection_id === "string" ? payload.connection_id.trim() : "";
+    const requestedFromEmail = typeof payload?.from_email === "string" ? payload.from_email.trim().toLowerCase() : "";
+
+    let connectionQuery = admin
       .from("user_email_connections")
-      .select("id, provider, provider_account_email, status")
+      .select("id, provider, provider_account_email, status, access_token_encrypted, refresh_token_encrypted, access_token_expires_at")
       .eq("user_id", user.id)
       .eq("organization_id", profile.organization_id)
-      .eq("status", "connected")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .eq("status", "connected");
+
+    if (requestedConnectionId) {
+      connectionQuery = connectionQuery.eq("id", requestedConnectionId);
+    } else {
+      connectionQuery = connectionQuery.order("updated_at", { ascending: false }).limit(1);
+    }
+
+    const { data: connection } = await connectionQuery.maybeSingle();
 
     if (!connection) {
       return new Response(
@@ -78,8 +113,74 @@ serve(async (req: Request) => {
       );
     }
 
+    const fromEmail = requestedFromEmail || String(connection.provider_account_email || "").toLowerCase();
+    if (!fromEmail) {
+      return new Response(JSON.stringify({ success: false, error: "No from address available for this connection." }), { status: 400, headers });
+    }
+
+    if (fromEmail !== String(connection.provider_account_email || "").toLowerCase()) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Selected from address is not available on the connected inbox.",
+        }),
+        { status: 400, headers }
+      );
+    }
+
     const externalMessageId = crypto.randomUUID();
     const now = new Date().toISOString();
+    let deliveryStatus: "queued" | "sent" | "failed" = "queued";
+    let providerError: string | null = null;
+    let providerThreadId: string | null = null;
+    let internetMessageId: string | null = null;
+
+    if (connection.provider === "google") {
+      try {
+        let accessToken = String((connection as any).access_token_encrypted || "");
+        const refreshToken = String((connection as any).refresh_token_encrypted || "");
+        const expiresAt = (connection as any).access_token_expires_at as string | null;
+        const isExpired = !expiresAt || new Date(expiresAt).getTime() < Date.now() + 60_000;
+
+        if ((!accessToken || isExpired) && refreshToken) {
+          const refreshed = await refreshGoogleAccessToken(refreshToken);
+          accessToken = refreshed.accessToken;
+          await admin.from("user_email_connections").update({
+            access_token_encrypted: refreshed.accessToken,
+            access_token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+            last_error: null,
+          }).eq("id", connection.id);
+        }
+
+        if (!accessToken) throw new Error("No Google access token available");
+
+        const rawMessage = [
+          `From: ${fromEmail}`,
+          `To: ${toEmail}`,
+          `Subject: ${subject}`,
+          "Content-Type: text/plain; charset=UTF-8",
+          "",
+          bodyText,
+        ].join("\r\n");
+
+        const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ raw: toBase64Url(rawMessage) }),
+        });
+        const sendJson = await sendRes.json();
+        if (!sendRes.ok) throw new Error(sendJson?.error?.message || "Gmail send failed");
+        deliveryStatus = "sent";
+        providerThreadId = sendJson?.threadId || null;
+        internetMessageId = sendJson?.id || null;
+      } catch (error) {
+        deliveryStatus = "failed";
+        providerError = error instanceof Error ? error.message : "Google send failed";
+      }
+    }
 
     const { error: insertError } = await admin.from("contact_emails").insert({
       organization_id: profile.organization_id,
@@ -89,13 +190,15 @@ serve(async (req: Request) => {
       provider: connection.provider,
       direction: "outbound",
       external_message_id: externalMessageId,
-      thread_id: null,
-      from_email: connection.provider_account_email,
+      thread_id: providerThreadId,
+      internet_message_id: internetMessageId,
+      from_email: fromEmail,
       to_emails: [toEmail],
       subject,
       body_text: bodyText,
       sent_at: now,
-      delivery_status: "queued",
+      delivery_status: deliveryStatus,
+      provider_error: providerError,
     });
 
     if (insertError) {
@@ -106,7 +209,7 @@ serve(async (req: Request) => {
       JSON.stringify({
         success: true,
         message_id: externalMessageId,
-        note: "Queued in conversation history. Provider send dispatch is the next implementation step.",
+        note: deliveryStatus === "sent" ? "Email sent via provider and recorded in history." : "Email was recorded but provider send failed.",
       }),
       { status: 200, headers }
     );
@@ -115,4 +218,3 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ success: false, error: message }), { status: 500, headers });
   }
 });
-
