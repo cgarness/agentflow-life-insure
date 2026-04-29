@@ -51,12 +51,18 @@
 - **Features Required**: Stripe integration, subscription tiers (Starter, Pro, Agency), and plan-based limiting (User caps, Dialing limits).
 - **Next Up**: Initialize Stripe SDK and construct the `billing` Edge Function for subscription lifecycle management.
 
+### 🔍 Global Search `[STABLE]`
+- **State**: Live Supabase RPC `global_search` searching `leads`, `clients`, `recruits`, `campaigns`, and `calls` scoped by `organization_id`. Frontend wired in `GlobalSearch.tsx` with debounce, Zod validation, grouped results, keyboard nav, Escape/click-away dismiss.
+- **⚠️ BLOCKER — Contact detail routing**: No `/contacts/:id`, `/leads/:id`, `/clients/:id`, or `/recruits/:id` route exists in `App.tsx`. Contact results currently navigate to `/contacts?type=<type>&id=<id>` as a v1 fallback. A dedicated contact detail route (or modal-on-query-param pattern in `Contacts.tsx`) must be added before click-through fully resolves a specific record.
+- **Next Up**: v2 — enable `similarity()` / `word_similarity()` from `pg_trgm` (indexes already deployed); recent-searches history; transcript full-text search.
+
 ---
 
 ## 2. Recent Database Migration History (April 2026)
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260429120000` | `global_search_rpc.sql` | Creates `pg_trgm` extension + GIN indexes on `leads`, `clients`, `recruits`, `campaigns`, `calls`. Adds `public.global_search(search_query text)` RPC (`SECURITY DEFINER`, `STABLE`, max 5 results per type, org-scoped via `public.get_org_id()`, ordered by `relevance desc, title asc`). Grants EXECUTE to `authenticated`. |
 | `20260424120000` | `custom_fields_created_by_and_rls.sql` | Adds **`custom_fields.created_by`**; tightens RLS (no cross-tenant **`organization_id IS NULL`** SELECT); per-creator visibility for agents; Admin/Team Leader org-wide inserts. **`NOTIFY pgrst, 'reload schema'`**. |
 | `20260424100000` | `profiles_onboarding_complete.sql` | Adds **`profiles.onboarding_complete`** if missing (**`NOT NULL DEFAULT false`**) + **`NOTIFY pgrst, 'reload schema'`** — fixes onboarding wizard finish when prod **`profiles`** never received older heal migrations. **Apply:** **`npx supabase db push --yes`** (or SQL Editor) on the linked project. |
 | `20260423183000` | `custom_fields_email_phone_types.sql` | Extends **`custom_fields.type`** check constraint with **`Email`** and **`Phone`** (CSV import + Settings). |
@@ -2197,6 +2203,7 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-29 | [DONE] | **Global Search v1 — RPC + frontend wired:** Migration `20260429120000_global_search_rpc.sql` adds `pg_trgm` + GIN indexes + `global_search` RPC across leads/clients/recruits/campaigns/calls. Frontend: new `GlobalSearch.tsx`, `SearchResultsDropdown.tsx`, `SearchResultItem.tsx`, `useDebounce.ts`. Replaced hardcoded mock results in `TopBar.tsx`. **BLOCKER:** no `/contacts/:id` detail route — contact results navigate to `/contacts?type=<type>&id=<id>` as v1 fallback. |
 | 2026-04-29 | [DONE] | **Remove Super Admin gate from UserManagement.tsx:** Deleted the `if (isCurrentUserSuperAdmin)` early-return block that was rendering a redirect card instead of the Team Management view. Super Admin now sees the full user list. `filteredUsers` logic unchanged — `isCurrentUserSuperAdmin` still returns `allUsers`. No migrations, no env vars. |
 | 2026-04-23 | [DONE] | **Fix CSV import "Unauthorized" — explicit auth token in ImportLeadsModal:** Replaced `supabase.functions.invoke` in `doImport` with an explicit `fetch` that first calls `supabase.auth.getSession()`, gates on a valid session, and passes `Authorization: Bearer <access_token>` + `apikey` headers directly. Stale/missing cached tokens can no longer produce `Bearer undefined` or expired JWTs. No Edge Function changes; no new env vars. |
 | 2026-04-23 | [DONE] | **Fix imported leads `user_id` + remove ghost `health_status`:** `import-contacts` edge function: added `user_id: assigned_agent_id` to `mappedRow` for leads only (spread conditional); confirmed `health_status` was already absent. Added `[functions.import-contacts] verify_jwt = false` to `config.toml`. Redeploy required with `SUPABASE_ACCESS_TOKEN` set. |
@@ -2261,3 +2268,40 @@ This document should be the first file read by any agent tasking with "Dialer" o
 **Result:** Super Admin now lands on the standard Team Management view and sees all org users, identical to the Admin experience. No other component, file, migration, or setting was modified.
 
 **Files touched:** `src/components/settings/UserManagement.tsx`, `ROADMAP.md`.
+
+### Context Snapshot — 2026-04-29 — Global Search v1
+
+**What was done:**
+
+Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed search.
+
+**Backend (`supabase/migrations/20260429120000_global_search_rpc.sql`):**
+- Enabled `pg_trgm` extension (schema `public`) and added GIN trigram indexes on every searched column across `leads`, `clients`, `recruits`, `campaigns`, and `calls`. These make ILIKE '%q%' fast today and enable `similarity()` fuzzy matching in v2 with a one-line change.
+- Created `public.global_search(search_query text)` RPC: `SECURITY DEFINER`, `STABLE`, `set search_path = public`. Returns columns `(result_type, id, title, subtitle, match_field, relevance)`. Uses CTEs — one per source table — each `LIMIT 5`, then `UNION ALL` with a final `ORDER BY relevance desc, title asc`.
+- Org-scoping is `organization_id = public.get_org_id()` on every branch.
+- Returns empty set when `search_query` is null, empty, or shorter than 2 chars.
+- Granted `EXECUTE` to `authenticated`; all other roles revoked.
+
+**Frontend:**
+- `src/hooks/useDebounce.ts` — generic 250ms debounce hook.
+- `src/components/search/GlobalSearch.tsx` — controlled input, Zod validation (`min(2).max(100)`), RPC call with cancellation token, keyboard nav (ArrowUp/Down/Enter/Escape), click-away via `mousedown` ref, loading spinner while in flight.
+- `src/components/search/SearchResultsDropdown.tsx` — groups results under **Contacts / Campaigns / Conversations** section headers; empty-state "No results" card when array is empty.
+- `src/components/search/SearchResultItem.tsx` — single result row with type-colored icon, title, subtitle, type badge.
+- `src/components/layout/TopBar.tsx` — removed mock dropdown + `searchOpen`/`searchQuery` state; replaced with `<GlobalSearch />`.
+
+**Schema decisions made:**
+- `leads`, `clients`, `recruits` all have `first_name` + `last_name` (no `full_name` column); RPC concatenates them.
+- `call_logs` does NOT have `caller_name`/`phone_number`/`disposition` — those live on the `calls` table (`contact_name`, `contact_phone`, `disposition_name`). RPC searches `calls` for the "Conversations" result type.
+- `clients` and `recruits` both have `organization_id` (confirmed via `types.ts`).
+- Result types are split (`lead` / `client` / `recruit` / `campaign` / `conversation`) per user decision; frontend groups all three contact types under a single "Contacts" header.
+
+**BLOCKER documented:**
+`App.tsx` registers no detail route for contacts (`/contacts/:id`, `/leads/:id`, etc.). Contact results navigate to `/contacts?type=<type>&id=<id>` as a v1 fallback until a detail route or query-param modal is added to `Contacts.tsx`.
+
+**What's next (v2 ideas):**
+- Enable fuzzy matching: swap `ilike q.pattern` for `similarity(field, trim(search_query)) > 0.3` — indexes are already in place.
+- Recent searches: persist last 5 queries in `localStorage` and show on focus when input is empty.
+- Transcript full-text search: `calls.transcript` is JSONB; add a `tsvector` generated column + GIN index and union a sixth branch.
+- Add `/contacts/:id` (or equivalent modal) so contact click-through resolves a specific record.
+
+**Files touched:** `supabase/migrations/20260429120000_global_search_rpc.sql`, `src/hooks/useDebounce.ts`, `src/components/search/GlobalSearch.tsx`, `src/components/search/SearchResultsDropdown.tsx`, `src/components/search/SearchResultItem.tsx`, `src/components/layout/TopBar.tsx`, `ROADMAP.md`.
