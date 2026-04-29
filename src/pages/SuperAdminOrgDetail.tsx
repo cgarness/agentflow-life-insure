@@ -9,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ---- Types ----
 interface Organization {
@@ -19,6 +21,7 @@ interface Organization {
   name: string;
   slug: string | null;
   created_at: string;
+  status?: "active" | "suspended" | "archived";
 }
 
 interface Profile {
@@ -68,6 +71,8 @@ const SuperAdminOrgDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { profile } = useAuth();
+  const isSuperAdmin = Boolean(profile?.is_super_admin);
   
   const [org, setOrg] = useState<Organization | null>(null);
   const [stats, setStats] = useState<OrgStats>({
@@ -83,6 +88,9 @@ const SuperAdminOrgDetail: React.FC = () => {
   const [search, setSearch] = useState("");
   /** Company Branding display name (`company_settings.company_name`). */
   const [agencyDisplayName, setAgencyDisplayName] = useState<string | null>(null);
+  const [statusAction, setStatusAction] = useState<null | "suspend" | "reactivate" | "archive">(null);
+  const orgStatus = org?.status || "active";
+  const orgLocked = orgStatus === "suspended" || orgStatus === "archived";
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -144,6 +152,23 @@ const SuperAdminOrgDetail: React.FC = () => {
     p.email.toLowerCase().includes(search.toLowerCase())
   );
 
+  const updateOrgStatus = async (nextStatus: "active" | "suspended" | "archived") => {
+    if (!id || !isSuperAdmin) {
+      toast({ title: "Unauthorized", description: "Only super-admins can change agency status.", variant: "destructive" });
+      return;
+    }
+    try {
+      const { error } = await supabase.from("organizations").update({ status: nextStatus }).eq("id", id);
+      if (error) throw error;
+      setOrg((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+      toast({ title: "Agency status updated", description: `Agency is now ${nextStatus}.` });
+    } catch (e: any) {
+      toast({ title: "Failed to update status", description: e.message, variant: "destructive" });
+    } finally {
+      setStatusAction(null);
+    }
+  };
+
   if (loading && !org) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -156,6 +181,7 @@ const SuperAdminOrgDetail: React.FC = () => {
   if (!org) return null;
 
   return (
+    <>
     <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -176,19 +202,59 @@ const SuperAdminOrgDetail: React.FC = () => {
               <Shield className="w-3.5 h-3.5" />
               Created on {new Date(org.created_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
             </p>
+            <Badge variant="outline" className="mt-2 capitalize">{orgStatus}</Badge>
           </div>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setStatusAction("suspend")}
+            disabled={!isSuperAdmin || orgStatus !== "active"}
+            className="gap-2"
+          >
+            Suspend Agency
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setStatusAction("reactivate")}
+            disabled={!isSuperAdmin || orgStatus === "active"}
+            className="gap-2"
+          >
+            Reactivate Agency
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => setStatusAction("archive")}
+            disabled={!isSuperAdmin || orgStatus === "archived"}
+            className="gap-2"
+          >
+            Archive Agency
+          </Button>
           <Button variant="outline" className="gap-2" onClick={fetchData}>
             <Activity className="w-4 h-4" />
             Refresh Data
           </Button>
-          <Button className="gap-2">
+          <Button
+            className="gap-2"
+            disabled={orgLocked}
+            onClick={() => {
+              if (orgLocked) {
+                toast({ title: "Agency inactive", description: "Reactivate this agency to create users.", variant: "destructive" });
+              }
+            }}
+          >
             <Plus className="w-4 h-4" />
             Add User
           </Button>
         </div>
       </div>
+      {orgLocked && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="py-3 text-sm text-destructive">
+            This agency is {orgStatus}. New users and campaigns are blocked until it is reactivated.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -391,6 +457,29 @@ const SuperAdminOrgDetail: React.FC = () => {
         </TabsContent>
       </Tabs>
     </div>
+    <Dialog open={Boolean(statusAction)} onOpenChange={(open) => !open && setStatusAction(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {statusAction === "suspend" && "Suspend agency?"}
+            {statusAction === "reactivate" && "Reactivate agency?"}
+            {statusAction === "archive" && "Archive agency?"}
+          </DialogTitle>
+          <DialogDescription>
+            {statusAction === "suspend" && "Suspended agencies cannot create users or campaigns until reactivated."}
+            {statusAction === "reactivate" && "This will restore access to create users and campaigns."}
+            {statusAction === "archive" && "Archiving is destructive and should be used only for retired agencies."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setStatusAction(null)}>Cancel</Button>
+          {statusAction === "suspend" && <Button variant="destructive" onClick={() => updateOrgStatus("suspended")}>Confirm Suspend</Button>}
+          {statusAction === "reactivate" && <Button onClick={() => updateOrgStatus("active")}>Confirm Reactivate</Button>}
+          {statusAction === "archive" && <Button variant="destructive" onClick={() => updateOrgStatus("archived")}>Confirm Archive</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 };
 

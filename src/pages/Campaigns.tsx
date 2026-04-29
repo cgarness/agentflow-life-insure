@@ -172,6 +172,7 @@ const Campaigns: React.FC = () => {
   const { organizationId } = useOrganization();
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
+  const [orgStatus, setOrgStatus] = useState<"active" | "suspended" | "archived">("active");
 
   const fetchCampaigns = useCallback(async () => {
     if (!organizationId) return;
@@ -206,6 +207,13 @@ const Campaigns: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchCampaigns(); fetchAgents(); }, [fetchCampaigns, fetchAgents]);
+  useEffect(() => {
+    if (!organizationId) return;
+    supabase.from("organizations").select("status").eq("id", organizationId).maybeSingle().then(({ data }) => {
+      setOrgStatus((data?.status as any) || "active");
+    });
+  }, [organizationId]);
+  const orgLocked = orgStatus !== "active";
 
   const filtered = useMemo(() => {
     return campaigns.filter(c => {
@@ -221,7 +229,13 @@ const Campaigns: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-foreground">Campaigns</h1>
-        <button onClick={() => setCreateOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+        <button onClick={() => {
+          if (orgLocked) {
+            toast.error("This agency is suspended/archived. Reactivate to create campaigns.");
+            return;
+          }
+          setCreateOpen(true);
+        }} disabled={orgLocked} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
           <Plus className="w-4 h-4" /> Create Campaign
         </button>
       </div>

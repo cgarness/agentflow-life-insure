@@ -2155,6 +2155,7 @@ export type Database = {
           id: string
           logo_url: string | null
           name: string
+          status: string
           slug: string | null
           updated_at: string | null
         }
@@ -2163,6 +2164,7 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name: string
+          status?: string
           slug?: string | null
           updated_at?: string | null
         }
@@ -2171,6 +2173,7 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name?: string
+          status?: string
           slug?: string | null
           updated_at?: string | null
         }

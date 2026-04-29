@@ -8,6 +8,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -33,7 +34,11 @@ interface Organization {
   displayName: string;
   userCount?: number;
   leadCount?: number;
+  status?: "active" | "suspended" | "archived";
 }
+
+const ORG_STATUS_OPTIONS = ["All", "Active", "Suspended", "Archived"] as const;
+type OrgStatusFilter = typeof ORG_STATUS_OPTIONS[number];
 
 // ---- Health Tile ----
 const HealthTile: React.FC<{
@@ -307,6 +312,7 @@ const SuperAdminDashboard: React.FC = () => {
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<OrgStatusFilter>("All");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [totalUsers, setTotalUsers] = useState(0);
   const [totalLeads, setTotalLeads] = useState(0);
@@ -362,6 +368,7 @@ const SuperAdminDashboard: React.FC = () => {
 
       const enriched = (orgData || []).map((org: any) => ({
         ...org,
+        status: (org.status || "active") as Organization["status"],
         displayName: brandingByOrg[org.id] || org.name || "Agency",
         userCount: userCounts[org.id] || 0,
         leadCount: leadCounts[org.id] || 0,
@@ -431,7 +438,8 @@ const SuperAdminDashboard: React.FC = () => {
   };
 
   const filtered = orgs.filter((o) =>
-    (o.displayName || o.name).toLowerCase().includes(search.toLowerCase())
+    (o.displayName || o.name).toLowerCase().includes(search.toLowerCase()) &&
+    (statusFilter === "All" || (o.status || "active") === statusFilter.toLowerCase())
   );
   
   const handleViewDetail = (id: string) => {
@@ -506,6 +514,22 @@ const SuperAdminDashboard: React.FC = () => {
               />
             </div>
           </div>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            {ORG_STATUS_OPTIONS.map((status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter(status)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  statusFilter === status
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:bg-muted/70"
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -520,6 +544,7 @@ const SuperAdminDashboard: React.FC = () => {
                     <th className="text-left font-medium text-muted-foreground px-6 py-3">Agency</th>
                     <th className="text-center font-medium text-muted-foreground px-4 py-3">Users</th>
                     <th className="text-center font-medium text-muted-foreground px-4 py-3">Leads</th>
+                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Status</th>
                     <th className="text-left font-medium text-muted-foreground px-4 py-3">Created</th>
                     <th className="text-right font-medium text-muted-foreground px-6 py-3">Actions</th>
                   </tr>
@@ -536,6 +561,11 @@ const SuperAdminDashboard: React.FC = () => {
                       </td>
                       <td className="px-4 py-4 text-center">{org.userCount}</td>
                       <td className="px-4 py-4 text-center">{org.leadCount}</td>
+                      <td className="px-4 py-4">
+                        <Badge variant="outline" className="capitalize">
+                          {org.status || "active"}
+                        </Badge>
+                      </td>
                       <td className="px-4 py-4 text-muted-foreground">
                         {org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}
                       </td>
@@ -568,7 +598,7 @@ const SuperAdminDashboard: React.FC = () => {
                   ))}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="text-center py-8 text-muted-foreground">
+                      <td colSpan={6} className="text-center py-8 text-muted-foreground">
                         {search ? "No agencies match your search." : "No agencies yet."}
                       </td>
                     </tr>
