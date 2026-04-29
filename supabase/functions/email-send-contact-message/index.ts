@@ -7,7 +7,10 @@ const corsHeaders = {
 };
 
 function toBase64Url(value: string): string {
-  return btoa(unescape(encodeURIComponent(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 async function refreshGoogleAccessToken(refreshToken: string) {
@@ -148,6 +151,7 @@ serve(async (req: Request) => {
           await admin.from("user_email_connections").update({
             access_token_encrypted: refreshed.accessToken,
             access_token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+            status: "connected",
             last_error: null,
           }).eq("id", connection.id);
         }
@@ -172,14 +176,34 @@ serve(async (req: Request) => {
           body: JSON.stringify({ raw: toBase64Url(rawMessage) }),
         });
         const sendJson = await sendRes.json();
-        if (!sendRes.ok) throw new Error(sendJson?.error?.message || "Gmail send failed");
+        if (!sendRes.ok) {
+          const providerMessage = sendJson?.error?.message || "Gmail send failed";
+          const providerCode = Number(sendJson?.error?.code || sendRes.status || 0);
+          if (providerCode === 401 || providerCode === 403) {
+            await admin.from("user_email_connections").update({
+              status: "needs_reconnect",
+              last_error: providerMessage,
+            }).eq("id", connection.id);
+          } else {
+            await admin.from("user_email_connections").update({ last_error: providerMessage }).eq("id", connection.id);
+          }
+          throw new Error(providerMessage);
+        }
         deliveryStatus = "sent";
         providerThreadId = sendJson?.threadId || null;
         internetMessageId = sendJson?.id || null;
+        await admin.from("user_email_connections").update({
+          status: "connected",
+          last_error: null,
+          last_sync_at: now,
+        }).eq("id", connection.id);
       } catch (error) {
         deliveryStatus = "failed";
         providerError = error instanceof Error ? error.message : "Google send failed";
       }
+    } else {
+      deliveryStatus = "failed";
+      providerError = "Microsoft send is not implemented yet in this environment.";
     }
 
     const { error: insertError } = await admin.from("contact_emails").insert({
@@ -207,11 +231,11 @@ serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        success: true,
+        success: deliveryStatus === "sent",
         message_id: externalMessageId,
         note: deliveryStatus === "sent" ? "Email sent via provider and recorded in history." : "Email was recorded but provider send failed.",
       }),
-      { status: 200, headers }
+      { status: deliveryStatus === "sent" ? 200 : 502, headers }
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
