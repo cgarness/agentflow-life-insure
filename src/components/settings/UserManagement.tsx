@@ -1290,14 +1290,14 @@ const UserManagement: React.FC = () => {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter });
+      const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter, organizationId });
       setAllUsers(data);
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter, statusFilter]);
+  }, [search, roleFilter, statusFilter, organizationId]);
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
