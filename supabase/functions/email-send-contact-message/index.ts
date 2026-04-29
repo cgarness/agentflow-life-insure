@@ -58,21 +58,44 @@ serve(async (req: Request) => {
       });
     }
 
-    const { data: connection } = await admin
+    const requestedConnectionId = typeof payload?.connection_id === "string" ? payload.connection_id.trim() : "";
+    const requestedFromEmail = typeof payload?.from_email === "string" ? payload.from_email.trim().toLowerCase() : "";
+
+    let connectionQuery = admin
       .from("user_email_connections")
       .select("id, provider, provider_account_email, status")
       .eq("user_id", user.id)
       .eq("organization_id", profile.organization_id)
-      .eq("status", "connected")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .eq("status", "connected");
+
+    if (requestedConnectionId) {
+      connectionQuery = connectionQuery.eq("id", requestedConnectionId);
+    } else {
+      connectionQuery = connectionQuery.order("updated_at", { ascending: false }).limit(1);
+    }
+
+    const { data: connection } = await connectionQuery.maybeSingle();
 
     if (!connection) {
       return new Response(
         JSON.stringify({
           success: false,
           error: "Inbox not connected. Open Settings > Email Setup and connect Google or Microsoft first.",
+        }),
+        { status: 400, headers }
+      );
+    }
+
+    const fromEmail = requestedFromEmail || String(connection.provider_account_email || "").toLowerCase();
+    if (!fromEmail) {
+      return new Response(JSON.stringify({ success: false, error: "No from address available for this connection." }), { status: 400, headers });
+    }
+
+    if (fromEmail !== String(connection.provider_account_email || "").toLowerCase()) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Selected from address is not available on the connected inbox.",
         }),
         { status: 400, headers }
       );
@@ -90,7 +113,7 @@ serve(async (req: Request) => {
       direction: "outbound",
       external_message_id: externalMessageId,
       thread_id: null,
-      from_email: connection.provider_account_email,
+      from_email: fromEmail,
       to_emails: [toEmail],
       subject,
       body_text: bodyText,
@@ -115,4 +138,3 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ success: false, error: message }), { status: 500, headers });
   }
 });
-
