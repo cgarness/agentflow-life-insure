@@ -94,6 +94,16 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-29 | [DONE] | User Management — Guard fetchUsers against early fire before organizationId resolves (BUGFIX)**
+  *What:* Added a single early-return guard at the top of the `fetchUsers` `useCallback` in `src/components/settings/UserManagement.tsx`. No DB migrations, no RLS changes, no other files modified.
+  **(1) Guard:** `if (!organizationId) return;` inserted as the first statement in `fetchUsers` (before `setLoading(true)`). When `useOrganization()` has not yet resolved on mount, the callback exits immediately — no Supabase request is issued, no loading spinner flashes, and no cross-org rows are momentarily rendered.
+  **(2) Re-trigger:** `organizationId` is already in the `useCallback` dependency array (added by the previous fix). Once it resolves to a non-null value, React recreates `fetchUsers`, the `useEffect([fetchUsers])` fires, and the correctly scoped fetch runs.
+  *Context Snapshot:*
+  - **Guard added:** `if (!organizationId) return;` is the first line of `fetchUsers` at `src/components/settings/UserManagement.tsx:1291`.
+  - **organizationId in dep array:** Confirmed present at line 1301 — `[search, roleFilter, statusFilter, organizationId]`. No change needed.
+  - **Flash resolved:** fetchUsers is now a no-op until organizationId is defined; the scoped query fires once and only once per resolved org context, eliminating the cross-org data flash.
+  *Files:* **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
   **(1) `getAll()` signature:** Added optional `organizationId?: string` to the `filters` parameter type.

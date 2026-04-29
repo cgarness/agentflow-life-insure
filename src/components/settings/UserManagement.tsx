@@ -1288,6 +1288,7 @@ const UserManagement: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; user: UserWithProfile | null; action: "deactivate" | "reactivate" }>({ open: false, user: null, action: "deactivate" });
 
   const fetchUsers = useCallback(async () => {
+    if (!organizationId) return;
     setLoading(true);
     try {
       const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter, organizationId });
