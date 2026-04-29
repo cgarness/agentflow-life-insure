@@ -1274,8 +1274,7 @@ const UserProfileModal: React.FC<{
 const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user: currentUser, startImpersonation } = useAuth();
-  const { profile: currentProfile } = useAuth();
+  const { user: currentUser, startImpersonation, profile: currentProfile, isLoading: authLoading } = useAuth();
   const { organizationId, isSuperAdmin: isCurrentUserSuperAdmin } = useOrganization();
   const [allUsers, setAllUsers] = useState<UserWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1501,7 +1500,7 @@ const UserManagement: React.FC = () => {
           </div>
 
           <div className="bg-card rounded-2xl border border-border/50 shadow-xl shadow-black/5 overflow-hidden">
-            {(loading || !organizationId) ? (
+            {(authLoading || !organizationId || loading) ? (
               <div className="p-8 space-y-4">
                 {[1,2,3,4,5].map(i => <div key={i} className="h-16 rounded-xl bg-muted/30 animate-pulse" />)}
               </div>

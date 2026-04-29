@@ -94,6 +94,16 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-29 | [DONE] | User Management — Gate render on AuthContext isLoading (BUGFIX)**
+  *What:* Two additive changes to `src/components/settings/UserManagement.tsx` to close the auth-hydration window on hard refresh. No DB migrations, no RLS changes, `fetchUsers` unchanged, `useEffect`s unchanged, no other files modified.
+  **(1) Merge `useAuth()` calls + add `authLoading`:** The two separate `useAuth()` destructures (lines 1277–1278) were merged into one: `const { user: currentUser, startImpersonation, profile: currentProfile, isLoading: authLoading } = useAuth();`. `isLoading` is aliased to `authLoading` to avoid collision with the local `loading` state.
+  **(2) Extend loading ternary:** Changed `(loading || !organizationId)` → `(authLoading || !organizationId || loading)`. The pulse-skeleton now shows for all three conditions — auth not yet hydrated, org not yet resolved, or fetch in flight — preventing any user rows from rendering during the auth bootstrap cycle.
+  *Context Snapshot:*
+  - **`authLoading` gate added:** `isLoading: authLoading` is destructured from `useAuth()` at line 1277. It is `true` for the entire duration of AuthContext's session bootstrap on hard refresh.
+  - **Loading ternary:** Condition at line 1503 is now `(authLoading || !organizationId || loading)` — the pulse skeleton renders until auth, org context, and fetch are all resolved.
+  - **Render gated on full auth hydration:** No user rows are shown until `authLoading` is `false`, `organizationId` is non-null, and the scoped fetch has completed. The `!organizationId` guard in `filteredUsers` (from the previous fix) remains as a defense-in-depth data-layer safety net.
+  *Files:* **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-29 | [DONE] | User Management — Suppress user list render until organizationId is hydrated (BUGFIX)**
   *What:* Two targeted render-layer guards added to `src/components/settings/UserManagement.tsx` to eliminate the flash of unscoped user data on hard refresh. No DB migrations, no RLS changes, `fetchUsers` unchanged, `useEffect` unchanged, no other files modified.
   **(1) `filteredUsers` useMemo guard:** Added `if (!organizationId) return [];` as the first line of the memo callback (before the existing `if (!currentProfile) return [];` check). Added `organizationId` to the dep array (`[allUsers, currentProfile, organizationId]`). Ensures the memo always returns an empty array — never stale or cross-org data — while the org context is still resolving.
