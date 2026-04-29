@@ -84,3 +84,15 @@ verify_jwt = false
 # Email contact composer — validate JWT in-code to support ES256 access tokens.
 [functions.email-send-contact-message]
 verify_jwt = false
+
+[functions.email-connect-start]
+verify_jwt = false
+
+[functions.email-connect-callback]
+verify_jwt = false
+
+[functions.email-disconnect]
+verify_jwt = false
+
+[functions.email-sync-incremental]
+verify_jwt = false

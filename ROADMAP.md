@@ -105,7 +105,9 @@
   *UI:* Added **`src/components/settings/EmailSetup.tsx`** and routed **`?section=email-settings`** to this component in **`SettingsRenderer.tsx`**. Screen now shows connected inbox state, refresh, and disconnect actions against Supabase rows. OAuth connect actions are scaffolded and intentionally marked as next step.
   *Conversation:* **`FullScreenContactView.tsx`** now loads **`contact_emails`** into the conversation stream (`_type: "email"`) alongside calls/SMS so inbound and outbound email rows render in timeline order.
   *Send path:* Added Edge Function **`supabase/functions/email-send-contact-message/index.ts`** and config entry in **`supabase/config.toml`**. Composer Email mode now calls this endpoint; if user has no connected inbox row, it returns a clear setup-required error. On success it writes outbound rows to **`contact_emails`** with `delivery_status='queued'`.
-  *Next:* Implement OAuth start/callback/disconnect functions for Google/Microsoft and incremental provider sync worker to populate inbound `contact_emails` rows automatically.
+  *OAuth update:* Added Edge Functions **`email-connect-start`**, **`email-connect-callback`**, and **`email-disconnect`** (with `config.toml` entries). `EmailSetup.tsx` connect buttons now launch real OAuth start flow for Google/Microsoft and callback status is surfaced via URL params.
+  *Sync update:* Added **`email-sync-incremental`** edge function scaffold that scans connected inbox rows and updates `last_sync_at`/`last_error` for status reliability. Provider API pull and contact matching/inserts are the next implementation step.
+  *Next:* Implement provider message pull + contact matching into `contact_emails`, then add token refresh + provider send dispatch in `email-send-contact-message`.
 
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.

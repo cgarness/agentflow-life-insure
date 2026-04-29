@@ -23,12 +23,42 @@ export const emailSupabaseApi = {
     return (data ?? []) as UserEmailConnection[];
   },
 
+  async startConnect(provider: "google" | "microsoft", redirectTo?: string): Promise<string> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("You must be logged in");
+    const base = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${base}/functions/v1/email-connect-start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        provider,
+        redirect_to: redirectTo || `${window.location.origin}/settings?section=email-settings`,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success || !json?.auth_url) {
+      throw new Error(json?.error || "Failed to start OAuth connect");
+    }
+    return json.auth_url as string;
+  },
+
   async disconnect(connectionId: string): Promise<void> {
-    const { error } = await (supabase as any)
-      .from("user_email_connections")
-      .update({ status: "disconnected", updated_at: new Date().toISOString() })
-      .eq("id", connectionId);
-    if (error) throw new Error(error.message);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("You must be logged in");
+    const base = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${base}/functions/v1/email-disconnect`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ connection_id: connectionId }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success) throw new Error(json?.error || "Disconnect failed");
   },
 
   async getContactEmails(contactId: string): Promise<any[]> {

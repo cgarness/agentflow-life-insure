@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
+import { useSearchParams } from "react-router-dom";
 
 function statusLabel(status: UserEmailConnection["status"]): string {
   if (status === "connected") return "Connected";
@@ -14,6 +15,7 @@ function statusLabel(status: UserEmailConnection["status"]): string {
 }
 
 const EmailSetup: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [connections, setConnections] = useState<UserEmailConnection[]>([]);
@@ -35,11 +37,34 @@ const EmailSetup: React.FC = () => {
     void loadConnections();
   }, [loadConnections]);
 
+  useEffect(() => {
+    const connected = searchParams.get("email_connected");
+    const provider = searchParams.get("email_provider");
+    const error = searchParams.get("email_error");
+    if (!connected && !error) return;
+    if (connected === "1") {
+      toast({
+        title: "Inbox connected",
+        description: provider ? `${provider} inbox is now connected.` : "Inbox connected successfully.",
+      });
+      void loadConnections();
+    } else if (error) {
+      toast({ title: "Email connect failed", description: error, variant: "destructive" });
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("email_connected");
+    next.delete("email_provider");
+    next.delete("email_error");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, loadConnections]);
+
   const onConnect = async (provider: "google" | "microsoft") => {
-    toast({
-      title: `${provider === "google" ? "Google" : "Microsoft 365"} connect coming next`,
-      description: "OAuth wiring is in progress. This tab now has the full data foundation for inbox sync.",
-    });
+    try {
+      const authUrl = await emailSupabaseApi.startConnect(provider);
+      window.location.href = authUrl;
+    } catch (err: any) {
+      toast({ title: "Unable to start connect", description: err?.message ?? "Try again.", variant: "destructive" });
+    }
   };
 
   const onDisconnect = async (connectionId: string) => {
