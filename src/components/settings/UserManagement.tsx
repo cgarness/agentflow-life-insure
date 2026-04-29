@@ -1288,11 +1288,13 @@ const UserManagement: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; user: UserWithProfile | null; action: "deactivate" | "reactivate" }>({ open: false, user: null, action: "deactivate" });
 
   const fetchUsers = useCallback(async () => {
-    // Wait until org context is resolved. Without an org id, the API skips the
-    // organization_id filter and RLS returns cross-org rows (super admins see
-    // everything; impersonation flips a viewer into super-admin mode), causing
-    // a brief flash of other orgs' users on refresh.
-    if (!organizationId) {
+    // Wait until org context is resolved AND the JWT's organization_id claim
+    // agrees with the loaded profile. On refresh the cached JWT can briefly
+    // carry a stale claim (e.g. from a prior impersonation, or before
+    // AuthContext's token-refresh loop re-stamps it). Super admins bypass RLS,
+    // so a fetch during that window returns users for the stale-claim org.
+    const profileOrgId = (currentProfile as any)?.organization_id ?? null;
+    if (!organizationId || !profileOrgId || profileOrgId !== organizationId) {
       setAllUsers([]);
       setLoading(true);
       return;
@@ -1306,7 +1308,7 @@ const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter, statusFilter, organizationId, toast]);
+  }, [search, roleFilter, statusFilter, organizationId, currentProfile, toast]);
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
