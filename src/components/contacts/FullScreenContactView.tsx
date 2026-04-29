@@ -27,6 +27,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
+import { emailSupabaseApi } from "@/lib/supabase-email";
 
 type ContactType = "lead" | "client" | "recruit";
 
@@ -480,7 +481,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       if (!isCurrent()) return;
 
       // Conversation timeline (calls + SMS) can be heavy — load after the rest so the left column and activity are not blocked.
-      const [callsRes, msgsRes] = await Promise.all([
+      const [callsRes, msgsRes, emailsRes] = await Promise.all([
         supabase
           .from("calls")
           .select(
@@ -495,6 +496,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           .eq("lead_id", myId)
           .order("sent_at", { ascending: false })
           .limit(300),
+        emailSupabaseApi.getContactEmails(myId),
       ]);
 
       if (!isCurrent()) return;
@@ -513,7 +515,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           _ts: new Date((m as any).sent_at).getTime(),
         }))
         .reverse();
-      setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
+      const emails = (emailsRes || [])
+        .map((e: any) => ({
+          ...e,
+          body: e.body_text || e.body_html || "(No body)",
+          _type: "email",
+          _ts: new Date(e.received_at || e.sent_at || e.created_at || 0).getTime(),
+        }))
+        .reverse();
+      setConvoItems([...calls, ...msgs, ...emails].sort((a, b) => a._ts - b._ts));
       setConvoLoading(false);
     }
 
@@ -637,33 +647,67 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   };
 
   const handleSendMessage = async () => {
-    if (!composeText.trim() || !contact.phone) return;
-    if (!fromNumber.trim()) {
-      toast.error("Select an agency number to send from.");
-      return;
-    }
+    if (!composeText.trim()) return;
     setMessageSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { toast.error("You must be logged in to send messages"); setMessageSending(false); return; }
       const base = import.meta.env.VITE_SUPABASE_URL as string;
-      const res = await fetch(`${base}/functions/v1/twilio-sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          to: toE164Plus(contact.phone),
-          from: toE164Plus(fromNumber),
-          body: composeText.trim(),
-          contact_id: contact.id,
-          contact_type: type,
-          subject: composeTab === "Email" ? emailSubject.trim() : undefined,
-          lead_id: contact.id,
-        }),
-      });
-      const result = await res.json();
-      if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
-      toast.success("Message sent"); setComposeText(""); setEmailSubject("");
-      setConvoItems(prev => [...prev, { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+      if (composeTab === "Email") {
+        if (!contact.email) {
+          toast.error("This contact has no email address.");
+          setMessageSending(false);
+          return;
+        }
+        const res = await fetch(`${base}/functions/v1/email-send-contact-message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({
+            contact_id: contact.id,
+            to_email: contact.email,
+            subject: emailSubject.trim() || `Message from ${AGENT_NAME}`,
+            body_text: composeText.trim(),
+          }),
+        });
+        const result = await res.json();
+        if (!result.success) {
+          toast.error(result.error || "Failed to send email");
+          setMessageSending(false);
+          return;
+        }
+        toast.success("Email queued");
+        setComposeText("");
+        setEmailSubject("");
+        setConvoItems(prev => [...prev, { id: `optim-email-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "email", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+      } else {
+        if (!contact.phone) {
+          toast.error("This contact has no phone number.");
+          setMessageSending(false);
+          return;
+        }
+        if (!fromNumber.trim()) {
+          toast.error("Select an agency number to send from.");
+          setMessageSending(false);
+          return;
+        }
+        const res = await fetch(`${base}/functions/v1/twilio-sms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({
+            to: toE164Plus(contact.phone),
+            from: toE164Plus(fromNumber),
+            body: composeText.trim(),
+            contact_id: contact.id,
+            contact_type: type,
+            lead_id: contact.id,
+          }),
+        });
+        const result = await res.json();
+        if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
+        toast.success("Message sent");
+        setComposeText("");
+        setConvoItems(prev => [...prev, { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+      }
     } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { setMessageSending(false); }
   };
 

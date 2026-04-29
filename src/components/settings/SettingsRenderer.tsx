@@ -8,6 +8,7 @@ import DispositionsManager from "@/components/settings/DispositionsManager";
 import ContactManagement from "@/components/settings/ContactManagement";
 import CalendarSettings from "@/components/settings/CalendarSettings";
 import Permissions from "@/components/settings/Permissions";
+import EmailSetup from "@/components/settings/EmailSetup";
 import EmailSMSTemplates from "@/components/settings/EmailSMSTemplates";
 import Carriers from "@/components/settings/Carriers";
 import GoalSetting from "@/components/settings/GoalSetting";
@@ -41,7 +42,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "contact-management": return <ContactManagement />;
     case "calendar-settings": return <CalendarSettings />;
     case "permissions": return <Permissions />;
-    case "email-settings":
+    case "email-settings": return <EmailSetup />;
     case "templates": return <EmailSMSTemplates />;
     case "carriers": return <Carriers />;
     case "goals": return <GoalSetting />;

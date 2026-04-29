@@ -100,6 +100,13 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-29 | [IN PROGRESS] | Email Setup foundation + Contact Full View email timeline**
+  *What:* Implemented the first build slice for user-connected inbox messaging. Added migration **`20260429143000_email_inbox_connections_and_contact_emails.sql`** with new tables **`user_email_connections`**, **`email_sync_cursors`**, and **`contact_emails`**, plus indexes, constraints, `updated_at` triggers, and org/ownership RLS policies aligned to existing hierarchy functions.
+  *UI:* Added **`src/components/settings/EmailSetup.tsx`** and routed **`?section=email-settings`** to this component in **`SettingsRenderer.tsx`**. Screen now shows connected inbox state, refresh, and disconnect actions against Supabase rows. OAuth connect actions are scaffolded and intentionally marked as next step.
+  *Conversation:* **`FullScreenContactView.tsx`** now loads **`contact_emails`** into the conversation stream (`_type: "email"`) alongside calls/SMS so inbound and outbound email rows render in timeline order.
+  *Send path:* Added Edge Function **`supabase/functions/email-send-contact-message/index.ts`** and config entry in **`supabase/config.toml`**. Composer Email mode now calls this endpoint; if user has no connected inbox row, it returns a clear setup-required error. On success it writes outbound rows to **`contact_emails`** with `delivery_status='queued'`.
+  *Next:* Implement OAuth start/callback/disconnect functions for Google/Microsoft and incremental provider sync worker to populate inbound `contact_emails` rows automatically.
+
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
   **(1) `getAll()` signature:** Added optional `organizationId?: string` to the `filters` parameter type.
