@@ -1289,9 +1289,10 @@ const UserManagement: React.FC = () => {
 
   const fetchUsers = useCallback(async () => {
     // Wait until org context is resolved. Without an org id, the API skips the
-    // organization_id filter and RLS may return cross-org rows (visible to super
-    // admins), causing a brief flash of other orgs' users on refresh.
-    if (!isCurrentUserSuperAdmin && !organizationId) {
+    // organization_id filter and RLS may return cross-org rows (especially for
+    // super admins), causing a brief flash of other orgs' users on refresh.
+    // In User Management we should always scope to the current organization.
+    if (!organizationId) {
       setAllUsers([]);
       setLoading(true);
       return;
@@ -1305,7 +1306,7 @@ const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter, statusFilter, organizationId, isCurrentUserSuperAdmin, toast]);
+  }, [search, roleFilter, statusFilter, organizationId, toast]);
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
