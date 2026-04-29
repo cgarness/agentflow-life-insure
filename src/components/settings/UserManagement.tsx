@@ -1288,6 +1288,14 @@ const UserManagement: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; user: UserWithProfile | null; action: "deactivate" | "reactivate" }>({ open: false, user: null, action: "deactivate" });
 
   const fetchUsers = useCallback(async () => {
+    // Wait until org context is resolved. Without an org id, the API skips the
+    // organization_id filter and RLS may return cross-org rows (visible to super
+    // admins), causing a brief flash of other orgs' users on refresh.
+    if (!isCurrentUserSuperAdmin && !organizationId) {
+      setAllUsers([]);
+      setLoading(true);
+      return;
+    }
     setLoading(true);
     try {
       const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter, organizationId });
@@ -1297,7 +1305,7 @@ const UserManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter, statusFilter, organizationId]);
+  }, [search, roleFilter, statusFilter, organizationId, isCurrentUserSuperAdmin, toast]);
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
