@@ -2185,6 +2185,7 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-29 | [DONE] | **Remove Super Admin gate from UserManagement.tsx:** Deleted the `if (isCurrentUserSuperAdmin)` early-return block that was rendering a redirect card instead of the Team Management view. Super Admin now sees the full user list. `filteredUsers` logic unchanged — `isCurrentUserSuperAdmin` still returns `allUsers`. No migrations, no env vars. |
 | 2026-04-23 | [DONE] | **Fix CSV import "Unauthorized" — explicit auth token in ImportLeadsModal:** Replaced `supabase.functions.invoke` in `doImport` with an explicit `fetch` that first calls `supabase.auth.getSession()`, gates on a valid session, and passes `Authorization: Bearer <access_token>` + `apikey` headers directly. Stale/missing cached tokens can no longer produce `Bearer undefined` or expired JWTs. No Edge Function changes; no new env vars. |
 | 2026-04-23 | [DONE] | **Fix imported leads `user_id` + remove ghost `health_status`:** `import-contacts` edge function: added `user_id: assigned_agent_id` to `mappedRow` for leads only (spread conditional); confirmed `health_status` was already absent. Added `[functions.import-contacts] verify_jwt = false` to `config.toml`. Redeploy required with `SUPABASE_ACCESS_TOKEN` set. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring:** `twilio-search-numbers` + `twilio-buy-number` (JWT, per-org Twilio creds from `phone_settings`); purchase sets voice/SMS/status webhooks to Supabase functions URL; inserts `phone_numbers` with `twilio_sid`. `NumberManagementSection`: search/buy live, Twilio SID column, released-number tooltip; release remains DB-only. Config: `verify_jwt = true` for both. Not deployed yet. |
@@ -2236,3 +2237,15 @@ This document should be the first file read by any agent tasking with "Dialer" o
 **No new env vars or migrations required.** `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` were already present throughout the codebase.
 
 **Test next:** Log in, let the session sit idle for >1 hour (or manually clear the Supabase session cache), then attempt a CSV import. Confirm the import completes without a 401/Unauthorized error and each inserted `leads` row has the correct `user_id`.
+
+### Context Snapshot — 2026-04-29 — Remove Super Admin Gate from UserManagement
+
+**What was changed:** Removed the `if (isCurrentUserSuperAdmin)` early-return block from `src/components/settings/UserManagement.tsx`. The block rendered a centered "Super Admin View" card with a "Go to Agencies Panel" button, redirecting Super Admins away from the standard Team Management view.
+
+**Gate removed:** The 16-line early-return (former lines 1444–1459) is deleted entirely. Super Admin no longer receives a redirect card when navigating to User Management.
+
+**filteredUsers unchanged:** The `filteredUsers` memo at line 1302 still contains `if (isCurrentUserSuperAdmin) return allUsers;`. This line is untouched — Super Admin continues to receive the full unfiltered `allUsers` list as before.
+
+**Result:** Super Admin now lands on the standard Team Management view and sees all org users, identical to the Admin experience. No other component, file, migration, or setting was modified.
+
+**Files touched:** `src/components/settings/UserManagement.tsx`, `ROADMAP.md`.
