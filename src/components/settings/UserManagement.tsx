@@ -1301,6 +1301,7 @@ const UserManagement: React.FC = () => {
   }, [search, roleFilter, statusFilter, organizationId]);
 
   const filteredUsers = useMemo(() => {
+    if (!organizationId) return [];
     if (!currentProfile) return [];
     if (isCurrentUserSuperAdmin) return allUsers;
     
@@ -1323,7 +1324,7 @@ const UserManagement: React.FC = () => {
       
       return false;
     });
-  }, [allUsers, currentProfile]);
+  }, [allUsers, currentProfile, organizationId]);
 
   const users = filteredUsers; // Use filtered list for display
 
@@ -1500,7 +1501,7 @@ const UserManagement: React.FC = () => {
           </div>
 
           <div className="bg-card rounded-2xl border border-border/50 shadow-xl shadow-black/5 overflow-hidden">
-            {loading ? (
+            {(loading || !organizationId) ? (
               <div className="p-8 space-y-4">
                 {[1,2,3,4,5].map(i => <div key={i} className="h-16 rounded-xl bg-muted/30 animate-pulse" />)}
               </div>

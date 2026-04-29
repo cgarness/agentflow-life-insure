@@ -94,6 +94,16 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-29 | [DONE] | User Management — Suppress user list render until organizationId is hydrated (BUGFIX)**
+  *What:* Two targeted render-layer guards added to `src/components/settings/UserManagement.tsx` to eliminate the flash of unscoped user data on hard refresh. No DB migrations, no RLS changes, `fetchUsers` unchanged, `useEffect` unchanged, no other files modified.
+  **(1) `filteredUsers` useMemo guard:** Added `if (!organizationId) return [];` as the first line of the memo callback (before the existing `if (!currentProfile) return [];` check). Added `organizationId` to the dep array (`[allUsers, currentProfile, organizationId]`). Ensures the memo always returns an empty array — never stale or cross-org data — while the org context is still resolving.
+  **(2) Loading ternary guard:** Extended the inline loading condition from `{loading ? (` to `{(loading || !organizationId) ? (`. The existing pulse-skeleton JSX (`[1,2,3,4,5].map(...)`) is shown for both states — no new UI created.
+  *Context Snapshot:*
+  - **`filteredUsers` guard added:** `if (!organizationId) return [];` is the first statement in the `filteredUsers` useMemo at `src/components/settings/UserManagement.tsx:1304`. `organizationId` is in the dep array at line 1327.
+  - **Loading ternary extended:** Condition at line 1504 is now `(loading || !organizationId)` — the pulse skeleton renders whenever either condition is true.
+  - **Flash resolved:** The component now treats a missing `organizationId` as a loading state at both the data layer (memo) and the render layer (ternary). No user rows are rendered until the org context is confirmed available.
+  *Files:* **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-29 | [DONE] | User Management — Guard fetchUsers against early fire before organizationId resolves (BUGFIX)**
   *What:* Added a single early-return guard at the top of the `fetchUsers` `useCallback` in `src/components/settings/UserManagement.tsx`. No DB migrations, no RLS changes, no other files modified.
   **(1) Guard:** `if (!organizationId) return;` inserted as the first statement in `fetchUsers` (before `setLoading(true)`). When `useOrganization()` has not yet resolved on mount, the callback exits immediately — no Supabase request is issued, no loading spinner flashes, and no cross-org rows are momentarily rendered.
