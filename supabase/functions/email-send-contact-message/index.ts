@@ -6,6 +6,36 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function toBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function refreshGoogleAccessToken(refreshToken: string) {
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+  if (!clientId || !clientSecret) throw new Error("Missing Google OAuth env vars");
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const data = await res.json();
+  if (!res.ok || !data?.access_token) {
+    throw new Error(data?.error_description || data?.error || "Failed to refresh Google token");
+  }
+  return { accessToken: data.access_token as string, expiresIn: Number(data.expires_in ?? 3600) };
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -63,7 +93,7 @@ serve(async (req: Request) => {
 
     let connectionQuery = admin
       .from("user_email_connections")
-      .select("id, provider, provider_account_email, status")
+      .select("id, provider, provider_account_email, status, access_token_encrypted, refresh_token_encrypted, access_token_expires_at")
       .eq("user_id", user.id)
       .eq("organization_id", profile.organization_id)
       .eq("status", "connected");
@@ -103,6 +133,78 @@ serve(async (req: Request) => {
 
     const externalMessageId = crypto.randomUUID();
     const now = new Date().toISOString();
+    let deliveryStatus: "queued" | "sent" | "failed" = "queued";
+    let providerError: string | null = null;
+    let providerThreadId: string | null = null;
+    let internetMessageId: string | null = null;
+
+    if (connection.provider === "google") {
+      try {
+        let accessToken = String((connection as any).access_token_encrypted || "");
+        const refreshToken = String((connection as any).refresh_token_encrypted || "");
+        const expiresAt = (connection as any).access_token_expires_at as string | null;
+        const isExpired = !expiresAt || new Date(expiresAt).getTime() < Date.now() + 60_000;
+
+        if ((!accessToken || isExpired) && refreshToken) {
+          const refreshed = await refreshGoogleAccessToken(refreshToken);
+          accessToken = refreshed.accessToken;
+          await admin.from("user_email_connections").update({
+            access_token_encrypted: refreshed.accessToken,
+            access_token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+            status: "connected",
+            last_error: null,
+          }).eq("id", connection.id);
+        }
+
+        if (!accessToken) throw new Error("No Google access token available");
+
+        const rawMessage = [
+          `From: ${fromEmail}`,
+          `To: ${toEmail}`,
+          `Subject: ${subject}`,
+          "Content-Type: text/plain; charset=UTF-8",
+          "",
+          bodyText,
+        ].join("\r\n");
+
+        const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ raw: toBase64Url(rawMessage) }),
+        });
+        const sendJson = await sendRes.json();
+        if (!sendRes.ok) {
+          const providerMessage = sendJson?.error?.message || "Gmail send failed";
+          const providerCode = Number(sendJson?.error?.code || sendRes.status || 0);
+          if (providerCode === 401 || providerCode === 403) {
+            await admin.from("user_email_connections").update({
+              status: "needs_reconnect",
+              last_error: providerMessage,
+            }).eq("id", connection.id);
+          } else {
+            await admin.from("user_email_connections").update({ last_error: providerMessage }).eq("id", connection.id);
+          }
+          throw new Error(providerMessage);
+        }
+        deliveryStatus = "sent";
+        providerThreadId = sendJson?.threadId || null;
+        internetMessageId = sendJson?.id || null;
+        await admin.from("user_email_connections").update({
+          status: "connected",
+          last_error: null,
+          last_sync_at: now,
+        }).eq("id", connection.id);
+      } catch (error) {
+        deliveryStatus = "failed";
+        providerError = error instanceof Error ? error.message : "Google send failed";
+      }
+    } else {
+      deliveryStatus = "failed";
+      providerError = "Microsoft send is not implemented yet in this environment.";
+    }
 
     const { error: insertError } = await admin.from("contact_emails").insert({
       organization_id: profile.organization_id,
@@ -112,13 +214,15 @@ serve(async (req: Request) => {
       provider: connection.provider,
       direction: "outbound",
       external_message_id: externalMessageId,
-      thread_id: null,
+      thread_id: providerThreadId,
+      internet_message_id: internetMessageId,
       from_email: fromEmail,
       to_emails: [toEmail],
       subject,
       body_text: bodyText,
       sent_at: now,
-      delivery_status: "queued",
+      delivery_status: deliveryStatus,
+      provider_error: providerError,
     });
 
     if (insertError) {
@@ -127,11 +231,11 @@ serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        success: true,
+        success: deliveryStatus === "sent",
         message_id: externalMessageId,
-        note: "Queued in conversation history. Provider send dispatch is the next implementation step.",
+        note: deliveryStatus === "sent" ? "Email sent via provider and recorded in history." : "Email was recorded but provider send failed.",
       }),
-      { status: 200, headers }
+      { status: deliveryStatus === "sent" ? 200 : 502, headers }
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
