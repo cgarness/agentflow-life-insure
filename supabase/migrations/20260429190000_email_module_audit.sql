@@ -1,0 +1,79 @@
+-- Email module compliance audit (April 29, 2026)
+-- =================================================================
+-- This migration is documentation-only. No DDL is executed.
+--
+-- AUDIT RESULT
+-- -------------------------------------------------------------------
+-- Tables reviewed:
+--   * public.user_email_connections   (20260429143000)
+--   * public.email_sync_cursors       (20260429143000)
+--   * public.contact_emails           (20260429143000)
+--   * public.email_oauth_states       (20260429152000)
+--
+-- All four tables:
+--   - Have organization_id UUID NOT NULL, FK to public.organizations(id)
+--     ON DELETE CASCADE.
+--   - Have RLS enabled.
+--   - Use public.get_org_id() (not raw auth.uid() subqueries) to enforce
+--     tenant scoping in their SELECT/INSERT/UPDATE/DELETE policies.
+--   - email_oauth_states uses a deny-all client policy (USING (false))
+--     because edge functions hold the only legitimate access path via
+--     service role.
+--
+-- No schema fixes required.
+--
+-- KNOWN DEBT (recorded, not fixed in this pass)
+-- -------------------------------------------------------------------
+-- 1. Column suffix `_encrypted` on user_email_connections.access_token_encrypted /
+--    refresh_token_encrypted is a misnomer. Tokens are base64-encoded via
+--    btoa(), not encrypted. Same applies to calendar_integrations.access_token /
+--    refresh_token. A future migration will swap both tables to real
+--    encryption (Vault or pgsodium) in a single pass.
+--
+-- 2. src/components/contacts/FullScreenContactView.tsx is 1,570 lines
+--    (limit 200). Touched twice during email module work (commits e0c0b61
+--    and 351f2ac). Tracked alongside DialerPage.tsx as [TODO HIGH PRIORITY].
+--
+-- 3. Codex-era rows in user_email_connections store tokens raw (pre-shared
+--    helper). The shared decodeToken() helper has a transitional fallback
+--    that accepts both base64 and raw inputs. Remove the fallback after
+--    one week of production runtime (target: 2026-05-06). See
+--    supabase/functions/_shared/google-token.ts.
+--
+-- CROSS-ORG ISOLATION TEST (manual; run as Super Admin in SQL editor)
+-- -------------------------------------------------------------------
+-- Replace <user_in_org_a> and <org_b_id> with real UUIDs from your
+-- environment, then execute each block. Correct RLS returns 0 rows.
+-- A non-zero count indicates a tenant leak — escalate immediately.
+--
+--   -- Spoof an authenticated session for a user in Org A.
+--   SET LOCAL ROLE authenticated;
+--   SELECT set_config(
+--     'request.jwt.claims',
+--     '{"sub":"<user_in_org_a>","role":"authenticated"}',
+--     true
+--   );
+--
+--   -- Expect 0 rows for each:
+--   SELECT count(*) FROM public.contact_emails
+--     WHERE organization_id = '<org_b_id>';
+--   SELECT count(*) FROM public.user_email_connections
+--     WHERE organization_id = '<org_b_id>';
+--   SELECT count(*) FROM public.email_sync_cursors
+--     WHERE organization_id = '<org_b_id>';
+--
+--   -- email_oauth_states is deny-all to authenticated; expect 0 rows
+--   -- regardless of organization filter:
+--   SELECT count(*) FROM public.email_oauth_states;
+--
+--   RESET ROLE;
+--
+-- Interpretation:
+--   * All four queries return 0  -> RLS healthy.
+--   * Any query returns >0       -> RLS broken; investigate the policy
+--                                   on the offending table before shipping
+--                                   inbound sync.
+-- =================================================================
+
+-- No-op statement so this migration is idempotent and traceable.
+SELECT 1 WHERE false;

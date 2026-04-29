@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,29 +12,6 @@ function toBase64Url(value: string): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function refreshGoogleAccessToken(refreshToken: string) {
-  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
-  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
-  if (!clientId || !clientSecret) throw new Error("Missing Google OAuth env vars");
-
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-    grant_type: "refresh_token",
-  });
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-  const data = await res.json();
-  if (!res.ok || !data?.access_token) {
-    throw new Error(data?.error_description || data?.error || "Failed to refresh Google token");
-  }
-  return { accessToken: data.access_token as string, expiresIn: Number(data.expires_in ?? 3600) };
 }
 
 serve(async (req: Request) => {
@@ -140,17 +118,20 @@ serve(async (req: Request) => {
 
     if (connection.provider === "google") {
       try {
-        let accessToken = String((connection as any).access_token_encrypted || "");
-        const refreshToken = String((connection as any).refresh_token_encrypted || "");
+        let accessToken = decodeToken((connection as any).access_token_encrypted) ?? "";
+        const refreshToken = decodeToken((connection as any).refresh_token_encrypted) ?? "";
         const expiresAt = (connection as any).access_token_expires_at as string | null;
         const isExpired = !expiresAt || new Date(expiresAt).getTime() < Date.now() + 60_000;
 
         if ((!accessToken || isExpired) && refreshToken) {
-          const refreshed = await refreshGoogleAccessToken(refreshToken);
+          const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+          const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+          if (!clientId || !clientSecret) throw new Error("Missing Google OAuth env vars");
+          const refreshed = await refreshGoogleAccessToken({ refreshToken, clientId, clientSecret });
           accessToken = refreshed.accessToken;
           await admin.from("user_email_connections").update({
-            access_token_encrypted: refreshed.accessToken,
-            access_token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+            access_token_encrypted: encodeToken(refreshed.accessToken),
+            access_token_expires_at: refreshed.expiresAt,
             status: "connected",
             last_error: null,
           }).eq("id", connection.id);

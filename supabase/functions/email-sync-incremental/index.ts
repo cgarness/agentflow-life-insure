@@ -1,8 +1,25 @@
+// email-sync-incremental
+//
+// Auth model: cron-only. Authenticated via x-cron-secret header matching the
+// EMAIL_SYNC_CRON_SECRET edge secret. Pattern matches recording-retention-purge.
+//
+// Wiring requirements (must be in place before this function does real work):
+//   1. Set EMAIL_SYNC_CRON_SECRET in Supabase Edge secrets
+//      (Dashboard → Edge Functions → Secrets, or `supabase secrets set`).
+//   2. The future pg_cron schedule migration must POST with the
+//      x-cron-secret header populated from vault. See
+//      supabase/migrations/20260308171000_schedule_google_calendar_inbound_sync.sql
+//      for the canonical pattern (net.http_post + headers JSON).
+//
+// The cron schedule migration is intentionally NOT created here; it ships with
+// the next BUILD prompt that implements provider message pull + contact
+// matching. Until then, this function is a manual/placeholder pass.
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -15,6 +32,12 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ success: false, error: "Method not allowed" }, 405);
+
+  const requiredCronSecret = Deno.env.get("EMAIL_SYNC_CRON_SECRET");
+  const cronSecret = req.headers.get("x-cron-secret") ?? "";
+  if (!requiredCronSecret || cronSecret !== requiredCronSecret) {
+    return json({ success: false, error: "Unauthorized" }, 401);
+  }
 
   try {
     const admin = createClient(
@@ -59,4 +82,3 @@ Deno.serve(async (req) => {
     return json({ success: false, error: message }, 500);
   }
 });
-

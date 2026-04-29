@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encodeToken } from "../_shared/google-token.ts";
 
 function redirectWithParams(baseUrl: string, params: Record<string, string>) {
   const url = new URL(baseUrl);
@@ -120,8 +121,8 @@ Deno.serve(async (req) => {
         provider,
         provider_account_email: tokenPack.accountEmail,
         provider_account_name: tokenPack.accountName,
-        access_token_encrypted: tokenPack.accessToken,
-        refresh_token_encrypted: tokenPack.refreshToken,
+        access_token_encrypted: encodeToken(tokenPack.accessToken),
+        refresh_token_encrypted: encodeToken(tokenPack.refreshToken),
         access_token_expires_at: tokenExpiresAt,
         scope: tokenPack.scope,
         status: "connected",

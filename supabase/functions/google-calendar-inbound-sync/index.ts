@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
 
 type GoogleEventDateTime = {
   dateTime?: string;
@@ -33,15 +34,6 @@ const json = (body: Record<string, unknown>, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-const decodeBase64 = (value: string | null) => {
-  if (!value) return null;
-  try {
-    return atob(value);
-  } catch {
-    return null;
-  }
-};
-
 const toIso = (input?: GoogleEventDateTime, fallback?: string) => {
   if (!input) return fallback ?? new Date().toISOString();
 
@@ -56,40 +48,6 @@ const toIso = (input?: GoogleEventDateTime, fallback?: string) => {
   }
 
   return fallback ?? new Date().toISOString();
-};
-
-const refreshGoogleToken = async (params: {
-  refreshToken: string;
-  clientId: string;
-  clientSecret: string;
-}) => {
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      client_id: params.clientId,
-      client_secret: params.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: params.refreshToken,
-    }),
-  });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload?.error_description ?? payload?.error ?? "Failed to refresh Google token");
-  }
-
-  if (!payload?.access_token || !payload?.expires_in) {
-    throw new Error("Google refresh response is missing access_token or expires_in");
-  }
-
-  return {
-    accessToken: payload.access_token as string,
-    expiresAt: new Date(Date.now() + Number(payload.expires_in) * 1000).toISOString(),
-  };
 };
 
 const listGoogleEvents = async (params: {
@@ -210,8 +168,8 @@ Deno.serve(async (req) => {
 
     for (const integration of integrations ?? []) {
       try {
-        let accessToken = decodeBase64(integration.access_token);
-        const refreshToken = decodeBase64(integration.refresh_token);
+        let accessToken = decodeToken(integration.access_token);
+        const refreshToken = decodeToken(integration.refresh_token);
 
         const expiresAtMs = integration.token_expires_at ? new Date(integration.token_expires_at).getTime() : 0;
         const isExpiredOrMissing = !accessToken || !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
@@ -221,7 +179,7 @@ Deno.serve(async (req) => {
             throw new Error("Missing refresh token for expired Google integration");
           }
 
-          const refreshed = await refreshGoogleToken({
+          const refreshed = await refreshGoogleAccessToken({
             refreshToken,
             clientId: googleClientId,
             clientSecret: googleClientSecret,
@@ -232,7 +190,7 @@ Deno.serve(async (req) => {
           const { error: refreshPersistError } = await supabase
             .from("calendar_integrations")
             .update({
-              access_token: btoa(refreshed.accessToken),
+              access_token: encodeToken(refreshed.accessToken),
               token_expires_at: refreshed.expiresAt,
             })
             .eq("id", integration.id);

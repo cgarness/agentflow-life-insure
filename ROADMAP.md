@@ -100,14 +100,24 @@
 
 ## 3. Work Log (Recent History)
 
-- **2026-04-29 | [IN PROGRESS] | Email Setup foundation + Contact Full View email timeline**
-  *What:* Implemented the first build slice for user-connected inbox messaging. Added migration **`20260429143000_email_inbox_connections_and_contact_emails.sql`** with new tables **`user_email_connections`**, **`email_sync_cursors`**, and **`contact_emails`**, plus indexes, constraints, `updated_at` triggers, and org/ownership RLS policies aligned to existing hierarchy functions.
-  *UI:* Added **`src/components/settings/EmailSetup.tsx`** and routed **`?section=email-settings`** to this component in **`SettingsRenderer.tsx`**. Screen now shows connected inbox state, refresh, and disconnect actions against Supabase rows. OAuth connect actions are scaffolded and intentionally marked as next step.
-  *Conversation:* **`FullScreenContactView.tsx`** now loads **`contact_emails`** into the conversation stream (`_type: "email"`) alongside calls/SMS so inbound and outbound email rows render in timeline order.
-  *Send path:* Added Edge Function **`supabase/functions/email-send-contact-message/index.ts`** and config entry in **`supabase/config.toml`**. Composer Email mode now calls this endpoint; if user has no connected inbox row, it returns a clear setup-required error. On success it writes outbound rows to **`contact_emails`** with `delivery_status='queued'`.
-  *OAuth update:* Added Edge Functions **`email-connect-start`**, **`email-connect-callback`**, and **`email-disconnect`** (with `config.toml` entries). `EmailSetup.tsx` connect buttons now launch real OAuth start flow for Google/Microsoft and callback status is surfaced via URL params.
-  *Sync update:* Added **`email-sync-incremental`** edge function scaffold that scans connected inbox rows and updates `last_sync_at`/`last_error` for status reliability. Provider API pull and contact matching/inserts are the next implementation step.
-  *Next:* Implement provider message pull + contact matching into `contact_emails`, then add token refresh + provider send dispatch in `email-send-contact-message`.
+- **2026-04-29 | [DONE] | Email Setup foundation + Contact Full View email timeline (Codex)**
+  *Shipped (un-logged at the time, retroactively recorded):*
+  - Migration **`20260429143000_email_inbox_connections_and_contact_emails.sql`** — new tables `user_email_connections`, `email_sync_cursors`, `contact_emails` with org-scoped RLS via `public.get_org_id()` and hierarchy helpers.
+  - Migration **`20260429152000_email_oauth_states.sql`** — short-lived OAuth state table; deny-all client RLS (service-role only).
+  - Edge Functions **`email-connect-start`**, **`email-connect-callback`**, **`email-disconnect`**, **`email-send-contact-message`**, **`email-sync-incremental`** with `config.toml` entries (all `verify_jwt = false`, JWT validated in-code).
+  - **`src/components/settings/EmailSetup.tsx`** with real Google/Microsoft OAuth launch + status surface via URL params; routed via `?section=email-settings`.
+  - **`FullScreenContactView.tsx`** loads `contact_emails` into the unified conversation stream alongside calls/SMS; composer Email mode posts through Gmail API with token refresh.
+
+- **2026-04-29 | [IN PROGRESS] | Email module compliance audit + shared Google token helper**
+  *Audit migration:* Added **`supabase/migrations/20260429190000_email_module_audit.sql`** — comments-only record of the schema-pass result, debt items, and a manual cross-org isolation SQL test (run as Super Admin to prove RLS for `contact_emails` / `user_email_connections` / `email_sync_cursors` / `email_oauth_states`).
+  *Shared helper:* Added **`supabase/functions/_shared/google-token.ts`** with `refreshGoogleAccessToken`, `encodeToken`, and `decodeToken` (transitional fallback that accepts both base64 and raw inputs). De-duplicates the refresh logic that previously lived in both `google-calendar-inbound-sync` and `email-send-contact-message`. Refactored both functions plus `email-connect-callback` to import from it; calendar function now also uses the shared helper for its existing btoa/atob envelope.
+  *Sync auth fix:* **`email-sync-incremental`** previously accepted unauthenticated POSTs with arbitrary `user_id` / `organization_id` from the body — a tenant-isolation hole. Now requires **`x-cron-secret`** header matching the **`EMAIL_SYNC_CRON_SECRET`** edge secret (pattern matches `recording-retention-purge`). Header pre-flight added to CORS allowlist.
+  *Known debt flagged (not fixed in this pass):*
+  - Column suffix `_encrypted` on `user_email_connections.access_token_encrypted` / `refresh_token_encrypted` is misleading (tokens are base64-encoded, not encrypted). Same applies to `calendar_integrations`. A future Vault/pgsodium migration will swap **both tables in a single pass**.
+  - **`src/components/contacts/FullScreenContactView.tsx`** is **1,570 lines** (limit 200). Tracked alongside `DialerPage.tsx` as `[TODO HIGH PRIORITY]`. No further complexity should be added; new email features must split into `src/components/contacts/` sub-components.
+  - `decodeToken()` raw-string fallback in `_shared/google-token.ts` is transitional. Remove on or after **2026-05-06** once all live rows have churned through one refresh.
+  *Cron wiring (NOT done here):* The pg_cron schedule for `email-sync-incremental` is intentionally deferred to the next BUILD prompt (provider message pull + contact matching). Pattern reference: `supabase/migrations/20260308171000_schedule_google_calendar_inbound_sync.sql`. `EMAIL_SYNC_CRON_SECRET` must be set in Supabase Edge secrets before the schedule lands.
+  *Next:* On a clean foundation, implement Gmail History API pull in `email-sync-incremental` using shared helpers, contact matching on `from_email` / `to_emails` against `leads` / `clients` / `recruits` (org-scoped), idempotent insert into `contact_emails` keyed on `(organization_id, provider, external_message_id)`, and cursor advance in `email_sync_cursors`. Microsoft Graph delta-link path follows.
 
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
