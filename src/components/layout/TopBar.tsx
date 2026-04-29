@@ -3,11 +3,12 @@ import { AvatarSkeleton, NameSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
-  Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
-  User, Keyboard, LogOut, X, Megaphone, Phone, PhoneCall, IdCard,
+  Plus, Bell, Sun, Moon, Menu,
+  User, Keyboard, LogOut, X, Phone, PhoneCall, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
   Eye,
 } from "lucide-react";
+import GlobalSearch from "@/components/search/GlobalSearch";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import ViewAsModal from "@/components/layout/ViewAsModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -113,8 +114,6 @@ const TopBar: React.FC = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [statusIdx, setStatusIdx] = useState(0);
   const [statusDropdown, setStatusDropdown] = useState(false);
   const [userDropdown, setUserDropdown] = useState(false);
@@ -189,41 +188,7 @@ const TopBar: React.FC = () => {
         </div>
 
         {/* Search */}
-        <div className="flex-1 max-w-lg mx-auto relative">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search contacts, campaigns, conversations..."
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(e.target.value.length > 0); }}
-              onFocus={() => searchQuery.length > 0 && setSearchOpen(true)}
-              onBlur={() => setTimeout(() => setSearchOpen(false), 200)}
-              className="w-full h-9 pl-9 pr-8 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 sidebar-transition"
-            />
-            {searchQuery && (
-              <button onClick={() => { setSearchQuery(""); setSearchOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          {searchOpen && (
-            <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg py-2 z-50">
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase">Contacts</div>
-              {["John Martinez", "Sarah Williams", "Mike Johnson"].map((n) => (
-                <button key={n} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">{n.split(" ").map(w => w[0]).join("")}</div>
-                  <div><p className="font-medium text-foreground">{n}</p><p className="text-xs text-muted-foreground">Lead · Florida</p></div>
-                </button>
-              ))}
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase border-t mt-1 pt-2">Campaigns</div>
-              <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left">
-                <Megaphone className="w-4 h-4 text-primary" />
-                <span className="text-foreground">Q1 Facebook Leads</span>
-              </button>
-            </div>
-          )}
-        </div>
+        <GlobalSearch />
 
         {/* Right Actions */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
