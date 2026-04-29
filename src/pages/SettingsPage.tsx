@@ -20,6 +20,9 @@ const SettingsInner: React.FC = () => {
     if (searchParams.get("section") === "spam") {
       setSearchParams({ section: "number-reputation" }, { replace: true });
     }
+    if (searchParams.get("section") === "email") {
+      setSearchParams({ section: "email-settings" }, { replace: true });
+    }
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {

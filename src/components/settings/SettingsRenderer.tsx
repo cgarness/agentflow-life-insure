@@ -41,6 +41,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "contact-management": return <ContactManagement />;
     case "calendar-settings": return <CalendarSettings />;
     case "permissions": return <Permissions />;
+    case "email-settings":
     case "templates": return <EmailSMSTemplates />;
     case "carriers": return <Carriers />;
     case "goals": return <GoalSetting />;

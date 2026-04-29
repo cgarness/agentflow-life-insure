@@ -154,6 +154,10 @@
   *Developer note:* `upline_id` confirmed present on `profiles` (validated via `types.ts` FK constraint `profiles_upline_id_fkey`). No new migrations required — only frontend logic changes. No BLOCKER.
   *Files:* **`src/components/calendar/AppointmentModal.tsx`**, **`src/pages/CalendarPage.tsx`**, **`ROADMAP.md`**.
 
+- **2026-04-29 | [DONE] | Settings — add dedicated Email Setup tab**
+  *What:* Added a first-class **Email Setup** item in **Settings → Automation & API** so users can find email configuration quickly. It routes to the existing **Email & SMS Templates** experience, and legacy deep links like **`?section=email`** now auto-map to the new email settings section.
+  *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/pages/SettingsPage.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-24 | [DONE] | Marketing landing — hero badge clears fixed nav**
   *What:* Hero section used **`pt-16`**, matching the fixed **`MarketingNav`** height with no gap, so the “Built for Life Insurance Professionals” pill sat flush under the header and could read as clipped. Increased to **`pt-24 md:pt-28`** so the badge sits clearly below the bar.
   *Files:* **`src/pages/LandingPage.tsx`**, **`ROADMAP.md`**.

@@ -62,6 +62,7 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
     label: "Automation & API",
     sections: [
       { slug: "automation", icon: Zap, label: "Workflow Builder" },
+      { slug: "email-settings", icon: Mail, label: "Email Setup" },
       { slug: "templates", icon: Mail, label: "Email & SMS Templates" },
       { slug: "webhooks", icon: Webhook, label: "Zapier & Webhooks" },
       { slug: "ai", icon: Bot, label: "AI Settings" },
