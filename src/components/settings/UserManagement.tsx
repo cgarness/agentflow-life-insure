@@ -1310,28 +1310,36 @@ const UserManagement: React.FC = () => {
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
-    if (isCurrentUserSuperAdmin) return allUsers;
-    
-    return allUsers.filter(u => {
+    if (!organizationId) return [];
+
+    // Defense-in-depth: drop any row whose org doesn't match the active org id.
+    // Without this, a stale `allUsers` from a previous fetch (e.g. before the
+    // org context resolved on refresh, or after impersonation toggled) can
+    // briefly render cross-org users until the next fetch lands.
+    const inOrg = allUsers.filter(u => u.profile.organizationId === organizationId);
+
+    if (isCurrentUserSuperAdmin) return inOrg;
+
+    return inOrg.filter(u => {
       const role = currentProfile.role?.toLowerCase();
-      
+
       // Admin sees everyone in organization (already RLS-filtered)
       if (role === "admin") return true;
-      
+
       // Team Leader: self is always visible; only show users whose direct upline is this leader.
       // RLS enforces the deep ltree hierarchy — this is a shallow frontend defense-in-depth layer.
       if (role === "team leader") {
         return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
       }
-      
+
       // Agent sees ONLY themselves
       if (role === "agent") {
         return u.id === currentProfile.id;
       }
-      
+
       return false;
     });
-  }, [allUsers, currentProfile]);
+  }, [allUsers, currentProfile, organizationId, isCurrentUserSuperAdmin]);
 
   const users = filteredUsers; // Use filtered list for display
 
