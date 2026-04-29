@@ -94,6 +94,18 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
+  *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
+  **(1) `getAll()` signature:** Added optional `organizationId?: string` to the `filters` parameter type.
+  **(2) Primary query path:** After existing role/status filters, added `if (filters?.organizationId) { q = q.eq("organization_id", filters.organizationId); }`.
+  **(3) Safe-column fallback retry:** Built `safeQ` from the same `supabase.from("profiles").select(safeColumns...)` chain and applied the same `organizationId` filter before `.order()` — ensures both query paths are fully scoped.
+  **(4) `UserManagement.tsx`:** Updated the `fetchUsers` `useCallback` to pass `organizationId` (already destructured from `useOrganization()` at line 1279) into `usersApi.getAll(...)`. Added `organizationId` to the `useCallback` dependency array. No new hooks or imports added.
+  *Context Snapshot:*
+  - **Filter added:** `organization_id` eq-filter is applied in `getAll()` when `organizationId` is present — confirmed on both the primary query path and the safe-column fallback retry.
+  - **Both query paths scoped:** Primary (`allExpectedColumns`) and fallback (`safeColumns`) now both filter by `organization_id` before returning results.
+  - **Super Admin scope:** Super Admins viewing **Settings → User Management** now see only users in their own org. Cross-org user visibility remains available exclusively in the Super Admin Agencies panel (`/super-admin`).
+  *Files:* **`src/lib/supabase-users.ts`**, **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-28 | [DONE] | User Management — Role-Scoped Visibility Fix (BUGFIX)**
   *What:* Two frontend hardening changes to `src/components/settings/UserManagement.tsx`. No DB migrations, no RLS changes, no other files modified.
   **(1) API Audit:** Confirmed `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` uses the anon/JWT Supabase client (not `service_role`). RLS policy `profiles_select_hierarchical` already enforces correct visibility tiers at the DB layer. **No BLOCKER — no changes to `supabase-users.ts`.**

@@ -44,11 +44,11 @@ function rowToUser(row: any): User & { profile: UserProfile } {
 }
 
 export const usersSupabaseApi = {
-  async getAll(filters?: { search?: string; role?: string; status?: string }): Promise<(User & { profile: UserProfile })[]> {
+  async getAll(filters?: { search?: string; role?: string; status?: string; organizationId?: string }): Promise<(User & { profile: UserProfile })[]> {
     const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
-      "resident_state", "commission_level", "upline_id", 
+      "resident_state", "commission_level", "upline_id",
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
       "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
@@ -56,34 +56,40 @@ export const usersSupabaseApi = {
     ];
 
     const safeColumns = [
-      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "is_super_admin"
     ];
 
     let q = supabase.from("profiles").select(allExpectedColumns.join(","));
-    
+
     if (filters?.search) {
       const search = filters.search.toLowerCase();
       q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
     }
-    
+
     if (filters?.role && filters.role !== "All") {
       q = q.eq("role", filters.role);
     }
-    
+
     if (filters?.status && filters.status !== "All") {
       q = q.eq("status", filters.status);
     } else {
       q = q.neq("status", "Deleted");
     }
-    
+
+    if (filters?.organizationId) {
+      q = q.eq("organization_id", filters.organizationId);
+    }
+
     const { data, error } = await q.order("first_name", { ascending: true });
-    
+
     if (error && error.message.includes("does not exist")) {
       console.warn("Retrying fetch with safe column set due to schema mismatch:", error.message);
-      const { data: safeData, error: safeError } = await supabase
-        .from("profiles")
-        .select(safeColumns.join(","))
+      let safeQ = supabase.from("profiles").select(safeColumns.join(","));
+      if (filters?.organizationId) {
+        safeQ = safeQ.eq("organization_id", filters.organizationId);
+      }
+      const { data: safeData, error: safeError } = await safeQ
         .order("first_name", { ascending: true });
       
       if (safeError) throw safeError;
