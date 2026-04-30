@@ -166,10 +166,10 @@ const EmailSetup: React.FC = () => {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium">{providerLabel(connection.provider)}</p>
                     <Badge
-                      variant="secondary"
+                      variant={connection.status === "connected" ? "outline" : "secondary"}
                       className={
                         connection.status === "connected"
-                          ? "border border-emerald-200 bg-emerald-100 text-emerald-800"
+                          ? "border-emerald-700 bg-emerald-600 font-semibold text-white transition-none cursor-default hover:border-emerald-700 hover:bg-emerald-600 hover:text-white"
                           : undefined
                       }
                     >

@@ -102,7 +102,7 @@
 
 - **2026-04-30 | [DONE] | Settings → Email Setup button polish + status styling**
   *What:* Updated **Email Setup** connect CTAs to branded styles for **Gmail** and **Outlook**, renamed provider display from "Google" to "Gmail", and removed the MVP sync-scope helper copy under the connect buttons for a cleaner setup panel.
-  *UX polish:* **Connected** status badge now uses green success styling, and **Disconnect** keeps outline styling at rest but turns red on hover to clearly signal a destructive action.
+  *UX polish:* **Connected** status badge uses a stronger solid green and stays the same on hover (no dimming); **Disconnect** stays outline by default but turns red on hover to signal a destructive action.
   *Refresh check:* Confirmed **Refresh** is functional — it calls `loadConnections()` and re-fetches the latest inbox connections from Supabase, so it was kept.
   *Files:* **`src/components/settings/EmailSetup.tsx`**, **`ROADMAP.md`**.
 
