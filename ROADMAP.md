@@ -100,6 +100,27 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-30 | [DONE] | Gmail inbound sync — email-sync-incremental Gmail History API pull + 5-minute cron (Opus)**
+  *What:* Replaced the placeholder body of **`supabase/functions/email-sync-incremental/index.ts`** with a full Gmail-only inbound sync. Cron-only (`x-cron-secret` gate retained). Loads every connected Google inbox across all orgs; refreshes the access token via the shared **`_shared/google-token.ts`** helper; on `invalid_grant` flips **`user_email_connections.status='needs_reconnect'`** and skips. Cursorless connections bootstrap from `messages.list?q=newer_than:7d` (capped at 200 messages) and anchor at `users.getProfile.historyId`; subsequent runs use `users.history.list?startHistoryId=…&historyTypes=messageAdded` and fall back to bootstrap on a 410/404 stale-cursor response. Each new message is fetched with `messages.get?format=full`, headers are parsed case-insensitively (From/To/Cc/Subject/Date/Message-ID/In-Reply-To/References), MIME walked for `text/plain` (preferred) and `text/html` (fallback), echoes of the connection's own outbound mail are skipped, and the From address is matched (lowercase, trimmed) against **leads → clients → recruits** in the same `organization_id` (NULL `contact_id` on miss — row is still inserted). Inserts use `.upsert({...}, { onConflict: 'organization_id,provider,external_message_id', ignoreDuplicates: true })` for idempotency; cursors upsert into **`email_sync_cursors.cursor_value`** keyed on `connection_id`.
+  *Migrations:*
+  **(1)** **`20260430120000_contact_emails_inbound_schema_fixes.sql`** — `ALTER COLUMN contact_id DROP NOT NULL` (so unmatched inbound messages still insert), `ADD COLUMN IF NOT EXISTS in_reply_to TEXT`, `ADD COLUMN IF NOT EXISTS reference_ids TEXT` (named `reference_ids` to avoid quoting the SQL `references` keyword), defensive `IF NOT EXISTS` guards for the existing `external_message_id` column and the `(organization_id, provider, external_message_id)` UNIQUE constraint, `NOTIFY pgrst, 'reload schema'`. Applied to production.
+  **(2)** **`20260430120100_schedule_email_and_calendar_sync.sql`** — creates singleton `private.email_sync_cron_secret` and `private.google_sync_cron_secret` tables (mirroring the `private.recording_retention_cron_secret` pattern from `20260423140000`, since hosted Supabase rejects `ALTER DATABASE … SET app.settings.*` 42501); revokes from anon/authenticated/service_role. Schedules **`email-sync-incremental-every-5m`** (jobid 6) and **`google-calendar-inbound-sync-every-5m`** (jobid 7) at `*/5 * * * *`, each reading its `x-cron-secret` from the matching private singleton. Restores the calendar schedule that was inert because the legacy `20260308171000` migration relied on the forbidden GUC. Applied to production.
+  *Edge function:* deployed as version 7 (`function_id` `b7e500d9-867a-4c79-b11e-5b7745b3f70b`, `verify_jwt: false`, bundled with **`_shared/google-token.ts`**). 401 reachability check against the live function returned `{"success":false,"error":"Unauthorized"}` as expected — the auth gate is wired and the deploy is healthy; full inbound message verification is gated on the operator action below.
+  *⚠️ OPERATOR ACTION REQUIRED before cron will authenticate (Chris, run in Supabase SQL Editor as Super Admin):*
+  ```sql
+  UPDATE private.email_sync_cron_secret
+     SET secret = 'REPLACE_WITH_EMAIL_SYNC_CRON_SECRET_VALUE'
+   WHERE id = 1;
+
+  UPDATE private.google_sync_cron_secret
+     SET secret = 'REPLACE_WITH_GOOGLE_SYNC_CRON_SECRET_VALUE'
+   WHERE id = 1;
+  ```
+  Replace each placeholder with the value of the matching Edge secret (`EMAIL_SYNC_CRON_SECRET` was already set during the 2026-04-29 audit deploy — copy the same value into the private table; `GOOGLE_SYNC_CRON_SECRET` was already set when calendar sync first shipped). Until both rows are populated, the two pg_cron jobs fire with empty `x-cron-secret` headers and the edge functions return 401.
+  *Removed roadmap blocker:* the `google-calendar-inbound-sync` cron schedule was missing in `cron.job` because the legacy `20260308171000` migration used `current_setting('app.settings.google_sync_cron_secret', true)` — disallowed on hosted Supabase. The new private-table-backed schedule restores it.
+  *Kept debt (not addressed in this build):* `_encrypted` column suffix on `user_email_connections.access_token_encrypted` / `refresh_token_encrypted` (tokens are still base64-encoded via `btoa()`, not real encryption); `FullScreenContactView.tsx` 1,570-line component; transitional `decodeToken()` raw fallback in the shared helper.
+  *Files:* **`supabase/functions/email-sync-incremental/index.ts`**, **`supabase/migrations/20260430120000_contact_emails_inbound_schema_fixes.sql`**, **`supabase/migrations/20260430120100_schedule_email_and_calendar_sync.sql`**, **`ROADMAP.md`**.
+
 - **2026-04-29 | [DONE] | Email Setup foundation + Contact Full View email timeline (Codex)**
   *Shipped (un-logged at the time, retroactively recorded):*
   - Migration **`20260429143000_email_inbox_connections_and_contact_emails.sql`** — new tables `user_email_connections`, `email_sync_cursors`, `contact_emails` with org-scoped RLS via `public.get_org_id()` and hierarchy helpers.
