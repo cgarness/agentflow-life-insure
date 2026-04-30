@@ -100,6 +100,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-30 | [DONE] | Settings → Email Setup button polish + status styling**
+  *What:* Updated **Email Setup** connect CTAs to branded styles for **Gmail** and **Outlook**, renamed provider display from "Google" to "Gmail", and removed the MVP sync-scope helper copy under the connect buttons for a cleaner setup panel.
+  *UX polish:* **Connected** status badge now uses green success styling, and **Disconnect** keeps outline styling at rest but turns red on hover to clearly signal a destructive action.
+  *Refresh check:* Confirmed **Refresh** is functional — it calls `loadConnections()` and re-fetches the latest inbox connections from Supabase, so it was kept.
+  *Files:* **`src/components/settings/EmailSetup.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-30 | [DONE] | Settings → Phone System UI consistency + org-safe number assignment**
   *What:* Updated **Phone System** settings styling to match the rest of Settings: removed forced blue heading/title treatment, replaced the blue tab container with neutral card/tab chrome, and kept active tabs readable with standard foreground contrast for a cleaner premium look.
   *Follow-up:* Restored **blue active-tab highlighting** in `PhoneSystem` so the selected tab remains clearly emphasized while keeping the neutral surrounding container.
