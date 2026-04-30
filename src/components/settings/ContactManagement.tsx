@@ -10,6 +10,13 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
+  CONTACT_FIELD_LAYOUT_KEY,
+  ContactFieldLayoutSchema,
+  resolveFieldOrder,
+  type ContactFieldLayout,
+  type ContactType,
+} from "@/lib/contactFieldLayout";
+import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
   CheckCircle2, MinusCircle, Lock, AlertTriangle,
 } from "lucide-react";
@@ -1712,13 +1719,28 @@ const STANDARD_FIELDS_RECRUIT = [
   { id: "notes", name: "System Notes" }
 ];
 
+function sanitizeContactFieldLayoutFromSettings(raw: unknown): ContactFieldLayout {
+  const out: ContactFieldLayout = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  const o = raw as Record<string, unknown>;
+  for (const k of ["lead", "client", "recruit"] as ContactType[]) {
+    const arr = o[k];
+    if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+      out[k] = arr as string[];
+    }
+  }
+  return out;
+}
+
 const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onReload: () => void }> = ({ settings, onReload }) => {
-  const [activeType, setActiveType] = useState<"lead" | "client" | "recruit">("lead");
+  const { user } = useAuth();
+  const [activeType, setActiveType] = useState<ContactType>("lead");
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [items, setItems] = useState<{ id: string, name: string, isCustom: boolean }[]>([]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [userContactLayout, setUserContactLayout] = useState<ContactFieldLayout | undefined>(undefined);
 
   const fetchCustomFields = useCallback(async () => {
     const oid = settings?.organizationId;
@@ -1739,25 +1761,60 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   }, [fetchCustomFields]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setUserContactLayout(undefined);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("user_preferences")
+          .select("settings")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (cancelled) return;
+        const rawSettings = data?.settings as Record<string, unknown> | undefined;
+        const blob = rawSettings?.[CONTACT_FIELD_LAYOUT_KEY];
+        setUserContactLayout(sanitizeContactFieldLayoutFromSettings(blob));
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setUserContactLayout({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!settings) return;
 
     let standard: { id: string, name: string }[] = [];
-    let order: string[] = [];
     let appliesTo: string = "";
+    let orgOrder: string[] | undefined;
 
     if (activeType === "lead") {
       standard = STANDARD_FIELDS_LEAD;
-      order = settings.fieldOrderLead || standard.map(f => f.id);
       appliesTo = "Leads";
+      orgOrder = Array.isArray(settings.fieldOrderLead) ? settings.fieldOrderLead : undefined;
     } else if (activeType === "client") {
       standard = STANDARD_FIELDS_CLIENT;
-      order = settings.fieldOrderClient || standard.map(f => f.id);
       appliesTo = "Clients";
+      orgOrder = Array.isArray(settings.fieldOrderClient) ? settings.fieldOrderClient : undefined;
     } else {
       standard = STANDARD_FIELDS_RECRUIT;
-      order = settings.fieldOrderRecruit || standard.map(f => f.id);
       appliesTo = "Recruits";
+      orgOrder = Array.isArray(settings.fieldOrderRecruit) ? settings.fieldOrderRecruit : undefined;
     }
+
+    const userOrder = userContactLayout?.[activeType];
+    const order = resolveFieldOrder(
+      activeType,
+      userOrder,
+      orgOrder,
+    );
 
     const availableCustom = customFields
       .filter(f => f.active && f.appliesTo?.includes(appliesTo as any))
@@ -1774,7 +1831,7 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     const missingFields = allFields.filter(f => !order.includes(f.id));
     
     setItems([...orderedItems, ...missingFields]);
-  }, [settings, activeType, customFields]);
+  }, [settings, activeType, customFields, userContactLayout]);
 
   const handleDrop = (idx: number) => {
     if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return; }
@@ -1787,28 +1844,45 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   };
 
   const handleSave = async () => {
-    if (!settings?.organizationId) return;
+    if (!user?.id) {
+      toast({ title: "Error saving layout", description: "Not signed in.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
-      const fieldIds = items.map(i => i.id);
-      const payload: any = {};
-      if (activeType === "lead") payload.field_order_lead = fieldIds;
-      else if (activeType === "client") payload.field_order_client = fieldIds;
-      else payload.field_order_recruit = fieldIds;
+      const fieldIds = items.map((i) => i.id);
 
-      const { error } = await (supabase as any)
-        .from("contact_management_settings")
-        .upsert({
-          organization_id: settings.organizationId,
-          ...payload,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'organization_id' });
+      const { data: current, error: curErr } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (curErr) throw curErr;
+
+      const currentSettings = (current?.settings as Record<string, unknown> | undefined) ?? {};
+      const prevSanitized = sanitizeContactFieldLayoutFromSettings(currentSettings[CONTACT_FIELD_LAYOUT_KEY]);
+
+      const contact_field_layout = ContactFieldLayoutSchema.parse({
+        ...prevSanitized,
+        [activeType]: fieldIds,
+      });
+
+      const newSettings = {
+        ...currentSettings,
+        [CONTACT_FIELD_LAYOUT_KEY]: contact_field_layout,
+      };
+
+      const { error } = await supabase
+        .from("user_preferences")
+        .upsert({ user_id: user.id, settings: newSettings }, { onConflict: "user_id" });
 
       if (error) throw error;
+      setUserContactLayout(contact_field_layout);
       toast({ title: "Field layout saved" });
       onReload();
-    } catch (e: any) {
-      toast({ title: "Error saving layout", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      toast({ title: "Error saving layout", description: message, variant: "destructive" });
     } finally {
       setSaving(false);
     }

@@ -84,6 +84,11 @@ import {
 import { normalizeState } from "@/utils/stateUtils";
 import { DateInput } from "@/components/shared/DateInput";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  CONTACT_FIELD_LAYOUT_KEY,
+  leadLayoutIdsToDialerDescriptors,
+  resolveFieldOrder,
+} from "@/lib/contactFieldLayout";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
 import CampaignSelection from "@/components/dialer/CampaignSelection";
@@ -442,6 +447,73 @@ export default function DialerPage() {
   const pendingLifecycleIndexRef = useRef<number | null>(null);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+
+  const [dialerLeadLayoutReady, setDialerLeadLayoutReady] = useState(false);
+  const [dialerUserLeadOrder, setDialerUserLeadOrder] = useState<string[] | undefined>(undefined);
+  const [dialerOrgLeadOrder, setDialerOrgLeadOrder] = useState<string[] | undefined>(undefined);
+
+  useEffect(() => {
+    if (!user?.id || !organizationId) {
+      setDialerLeadLayoutReady(false);
+      setDialerUserLeadOrder(undefined);
+      setDialerOrgLeadOrder(undefined);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [prefsRes, orgRes] = await Promise.all([
+          supabase.from("user_preferences").select("settings").eq("user_id", user.id).maybeSingle(),
+          supabase
+            .from("contact_management_settings")
+            .select("field_order_lead")
+            .eq("organization_id", organizationId)
+            .maybeSingle(),
+        ]);
+        if (cancelled) return;
+
+        let userOrder: string[] | undefined;
+        const rawLayout = (prefsRes.data?.settings as Record<string, unknown> | undefined)?.[CONTACT_FIELD_LAYOUT_KEY];
+        if (rawLayout && typeof rawLayout === "object" && !Array.isArray(rawLayout)) {
+          const arr = (rawLayout as Record<string, unknown>).lead;
+          if (Array.isArray(arr) && arr.length > 0 && arr.every((x) => typeof x === "string")) {
+            userOrder = arr as string[];
+          }
+        }
+
+        let orgOrder: string[] | undefined;
+        const orgRaw = orgRes.data?.field_order_lead;
+        if (Array.isArray(orgRaw) && orgRaw.length > 0 && orgRaw.every((x) => typeof x === "string")) {
+          orgOrder = orgRaw as string[];
+        }
+
+        setDialerUserLeadOrder(userOrder);
+        setDialerOrgLeadOrder(orgOrder);
+        setDialerLeadLayoutReady(true);
+      } catch (e) {
+        console.warn("[DialerPage] Lead field layout prefetch failed:", e);
+        if (!cancelled) {
+          setDialerUserLeadOrder(undefined);
+          setDialerOrgLeadOrder(undefined);
+          setDialerLeadLayoutReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, organizationId]);
+
+  const dialerLeadFieldDescriptors = useMemo(() => {
+    if (!dialerLeadLayoutReady || !user?.id || !organizationId) return undefined;
+    const resolved = resolveFieldOrder("lead", dialerUserLeadOrder, dialerOrgLeadOrder);
+    const d = leadLayoutIdsToDialerDescriptors(resolved);
+    return d.length > 0 ? d : undefined;
+  }, [dialerLeadLayoutReady, dialerUserLeadOrder, dialerOrgLeadOrder, user?.id, organizationId]);
+
   useEffect(() => {
     currentLeadIdForHistoryRef.current = currentLead
       ? String(currentLead.lead_id || currentLead.id)
@@ -3384,6 +3456,7 @@ export default function DialerPage() {
               editForm={editForm}
               onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
               isAdvancing={isAdvancing}
+              fieldDescriptors={dialerLeadFieldDescriptors}
             />
           </div>
         </div>

@@ -28,45 +28,20 @@ import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
+import {
+  CONTACT_FIELD_LAYOUT_KEY,
+  getDefaultFieldOrder,
+  resolveFieldOrder,
+  type ContactType,
+} from "@/lib/contactFieldLayout";
 
-type ContactType = "lead" | "client" | "recruit";
-
-/** Stable grid order so the left column does not flash from “legacy” layout → saved order when settings load. */
-function getDefaultFieldOrder(t: ContactType): string[] {
-  if (t === "lead") {
-    return [
-      "firstName",
-      "lastName",
-      "phone",
-      "email",
-      "state",
-      "leadSource",
-      "leadScore",
-      "age",
-      "dateOfBirth",
-      "spouseInfo",
-      "assignedAgentId",
-      "notes",
-    ];
+function parseUserContactFieldOrder(contactLayoutBlob: unknown, t: ContactType): string[] | undefined {
+  if (!contactLayoutBlob || typeof contactLayoutBlob !== "object" || Array.isArray(contactLayoutBlob)) {
+    return undefined;
   }
-  if (t === "client") {
-    return [
-      "firstName",
-      "lastName",
-      "phone",
-      "email",
-      "policyType",
-      "carrier",
-      "state",
-      "policyNumber",
-      "premiumAmount",
-      "faceAmount",
-      "issueDate",
-      "assignedAgentId",
-      "notes",
-    ];
-  }
-  return ["firstName", "lastName", "phone", "email", "status", "state", "assignedAgentId", "notes"];
+  const arr = (contactLayoutBlob as Record<string, unknown>)[t];
+  if (!Array.isArray(arr) || arr.length === 0 || !arr.every((x) => typeof x === "string")) return undefined;
+  return arr as string[];
 }
 
 const US_STATES = [
@@ -352,10 +327,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
       const settingsP = (async () => {
         try {
-          const [sources, fields] = await Promise.all([
+          const prefsProm =
+            profile?.id != null
+              ? supabase.from("user_preferences").select("settings").eq("user_id", profile.id).maybeSingle()
+              : Promise.resolve({ data: null });
+
+          const [sources, fields, prefsResult] = await Promise.all([
             leadSourcesSupabaseApi.getAll(),
             customFieldsSupabaseApi.getAll(organizationId),
+            prefsProm,
           ]);
+
           let settings: Record<string, unknown> | null = null;
           if (organizationId) {
             const { data } = await (supabase as any)
@@ -365,10 +347,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               .maybeSingle();
             settings = data;
           }
-          return { sources, fields, settings };
+
+          const prefsSettings = prefsResult?.data?.settings as Record<string, unknown> | undefined;
+          const contactLayoutBlob = prefsSettings?.[CONTACT_FIELD_LAYOUT_KEY];
+
+          return { sources, fields, settings, contactLayoutBlob };
         } catch (err) {
           console.error("Error fetching dynamic settings:", err);
-          return { sources: [] as LeadSource[], fields: [] as CustomField[], settings: null };
+          return {
+            sources: [] as LeadSource[],
+            fields: [] as CustomField[],
+            settings: null,
+            contactLayoutBlob: undefined,
+          };
         }
       })();
 
@@ -421,23 +412,31 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         setPipelineStages(fetchedStages);
       }
 
-      const { sources, fields, settings } = settingsPack;
+      const { sources, fields, settings, contactLayoutBlob } = settingsPack;
       if (sources.length > 0) setLeadSources(sources.map((s) => s.name));
       const relevantFields = fields.filter(
         (f) => f.active && f.appliesTo.includes(myType === "lead" ? "Leads" : myType === "client" ? "Clients" : "Recruits")
       );
       setCustomFields(relevantFields);
+
+      let orgOrderRaw: unknown;
       if (settings) {
-        const raw =
+        orgOrderRaw =
           myType === "lead"
             ? (settings as any).field_order_lead
             : myType === "client"
               ? (settings as any).field_order_client
               : (settings as any).field_order_recruit;
-        setFieldOrder(Array.isArray(raw) && raw.length > 0 ? raw : getDefaultFieldOrder(myType));
       } else {
-        setFieldOrder(getDefaultFieldOrder(myType));
+        orgOrderRaw = undefined;
       }
+      const orgOrder =
+        Array.isArray(orgOrderRaw) && orgOrderRaw.length > 0 && orgOrderRaw.every((x: unknown) => typeof x === "string")
+          ? (orgOrderRaw as string[])
+          : undefined;
+
+      const userOrder = parseUserContactFieldOrder(contactLayoutBlob, myType);
+      setFieldOrder(resolveFieldOrder(myType, userOrder, orgOrder));
 
       if (myType === "lead" && campaignRes.data) {
         setCampaigns(campaignRes.data.map((cl: any) => cl.campaigns).filter(Boolean));
