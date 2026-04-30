@@ -56,6 +56,9 @@
 - **⚠️ BLOCKER — Contact detail routing**: No `/contacts/:id`, `/leads/:id`, `/clients/:id`, or `/recruits/:id` route exists in `App.tsx`. Contact results currently navigate to `/contacts?type=<type>&id=<id>` as a v1 fallback. A dedicated contact detail route (or modal-on-query-param pattern in `Contacts.tsx`) must be added before click-through fully resolves a specific record.
 - **Next Up**: v2 — enable `similarity()` / `word_similarity()` from `pg_trgm` (indexes already deployed); recent-searches history; transcript full-text search.
 
+### 📧 Email & Calendar Integrations `[PARTIAL]`
+- **⚠️ BLOCKER (2026-04-29) — Email module audit deploy**: Production cron schedule for `google-calendar-inbound-sync` is missing. Migration `20260308171000_schedule_google_calendar_inbound_sync.sql` either never landed or was rolled back. `cron.job` table contains only `spam-check-daily`, `daily-call-limit-reset`, `reset-daily-call-counts`, and `recording-retention-purge-daily` — no calendar inbound sync entry. Calendar inbound sync is currently **invocation-on-demand only** (user-authenticated calls from the calendar UI); no automatic 5-minute pulls. Investigate before next inbound-sync BUILD prompt; a parallel `pg_cron` migration will be needed for `email-sync-incremental` and may want to fix this in the same pass.
+
 ---
 
 ## 2. Recent Database Migration History (April 2026)
