@@ -159,11 +159,6 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                         <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
                           {item.subject || item.description || "(No subject)"}
                         </span>
-                        {item.from_email && (
-                          <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block truncate max-w-[100px]">
-                            {item.from_email}
-                          </span>
-                        )}
                         <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
                       </button>
                       {isExpanded && (

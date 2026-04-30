@@ -1181,7 +1181,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                 const isEmailExpanded = expandedEmails[item.id] ?? false;
                 const emailBody: string = item.body || "(No body)";
                 const bodyLines = emailBody.split('\n');
-                const senderLabel = isOutbound ? item.to_emails?.[0] ?? item.from_email ?? "" : item.from_email ?? "";
                 return (
                   <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
                     <div className={`flex flex-col max-w-[85%] ${isOutbound ? "items-end" : "items-start"}`}>
@@ -1194,14 +1193,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                             <Mail className="w-3.5 h-3.5 text-violet-400" />
                           </div>
                           <div className="flex flex-col min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-semibold text-violet-400 shrink-0">
-                                {isOutbound ? "Sent" : "Received"}
-                              </span>
-                              {senderLabel && (
-                                <span className="text-[11px] text-muted-foreground truncate">{senderLabel}</span>
-                              )}
-                            </div>
+                            <span className="text-[11px] font-semibold text-violet-400">
+                              {isOutbound ? "Sent" : "Received"}
+                            </span>
                             <span className="text-[13px] font-medium text-foreground truncate">
                               {item.subject || "(No subject)"}
                             </span>
