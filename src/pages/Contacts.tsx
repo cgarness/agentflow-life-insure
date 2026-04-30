@@ -410,16 +410,21 @@ const Contacts: React.FC = () => {
           return next ?? prev;
         });
       } else if (tab === "Agents") {
-        const agentData = await usersApi.getAll({ search: searchQuery }).catch(e => {
-          console.error("Error fetching agents:", e);
-          return [] as UserWithProfile[];
-        });
-        setAgents(agentData);
-        setSelectedAgent((prev) => {
-          if (!prev) return null;
-          const next = agentData.find((u) => u.id === prev.id);
-          return next ?? prev;
-        });
+        if (!organizationId) {
+          setAgents([]);
+          setSelectedAgent(null);
+        } else {
+          const agentData = await usersApi.getAll({ search: searchQuery, organizationId }).catch(e => {
+            console.error("Error fetching agents:", e);
+            return [] as UserWithProfile[];
+          });
+          setAgents(agentData);
+          setSelectedAgent((prev) => {
+            if (!prev) return null;
+            const next = agentData.find((u) => u.id === prev.id);
+            return next ?? prev;
+          });
+        }
       }
 
       // Deep-link fallback: if pendingContactId is not in the loaded tab slice, fetch by ID
@@ -456,7 +461,7 @@ const Contacts: React.FC = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
+  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
