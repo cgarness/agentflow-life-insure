@@ -44,8 +44,8 @@ interface PhoneSystemProps {
 const tabTriggerClass =
   "rounded-md px-3 py-2 text-sm font-medium transition-all " +
   "text-muted-foreground hover:bg-background hover:text-foreground " +
-  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm " +
-  "data-[state=active]:ring-1 data-[state=active]:ring-border/60 " +
+  "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm " +
+  "data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground " +
   "focus-visible:ring-primary/30";
 
 const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {

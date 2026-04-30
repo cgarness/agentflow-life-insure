@@ -102,6 +102,7 @@
 
 - **2026-04-30 | [DONE] | Settings → Phone System UI consistency + org-safe number assignment**
   *What:* Updated **Phone System** settings styling to match the rest of Settings: removed forced blue heading/title treatment, replaced the blue tab container with neutral card/tab chrome, and kept active tabs readable with standard foreground contrast for a cleaner premium look.
+  *Follow-up:* Restored **blue active-tab highlighting** in `PhoneSystem` so the selected tab remains clearly emphasized while keeping the neutral surrounding container.
   *Ownership fix:* Hardened **Phone Numbers → Assigned to** so only users from the current `organization_id` are available and assignable. `usePhoneSettingsController` now scopes agent fetch by org; `NumberManagementSection` validates selected assignee membership and applies updates with an `organization_id` guard in the update query.
   *Files:* **`src/components/settings/PhoneSystem.tsx`**, **`src/pages/SettingsPage.tsx`**, **`src/components/settings/phone/usePhoneSettingsController.ts`**, **`src/components/settings/phone/NumberManagementSection.tsx`**, **`ROADMAP.md`**.
 
