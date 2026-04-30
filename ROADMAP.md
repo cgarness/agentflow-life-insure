@@ -102,6 +102,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-04-30 | [DONE] | Settings → Contact Flow — remove redundant Display Settings tab**
+  *What:* Removed **Display Settings** from **Contact Management** tabs. Column/sort/per-page controls were disconnected from **`/contacts`** (which uses **`visibleCols`** / **`sortPrefs`** in **`user_preferences`**) or never persisted. **Field Layout** is now tab index **6**.
+  *Files:* **`src/components/settings/ContactManagement.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-30 | [DONE] | Gmail inbound sync — email-sync-incremental Gmail History API pull + 5-minute cron (Opus)**
   *What:* Replaced the placeholder body of **`supabase/functions/email-sync-incremental/index.ts`** with a full Gmail-only inbound sync. Cron-only (`x-cron-secret` gate retained). Loads every connected Google inbox across all orgs; refreshes the access token via the shared **`_shared/google-token.ts`** helper; on `invalid_grant` flips **`user_email_connections.status='needs_reconnect'`** and skips. Cursorless connections bootstrap from `messages.list?q=newer_than:7d` (capped at 200 messages) and anchor at `users.getProfile.historyId`; subsequent runs use `users.history.list?startHistoryId=…&historyTypes=messageAdded` and fall back to bootstrap on a 410/404 stale-cursor response. Each new message is fetched with `messages.get?format=full`, headers are parsed case-insensitively (From/To/Cc/Subject/Date/Message-ID/In-Reply-To/References), MIME walked for `text/plain` (preferred) and `text/html` (fallback), echoes of the connection's own outbound mail are skipped, and the From address is matched (lowercase, trimmed) against **leads → clients → recruits** in the same `organization_id` (NULL `contact_id` on miss — row is still inserted). Inserts use `.upsert({...}, { onConflict: 'organization_id,provider,external_message_id', ignoreDuplicates: true })` for idempotency; cursors upsert into **`email_sync_cursors.cursor_value`** keyed on `connection_id`.
   *Migrations:*

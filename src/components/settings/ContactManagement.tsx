@@ -43,7 +43,7 @@ const PRESET_COLORS = [
   { name: "Teal", hex: "#14B8A6" },
 ];
 
-const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings", "Field Layout"];
+const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Assignment Rules", "Field Layout"];
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -1341,208 +1341,6 @@ const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null,
   );
 };
 
-// ==================== DISPLAY SETTINGS TAB ====================
-
-const ALL_COLUMNS = [
-  { name: "Name", locked: true, defaultChecked: true },
-  { name: "Phone", locked: true, defaultChecked: true },
-  { name: "Status", locked: true, defaultChecked: true },
-  { name: "Email", locked: false, defaultChecked: true },
-  { name: "State", locked: false, defaultChecked: true },
-  { name: "Lead Source", locked: false, defaultChecked: true },
-  { name: "Lead Score", locked: false, defaultChecked: false },
-  { name: "Age", locked: false, defaultChecked: true },
-  { name: "Assigned Agent", locked: false, defaultChecked: true },
-  { name: "Last Contacted", locked: false, defaultChecked: true },
-  { name: "Created Date", locked: false, defaultChecked: false },
-];
-
-const SORT_OPTIONS = ["Name", "Phone", "Status", "Lead Source", "Lead Score", "Age", "Last Contacted", "Created Date"];
-
-const DisplaySettingsTab: React.FC = () => {
-  const { user } = useAuth();
-  const [columns, setColumns] = useState(() => ALL_COLUMNS.map((c, i) => ({ ...c, checked: c.defaultChecked, order: i })));
-  const [sortBy, setSortBy] = useState("Created Date");
-  const [sortDesc, setSortDesc] = useState(true);
-  const [perPage, setPerPage] = useState(25);
-  const [saving, setSaving] = useState(false);
-  const [loadingPrefs, setLoadingPrefs] = useState(true);
-
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!user?.id) { setLoadingPrefs(false); return; }
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from("user_preferences")
-          .select("settings")
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (data?.settings) {
-          const settings = data.settings as any;
-          if (settings.contact_columns) {
-            setColumns(settings.contact_columns as typeof columns);
-          }
-        }
-      } finally {
-        setLoadingPrefs(false);
-      }
-    })();
-  }, [user?.id]);
-
-  const checkedColumns = columns.filter(c => c.checked).sort((a, b) => a.order - b.order);
-  const previewText = checkedColumns.map(c => c.name).join(", ");
-
-  const toggleColumn = (name: string) => {
-    setColumns(prev => prev.map(c => c.name === name && !c.locked ? { ...c, checked: !c.checked } : c));
-  };
-
-  const handleColumnDrop = (toIdx: number) => {
-    if (dragIdx === null || dragIdx === toIdx) { setDragIdx(null); setOverIdx(null); return; }
-    const reordered = [...checkedColumns];
-    const [moved] = reordered.splice(dragIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    const orderMap: Record<string, number> = {};
-    reordered.forEach((c, i) => orderMap[c.name] = i);
-    setColumns(prev => prev.map(c => c.checked && orderMap[c.name] !== undefined ? { ...c, order: orderMap[c.name] } : c));
-    setDragIdx(null);
-    setOverIdx(null);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      if (user?.id) {
-        // 1. Fetch current settings to merge
-        const { data: current } = await supabase
-          .from("user_preferences")
-          .select("settings")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        const newSettings = {
-          ...(current?.settings as object || {}),
-          contact_columns: columns
-        };
-
-        const { error } = await supabase
-          .from("user_preferences")
-          .upsert(
-            { user_id: user.id, settings: newSettings as any },
-            { onConflict: "user_id" }
-          );
-        if (error) throw error;
-      }
-      toast({ title: "Display settings saved" });
-    } catch (err) {
-      console.error("Failed to save display settings:", err);
-      toast({ title: "Failed to save settings", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-base font-semibold text-foreground">Display Settings</h4>
-        <p className="text-sm text-muted-foreground">Control how the Contacts page looks and behaves by default for all agents.</p>
-      </div>
-
-      {/* Card 1 — Default Table Columns */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Default Table Columns</h5>
-          <p className="text-xs text-muted-foreground">Choose which columns appear in the Leads table by default. Agents can customize their own view but this sets the starting point.</p>
-        </div>
-        <div className="space-y-1">
-          {/* Locked columns first */}
-          {columns.filter(c => c.locked).map(c => (
-            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg">
-              <Checkbox checked disabled className="opacity-40" />
-              <span className="flex-1 text-sm text-foreground">{c.name}</span>
-              <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-            </div>
-          ))}
-          {/* Toggleable columns */}
-          {columns.filter(c => !c.locked).map(c => (
-            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-              <Checkbox checked={c.checked} onCheckedChange={() => toggleColumn(c.name)} />
-              <span className="flex-1 text-sm text-foreground">{c.name}</span>
-              {c.checked && <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />}
-            </div>
-          ))}
-        </div>
-        {/* Drag reorder for checked columns */}
-        {checkedColumns.length > 0 && (
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Drag to reorder visible columns:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {checkedColumns.map((c, idx) => (
-                <span
-                  key={c.name}
-                  draggable
-                  onDragStart={() => setDragIdx(idx)}
-                  onDragOver={e => { e.preventDefault(); setOverIdx(idx); }}
-                  onDrop={() => handleColumnDrop(idx)}
-                  onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-border bg-muted"} ${dragIdx === idx ? "opacity-50" : ""} text-foreground`}
-                >
-                  {c.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        <p className="text-xs text-muted-foreground">Current column order: {previewText}</p>
-      </div>
-
-      {/* Card 2 — Default Sort */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Default Sort</h5>
-          <p className="text-xs text-muted-foreground">Choose how the Leads table is sorted when an agent first loads it.</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <label className="text-xs text-muted-foreground block mb-1">Sort by</label>
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {SORT_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2 pt-4">
-            <span className="text-xs text-muted-foreground">Ascending</span>
-            <Switch checked={sortDesc} onCheckedChange={setSortDesc} />
-            <span className="text-xs text-muted-foreground">Descending</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Card 3 — Records Per Page */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Records Per Page</h5>
-          <p className="text-xs text-muted-foreground">How many contacts load per page in the Leads table.</p>
-        </div>
-        <div className="flex gap-3">
-          {[25, 50, 100].map(n => (
-            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <Button onClick={handleSave} disabled={saving || loadingPrefs} className="w-full">{saving ? "Saving..." : "Save Display Settings"}</Button>
-    </div>
-  );
-};
-
 // ==================== MAIN COMPONENT ====================
 
 const ContactManagement: React.FC = () => {
@@ -1672,8 +1470,7 @@ const ContactManagement: React.FC = () => {
       {activeTab === 3 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} />}
       {activeTab === 4 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
       {activeTab === 5 && <AssignmentRulesTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 6 && <DisplaySettingsTab />}
-      {activeTab === 7 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 6 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
     </div>
   );
 };
