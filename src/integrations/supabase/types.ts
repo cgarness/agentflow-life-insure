@@ -3099,6 +3099,18 @@ export type Database = {
         Args: { claim: string; uid: string; value: Json }
         Returns: string
       }
+      super_admin_dashboard_snapshot: {
+        Args: Record<string, never>
+        Returns: Json
+      }
+      super_admin_organization_detail: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
+      super_admin_update_organization_status: {
+        Args: { p_organization_id: string; p_status: string }
+        Returns: undefined
+      }
       text2ltree: { Args: { "": string }; Returns: unknown }
     }
     Enums: {

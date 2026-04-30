@@ -58,7 +58,7 @@ type Props = {
   onRefresh: () => Promise<void>;
 };
 
-export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, agents, onRefresh }) => {
+export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbers, setNumbers, agents, onRefresh }) => {
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState("");
   const [purchaseOpen, setPurchaseOpen] = useState(false);
@@ -91,7 +91,23 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
   };
 
   const handleAssign = async (numberId: string, agentId: string | null) => {
-    await supabase.from("phone_numbers").update({ assigned_to: agentId }).eq("id", numberId);
+    if (!organizationId) {
+      toast.error("Missing organization context. Refresh and try again.");
+      return;
+    }
+    if (agentId && !agents.some((a) => a.id === agentId)) {
+      toast.error("That user is not in your organization.");
+      return;
+    }
+    const { error } = await supabase
+      .from("phone_numbers")
+      .update({ assigned_to: agentId })
+      .eq("id", numberId)
+      .eq("organization_id", organizationId);
+    if (error) {
+      toast.error(`Assignment failed: ${error.message}`);
+      return;
+    }
     setNumbers((prev) => prev.map((n) => (n.id === numberId ? { ...n, assigned_to: agentId } : n)));
     toast.success("Assignment updated");
   };
@@ -278,15 +294,15 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm text-foreground">
                 <thead>
-                  <tr className="text-muted-foreground border-b bg-accent/50">
-                    <th className="text-left py-3 px-3 font-medium">Phone number</th>
-                    <th className="text-left py-3 px-3 font-medium">Friendly name</th>
-                    <th className="text-left py-3 px-3 font-medium">Status</th>
-                    <th className="text-center py-3 px-3 font-medium w-16">Default</th>
-                    <th className="text-left py-3 px-3 font-medium min-w-[9rem]">Assigned to</th>
-                    <th className="text-right py-3 px-3 font-medium w-12"></th>
+                  <tr className="border-b bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <th className="px-3 py-3 text-left">Phone number</th>
+                    <th className="px-3 py-3 text-left">Friendly name</th>
+                    <th className="px-3 py-3 text-left">Status</th>
+                    <th className="w-16 px-3 py-3 text-center">Default</th>
+                    <th className="min-w-[9rem] px-3 py-3 text-left">Assigned to</th>
+                    <th className="w-12 px-3 py-3 text-right"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -294,8 +310,8 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                     const isActive = n.status === "active";
                     const isReleased = n.status === "released";
                     return (
-                      <tr key={n.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                        <td className="py-3 px-3 font-mono font-medium text-foreground">
+                      <tr key={n.id} className="border-b border-border/60 last:border-0 transition-colors hover:bg-muted/30">
+                        <td className="px-3 py-3.5 font-mono font-medium text-foreground">
                           {isReleased ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -311,7 +327,7 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                             formatPhone(n.phone_number)
                           )}
                         </td>
-                        <td className="py-3 px-3">
+                        <td className="px-3 py-3.5">
                           {editingName === n.id ? (
                             <Input
                               autoFocus
@@ -333,9 +349,9 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-3">
+                        <td className="px-3 py-3.5">
                           {n.status === "active" && (
-                            <Badge className="bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-emerald-600/20 text-xs">Active</Badge>
+                            <Badge className="border-emerald-600/20 bg-emerald-600/10 text-xs text-emerald-700 dark:text-emerald-400">Active</Badge>
                           )}
                           {n.status === "released" && (
                             <Badge variant="secondary" className="text-xs">
@@ -348,7 +364,7 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                             </Badge>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-center">
+                        <td className="px-3 py-3.5 text-center">
                           <input
                             type="radio"
                             name="default-number"
@@ -358,10 +374,10 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                             className="w-4 h-4 accent-primary"
                           />
                         </td>
-                        <td className="py-3 px-3">
+                        <td className="px-3 py-3.5">
                           {isActive ? (
                             <Select value={n.assigned_to || "unassigned"} onValueChange={(v) => handleAssign(n.id, v === "unassigned" ? null : v)}>
-                              <SelectTrigger className="h-7 text-xs w-36">
+                              <SelectTrigger className="h-8 w-40 border-border/70 bg-background text-xs">
                                 <SelectValue placeholder="Unassigned" />
                               </SelectTrigger>
                               <SelectContent>
@@ -377,7 +393,7 @@ export const NumberManagementSection: React.FC<Props> = ({ numbers, setNumbers, 
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-right">
+                        <td className="px-3 py-3.5 text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-7 w-7">

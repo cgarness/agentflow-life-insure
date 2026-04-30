@@ -137,7 +137,11 @@ export function usePhoneSettingsController() {
     const [settingsRes, numbersRes, agentsRes] = await Promise.all([
       supabase.from("phone_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("phone_numbers").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false }),
-      supabase.from("profiles").select("id, first_name, last_name").eq("status", "Active"),
+      supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .eq("organization_id", organizationId)
+        .eq("status", "Active"),
     ]);
 
     const row = settingsRes.data as PhoneSettingsRow | null;

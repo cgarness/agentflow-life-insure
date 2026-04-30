@@ -37,6 +37,24 @@ interface Organization {
   status?: "active" | "suspended" | "archived";
 }
 
+/** From RPC `super_admin_dashboard_snapshot`. */
+interface SuperAdminDashboardSnapshot {
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string | null;
+    logo_url: string | null;
+    created_at: string | null;
+    status: string;
+    display_name: string;
+    user_count: number;
+    lead_count: number;
+  }>;
+  total_users: number;
+  total_leads: number;
+  active_calls: number;
+}
+
 const ORG_STATUS_OPTIONS = ["All", "Active", "Suspended", "Archived"] as const;
 type OrgStatusFilter = typeof ORG_STATUS_OPTIONS[number];
 
@@ -321,63 +339,36 @@ const SuperAdminDashboard: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch all organizations
-      const [{ data: orgData, error: orgError }, { data: brandingRows }] = await Promise.all([
-        supabase.from("organizations").select("*").order("created_at", { ascending: false }),
-        supabase.from("company_settings").select("organization_id, company_name"),
-      ]);
-      if (orgError) throw orgError;
+      // Cross-tenant aggregates + per-agency counts: SECURITY DEFINER RPC (super admin JWT only).
+      // Day-to-day RLS scopes tenant data to JWT organization_id — direct table selects no longer suffice here.
+      const { data: rawSnap, error: snapErr } = await supabase.rpc("super_admin_dashboard_snapshot");
+      if (snapErr) throw snapErr;
 
-      const brandingByOrg: Record<string, string> = {};
-      (brandingRows || []).forEach((row: { organization_id: string | null; company_name: string | null }) => {
-        if (row.organization_id && row.company_name?.trim()) {
-          brandingByOrg[row.organization_id] = row.company_name.trim();
-        }
-      });
+      const snap = rawSnap as SuperAdminDashboardSnapshot | null;
+      if (!snap || !Array.isArray(snap.organizations)) {
+        setOrgs([]);
+        setTotalUsers(0);
+        setTotalLeads(0);
+        setActiveCalls(0);
+        return;
+      }
 
-      // Fetch user counts per org
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("organization_id");
-
-      // Fetch lead counts per org
-      const { data: leadData } = await supabase
-        .from("leads")
-        .select("organization_id");
-
-      // Fetch active calls count
-      const { data: callData } = await supabase
-        .from("calls")
-        .select("id")
-        .eq("status", "in-progress");
-
-      const userCounts: Record<string, number> = {};
-      const leadCounts: Record<string, number> = {};
-
-      (profileData || []).forEach((p: any) => {
-        if (p.organization_id) {
-          userCounts[p.organization_id] = (userCounts[p.organization_id] || 0) + 1;
-        }
-      });
-
-      (leadData || []).forEach((l: any) => {
-        if (l.organization_id) {
-          leadCounts[l.organization_id] = (leadCounts[l.organization_id] || 0) + 1;
-        }
-      });
-
-      const enriched = (orgData || []).map((org: any) => ({
-        ...org,
-        status: (org.status || "active") as Organization["status"],
-        displayName: brandingByOrg[org.id] || org.name || "Agency",
-        userCount: userCounts[org.id] || 0,
-        leadCount: leadCounts[org.id] || 0,
+      const enriched = snap.organizations.map((row) => ({
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        logo_url: row.logo_url,
+        created_at: row.created_at ?? "",
+        status: (row.status || "active") as Organization["status"],
+        displayName: row.display_name?.trim() || row.name || "Agency",
+        userCount: row.user_count ?? 0,
+        leadCount: row.lead_count ?? 0,
       }));
 
       setOrgs(enriched);
-      setTotalUsers(profileData?.length || 0);
-      setTotalLeads(leadData?.length || 0);
-      setActiveCalls(callData?.length || 0);
+      setTotalUsers(snap.total_users ?? 0);
+      setTotalLeads(snap.total_leads ?? 0);
+      setActiveCalls(snap.active_calls ?? 0);
     } catch (e: any) {
       toast({ title: "Failed to load data", description: e.message, variant: "destructive" });
     } finally {
