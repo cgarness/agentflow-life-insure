@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic, Play } from "lucide-react";
+import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic, Play, ChevronDown } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
@@ -14,6 +14,9 @@ interface HistoryItem {
   created_at: string;
   recording_url?: string | null;
   duration?: number | null;
+  subject?: string | null;
+  from_email?: string | null;
+  body?: string | null;
 }
 
 interface ConversationHistoryProps {
@@ -37,15 +40,27 @@ interface ConversationHistoryProps {
 function historyIcon(type: string) {
   switch (type) {
     case "call":
-      return <Phone className="w-3.5 h-3.5 text-muted-foreground" />;
+      return (
+        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-emerald-500/10">
+          <Phone className="w-3.5 h-3.5 text-emerald-500" />
+        </div>
+      );
+    case "sms":
+      return (
+        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-400/10">
+          <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+        </div>
+      );
+    case "email":
+      return (
+        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+          <Mail className="w-3.5 h-3.5 text-violet-400" />
+        </div>
+      );
     case "note":
       return <Pencil className="w-3.5 h-3.5 text-muted-foreground" />;
     case "status":
       return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
-    case "sms":
-      return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />;
-    case "email":
-      return <Mail className="w-3.5 h-3.5 text-muted-foreground" />;
     default:
       return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
   }
@@ -69,9 +84,14 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   historyEndRef,
 }) => {
   const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
+  const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
 
   const toggleRecording = (id: string) => {
     setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleEmail = (id: string) => {
+    setExpandedEmails(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   // Reverse history so newest is index 0 for flex-col-reverse anchoring
@@ -118,10 +138,56 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
             reversedHistory.map((item) => {
               const isOutbound =
                 item.type !== "call" ? item.direction !== "inbound" : !isCallsRowInboundDirection(item.direction);
-              
+
+              if (item.type === "email") {
+                const isExpanded = expandedEmails[item.id] ?? false;
+                const emailBody = item.body || item.description || "";
+                const bodyLines = emailBody.split('\n');
+                return (
+                  <div key={item.id} className="flex flex-col w-full">
+                    <div className="bg-card border border-violet-400/20 rounded-xl overflow-hidden shadow-sm">
+                      <button
+                        onClick={() => toggleEmail(item.id)}
+                        className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-accent/40 transition-colors"
+                      >
+                        <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+                          <Mail className="w-3.5 h-3.5 text-violet-400" />
+                        </div>
+                        <span className="text-[11px] font-semibold text-violet-400 shrink-0">
+                          {isOutbound ? "Sent" : "Received"}
+                        </span>
+                        <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
+                          {item.subject || item.description || "(No subject)"}
+                        </span>
+                        {item.from_email && (
+                          <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block truncate max-w-[100px]">
+                            {item.from_email}
+                          </span>
+                        )}
+                        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3.5 pb-3 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                          {bodyLines.map((line, i) =>
+                            line.startsWith('>') ? (
+                              <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{line}</p>
+                            ) : (
+                              <p key={i} className="text-sm text-foreground leading-relaxed">{line}</p>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-1 px-1">
+                      {formatDateTime(new Date(item.created_at))}
+                    </div>
+                  </div>
+                );
+              }
+
               return (
-                <div 
-                  key={item.id} 
+                <div
+                  key={item.id}
                   className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
                 >
                   <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>

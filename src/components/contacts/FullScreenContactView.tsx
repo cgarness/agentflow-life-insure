@@ -233,6 +233,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const toggleRecording = (id: string) => {
     setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
   };
+  const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
+  const toggleEmail = (id: string) => {
+    setExpandedEmails(prev => ({ ...prev, [id]: !prev[id] }));
+  };
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
@@ -1174,17 +1178,49 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               }
               
               if (item._type === "email") {
+                const isEmailExpanded = expandedEmails[item.id] ?? false;
+                const emailBody: string = item.body || "(No body)";
+                const bodyLines = emailBody.split('\n');
+                const senderLabel = isOutbound ? item.to_emails?.[0] ?? item.from_email ?? "" : item.from_email ?? "";
                 return (
                   <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
                     <div className={`flex flex-col max-w-[85%] ${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-xl px-5 py-3.5 text-[13px] leading-relaxed shadow-sm border ${isOutbound ? "bg-card border-border text-foreground rounded-br-sm" : "bg-card border-border text-foreground rounded-bl-sm"}`}>
-                         <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50">
-                            <Mail className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</span>
-                         </div>
-                         <p>{item.body}</p>
-                       </div>
-                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
+                      <div className="rounded-xl shadow-sm border border-violet-400/20 bg-card overflow-hidden">
+                        <button
+                          onClick={() => toggleEmail(item.id)}
+                          className="w-full px-4 py-3 flex items-center gap-2.5 text-left hover:bg-accent/40 transition-colors"
+                        >
+                          <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-400/10">
+                            <Mail className="w-3.5 h-3.5 text-violet-400" />
+                          </div>
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-semibold text-violet-400 shrink-0">
+                                {isOutbound ? "Sent" : "Received"}
+                              </span>
+                              {senderLabel && (
+                                <span className="text-[11px] text-muted-foreground truncate">{senderLabel}</span>
+                              )}
+                            </div>
+                            <span className="text-[13px] font-medium text-foreground truncate">
+                              {item.subject || "(No subject)"}
+                            </span>
+                          </div>
+                          <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${isEmailExpanded ? "rotate-180" : ""}`} />
+                        </button>
+                        {isEmailExpanded && (
+                          <div className="px-4 pb-3.5 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                            {bodyLines.map((line, i) =>
+                              line.startsWith('>') ? (
+                                <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{line}</p>
+                              ) : (
+                                <p key={i} className="text-[13px] text-foreground leading-relaxed">{line}</p>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
                     </div>
                   </div>
                 );
