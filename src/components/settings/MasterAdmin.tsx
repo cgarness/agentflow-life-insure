@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Data Source Configuration ────────────────────────────────────────────────
 // Update DATA_SOURCES as tables migrate from mock to Supabase
@@ -644,6 +645,9 @@ TableRow.displayName = "TableRow";
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const MasterAdmin: React.FC = () => {
+  const { profile } = useAuth();
+  const isPlatformSuperAdmin = Boolean(profile?.is_super_admin);
+
   const [category, setCategory] = useState("Dispositions");
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
@@ -865,7 +869,18 @@ const MasterAdmin: React.FC = () => {
         <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
           <Database className="w-5 h-5 text-primary" /> Master Admin
         </h3>
-        <p className="text-sm text-muted-foreground">System-level data management. Full edit and delete access.</p>
+        <p className="text-sm text-muted-foreground">
+          {isPlatformSuperAdmin ? (
+            <>You use the CRM like any agency owner: this screen only surfaces rows visible to your home organization. To manage another agency&apos;s tenant data end-to-end, use <strong className="text-foreground">Agencies</strong> in the sidebar.</>
+          ) : (
+            <>System-level data management for tables you are allowed to see.</>
+          )}
+        </p>
+        {isPlatformSuperAdmin ? (
+          <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/5 text-amber-900 dark:text-amber-100/90 px-3 py-2">
+            Platform super-admin: cross-tenant tooling lives under Agencies — not here.
+          </p>
+        ) : null}
       </div>
 
       {/* Controls row */}

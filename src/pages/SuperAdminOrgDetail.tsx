@@ -43,6 +43,20 @@ interface OrgStats {
   totalAppointments: number;
 }
 
+interface SuperAdminOrganizationDetailRpc {
+  organization: Organization | null;
+  agency_display_name: string | null;
+  stats: {
+    total_users: number;
+    total_leads: number;
+    total_clients: number;
+    total_campaigns: number;
+    total_calls: number;
+    total_appointments: number;
+  };
+  profiles: Profile[];
+}
+
 const StatCard: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -96,44 +110,37 @@ const SuperAdminOrgDetail: React.FC = () => {
     if (!id) return;
     setLoading(true);
     try {
-      // 1. Fetch Org Basic Info
-      const [{ data: orgData, error: orgError }, { data: brandRow }] = await Promise.all([
-        supabase.from("organizations").select("*").eq("id", id).single(),
-        supabase.from("company_settings").select("company_name").eq("organization_id", id).maybeSingle(),
-      ]);
-      if (orgError) throw orgError;
-      setOrg(orgData);
-      setAgencyDisplayName(brandRow?.company_name?.trim() || null);
+      // Cross-tenant agency workspace: SECURITY DEFINER RPC (super admin JWT only).
+      const { data: rawDetail, error: detailErr } = await supabase.rpc(
+        "super_admin_organization_detail",
+        { p_organization_id: id }
+      );
+      if (detailErr) throw detailErr;
 
-      // 2. Fetch Aggregates in Parallel
-      const [
-        usersRes,
-        leadsRes,
-        clientsRes,
-        campaignsRes,
-        callsRes,
-        appointmentsRes,
-        profilesRes
-      ] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("leads").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("clients").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("campaigns").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("calls").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("appointments").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("profiles").select("*").eq("organization_id", id).order("created_at", { ascending: false })
-      ]);
+      const detail = rawDetail as SuperAdminOrganizationDetailRpc | null;
+      const orgPayload = detail?.organization;
+      if (!detail || !orgPayload) {
+        toast({ title: "Agency not found", variant: "destructive" });
+        navigate("/super-admin");
+        return;
+      }
 
+      setOrg(orgPayload);
+      const label = typeof detail.agency_display_name === "string" ? detail.agency_display_name.trim() : "";
+      setAgencyDisplayName(label || null);
+
+      const s = detail.stats;
       setStats({
-        totalUsers: usersRes.count || 0,
-        totalLeads: leadsRes.count || 0,
-        totalClients: clientsRes.count || 0,
-        totalCampaigns: campaignsRes.count || 0,
-        totalCalls: callsRes.count || 0,
-        totalAppointments: appointmentsRes.count || 0,
+        totalUsers: Number(s?.total_users) || 0,
+        totalLeads: Number(s?.total_leads) || 0,
+        totalClients: Number(s?.total_clients) || 0,
+        totalCampaigns: Number(s?.total_campaigns) || 0,
+        totalCalls: Number(s?.total_calls) || 0,
+        totalAppointments: Number(s?.total_appointments) || 0,
       });
 
-      setProfiles(profilesRes.data || []);
+      const plist = detail.profiles;
+      setProfiles(Array.isArray(plist) ? plist : []);
     } catch (e: any) {
       toast({ title: "Failed to load agency", description: e.message, variant: "destructive" });
       navigate("/super-admin");
@@ -158,7 +165,10 @@ const SuperAdminOrgDetail: React.FC = () => {
       return;
     }
     try {
-      const { error } = await supabase.from("organizations").update({ status: nextStatus }).eq("id", id);
+      const { error } = await supabase.rpc("super_admin_update_organization_status", {
+        p_organization_id: id,
+        p_status: nextStatus,
+      });
       if (error) throw error;
       setOrg((prev) => (prev ? { ...prev, status: nextStatus } : prev));
       toast({ title: "Agency status updated", description: `Agency is now ${nextStatus}.` });
