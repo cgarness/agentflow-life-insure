@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "sonner";
 import {
   CONTACT_FIELD_LAYOUT_KEY,
   ContactFieldLayoutSchema,
@@ -1878,7 +1879,7 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
 
       if (error) throw error;
       setUserContactLayout(contact_field_layout);
-      toast({ title: "Field layout saved" });
+      sonnerToast.success("Field layout saved");
       onReload();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
