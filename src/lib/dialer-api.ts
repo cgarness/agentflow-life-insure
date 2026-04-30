@@ -225,11 +225,19 @@ export async function getLeadHistory(
       ? supabase.from("dispositions").select("name, color").eq("organization_id", organizationId)
       : Promise.resolve({ data: [] as { name: string; color: string }[] | null, error: null });
 
+  const emailsQuery = supabase
+    .from("contact_emails")
+    .select("id, direction, subject, body_text, from_email, sent_at, received_at, created_at")
+    .eq("contact_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_PER_SOURCE_LIMIT);
+
   // Use Promise.all but respect the signal
-  const [callsRes, activityRes, dispRes] = await Promise.all([
+  const [callsRes, activityRes, dispRes, emailsRes] = await Promise.all([
     callsQuery,
     activityQuery,
     dispositionsPromise,
+    emailsQuery,
   ]);
 
   if (signal?.aborted) {
@@ -239,6 +247,7 @@ export async function getLeadHistory(
   if (callsRes.error) throw new Error(callsRes.error.message);
   if (activityRes.error) throw new Error(activityRes.error.message);
   if (dispRes.error) throw new Error(dispRes.error.message);
+  // email errors are non-fatal — degrade gracefully
 
   const dispositionColorByName: Record<string, string> = {};
   for (const row of dispRes.data ?? []) {
@@ -261,6 +270,9 @@ export async function getLeadHistory(
       created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
       recording_url: hasRecording ? "proxy" : null,
       duration: c.duration ?? null,
+      subject: null as string | null,
+      from_email: null as string | null,
+      body: null as string | null,
     };
   });
 
@@ -274,9 +286,27 @@ export async function getLeadHistory(
     created_at: a.created_at,
     recording_url: null as string | null,
     duration: null as number | null,
+    subject: null as string | null,
+    from_email: null as string | null,
+    body: null as string | null,
   }));
 
-  const merged = [...callItems, ...activityItems];
+  const emailItems = (emailsRes.data ?? []).map((e) => ({
+    id: e.id,
+    type: "email" as const,
+    description: e.subject || "(No subject)",
+    direction: (e.direction === "inbound" ? "inbound" : "outbound") as "inbound" | "outbound",
+    disposition: null as string | null,
+    disposition_color: null as string | null,
+    created_at: e.received_at || e.sent_at || e.created_at || new Date().toISOString(),
+    recording_url: null as string | null,
+    duration: null as number | null,
+    subject: e.subject ?? null,
+    from_email: e.from_email ?? null,
+    body: e.body_text ?? null,
+  }));
+
+  const merged = [...callItems, ...activityItems, ...emailItems];
   merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   if (merged.length <= HISTORY_TIMELINE_CAP) return merged;
   return merged.slice(merged.length - HISTORY_TIMELINE_CAP);
