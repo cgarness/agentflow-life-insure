@@ -1085,46 +1085,87 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         >
                           <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
                             <div className="shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                              <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
-                                <Mail className="w-3.5 h-3.5 text-violet-400" aria-hidden />
+                              <div
+                                className={cn(
+                                  "w-6 h-6 rounded-full flex items-center justify-center",
+                                  isOutbound ? "bg-white/15 ring-1 ring-white/25" : "bg-violet-400/10",
+                                )}
+                              >
+                                <Mail
+                                  className={cn("w-3.5 h-3.5", isOutbound ? "text-white" : "text-violet-400")}
+                                  aria-hidden
+                                />
                               </div>
                             </div>
                             <div className="flex flex-col min-w-0">
                               <div
                                 className={cn(
-                                  "min-w-0 rounded-2xl border text-sm shadow-sm overflow-hidden bg-card transition-all",
-                                  isOutbound ? "rounded-tr-sm border-violet-400/35" : "rounded-tl-sm border-violet-400/25",
+                                  "min-w-0 rounded-2xl text-sm shadow-sm overflow-hidden transition-all",
+                                  isOutbound
+                                    ? "rounded-tr-sm bg-[#007AFF] text-white"
+                                    : "rounded-tl-sm bg-[#E9E9EB] dark:bg-[#262629] text-foreground",
                                 )}
                               >
                                 <button
                                   type="button"
                                   onClick={() => toggleEmail(item.id)}
-                                  className="w-full px-3.5 py-2.5 flex items-center gap-2 text-left hover:bg-accent/30 transition-colors"
+                                  className={cn(
+                                    "w-full px-3.5 py-2.5 flex items-center gap-2 text-left transition-colors",
+                                    isOutbound ? "hover:bg-white/10" : "hover:bg-black/5 dark:hover:bg-white/10",
+                                  )}
                                   aria-expanded={isExpanded}
                                 >
-                                  <span className="text-[11px] font-semibold text-violet-500 dark:text-violet-400 shrink-0">
+                                  <span
+                                    className={cn(
+                                      "text-[11px] font-semibold shrink-0",
+                                      isOutbound ? "text-white/90" : "text-violet-600 dark:text-violet-400",
+                                    )}
+                                  >
                                     {isOutbound ? "Sent" : "Received"}
                                   </span>
-                                  <span className="flex-1 text-[13px] font-medium text-foreground truncate min-w-0">
+                                  <span
+                                    className={cn(
+                                      "flex-1 text-[13px] font-medium truncate min-w-0",
+                                      isOutbound ? "text-white" : "text-foreground",
+                                    )}
+                                  >
                                     {item.subject || "(No subject)"}
                                   </span>
                                   <ChevronDown
                                     className={cn(
-                                      "w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                                      "w-3.5 h-3.5 shrink-0 transition-transform duration-200",
                                       isExpanded && "rotate-180",
+                                      isOutbound ? "text-white/80" : "text-muted-foreground",
                                     )}
                                     aria-hidden
                                   />
                                 </button>
                                 {isExpanded ? (
-                                  <div className="px-3.5 pb-3 pt-0 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                                  <div
+                                    className={cn(
+                                      "px-3.5 pb-3 pt-0 animate-in fade-in slide-in-from-top-1 duration-200 border-t",
+                                      isOutbound ? "border-white/25" : "border-border/50",
+                                    )}
+                                  >
                                     {bodyLines.map((line, i) =>
                                       line.startsWith(">") ? (
-                                        <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">
+                                        <p
+                                          key={i}
+                                          className={cn(
+                                            "text-[11px] leading-relaxed",
+                                            isOutbound ? "text-white/65" : "text-muted-foreground",
+                                          )}
+                                        >
                                           {line}
                                         </p>
                                       ) : (
-                                        <p key={i} className="text-sm text-foreground leading-relaxed">
+                                        <p
+                                          key={i}
+                                          className={cn(
+                                            "text-sm leading-relaxed",
+                                            isOutbound ? "text-white" : "text-foreground",
+                                          )}
+                                        >
                                           {line}
                                         </p>
                                       ),
