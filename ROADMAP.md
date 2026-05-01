@@ -164,6 +164,10 @@
   *What:* **Availability** choices and **light/dark** toggle removed from the header strip; they appear under the **profile avatar** dropdown (Availability section + theme row). Header avatar shows the **current status color** as a small dot on the **bottom-left** of the photo (dialer override colors unchanged), with **`aria-label`** naming status on the menu button.
   *Files:* **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
 
+- **2026-05-01 | [DONE] | TopBar profile menu — Availability sub-dropdown**
+  *What:* **Availability** is a **collapsible row** (chevron) **below Agent Profile**, showing live status (**`dotTooltip`** / **`dotClass`**) plus the four presets when expanded. **Keyboard Shortcuts** row removed. Sub-menu resets when the profile menu closes. Dropdown width **`w-56`** for longer labels.
+  *Files:* **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
   **(1) `getAll()` signature:** Added optional `organizationId?: string` to the `filters` parameter type.

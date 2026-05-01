@@ -3,8 +3,8 @@ import { AvatarSkeleton, NameSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
-  Plus, Bell, Sun, Moon, Menu,
-  User, Keyboard, LogOut, X, Phone, PhoneCall, IdCard,
+  Plus, Bell, Sun, Moon, Menu, ChevronDown,
+  User, LogOut, X, Phone, PhoneCall, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
   Eye,
 } from "lucide-react";
@@ -117,6 +117,11 @@ const TopBar: React.FC = () => {
   const location = useLocation();
   const [statusIdx, setStatusIdx] = useState(0);
   const [userDropdown, setUserDropdown] = useState(false);
+  const [availabilityMenuOpen, setAvailabilityMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!userDropdown) setAvailabilityMenuOpen(false);
+  }, [userDropdown]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotifTab>("All");
 
@@ -270,7 +275,7 @@ const TopBar: React.FC = () => {
             </button>
             )}
             {userDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-48 bg-card border rounded-lg shadow-lg py-1 z-50">
+              <div className="absolute right-0 top-full mt-2 w-56 min-w-[14rem] bg-card border rounded-lg shadow-lg py-1 z-50">
                 <div className="flex items-center gap-3 border-b px-3 py-2.5">
                   {isLoading || !profile ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
@@ -301,24 +306,44 @@ const TopBar: React.FC = () => {
                     </>
                   )}
                 </div>
-                <div className="border-b px-3 py-1.5">
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Availability</p>
-                  <div className="flex flex-col gap-0.5">
-                    {statusOptions.map((s, i) => (
-                      <button
-                        key={s.label}
-                        type="button"
-                        onClick={() => {
-                          setStatusIdx(i);
-                          setUserDropdown(false);
-                        }}
-                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent ${i === statusIdx ? "bg-accent/70 font-semibold" : ""}`}
-                      >
-                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dotClass}`} aria-hidden />
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
+                <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
+                <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
+                <div className="border-b border-t">
+                  <button
+                    type="button"
+                    onClick={() => setAvailabilityMenuOpen((o) => !o)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                    aria-expanded={availabilityMenuOpen}
+                    aria-controls="profile-availability-options"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClass} ${dotPulse ? "animate-pulse" : ""}`}
+                        aria-hidden
+                      />
+                      <span className="truncate font-medium">Availability</span>
+                      <span className="truncate text-muted-foreground">· {dotTooltip}</span>
+                    </span>
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${availabilityMenuOpen ? "rotate-180" : ""}`} aria-hidden />
+                  </button>
+                  {availabilityMenuOpen && (
+                    <div id="profile-availability-options" className="border-t bg-muted/40 px-2 py-1.5" role="group" aria-label="Availability options">
+                      {statusOptions.map((s, i) => (
+                        <button
+                          key={s.label}
+                          type="button"
+                          onClick={() => {
+                            setStatusIdx(i);
+                            setAvailabilityMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent ${i === statusIdx ? "bg-accent font-semibold" : ""}`}
+                        >
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dotClass}`} aria-hidden />
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -337,10 +362,6 @@ const TopBar: React.FC = () => {
                     </>
                   )}
                 </button>
-                <div className="h-px bg-border mx-3" />
-                <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
-                <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
-                <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><Keyboard className="w-4 h-4" />Keyboard Shortcuts</button>
                 {isSuperAdmin && (
                   <>
                     <div className="h-px bg-border mx-2 my-1" />
