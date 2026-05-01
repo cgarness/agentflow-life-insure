@@ -156,6 +156,9 @@
   *Ownership fix:* Hardened **Phone Numbers → Assigned to** so only users from the current `organization_id` are available and assignable. `usePhoneSettingsController` now scopes agent fetch by org; `NumberManagementSection` validates selected assignee membership and applies updates with an `organization_id` guard in the update query.
   *Files:* **`src/components/settings/PhoneSystem.tsx`**, **`src/pages/SettingsPage.tsx`**, **`src/components/settings/phone/usePhoneSettingsController.ts`**, **`src/components/settings/phone/NumberManagementSection.tsx`**, **`ROADMAP.md`**.
 
+- **2026-04-30 | [DONE] | Top header — tear-off calendar (today’s date)**
+  *What:* Added **`HeaderDateCalendar`** to the fixed **`TopBar`**: compact calendar card with **full month name** on a **blue** header strip, large **day of month** on white, folded corner + **SVG pushpin**, soft drop shadow, `aria-label` with the full weekday date. Month/day follow the browser locale via **`toLocaleString`**; ticks every minute so the card updates after midnight during long sessions.
+  *Files:* **`src/components/layout/HeaderDateCalendar.tsx`**, **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
 
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.

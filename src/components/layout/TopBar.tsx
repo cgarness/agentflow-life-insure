@@ -11,6 +11,7 @@ import {
 import GlobalSearch from "@/components/search/GlobalSearch";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import ViewAsModal from "@/components/layout/ViewAsModal";
+import HeaderDateCalendar from "@/components/layout/HeaderDateCalendar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -179,6 +180,8 @@ const TopBar: React.FC = () => {
         <button onClick={() => setMobileOpen(true)} className="md:hidden text-foreground">
           <Menu className="w-5 h-5" />
         </button>
+
+        <HeaderDateCalendar />
 
         {/* Breadcrumb */}
         <div className="hidden sm:flex items-center gap-2 text-sm shrink-0">
