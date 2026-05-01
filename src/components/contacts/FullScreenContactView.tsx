@@ -1083,7 +1083,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           <div className="px-6 min-h-14 border-b border-border flex flex-wrap items-center justify-between gap-y-2 gap-x-3 shrink-0 bg-card z-10 py-3">
              <div className="flex items-center gap-3 shrink-0">
                 <MessageSquare className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">Conversations</h3>
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">Conversation History</h3>
              </div>
              <div className="flex flex-wrap items-center gap-2 justify-end flex-1 min-w-0">
                 <div className="flex bg-muted rounded-lg p-0.5 shrink-0">
@@ -1175,7 +1175,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
                             isOutbound
                               ? "bg-[#007AFF] text-white rounded-tr-sm"
-                              : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                              : "bg-card border border-border text-foreground rounded-tl-sm"
                           }`}
                         >
                           <div className="flex flex-col gap-1.5">
@@ -1299,7 +1299,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
                             isOutbound
                               ? "bg-[#007AFF] text-white rounded-tr-sm"
-                              : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                              : "bg-card border border-border text-foreground rounded-tl-sm"
                           }`}
                         >
                           <p className="leading-relaxed">{item.body}</p>
