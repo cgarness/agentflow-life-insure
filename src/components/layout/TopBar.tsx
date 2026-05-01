@@ -181,8 +181,6 @@ const TopBar: React.FC = () => {
           <Menu className="w-5 h-5" />
         </button>
 
-        <HeaderDateCalendar />
-
         {/* Breadcrumb */}
         <div className="hidden sm:flex items-center gap-2 text-sm shrink-0">
           <span className="text-muted-foreground">AgentFlow</span>
@@ -224,6 +222,8 @@ const TopBar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent>Add New Contact</TooltipContent>
           </Tooltip>
+
+          <HeaderDateCalendar />
 
           {/* Notifications */}
           <div className="relative">

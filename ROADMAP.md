@@ -157,7 +157,7 @@
   *Files:* **`src/components/settings/PhoneSystem.tsx`**, **`src/pages/SettingsPage.tsx`**, **`src/components/settings/phone/usePhoneSettingsController.ts`**, **`src/components/settings/phone/NumberManagementSection.tsx`**, **`ROADMAP.md`**.
 
 - **2026-04-30 | [DONE] | Top header — tear-off calendar (today’s date)**
-  *What:* Added **`HeaderDateCalendar`** to the fixed **`TopBar`**: compact calendar card with **full month name** on a **blue** header strip, large **day of month** on white, folded corner + **SVG pushpin**, soft drop shadow, `aria-label` with the full weekday date. Month/day follow the browser locale via **`toLocaleString`**; ticks every minute so the card updates after midnight during long sessions.
+  *What:* **`HeaderDateCalendar`** in **`TopBar`** (to the **right of Quick Add**): **`w-8 h-8`** to match the manual add control — **solid blue** month strip (**short month** text), **white** day area, **rounded-lg**, light border/shadow; no pin or fold. **`aria-label`** + hover title use the full calendar date; **1-minute** tick for day rollover. Locale via **`toLocaleString`**.
   *Files:* **`src/components/layout/HeaderDateCalendar.tsx`**, **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
 
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
