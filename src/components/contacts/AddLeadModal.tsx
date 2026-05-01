@@ -1,101 +1,80 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { z } from "zod";
-import { X, Loader2 } from "lucide-react";
-import { Lead, LeadStatus } from "@/lib/types";
-import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
+import { X } from "lucide-react";
+import type { Lead } from "@/lib/types";
 import { toast } from "sonner";
-import { PhoneInput } from "@/components/shared/PhoneInput";
-import { DateInput } from "@/components/shared/DateInput";
-import { normalizePhoneNumber } from "@/utils/phoneUtils";
-import { calculateAge } from "@/utils/dateUtils";
-import { StateSelector } from "@/components/shared/StateSelector";
+import { AddLeadAssignmentSection } from "@/components/contacts/AddLeadAssignmentSection";
+import { AddLeadLeadFormBody } from "@/components/contacts/AddLeadLeadFormBody";
+import { useAddLeadAssignableState } from "@/components/contacts/useAddLeadAssignableState";
+import { AddLeadFormFooter } from "@/components/contacts/AddLeadFormFooter";
+import { useAddLeadModalForm } from "@/components/contacts/useAddLeadModalForm";
+import { addLeadLeadFormSchema } from "@/lib/addLeadLeadZod";
+
+export type AddLeadSaveMeta = {
+  assignToAgentId: string;
+  campaignId: string | null;
+};
 
 interface AddLeadModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (data: Partial<Lead>) => Promise<void>;
+  onSave: (data: Partial<Lead>, meta?: AddLeadSaveMeta) => Promise<void>;
   initial?: Partial<Lead> | null;
+  currentUserId?: string | null;
+  organizationId?: string | null;
+  viewerRole?: string;
+  viewerIsSuperAdmin?: boolean;
+  /** Agents the viewer may assign to (excludes non-downline for TL). */
+  assignableAgents?: { id: string; firstName: string; lastName: string }[];
 }
 
-const AddLeadModal: React.FC<AddLeadModalProps> = ({ open, onClose, onSave, initial }) => {
-  const [form, setForm] = useState<Partial<Lead>>({});
+const AddLeadModal: React.FC<AddLeadModalProps> = ({
+  open,
+  onClose,
+  onSave,
+  initial,
+  currentUserId = null,
+  organizationId = null,
+  viewerRole = "Agent",
+  viewerIsSuperAdmin = false,
+  assignableAgents = [],
+}) => {
   const [saving, setSaving] = useState(false);
-  const [leadSources, setLeadSources] = useState<string[]>(["Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar", "Cold Call", "TV Ad", "Radio Ad", "Other"]);
+  const {
+    assignMode,
+    setAssignMode,
+    specificAgentId,
+    setSpecificAgentId,
+    attachCampaignId,
+    setAttachCampaignId,
+    resolvedAssigneeId,
+    validateAssignment,
+    resetAssignFields,
+    canElevateLeadAssignment,
+  } = useAddLeadAssignableState({
+    initial,
+    currentUserId,
+    viewerRole,
+    viewerIsSuperAdmin,
+    assignableAgents,
+  });
+  const { form, setForm, leadSources } = useAddLeadModalForm({
+    open,
+    initial,
+    resetAssignFields,
+  });
 
   useEffect(() => {
-    async function loadSettings() {
-      if (!open) return;
-      try {
-        const sources = await leadSourcesSupabaseApi.getAll();
-        if (sources.length > 0) setLeadSources(sources.map(s => s.name));
-      } catch (err) {
-        console.error("Error loading settings in modal:", err);
-      }
-    }
-    loadSettings();
-  }, [open]);
-
-  useEffect(() => {
-    if (initial) {
-      setForm({
-        firstName: initial.firstName || "",
-        lastName: initial.lastName || "",
-        phone: initial.phone || "",
-        email: initial.email || "",
-        state: initial.state || "",
-        leadSource: initial.leadSource || "Facebook Ads",
-        status: initial.status || "New",
-        age: initial.age || undefined,
-        dateOfBirth: initial.dateOfBirth || "",
-        healthStatus: initial.healthStatus || "",
-        bestTimeToCall: initial.bestTimeToCall || "",
-        notes: initial.notes || ""
-      });
-    } else {
-      setForm({
-        firstName: "",
-        lastName: "",
-        phone: "",
-        email: "",
-        state: "",
-        leadSource: leadSources[0] || "Facebook Ads",
-        status: "New",
-        age: undefined,
-        dateOfBirth: "",
-        healthStatus: "",
-        bestTimeToCall: "",
-        notes: ""
-      });
-    }
-  }, [initial, open]);
-
-  // New lead only: keep stored leadSource aligned with org settings list so the value we save matches the dropdown.
-  useEffect(() => {
-    if (!open || initial) return;
-    if (leadSources.length === 0) return;
-    setForm((f) => {
-      const cur = f.leadSource;
-      if (cur && leadSources.includes(cur)) return f;
-      return { ...f, leadSource: leadSources[0]! };
-    });
-  }, [open, initial, leadSources]);
+    if (initial) return;
+    setAttachCampaignId("");
+  }, [resolvedAssigneeId, assignMode, initial, setAttachCampaignId]);
 
   if (!open) return null;
 
-const leadSchema = z.object({
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  phone: z.string().min(10, "Valid phone number is required"),
-  email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  state: z.string().length(2, "State must be exactly 2 letters").optional().or(z.literal("")),
-});
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     try {
-      // Validate schema before proceeding
-      leadSchema.parse({
+      addLeadLeadFormSchema.parse({
         firstName: form.firstName,
         lastName: form.lastName,
         phone: form.phone,
@@ -104,11 +83,24 @@ const leadSchema = z.object({
       });
     } catch (err) {
       if (err instanceof z.ZodError) {
-        toast.error(err.errors[0].message);
+        toast.error(err.errors[0]?.message ?? "Invalid form");
         return;
       }
     }
-
+    const assignErr = validateAssignment();
+    if (assignErr) {
+      toast.error(assignErr);
+      return;
+    }
+    let assignToAgentId = currentUserId || "";
+    if (!initial && canElevateLeadAssignment && currentUserId) {
+      assignToAgentId =
+        assignMode === "specific_agent" ? specificAgentId : currentUserId;
+    }
+    if (!assignToAgentId) {
+      toast.error("Signing in required to assign ownership.");
+      return;
+    }
     setSaving(true);
     try {
       const resolvedLeadSource = initial
@@ -116,11 +108,20 @@ const leadSchema = z.object({
         : form.leadSource && leadSources.includes(form.leadSource)
           ? form.leadSource
           : (leadSources[0] ?? "");
-      await onSave({
+      const payload: Partial<Lead> & { assignedAgentId?: string; userId?: string | null } = {
         ...form,
         leadSource: resolvedLeadSource,
         status: form.status ?? "New",
-      });
+        assignedAgentId: assignToAgentId,
+        userId: assignToAgentId,
+      };
+      const meta: AddLeadSaveMeta | undefined = initial
+        ? undefined
+        : {
+            assignToAgentId,
+            campaignId: attachCampaignId ? attachCampaignId : null,
+          };
+      await onSave(payload, meta);
       onClose();
     } catch (err: unknown) {
       toast.error((err as Error).message);
@@ -132,102 +133,37 @@ const leadSchema = z.object({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        <style dangerouslySetInnerHTML={{ __html: `::-webkit-scrollbar { display: none; }` }} />
+      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar]:h-0">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">{initial ? "Edit" : "Add New"} Lead</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="w-5 h-5" />
+          </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
-              <input required value={form.firstName || ""} onChange={e => setForm((f) => ({ ...f, firstName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Last Name *</label>
-              <input required value={form.lastName || ""} onChange={e => setForm((f) => ({ ...f, lastName: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Phone *</label>
-            <PhoneInput 
-              required 
-              value={form.phone || ""} 
-              onChange={val => setForm((f) => ({ ...f, phone: normalizePhoneNumber(val) }))} 
-              className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" 
-              placeholder="(555)123-4567" 
+          <AddLeadLeadFormBody
+            form={form}
+            setForm={setForm}
+            leadSources={leadSources}
+            initial={initial}
+          />
+          {!initial && (
+            <AddLeadAssignmentSection
+              currentUserId={currentUserId}
+              viewerRole={viewerRole}
+              viewerIsSuperAdmin={viewerIsSuperAdmin}
+              assignableAgents={assignableAgents}
+              assignMode={assignMode}
+              onAssignModeChange={setAssignMode}
+              specificAgentId={specificAgentId}
+              onSpecificAgentChange={setSpecificAgentId}
+              organizationId={organizationId}
+              resolvedAssigneeId={resolvedAssigneeId}
+              attachCampaignId={attachCampaignId}
+              onAttachCampaignChange={setAttachCampaignId}
             />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Email</label>
-            <input type="email" value={form.email || ""} onChange={e => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-              <StateSelector 
-                value={form.state || ""} 
-                onChange={val => setForm((f) => ({ ...f, state: val }))} 
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Lead Source</label>
-              <select
-                value={
-                  form.leadSource && (leadSources.includes(form.leadSource) || !!initial)
-                    ? form.leadSource
-                    : (leadSources[0] || "")
-                }
-                onChange={e => setForm((f) => ({ ...f, leadSource: e.target.value }))}
-                className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
-              >
-                {form.leadSource && !leadSources.includes(form.leadSource) ? (
-                  <option value={form.leadSource}>{form.leadSource}</option>
-                ) : null}
-                {leadSources.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Date of Birth</label>
-              <DateInput 
-                value={form.dateOfBirth || ""} 
-                onChange={val => {
-                  const calculatedAge = calculateAge(val);
-                  setForm((f) => ({ ...f, dateOfBirth: val, age: calculatedAge ?? f.age }));
-                }} 
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Age</label>
-              <input type="number" value={form.age || ""} onChange={e => setForm((f) => ({ ...f, age: e.target.value ? parseInt(e.target.value) : undefined }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="e.g. 45" />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Best Time to Call</label>
-            <select value={form.bestTimeToCall || ""} onChange={e => setForm((f) => ({ ...f, bestTimeToCall: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
-              <option value="">Select...</option>
-              {["Morning", "Afternoon", "Evening", "Anytime"].map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Initial Notes</label>
-            <textarea value={form.notes || ""} onChange={e => setForm((f) => ({ ...f, notes: e.target.value }))} className="w-full h-20 px-3 py-2 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none resize-none" placeholder="Add any background context..." />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent transition-colors">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {initial ? "Save Changes" : "Add Lead"}
-            </button>
-          </div>
+          )}
+          <AddLeadFormFooter onCancel={onClose} saving={saving} isEdit={!!initial} />
         </form>
       </div>
     </div>

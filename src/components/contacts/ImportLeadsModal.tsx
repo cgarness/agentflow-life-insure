@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
+import { campaignAcceptsUnassignedLeads } from "@/lib/campaign-assignee-scope";
 import { 
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -157,7 +158,11 @@ interface CampaignOption {
   name: string;
   type: string;
   status: string;
+  user_id?: string | null;
+  assigned_agent_ids?: unknown;
 }
+
+type ImportAssignChoice = "myself" | "specific_agent" | "round_robin" | "unassigned";
 
 // ---- Component ----
 interface ImportLeadsModalProps {
@@ -173,6 +178,10 @@ interface ImportLeadsModalProps {
   /** Shown next to "Assign to me" instead of the raw user id. */
   currentUserDisplayName?: string;
   agentProfiles?: { id: string; firstName: string; lastName: string }[];
+  viewerRole?: string;
+  viewerIsSuperAdmin?: boolean;
+  /** IDs this user may assign imports to / include in rotation (Agents: self only). */
+  assignableAgentIds?: string[];
 }
 
 const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
@@ -186,6 +195,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   currentUserId = "u1",
   currentUserDisplayName = "",
   agentProfiles = [],
+  viewerRole = "Agent",
+  viewerIsSuperAdmin = false,
+  assignableAgentIds,
 }) => {
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -208,9 +220,24 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [newFieldError, setNewFieldError] = useState("");
 
   // Step 3
-  const [assignmentStrategy, setAssignmentStrategy] = useState<"self" | "specific_agent" | "round_robin">("self");
+  const [importAssignChoice, setImportAssignChoice] = useState<ImportAssignChoice>("myself");
   const [targetAgentId, setTargetAgentId] = useState<string>("");
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>([]);
+
+  const resolvedAssignableIds = useMemo(() => {
+    const base = assignableAgentIds ?? agentProfiles.map((p) => p.id);
+    return new Set(base.filter(Boolean));
+  }, [assignableAgentIds, agentProfiles]);
+
+  const agentAssignmentLocked = viewerRole === "Agent" && !viewerIsSuperAdmin;
+
+  useEffect(() => {
+    if (agentAssignmentLocked && importAssignChoice !== "myself") {
+      setImportAssignChoice("myself");
+    }
+  }, [agentAssignmentLocked, importAssignChoice]);
+
+  const effectiveImportAssign = agentAssignmentLocked ? "myself" : importAssignChoice;
   const [campaignMode, setCampaignMode] = useState<"existing" | "new" | "none">("none");
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [campaignSearch, setCampaignSearch] = useState("");
@@ -236,7 +263,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setStep(1); setFile(null); setParsing(false); setCsvHeaders([]); setCsvRows([]);
     setMappings({}); setCustomFieldNames([]); setCreatingFieldForCol(null);
     setImportProgress(0); setImportResult(null); setResolvingIndex(0);
-    setAssignmentStrategy("self"); setTargetAgentId(""); setTargetAgentIds([]);
+    setImportAssignChoice("myself"); setTargetAgentId(""); setTargetAgentIds([]);
     setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
     setNewCampaignType("Personal"); setNewCampaignDesc(""); 
     setImportStatus(pipelineStages.find(s => s.isDefault)?.name || "New");
@@ -531,23 +558,93 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     }
   };
 
-  const assignToMeLabel = (() => {
+  const importMyselfCaption = useMemo(() => {
     const fromProp = currentUserDisplayName?.trim();
-    if (fromProp) return `Assign to me (${fromProp})`;
-    const fromRoster = agentProfiles.find(p => p.id === currentUserId);
-    if (fromRoster) {
-      const n = `${fromRoster.firstName} ${fromRoster.lastName}`.trim();
-      if (n) return `Assign to me (${n})`;
-    }
-    return "Assign to me";
-  })();
+    if (fromProp) return fromProp;
+    const r = agentProfiles.find((p) => p.id === currentUserId);
+    const n = r ? `${r.firstName} ${r.lastName}`.trim() : "";
+    return n || "";
+  }, [currentUserDisplayName, agentProfiles, currentUserId]);
 
   // ---- Filtered campaigns ----
+  const campaignPoolForPicker = useMemo(() => {
+    if (effectiveImportAssign !== "unassigned") return campaigns;
+    return campaigns.filter((c) => campaignAcceptsUnassignedLeads(c));
+  }, [campaigns, effectiveImportAssign]);
+
   const filteredCampaigns = useMemo(() => {
-    if (!campaignSearch) return campaigns;
+    if (!campaignSearch) return campaignPoolForPicker;
     const q = campaignSearch.toLowerCase();
-    return campaigns.filter(c => c.name.toLowerCase().includes(q));
-  }, [campaigns, campaignSearch]);
+    return campaignPoolForPicker.filter(c => c.name.toLowerCase().includes(q));
+  }, [campaignPoolForPicker, campaignSearch]);
+
+  useEffect(() => {
+    if (effectiveImportAssign !== "unassigned") return;
+    if (campaignMode === "none") {
+      setCampaignMode("existing");
+      return;
+    }
+    setNewCampaignType((t) => (t === "Personal" ? "Open Pool" : t));
+    if (
+      campaignMode === "existing" &&
+      selectedCampaignId &&
+      !campaigns.some(
+        (c) =>
+          c.id === selectedCampaignId &&
+          campaignAcceptsUnassignedLeads(c),
+      )
+    ) {
+      setSelectedCampaignId("");
+    }
+  }, [effectiveImportAssign, campaignMode, selectedCampaignId, campaigns]);
+
+  const assignmentSelectionValid = useMemo(() => {
+    if (effectiveImportAssign === "myself") return true;
+    if (effectiveImportAssign === "specific_agent") {
+      return !!targetAgentId && resolvedAssignableIds.has(targetAgentId);
+    }
+    if (effectiveImportAssign === "round_robin") {
+      return (
+        targetAgentIds.length > 0 &&
+        targetAgentIds.every((id) => resolvedAssignableIds.has(id))
+      );
+    }
+    if (effectiveImportAssign === "unassigned") {
+      if (campaignMode === "none") return false;
+      if (campaignMode === "existing") {
+        const c = campaigns.find((x) => x.id === selectedCampaignId);
+        return !!c && campaignAcceptsUnassignedLeads(c);
+      }
+      if (campaignMode === "new") {
+        return !!(
+          newCampaignName.trim() &&
+          (newCampaignType === "Team" || newCampaignType === "Open Pool")
+        );
+      }
+      return false;
+    }
+    return true;
+  }, [
+    effectiveImportAssign,
+    targetAgentId,
+    targetAgentIds,
+    resolvedAssignableIds,
+    campaignMode,
+    selectedCampaignId,
+    campaigns,
+    newCampaignName,
+    newCampaignType,
+  ]);
+
+  const optionalCampaignBlockValid = useMemo(() => {
+    if (effectiveImportAssign === "unassigned") return true;
+    if (campaignMode === "none") return true;
+    if (campaignMode === "existing") return !!selectedCampaignId;
+    return !!newCampaignName.trim();
+  }, [effectiveImportAssign, campaignMode, selectedCampaignId, newCampaignName]);
+
+  const canStartImportStep3 =
+    importableCount > 0 && assignmentSelectionValid && optionalCampaignBlockValid;
 
   // ---- Step 4-5: Import ----
   const doImport = async () => {
@@ -656,7 +753,19 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           body: JSON.stringify({
             type: "leads",
             contactData,
-            assignment: { strategy: assignmentStrategy, targetAgentId, targetAgentIds },
+            assignment:
+              effectiveImportAssign === "myself"
+                ? { strategy: "self" }
+                : effectiveImportAssign === "specific_agent"
+                  ? { strategy: "specific_agent", targetAgentId }
+                  : effectiveImportAssign === "round_robin"
+                    ? {
+                        strategy: "round_robin",
+                        targetAgentIds: targetAgentIds.filter((id) =>
+                          resolvedAssignableIds.has(id),
+                        ),
+                      }
+                    : { strategy: "unassigned" },
             duplicateDetectionRule: "phone_or_email",
           }),
         }
@@ -964,6 +1073,83 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           ))}
         </div>
 
+        {/* Assign To (import ownership) */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-4 h-4 text-muted-foreground" />
+            <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Assign To</span>
+          </div>
+          <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
+            <label className="text-xs font-medium text-muted-foreground block">Who owns these imported leads?</label>
+            <select
+              value={importAssignChoice}
+              onChange={(e) => setImportAssignChoice(e.target.value as ImportAssignChoice)}
+              disabled={agentAssignmentLocked}
+              className="w-full max-w-md h-9 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <option value="myself">
+                {`Myself${importMyselfCaption ? ` (${importMyselfCaption})` : ""}`}
+              </option>
+              {!agentAssignmentLocked && (
+                <>
+                  <option value="specific_agent">Specific Agent</option>
+                  <option value="round_robin">Round Robin</option>
+                  <option value="unassigned">Unassigned</option>
+                </>
+              )}
+            </select>
+
+            {!agentAssignmentLocked && effectiveImportAssign === "specific_agent" && (
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Agent</label>
+                <select
+                  value={targetAgentId}
+                  onChange={(e) => setTargetAgentId(e.target.value)}
+                  className="w-full max-w-sm h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                >
+                  <option value="">Choose an agent…</option>
+                  {agentProfiles
+                    .filter((p) => resolvedAssignableIds.has(p.id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.firstName} {p.lastName}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+
+            {!agentAssignmentLocked && effectiveImportAssign === "round_robin" && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Include in rotation</p>
+                <div className="max-h-32 overflow-y-auto border border-border rounded-md bg-background p-2 grid gap-1">
+                  {agentProfiles
+                    .filter((p) => resolvedAssignableIds.has(p.id))
+                    .map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={targetAgentIds.includes(p.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setTargetAgentIds((prev) => [...prev, p.id]);
+                            else setTargetAgentIds((prev) => prev.filter((id) => id !== p.id));
+                          }}
+                        />
+                        {p.firstName} {p.lastName}
+                      </label>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {effectiveImportAssign === "unassigned" && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+                Unassigned leads must join a Team or Open Pool campaign (choose below). Personal campaigns are not valid.
+              </p>
+            )}
+          </div>
+        </div>
+
         {/* Campaign Assignment */}
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -972,11 +1158,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           </div>
           <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
             {/* Radio options */}
-            {([
-              { value: "existing" as const, label: "Add to existing campaign" },
-              { value: "new" as const, label: "Create new campaign" },
-              { value: "none" as const, label: "Don't assign to a campaign" },
-            ]).map(opt => (
+            {(effectiveImportAssign === "unassigned"
+              ? [
+                  { value: "existing" as const, label: "Add to existing campaign" },
+                  { value: "new" as const, label: "Create new campaign" },
+                ]
+              : [
+                  { value: "existing" as const, label: "Add to existing campaign" },
+                  { value: "new" as const, label: "Create new campaign" },
+                  { value: "none" as const, label: "Don't assign to a campaign" },
+                ]
+            ).map((opt) => (
               <div key={opt.value}>
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
                   <input
@@ -1035,8 +1227,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                       className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
                     >
                       <option value="Open Pool">Open Pool</option>
-                      <option value="Personal">Personal</option>
                       <option value="Team">Team</option>
+                      {effectiveImportAssign !== "unassigned" && (
+                        <option value="Personal">Personal</option>
+                      )}
                     </select>
                     <textarea
                       value={newCampaignDesc}
@@ -1137,67 +1331,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">Add tags to all imported leads</label>
               <TagInput tags={tags} onChange={setTags} max={10} />
-            </div>
-          </div>
-        </div>
-
-        {/* Agent Assignment */}
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Users className="w-4 h-4 text-muted-foreground" />
-            <span className="text-xs font-medium uppercase text-muted-foreground tracking-wider">Agent Assignment</span>
-          </div>
-          <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
-            <p className="text-sm text-foreground">How should these contacts be assigned?</p>
-            <div className="flex flex-col gap-3">
-              <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
-                <input type="radio" checked={assignmentStrategy === "self"} onChange={() => setAssignmentStrategy("self")} className="accent-primary" />
-                {assignToMeLabel}
-              </label>
-              
-              <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
-                <input type="radio" checked={assignmentStrategy === "specific_agent"} onChange={() => setAssignmentStrategy("specific_agent")} className="accent-primary" />
-                Select specific agent
-              </label>
-              {assignmentStrategy === "specific_agent" && (
-                <div className="ml-6">
-                  <select 
-                    value={targetAgentId} 
-                    onChange={e => setTargetAgentId(e.target.value)}
-                    className="w-full max-w-sm h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                  >
-                    <option value="">-- Choose an agent --</option>
-                    {agentProfiles.map(p => (
-                      <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <label className="flex items-center gap-2 cursor-pointer text-sm text-foreground">
-                <input type="radio" checked={assignmentStrategy === "round_robin"} onChange={() => setAssignmentStrategy("round_robin")} className="accent-primary" />
-                Round-robin across team
-              </label>
-              {assignmentStrategy === "round_robin" && (
-                <div className="ml-6 space-y-2">
-                  <p className="text-xs text-muted-foreground">Select agents to include in distribution:</p>
-                  <div className="max-h-32 overflow-y-auto border border-border rounded-md bg-background p-2 grid gap-1">
-                    {agentProfiles.map(p => (
-                      <label key={p.id} className="flex items-center gap-2 text-sm">
-                        <input 
-                          type="checkbox" 
-                          checked={targetAgentIds.includes(p.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setTargetAgentIds(prev => [...prev, p.id]);
-                            else setTargetAgentIds(prev => prev.filter(id => id !== p.id));
-                          }}
-                        />
-                        {p.firstName} {p.lastName}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -1466,7 +1599,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             {step === 3 && (
               <button
                 onClick={doImport}
-                disabled={importableCount === 0}
+                disabled={!canStartImportStep3}
                 className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
               >
                 Import {importableCount} Leads
