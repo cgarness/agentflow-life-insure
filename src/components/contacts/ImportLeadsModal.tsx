@@ -182,6 +182,12 @@ interface ImportLeadsModalProps {
   viewerIsSuperAdmin?: boolean;
   /** IDs this user may assign imports to / include in rotation (Agents: self only). */
   assignableAgentIds?: string[];
+  /** Render as a full-page view — no overlay, no backdrop, no fixed-width modal chrome. */
+  renderAsPage?: boolean;
+  /** Pre-select this campaign ID in the campaign picker (page mode entry point). */
+  defaultCampaignId?: string;
+  /** Called by "View Leads" in step 5 page mode; falls back to onClose() when unset. */
+  onViewLeads?: () => void;
 }
 
 const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
@@ -198,6 +204,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   viewerRole = "Agent",
   viewerIsSuperAdmin = false,
   assignableAgentIds,
+  renderAsPage = false,
+  defaultCampaignId,
+  onViewLeads,
 }) => {
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -310,6 +319,13 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       return (pipelineStages.find(s => s.isDefault) || pipelineStages[0]).name;
     });
   }, [pipelineStages]);
+
+  // Pre-select a campaign when entering via page route with ?campaignId=xxx
+  useEffect(() => {
+    if (!defaultCampaignId) return;
+    setSelectedCampaignId(defaultCampaignId);
+    setCampaignMode("existing");
+  }, [defaultCampaignId]);
 
   // ---- CSV Parsing ----
   const handleFile = useCallback((f: File) => {
@@ -826,7 +842,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     }
   };
 
-  if (!open) return null;
+  if (!open && !renderAsPage) return null;
 
   // ---- Step 1 UI: Upload ----
   const renderStep1 = () => (
@@ -1490,7 +1506,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           )}
         </div>
         <div className="w-full max-w-xs space-y-2 pt-4">
-          <button onClick={() => { reset(); onClose(); }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150">
+          <button onClick={() => { reset(); if (onViewLeads) { onViewLeads(); } else { onClose(); } }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150">
             View Leads
           </button>
           <button onClick={reset} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150">
@@ -1534,80 +1550,95 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     5: { title: "", sub: "" },
   };
 
+  // Shared inner content — identical between modal and page modes.
+  const innerContent = (
+    <div className={renderAsPage
+      ? "flex flex-col w-full"
+      : "relative bg-card border border-border rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col w-[860px] max-w-[95vw] max-h-[90vh] max-sm:w-screen max-sm:h-screen max-sm:min-w-0 max-sm:max-w-none max-sm:rounded-none"
+    }>
+      {/* Header */}
+      {step < 5 && stepTitles[step].title && (
+        <div className="flex items-start justify-between p-6 pb-0 shrink-0">
+          <div className="flex items-center gap-3">
+            {step > 1 && step < 4 && (
+              <button onClick={() => setStep(step - 1)} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">{stepTitles[step].title}</h2>
+              {stepTitles[step].sub && <p className="text-sm text-muted-foreground mt-0.5">{stepTitles[step].sub}</p>}
+            </div>
+          </div>
+          {step < 4 && (
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="px-6 shrink-0">{renderProgressBar()}</div>
+
+      {/* Content Area — scrollable in modal, natural flow on page */}
+      <div className={renderAsPage ? "px-6 py-4" : "flex-1 overflow-y-auto px-6 min-h-0"}>
+        {step === 1 && renderStep1()}
+        {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
+        {step === 4 && renderStep4()}
+        {step === 5 && renderStep5()}
+      </div>
+
+      {/* Footer */}
+      {step >= 1 && step <= 3 && (
+        <div className="flex items-center justify-between p-6 pt-4 border-t border-border shrink-0">
+          <button onClick={onClose} className="h-9 px-4 rounded-lg border border-border bg-background text-muted-foreground text-sm font-medium hover:bg-accent hover:text-foreground transition-colors duration-150">
+            Cancel
+          </button>
+          {step === 1 && (
+            <button
+              onClick={() => setStep(2)}
+              disabled={!file || parsing || csvRows.length === 0}
+              className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Continue
+            </button>
+          )}
+          {step === 2 && (
+            <button
+              onClick={() => setStep(3)}
+              disabled={!canContinueStep2}
+              className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Continue to Review
+            </button>
+          )}
+          {step === 3 && (
+            <button
+              onClick={doImport}
+              disabled={!canStartImportStep3}
+              className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Import {importableCount} Leads
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (renderAsPage) {
+    return (
+      <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 py-8">
+        {innerContent}
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-in fade-in duration-150">
       <div className="fixed inset-0 bg-foreground/80 backdrop-blur-sm" onClick={step < 4 ? onClose : undefined} />
-      {/* Fixed size modal */}
-      <div className="relative bg-card border border-border rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col w-[860px] max-w-[95vw] max-h-[90vh] max-sm:w-screen max-sm:h-screen max-sm:min-w-0 max-sm:max-w-none max-sm:rounded-none">
-        {/* Fixed Header */}
-        {step < 5 && stepTitles[step].title && (
-          <div className="flex items-start justify-between p-6 pb-0 shrink-0">
-            <div className="flex items-center gap-3">
-              {step > 1 && step < 4 && (
-                <button onClick={() => setStep(step - 1)} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-              )}
-              <div>
-                <h2 className="text-xl font-semibold text-foreground">{stepTitles[step].title}</h2>
-                {stepTitles[step].sub && <p className="text-sm text-muted-foreground mt-0.5">{stepTitles[step].sub}</p>}
-              </div>
-            </div>
-            {step < 4 && (
-              <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
-                <X className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className="px-6 shrink-0">{renderProgressBar()}</div>
-
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto px-6 min-h-0">
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-          {step === 4 && renderStep4()}
-          {step === 5 && renderStep5()}
-        </div>
-
-        {/* Fixed Footer */}
-        {step >= 1 && step <= 3 && (
-          <div className="flex items-center justify-between p-6 pt-4 border-t border-border shrink-0">
-            <button onClick={onClose} className="h-9 px-4 rounded-lg border border-border bg-background text-muted-foreground text-sm font-medium hover:bg-accent hover:text-foreground transition-colors duration-150">
-              Cancel
-            </button>
-            {step === 1 && (
-              <button
-                onClick={() => setStep(2)}
-                disabled={!file || parsing || csvRows.length === 0}
-                className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                Continue
-              </button>
-            )}
-            {step === 2 && (
-              <button
-                onClick={() => setStep(3)}
-                disabled={!canContinueStep2}
-                className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                Continue to Review
-              </button>
-            )}
-            {step === 3 && (
-              <button
-                onClick={doImport}
-                disabled={!canStartImportStep3}
-                className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                Import {importableCount} Leads
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      {innerContent}
     </div>
   );
 };
