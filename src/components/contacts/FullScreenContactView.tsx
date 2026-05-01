@@ -290,6 +290,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   const handleOpenComposeTemplates = useCallback(() => setShowTemplatesModal(true), []);
 
+  const handleComposeChannelChange = useCallback((ch: "sms" | "email") => {
+    setComposeTab(ch === "sms" ? "SMS" : "Email");
+    setComposeText("");
+    setEmailSubject("");
+  }, []);
+
   // Sync form + clear per-contact UI before paint when switching contact or type (avoids wrong lead's notes/fields flashing).
   useLayoutEffect(() => {
     if (!contact?.id) return;
