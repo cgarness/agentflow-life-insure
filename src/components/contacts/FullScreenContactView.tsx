@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
-import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus, Mic, Info } from "lucide-react";
+import { X, Phone, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus, Mic, Info } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
@@ -226,10 +226,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
   const toggleRecording = (id: string) => {
     setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-  const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
-  const toggleEmail = (id: string) => {
-    setExpandedEmails((prev) => ({ ...prev, [id]: !prev[id] }));
   };
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
@@ -949,11 +945,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
       </div>
 
-      {/* 3 COLUMN LAYOUT — outer frame so center column borders read as one container */}
-      <div className="flex flex-1 overflow-hidden min-w-0 w-full border-t border-border">
+      {/* 3 COLUMN LAYOUT */}
+      <div className="flex flex-1 overflow-hidden min-w-0 w-full">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border-r border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
           <div className="px-6 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -1079,7 +1075,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* CENTER COLUMN - Conversations */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background shrink border-l border-r border-neutral-300/90 dark:border-neutral-600">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-muted/20 border-l border-r border-border">
           <div className="px-6 min-h-14 border-b border-border flex flex-wrap items-center justify-between gap-y-2 gap-x-3 shrink-0 bg-card z-10 py-3">
              <div className="flex items-center gap-3 shrink-0">
                 <MessageSquare className="w-4 h-4 text-primary" />
@@ -1318,53 +1314,23 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               }
 
               if (item._type === "email") {
-                const isEmailExpanded = expandedEmails[item.id] ?? false;
-                const emailBody: string = item.body || "(No body)";
-                const bodyLines = emailBody.split("\n");
+                const previewSource = typeof item.body === "string" ? item.body : "";
+                const timestamp = formatDateTime(new Date(item._ts));
                 return (
-                  <div key={item.id} className="flex flex-col w-full">
-                    <div className="bg-card border border-violet-400/25 rounded-xl overflow-hidden shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => toggleEmail(item.id)}
-                        className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-accent/40 transition-colors"
-                        aria-expanded={isEmailExpanded}
+                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"} w-full`}>
+                    <div className={`flex flex-col max-w-[85%] ${isOutbound ? "items-end" : "items-start"}`}>
+                      <div
+                        className={`rounded-2xl px-4 py-2.5 text-[13px] shadow-sm ${isOutbound ? "bg-[#007AFF] text-white rounded-tr-sm" : "bg-card border border-border text-foreground rounded-tl-sm"}`}
                       >
-                        <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/15 ring-1 ring-violet-400/35">
-                          <Mail className="w-3.5 h-3.5 text-violet-500" aria-hidden />
-                        </div>
-                        <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400 shrink-0">
-                          {isOutbound ? "Sent" : "Received"}
-                        </span>
-                        <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
-                          {item.subject || "(No subject)"}
-                        </span>
-                        <ChevronDown
-                          className={cn(
-                            "w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
-                            isEmailExpanded && "rotate-180",
-                          )}
-                          aria-hidden
-                        />
-                      </button>
-                      {isEmailExpanded && (
-                        <div className="px-3.5 pb-3 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
-                          {bodyLines.map((line, i) =>
-                            line.startsWith(">") ? (
-                              <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">
-                                {line}
-                              </p>
-                            ) : (
-                              <p key={i} className="text-sm text-foreground leading-relaxed">
-                                {line}
-                              </p>
-                            ),
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-1 px-1">
-                      {formatDateTime(new Date(item._ts))}
+                        {item.subject ? (
+                          <p className="font-semibold text-[12px] mb-1 opacity-90">{item.subject}</p>
+                        ) : null}
+                        <p className="opacity-90">
+                          {previewSource.slice(0, 120)}
+                          {previewSource.length > 120 ? "…" : ""}
+                        </p>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
                     </div>
                   </div>
                 );
@@ -1397,7 +1363,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card border-l border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
           <div className="px-4 h-14 border-b border-border shrink-0 bg-muted/10 flex items-center justify-center">
             <div className="flex bg-muted rounded-lg p-0.5 w-full">
               <button onClick={() => setRightTab("Activity")} className={cn(
