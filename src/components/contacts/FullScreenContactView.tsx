@@ -1035,50 +1035,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-card border rounded-xl">
               <div className="shrink-0 flex flex-col border-b border-border">
-                <div className="flex items-center justify-between px-4 py-3 gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <MessageSquare className="w-4 h-4 text-primary shrink-0" />
-                    <span className="font-semibold text-sm text-foreground">Conversation History</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
-                    <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider shrink-0">From:</span>
-                    {composeTab === "Email" ? (
-                      <select
-                        value={selectedEmailConnectionId}
-                        onChange={(e) => setSelectedEmailConnectionId(e.target.value)}
-                        className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all truncate min-w-0 flex-1"
-                        title={
-                          emailConnections.find((c) => c.id === selectedEmailConnectionId)?.provider_account_email || ""
-                        }
-                      >
-                        {emailConnections.length === 0 ? (
-                          <option value="">No inbox connected</option>
-                        ) : (
-                          emailConnections.map((connection) => (
-                            <option key={connection.id} value={connection.id}>
-                              {connection.provider_account_email}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    ) : (
-                      <select
-                        value={fromNumber}
-                        onChange={(e) => setFromNumber(e.target.value)}
-                        className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all min-w-0 flex-1 max-w-[200px]"
-                      >
-                        {availableNumbers.length === 0 ? (
-                          <option value="">No numbers available</option>
-                        ) : (
-                          availableNumbers.map((n) => (
-                            <option key={n.number} value={n.number}>
-                              {n.label}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    )}
-                  </div>
+                <div className="flex items-center px-4 py-3 gap-2 min-w-0">
+                  <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                  <span className="font-semibold text-sm text-foreground">Conversation History</span>
                 </div>
                 <div className="flex justify-end px-4 pb-2.5 pt-0">
                   <div className="flex bg-muted rounded-lg p-0.5 shrink-0">
@@ -1120,46 +1079,69 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                       const emailBody = typeof item.body === "string" ? item.body : "";
                       const bodyLines = emailBody.split("\n");
                       return (
-                        <div key={item.id} className="flex flex-col w-full">
-                          <div className="bg-card border border-violet-400/20 rounded-xl overflow-hidden shadow-sm">
-                            <button
-                              type="button"
-                              onClick={() => toggleEmail(item.id)}
-                              className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-accent/40 transition-colors"
-                              aria-expanded={isExpanded}
-                            >
-                              <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+                        <div
+                          key={item.id}
+                          className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
+                        >
+                          <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                            <div className="shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
                                 <Mail className="w-3.5 h-3.5 text-violet-400" aria-hidden />
                               </div>
-                              <span className="text-[11px] font-semibold text-violet-400 shrink-0">{isOutbound ? "Sent" : "Received"}</span>
-                              <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
-                                {item.subject || "(No subject)"}
-                              </span>
-                              <ChevronDown
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <div
                                 className={cn(
-                                  "w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
-                                  isExpanded && "rotate-180",
+                                  "min-w-0 rounded-2xl border text-sm shadow-sm overflow-hidden bg-card transition-all",
+                                  isOutbound ? "rounded-tr-sm border-violet-400/35" : "rounded-tl-sm border-violet-400/25",
                                 )}
-                                aria-hidden
-                              />
-                            </button>
-                            {isExpanded && (
-                              <div className="px-3.5 pb-3 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
-                                {bodyLines.map((line, i) =>
-                                  line.startsWith(">") ? (
-                                    <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">
-                                      {line}
-                                    </p>
-                                  ) : (
-                                    <p key={i} className="text-sm text-foreground leading-relaxed">
-                                      {line}
-                                    </p>
-                                  ),
-                                )}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleEmail(item.id)}
+                                  className="w-full px-3.5 py-2.5 flex items-center gap-2 text-left hover:bg-accent/30 transition-colors"
+                                  aria-expanded={isExpanded}
+                                >
+                                  <span className="text-[11px] font-semibold text-violet-500 dark:text-violet-400 shrink-0">
+                                    {isOutbound ? "Sent" : "Received"}
+                                  </span>
+                                  <span className="flex-1 text-[13px] font-medium text-foreground truncate min-w-0">
+                                    {item.subject || "(No subject)"}
+                                  </span>
+                                  <ChevronDown
+                                    className={cn(
+                                      "w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                                      isExpanded && "rotate-180",
+                                    )}
+                                    aria-hidden
+                                  />
+                                </button>
+                                {isExpanded ? (
+                                  <div className="px-3.5 pb-3 pt-0 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    {bodyLines.map((line, i) =>
+                                      line.startsWith(">") ? (
+                                        <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">
+                                          {line}
+                                        </p>
+                                      ) : (
+                                        <p key={i} className="text-sm text-foreground leading-relaxed">
+                                          {line}
+                                        </p>
+                                      ),
+                                    )}
+                                  </div>
+                                ) : null}
                               </div>
-                            )}
+                              <div
+                                className={cn(
+                                  "text-[10px] text-muted-foreground mt-1 px-1 flex",
+                                  isOutbound ? "justify-end" : "justify-start",
+                                )}
+                              >
+                                {formatDateTime(new Date(item._ts))}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[10px] text-muted-foreground mt-1 px-1">{formatDateTime(new Date(item._ts))}</div>
                         </div>
                       );
                     }
