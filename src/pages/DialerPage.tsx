@@ -105,6 +105,8 @@ import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSke
 import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
 import { ConversationHistory } from "@/components/dialer/ConversationHistory";
 import { DialerActions } from "@/components/dialer/DialerActions";
+import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
+import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 
 /* ─── Types ─── */
 
@@ -415,9 +417,6 @@ export default function DialerPage() {
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [templateSearch, setTemplateSearch] = useState('');
   const [assignedAgentName, setAssignedAgentName] = useState<string | null>(null);
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -519,7 +518,19 @@ export default function DialerPage() {
       ? String(currentLead.lead_id || currentLead.id)
       : null;
   }, [currentLead]);
-  const { formatDate, formatDateTime } = useBranding();
+  const { formatDate, formatDateTime, branding } = useBranding();
+
+  const messageTemplateMergeInput = useMemo((): MessageTemplateMergeInput => {
+    const leadUnknown = currentLead as Record<string, unknown> | undefined;
+    return {
+      contact: leadUnknown ?? null,
+      agentFirstName: profile?.first_name,
+      agentLastName: profile?.last_name,
+      agentPhone: profile?.phone,
+      agentEmail: profile?.email,
+      agencyName: branding.companyName,
+    };
+  }, [currentLead, profile, branding.companyName]);
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
@@ -2930,16 +2941,7 @@ export default function DialerPage() {
   }
 
 
-  const handleOpenTemplates = async () => {
-    setShowTemplatesModal(true);
-    setTemplatesLoading(true);
-    const { data } = await supabase
-      .from('message_templates')
-      .select('id, name, type, content')
-      .order('name');
-    setTemplates(data || []);
-    setTemplatesLoading(false);
-  };
+  const handleOpenTemplates = () => setShowTemplatesModal(true);
 
   function handleSendMessage() {
     toast.info(`${smsTab.toUpperCase()} sending coming soon`);
@@ -3062,64 +3064,16 @@ export default function DialerPage() {
           </div>
         </div>
       )}
-      {showTemplatesModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-md mx-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">Message Templates</h3>
-              <button
-                onClick={() => { setShowTemplatesModal(false); setTemplateSearch(''); }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                ✕
-              </button>
-            </div>
-            <input
-              type="text"
-              placeholder="Search templates..."
-              value={templateSearch}
-              onChange={e => setTemplateSearch(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-            {templatesLoading ? (
-              <div className="space-y-2">
-                {[1,2,3].map(i => (
-                  <div key={i} className="h-12 rounded-lg bg-accent animate-pulse" />
-                ))}
-              </div>
-            ) : templates.filter(t =>
-                t.name.toLowerCase().includes(templateSearch.toLowerCase())
-              ).length === 0 ? (
-              <div className="text-center py-6 text-muted-foreground text-sm">
-                {templates.length === 0
-                  ? 'No templates found. Add templates in Settings → Email & SMS Templates.'
-                  : 'No templates match your search.'}
-              </div>
-            ) : (
-              <div className="space-y-1 max-h-72 overflow-y-auto">
-                {templates
-                  .filter(t => t.name.toLowerCase().includes(templateSearch.toLowerCase()))
-                  .map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => {
-                        setMessageText(t.content);
-                        setShowTemplatesModal(false);
-                        setTemplateSearch('');
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-accent sidebar-transition"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">{t.name}</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t.type}</span>
-                      </div>
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <MessageTemplatesPickerModal
+        open={showTemplatesModal}
+        onOpenChange={setShowTemplatesModal}
+        channel={smsTab}
+        mergeInput={messageTemplateMergeInput}
+        onApply={({ body, subject }) => {
+          setMessageText(body);
+          if (subject !== null) setSubjectText(subject);
+        }}
+      />
       {showCallerIdWarning && pendingCall && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
           <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">

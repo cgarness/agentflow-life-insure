@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus, Mic, Info } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
@@ -34,6 +34,8 @@ import {
   resolveFieldOrder,
   type ContactType,
 } from "@/lib/contactFieldLayout";
+import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
+import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 
 function parseUserContactFieldOrder(contactLayoutBlob: unknown, t: ContactType): string[] | undefined {
   if (!contactLayoutBlob || typeof contactLayoutBlob !== "object" || Array.isArray(contactLayoutBlob)) {
@@ -216,7 +218,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile } = useAuth();
-  const { formatDate } = useBranding();
+  const { formatDate, branding } = useBranding();
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
@@ -265,12 +267,27 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
   const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const latestContactIdRef = useRef<string | null>(null);
   latestContactIdRef.current = contact?.id ?? null;
+
+  const messageTemplateMergeInput = useMemo((): MessageTemplateMergeInput => {
+    const cUnknown = contact as Record<string, unknown> | undefined;
+    return {
+      contact: cUnknown ?? null,
+      agentFirstName: profile?.first_name,
+      agentLastName: profile?.last_name,
+      agentPhone: profile?.phone,
+      agentEmail: profile?.email,
+      agencyName: branding.companyName,
+    };
+  }, [contact, profile, branding.companyName]);
+
+  const handleOpenComposeTemplates = useCallback(() => setShowTemplatesModal(true), []);
 
   // Sync form + clear per-contact UI before paint when switching contact or type (avoids wrong lead's notes/fields flashing).
   useLayoutEffect(() => {
@@ -1273,8 +1290,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                      }}
                   />
                   <div className="flex items-center gap-1 mb-1 shadow-sm bg-card/50 rounded-lg p-1 border">
-                    <button onClick={() => toast.info("Templates coming soon")} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0">
-                       <FileText className="w-4 h-4" />
+                    <button
+                      type="button"
+                      title="Templates"
+                      onClick={handleOpenComposeTemplates}
+                      className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                    >
+                      <FileText className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={handleSendMessage} 
@@ -1542,6 +1564,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MessageTemplatesPickerModal
+        open={showTemplatesModal}
+        onOpenChange={setShowTemplatesModal}
+        channel={composeTab === "Email" ? "email" : "sms"}
+        mergeInput={messageTemplateMergeInput}
+        onApply={({ body, subject }) => {
+          setComposeText(body);
+          if (subject !== null) setEmailSubject(subject);
+        }}
+      />
 
       <AppointmentModal
         open={showAppt}

@@ -1,6 +1,6 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** April 30, 2026
+**Owner:** Chris Garness | **Last Updated:** May 1, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
 
 ---
@@ -138,6 +138,9 @@
   - Edge Functions **`email-connect-start`**, **`email-connect-callback`**, **`email-disconnect`**, **`email-send-contact-message`**, **`email-sync-incremental`** with `config.toml` entries (all `verify_jwt = false`, JWT validated in-code).
   - **`src/components/settings/EmailSetup.tsx`** with real Google/Microsoft OAuth launch + status surface via URL params; routed via `?section=email-settings`.
   - **`FullScreenContactView.tsx`** loads `contact_emails` into the unified conversation stream alongside calls/SMS; composer Email mode posts through Gmail API with token refresh.
+
+- **2026-05-01 | [DONE] | Message templates in compose (Full View + Dialer)**
+  *What:* **Templates** next to the SMS/Email composers now opens **`MessageTemplatesPickerModal`** (loads `message_templates` on open, search, channel filter). Choosing a template fills the compose body; **email** templates also set **subject**. **Merge tokens** from Settings templates (e.g. `{{contact_first_name}}`) are replaced using the open contact/lead row plus the signed-in profile and **company branding name** where data exists. **Files:** **`src/lib/messageTemplateMerge.ts`**, **`src/components/messaging/MessageTemplatesPickerModal.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/contacts/FullScreenContactView.tsx`**.
 
 - **2026-04-30 | [DONE] | Per-user contact Field Layout — save + Full View + Dialer parity**
   *What:* **Field Layout** was upserting **`contact_management_settings`**, which only **Admin** may update under RLS — Agents/Team Leaders saw save failures. Layout is now persisted per user in **`user_preferences.settings.contact_field_layout`** (`{ lead?, client?, recruit?: string[] }`), validated with **Zod**, merged on save so tabs do not overwrite each other. Rendering order: **user override → org `field_order_*` fallback → same hardcoded defaults as before** (extracted to **`src/lib/contactFieldLayout.ts`**). **`FullScreenContactView`** loads prefs in parallel with org settings. **`DialerPage`** prefetches user + org lead order once per `user`+`org`; **`LeadCard`** **connected** branch uses optional **`fieldDescriptors`** with the previous hardcoded grid as fallback until ready. No migrations, no schema/RLS changes.
