@@ -69,17 +69,18 @@ export function MessageComposePanel({
       </div>
 
       <div className="flex items-center justify-between px-4 py-3 border-t mt-3">
-        <div className="flex gap-1">
+        <div className="flex bg-muted rounded-lg p-0.5 w-fit mb-3">
           {(["sms", "email"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => onChannelChange(tab)}
-              className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all ${
+              className={cn(
+                "px-4 py-1.5 rounded-md text-[11px] font-bold transition-all uppercase tracking-tight",
                 channel === tab
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent"
-              }`}
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
             >
               {tab}
             </button>
