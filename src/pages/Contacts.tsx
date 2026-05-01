@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
@@ -28,7 +28,7 @@ import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import AddClientModal from "@/components/contacts/AddClientModal";
 import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
-import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
+import { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
@@ -238,6 +238,7 @@ const Contacts: React.FC = () => {
   const { user, profile, isBuildingOrganization } = useAuth();
   const { organizationId, role, isSuperAdmin } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
+  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
@@ -543,7 +544,6 @@ const Contacts: React.FC = () => {
   /** Lead source name → hex from Settings → Lead Sources */
   const [leadSourceColorMap, setLeadSourceColorMap] = useState<Record<string, string>>({});
   const [filterOpen, setFilterOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
@@ -1011,6 +1011,15 @@ const Contacts: React.FC = () => {
     setBulkAssignOpen(false);
     setBulkStatusOpen(false);
   }, [tab]);
+
+  // Refresh leads + import history when returning from the /contacts/import page
+  useEffect(() => {
+    const state = location.state as Record<string, unknown> | null;
+    if (state?.importCompleted) {
+      fetchData({ silent: true });
+      fetchImportHistory();
+    }
+  }, [location.state]);
 
   // Auto-open a contact modal when navigated with openContactId state
   useEffect(() => {
@@ -1830,7 +1839,7 @@ const Contacts: React.FC = () => {
           leadSources={allLeadSources}
         />
         <div className="flex-1" />
-        {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
+        {tab === "Leads" && <button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
         {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
@@ -2139,7 +2148,7 @@ const Contacts: React.FC = () => {
                 <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">When you import leads via CSV, your history will appear here.</p>
-                <button onClick={() => setImportModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>
+                <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>
               </div>
             ) : (
               <div className="divide-y divide-border">
@@ -2300,59 +2309,6 @@ const Contacts: React.FC = () => {
         onClose={() => setRowDeletePending(null)}
       />
 
-      {/* Import Modal */}
-      <ImportLeadsModal
-        open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        existingLeads={leads}
-        campaigns={realCampaigns}
-        organizationId={organizationId}
-        currentUserId={user?.id}
-        currentUserDisplayName={[profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim()}
-        agentProfiles={agentProfiles}
-        viewerRole={role}
-        viewerIsSuperAdmin={isSuperAdmin}
-        assignableAgentIds={assignableAgentIdsForImport}
-        onCampaignCreated={async (campaign) => {
-          const { data, error } = await supabase
-            .from("campaigns")
-            .insert({
-              name: campaign.name,
-              type: campaign.type,
-              description: campaign.description,
-              status: "Active",
-              total_leads: 0,
-              organization_id: organizationId,
-              created_by: user?.id,
-            } as Record<string, unknown>)
-            .select("id")
-            .maybeSingle();
-          if (error || !data?.id) {
-            toast.error(error?.message || "Failed to create campaign during import");
-            return null;
-          }
-          const { data: list } = await supabase
-            .from("campaigns")
-            .select("id, name, type, status, user_id, assigned_agent_ids");
-          if (list) setRealCampaigns(list as typeof realCampaigns);
-          return { id: data.id as string };
-        }}
-        onImportComplete={async (newLeads, historyEntry, strategy) => {
-          // Insert import history row into Supabase
-          await supabase.from("import_history").insert({
-            file_name: historyEntry.fileName,
-            total_records: historyEntry.totalRecords,
-            imported: historyEntry.imported,
-            duplicates: historyEntry.duplicates,
-            errors: historyEntry.errors,
-            agent_id: user?.id || null,
-            imported_lead_ids: historyEntry.importedLeadIds,
-            organization_id: organizationId,
-          } as any);
-          await fetchImportHistory();
-          fetchData();
-        }}
-      />
 
       {/* Undo Confirmation */}
       {undoConfirm && (

@@ -16,6 +16,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import DialerPage from "./pages/DialerPage";
 import Contacts from "./pages/Contacts";
+import ImportLeadsPage from "./pages/ImportLeadsPage";
 import Conversations from "./pages/Conversations";
 import CalendarPage from "./pages/CalendarPage";
 
@@ -141,6 +142,7 @@ const App = () => (
                           <Route path="/dashboard" element={<Dashboard />} />
                           <Route path="/dialer" element={<DialerPage />} />
                           <Route path="/contacts" element={<Contacts />} />
+                          <Route path="/contacts/import" element={<ImportLeadsPage />} />
                           <Route path="/conversations" element={<Conversations />} />
                           <Route path="/calendar" element={<CalendarPage />} />
 

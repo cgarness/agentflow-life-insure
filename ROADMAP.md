@@ -2382,3 +2382,32 @@ Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed
 - Add `/contacts/:id` (or equivalent modal) so contact click-through resolves a specific record.
 
 **Files touched:** `supabase/migrations/20260429120000_global_search_rpc.sql`, `src/hooks/useDebounce.ts`, `src/components/search/GlobalSearch.tsx`, `src/components/search/SearchResultsDropdown.tsx`, `src/components/search/SearchResultItem.tsx`, `src/components/layout/TopBar.tsx`, `ROADMAP.md`.
+
+---
+
+### Work Log — 2026-05-01 — Import CSV: Modal → Full-Page Route `[DONE]`
+
+**Task:** Convert the Import Leads flow from a fixed-width modal overlay to a full-page authenticated route at `/contacts/import`.
+
+**Files created:**
+- `src/pages/ImportLeadsPage.tsx` (158 lines) — page wrapper that reads `?campaignId` from query params, loads agent profiles, campaigns, and existing leads, then renders `ImportLeadsModal` in `renderAsPage` mode.
+
+**Files modified:**
+- `src/components/contacts/ImportLeadsModal.tsx` — shell only; added `renderAsPage`, `defaultCampaignId`, and `onViewLeads` props. `renderAsPage` suppresses the overlay/backdrop and renders the content in a `max-w-4xl mx-auto` column. `defaultCampaignId` pre-selects the campaign in the campaign picker. `onViewLeads` overrides the "View Leads" button action in step 5.
+- `src/App.tsx` — added `<Route path="/contacts/import" element={<ImportLeadsPage />} />` inside the `ProtectedRoute` block next to `/contacts`.
+- `src/pages/Contacts.tsx` — removed `importModalOpen` state and `<ImportLeadsModal>` render block; both "Import CSV" buttons now `navigate('/contacts/import')`; added `useEffect` watching `location.state.importCompleted` to refresh leads + import history on return.
+- `src/pages/CampaignDetail.tsx` — removed the inline `ImportCSVModal` component (+ `parseCSV`, `autoMapHeaders`, `FIELD_MAP` helpers); removed `importCSVOpen` state; "Import CSV" button now `navigate(\`/contacts/import?campaignId=\${id}\`)`. Added `useLocation`.
+
+**Decisions:**
+- Core import logic in `ImportLeadsModal.tsx` was not changed — only the outermost return statement was refactored to share a single `innerContent` JSX variable between modal and page modes.
+- `existingLeads` passed to `ImportLeadsModal` from `ImportLeadsPage` are real rows (id/phone/email) loaded on mount; server-side duplicate detection via `import-contacts` Edge Function still fires regardless.
+- `onClose` (X / Cancel) → `navigate(-1)` on the import page; "View Leads" → `navigate('/contacts?tab=Leads', { state: { importCompleted: true } })`. The `importCompleted` state flag is what triggers the leads refresh in `Contacts.tsx`.
+- No sidebar nav entry added for `/contacts/import` (per spec).
+
+**No new migrations or env vars required.**
+
+### Context Snapshot — 2026-05-01 — Import CSV: Modal → Full-Page Route
+
+**What changed:** The lead import UX moved from a fixed-width modal overlay into a proper full-page route (`/contacts/import`). The modal's visual chrome (overlay, backdrop, 860px fixed width) is hidden in page mode via the new `renderAsPage` prop; all import logic is untouched. Contacts and CampaignDetail entry points navigate to the new route; Contacts refreshes its lead list when the import page signals completion via `location.state.importCompleted`.
+
+**What's next:** No immediate follow-on; the existing `/contacts` detail-route BLOCKER (no `/contacts/:id` route) is still open from the Global Search context snapshot above.
