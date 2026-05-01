@@ -142,6 +142,9 @@
 - **2026-05-01 | [DONE] | Message templates in compose (Full View + Dialer)**
   *What:* **Templates** next to the SMS/Email composers now opens **`MessageTemplatesPickerModal`** (loads `message_templates` on open, search, channel filter). Choosing a template fills the compose body; **email** templates also set **subject**. **Merge tokens** from Settings templates (e.g. `{{contact_first_name}}`) are replaced using the open contact/lead row plus the signed-in profile and **company branding name** where data exists. **Files:** **`src/lib/messageTemplateMerge.ts`**, **`src/components/messaging/MessageTemplatesPickerModal.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/contacts/FullScreenContactView.tsx`**.
 
+- **2026-05-01 | [DONE] | Contact Conversations timeline matches dialer Conversation History visuals**
+  *What:* **`FullScreenContactView`** middle column thread uses the same bubble layout as **`ConversationHistory`**: emerald **Phone** / blue **MessageSquare** side icons (muted until hover), **SMS** inbound **`#E9E9EB`** bubble (dark **`#262629`**), **`max-w-[85%]`**, **`text-sm`** / **`px-3.5 py-2`**, **`gap-3`** + **`px-4 py-3`** scroll padding; **email** rows use full-width violet-bordered cards with single-row header (**`w-6`** mail pill, **`Sent`/`Received`**, subject **`truncate`**, **`text-sm`** body lines when expanded); timestamps use **`formatDateTime`** (branding). *File:* **`FullScreenContactView.tsx`**.
+
 - **2026-05-01 | [DONE] | Bugfix — FullScreenContactView `handleComposeChannelChange` missing (prod crash)**  
   *What:* **`MessageComposePanel`** referenced **`handleComposeChannelChange`** but the callback was absent from **`FullScreenContactView.tsx`** → runtime **"handleComposeChannelChange is not defined"** when opening Contacts full view. Restored **`useCallback`** that switches **`composeTab`** and clears **`composeText`** / **`emailSubject`**. *File:* **`FullScreenContactView.tsx`**.
 

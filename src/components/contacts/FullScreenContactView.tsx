@@ -142,6 +142,22 @@ const normalizeStatusDisplay = (status: string) => {
   return status.replace(/AP+PINTMENT/i, "Appointment");
 };
 
+/** Same icon treatment as dialer `ConversationHistory` bubble rows. */
+function contactConvoBubbleIcon(kind: "call" | "sms") {
+  if (kind === "call") {
+    return (
+      <div className="w-6 h-6 rounded-full flex items-center justify-center bg-emerald-500/10">
+        <Phone className="w-3.5 h-3.5 text-emerald-500" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-400/10">
+      <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+    </div>
+  );
+}
+
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -219,7 +235,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile } = useAuth();
-  const { formatDate, branding } = useBranding();
+  const { formatDate, formatDateTime, branding } = useBranding();
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
@@ -1121,8 +1137,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           </div>
 
           
-          {/* Thread Area */}
-          <div ref={threadRef} className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-4 bg-muted/30">
+          {/* Thread Area — spacing/padding aligned with dialer ConversationHistory feed */}
+          <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 bg-muted/30">
             {convoLoading && (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -1143,142 +1159,209 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                 item._type === "sms"
                   ? item.direction === "outbound"
                   : !isCallsRowInboundDirection(item.direction);
-              const timestamp = new Date(item._ts).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 
               if (item._type === "call") {
                 return (
-                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"} w-full`}>
-                    <div className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} max-w-[85%]`}>
-                      <div className={`px-4 py-2.5 rounded-2xl text-[13px] shadow-sm relative transition-all ${
-                        isOutbound 
-                          ? "bg-[#007AFF] text-white rounded-tr-sm" 
-                          : "bg-card border border-border text-foreground rounded-tl-sm"
-                      }`}>
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-2 min-w-0">
-                              <span className="font-semibold shrink-0">
+                  <div
+                    key={item.id}
+                    className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
+                  >
+                    <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                      <div className="shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                        {contactConvoBubbleIcon("call")}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <div
+                          className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
+                            isOutbound
+                              ? "bg-[#007AFF] text-white rounded-tr-sm"
+                              : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                          }`}
+                        >
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="leading-tight font-semibold shrink-0">
                                 {isOutbound ? "Outbound Call" : "Inbound Call"}
                               </span>
 
                               {item.disposition_name && (
-                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                                  isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
-                                } shadow-sm`}>
+                                <span
+                                  className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                    isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
+                                  } shadow-sm`}
+                                >
                                   {item.disposition_name}
                                 </span>
                               )}
 
-                              <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
-                                {item.duration != null && item.duration > 0 ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, "0")}` : "0:00"}
-                              </span>
-                            </div>
-                            <div className="flex items-center shrink-0 gap-0.5">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setConvoCallDetail(item as ContactConvoCallRow);
-                                }}
-                                className={`p-1 rounded-full transition-all ${
-                                  isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
+                              <span
+                                className={`text-[11px] font-medium opacity-80 ${
+                                  isOutbound ? "text-white" : "text-muted-foreground"
                                 }`}
-                                title="Call details"
-                                aria-label="View full call details"
                               >
-                                <Info className="w-3 h-3" strokeWidth={2.5} />
-                              </button>
-                              {((item.recording_url && item.recording_url !== "__recording_pending__") || (item.twilio_call_sid && item.duration > 0)) && (
+                                {item.duration != null && item.duration > 0
+                                  ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, "0")}`
+                                  : "0:00"}
+                              </span>
+
+                              <div className="flex items-center shrink-0 gap-0.5 ml-auto">
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    toggleRecording(item.id);
+                                    setConvoCallDetail(item as ContactConvoCallRow);
                                   }}
                                   className={`p-1 rounded-full transition-all ${
                                     isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
                                   }`}
-                                  title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                                  title="Call details"
+                                  aria-label="View full call details"
                                 >
-                                  <Play className={`w-3 h-3 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                                  <Info className="w-3.5 h-3.5" strokeWidth={2.5} />
                                 </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Integrated Recording Player */}
-                        {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.twilio_call_sid && item.duration > 0)) && expandedRecordings[item.id] && (
-                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
-                            <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
-                                <Mic className="w-3 h-3 text-current" aria-hidden />
+                                {((item.recording_url && item.recording_url !== "__recording_pending__") ||
+                                  (item.twilio_call_sid && item.duration > 0)) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleRecording(item.id);
+                                    }}
+                                    className={`p-1 rounded-full transition-all ${
+                                      isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
+                                    }`}
+                                    title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                                  >
+                                    <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                                  </button>
+                                )}
                               </div>
-                              <span>Call Recording</span>
-                            </div>
-                            <div className={`rounded-xl p-3 ${isOutbound ? "bg-white/10" : "bg-accent/50"} border ${isOutbound ? "border-white/20" : "border-border/50"}`}>
-                              <RecordingPlayer callId={item.id} compact />
                             </div>
                           </div>
-                        )}
+
+                          {((item.recording_url && item.recording_url !== "__recording_pending__") ||
+                            (item.twilio_call_sid && item.duration > 0)) &&
+                            expandedRecordings[item.id] && (
+                              <div
+                                className={`mt-3 pt-3 border-t ${
+                                  isOutbound ? "border-white/30" : "border-border/30"
+                                } animate-in fade-in slide-in-from-top-1 duration-200`}
+                              >
+                                <div
+                                  className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${
+                                    isOutbound ? "text-white" : "text-foreground"
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                      isOutbound ? "bg-white/20" : "bg-primary/10"
+                                    }`}
+                                  >
+                                    <Mic className="w-3 h-3 text-current" aria-hidden />
+                                  </div>
+                                  <span>Call Recording</span>
+                                </div>
+                                <div
+                                  className={`rounded-xl p-3 ${
+                                    isOutbound ? "bg-white/10" : "bg-accent/50"
+                                  } border ${isOutbound ? "border-white/20" : "border-border/50"}`}
+                                >
+                                  <RecordingPlayer callId={item.id} compact />
+                                </div>
+                              </div>
+                            )}
+                        </div>
+                        <div
+                          className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${
+                            isOutbound ? "justify-end" : "justify-start"
+                          }`}
+                        >
+                          {formatDateTime(new Date(item._ts))}
+                        </div>
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
                     </div>
                   </div>
                 );
               }
-              
+
               if (item._type === "sms") {
                 return (
-                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex flex-col max-w-[75%] ${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${isOutbound ? "bg-[#007AFF] text-white rounded-tr-sm" : "bg-card border border-border text-foreground rounded-tl-sm"}`}>
-                         <p>{item.body}</p>
-                       </div>
-                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
+                  <div
+                    key={item.id}
+                    className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
+                  >
+                    <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                      <div className="shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                        {contactConvoBubbleIcon("sms")}
+                      </div>
+                      <div className="flex flex-col">
+                        <div
+                          className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
+                            isOutbound
+                              ? "bg-[#007AFF] text-white rounded-tr-sm"
+                              : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                          }`}
+                        >
+                          <p className="leading-relaxed">{item.body}</p>
+                        </div>
+                        <div
+                          className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${
+                            isOutbound ? "justify-end" : "justify-start"
+                          }`}
+                        >
+                          {formatDateTime(new Date(item._ts))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               }
-              
+
               if (item._type === "email") {
                 const isEmailExpanded = expandedEmails[item.id] ?? false;
                 const emailBody: string = item.body || "(No body)";
-                const bodyLines = emailBody.split('\n');
+                const bodyLines = emailBody.split("\n");
                 return (
-                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex flex-col max-w-[85%] ${isOutbound ? "items-end" : "items-start"}`}>
-                      <div className="rounded-xl shadow-sm border border-violet-400/20 bg-card overflow-hidden">
-                        <button
-                          onClick={() => toggleEmail(item.id)}
-                          className="w-full px-4 py-3 flex items-center gap-2.5 text-left hover:bg-accent/40 transition-colors"
-                        >
-                          <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-400/10">
-                            <Mail className="w-3.5 h-3.5 text-violet-400" />
-                          </div>
-                          <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-[11px] font-semibold text-violet-400">
-                              {isOutbound ? "Sent" : "Received"}
-                            </span>
-                            <span className="text-[13px] font-medium text-foreground truncate">
-                              {item.subject || "(No subject)"}
-                            </span>
-                          </div>
-                          <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${isEmailExpanded ? "rotate-180" : ""}`} />
-                        </button>
-                        {isEmailExpanded && (
-                          <div className="px-4 pb-3.5 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
-                            {bodyLines.map((line, i) =>
-                              line.startsWith('>') ? (
-                                <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{line}</p>
-                              ) : (
-                                <p key={i} className="text-[13px] text-foreground leading-relaxed">{line}</p>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
+                  <div key={item.id} className="flex flex-col w-full">
+                    <div className="bg-card border border-violet-400/20 rounded-xl overflow-hidden shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => toggleEmail(item.id)}
+                        className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-accent/40 transition-colors"
+                      >
+                        <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+                          <Mail className="w-3.5 h-3.5 text-violet-400" />
+                        </div>
+                        <span className="text-[11px] font-semibold text-violet-400 shrink-0">
+                          {isOutbound ? "Sent" : "Received"}
+                        </span>
+                        <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
+                          {item.subject || "(No subject)"}
+                        </span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${
+                            isEmailExpanded ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                      {isEmailExpanded && (
+                        <div className="px-3.5 pb-3 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                          {bodyLines.map((line, i) =>
+                            line.startsWith(">") ? (
+                              <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">
+                                {line}
+                              </p>
+                            ) : (
+                              <p key={i} className="text-sm text-foreground leading-relaxed">
+                                {line}
+                              </p>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-1 px-1">
+                      {formatDateTime(new Date(item._ts))}
                     </div>
                   </div>
                 );
