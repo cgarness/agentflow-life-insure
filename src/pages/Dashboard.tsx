@@ -357,7 +357,7 @@ const Dashboard: React.FC = () => {
           />
         );
       case "goal_progress":
-        return <GoalProgressWidget userId={userId} stats={stats} />;
+        return <GoalProgressWidget userId={userId} />;
       case "leaderboard":
         return <LeaderboardWidget userId={userId} />;
       case "missed_calls":

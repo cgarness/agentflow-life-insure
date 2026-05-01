@@ -23,6 +23,9 @@ const SettingsInner: React.FC = () => {
     if (searchParams.get("section") === "email") {
       setSearchParams({ section: "email-settings" }, { replace: true });
     }
+    if (searchParams.get("section") === "goals") {
+      setSearchParams({ section: "my-profile" }, { replace: true });
+    }
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {

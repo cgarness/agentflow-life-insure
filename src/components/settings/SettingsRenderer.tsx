@@ -11,7 +11,6 @@ import Permissions from "@/components/settings/Permissions";
 import EmailSetup from "@/components/settings/EmailSetup";
 import EmailSMSTemplates from "@/components/settings/EmailSMSTemplates";
 import Carriers from "@/components/settings/Carriers";
-import GoalSetting from "@/components/settings/GoalSetting";
 import DNCSettings from "@/components/settings/DNCSettings";
 import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
@@ -45,7 +44,6 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "email-settings": return <EmailSetup />;
     case "templates": return <EmailSMSTemplates />;
     case "carriers": return <Carriers />;
-    case "goals": return <GoalSetting />;
     case "dnc": return <DNCSettings />;
     case "menu-links": return <CustomMenuLinks />;
     case "activity-log": return <ActivityLog />;

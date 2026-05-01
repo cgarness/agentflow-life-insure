@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardStats, LeaderboardEntry, WinFeedItem } from "@/lib/types";
+import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 
 const daysBetween = (dateString?: string | null) => {
   if (!dateString) return Infinity;
@@ -389,28 +390,49 @@ export const dashboardSupabaseApi = {
 
   async getGoalProgress(userId: string): Promise<GoalProgress[]> {
     const ranges = getDateRanges();
-    
-    // Get goals from goals table
-    const { data: goals } = await supabase
-      .from("goals")
-      .select("metric, target_value, period");
-    
-    // Get current values
+    const d = ranges.now;
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const weekMonday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    weekMonday.setDate(diff);
+    weekMonday.setHours(0, 0, 0, 0);
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("monthly_call_goal, monthly_policies_goal, weekly_appointment_goal, monthly_premium_goal")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const targets = {
+      dailyCalls: Number(profile?.monthly_call_goal) || 0,
+      monthlyPolicies: Number(profile?.monthly_policies_goal) || 0,
+      weeklyAppointments: Number(profile?.weekly_appointment_goal) || 0,
+      monthlyPremium: Number(profile?.monthly_premium_goal) || 0,
+    };
+
     const [
       { count: dailyCalls },
       { count: monthlyPolicies },
+      { count: weeklyAppointments },
       { data: winsData },
     ] = await Promise.all([
       supabase
         .from("calls")
         .select("id", { count: "exact", head: true })
+        .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
         .eq("agent_id", userId)
-        .gte("started_at", ranges.todayStart.toISOString()),
+        .gte("created_at", ranges.todayStart.toISOString()),
       supabase
-        .from("wins")
+        .from("clients")
         .select("id", { count: "exact", head: true })
-        .eq("agent_id", userId)
+        .eq("assigned_agent_id", userId)
         .gte("created_at", ranges.monthStart.toISOString()),
+      supabase
+        .from("appointments")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "Scheduled")
+        .eq("user_id", userId)
+        .gte("start_time", weekMonday.toISOString()),
       supabase
         .from("wins")
         .select("premium_amount")
@@ -423,42 +445,41 @@ export const dashboardSupabaseApi = {
       0
     );
 
-    const goalMap = new Map((goals ?? []).map(g => [g.metric, g]));
     const result: GoalProgress[] = [];
+    const pushIf = (
+      metric: string,
+      label: string,
+      period: string,
+      current: number,
+      target: number
+    ) => {
+      if (target <= 0) return;
+      result.push({ metric, label, current, target, period });
+    };
 
-    // Map goals to progress
-    const metricsConfig: { metric: string; label: string; currentValue: number }[] = [
-      { metric: "daily_calls", label: "Daily Calls", currentValue: dailyCalls ?? 0 },
-      { metric: "monthly_policies", label: "Monthly Policies", currentValue: monthlyPolicies ?? 0 },
-      { metric: "Monthly Premium", label: "Monthly Premium", currentValue: premiumThisMonth },
-    ];
-    
-    for (const config of metricsConfig) {
-      const goal = goalMap.get(config.metric);
-      if (goal) {
-        result.push({
-          metric: config.metric,
-          label: config.label,
-          current: config.currentValue,
-          target: goal.target_value,
-          period: goal.period,
-        });
-      }
-    }
-    
-    // Add any other goals with 0 progress
-    for (const goal of goals ?? []) {
-      if (!metricsConfig.find(m => m.metric === goal.metric)) {
-        result.push({
-          metric: goal.metric,
-          label: goal.metric.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
-          current: 0,
-          target: goal.target_value,
-          period: goal.period,
-        });
-      }
-    }
-    
+    pushIf("daily_calls", "Daily Calls", "day", dailyCalls ?? 0, targets.dailyCalls);
+    pushIf(
+      "monthly_policies",
+      "Monthly Policies",
+      "month",
+      monthlyPolicies ?? 0,
+      targets.monthlyPolicies
+    );
+    pushIf(
+      "weekly_appointments",
+      "Weekly Appointments",
+      "week",
+      weeklyAppointments ?? 0,
+      targets.weeklyAppointments
+    );
+    pushIf(
+      "monthly_premium",
+      "Monthly Premium",
+      "month",
+      premiumThisMonth,
+      targets.monthlyPremium
+    );
+
     return result;
   },
 

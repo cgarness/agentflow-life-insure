@@ -1,6 +1,6 @@
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield,
-  Target, Bot, Ban,
+  Bot, Ban,
   Webhook, Link, Clock, Database, Lock,
   CalendarDays, UserCircle, SlidersHorizontal,
 } from "lucide-react";
@@ -54,7 +54,6 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
       { slug: "dispositions", icon: List, label: "Dispositions" },
       { slug: "contact-management", icon: SlidersHorizontal, label: "Contact Flow" },
       { slug: "dnc", icon: Ban, label: "DNC List" },
-      { slug: "goals", icon: Target, label: "Goal Setting" },
       { slug: "calendar-settings", icon: CalendarDays, label: "Calendar" },
     ],
   },
