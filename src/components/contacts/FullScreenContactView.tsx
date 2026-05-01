@@ -28,6 +28,7 @@ import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
+import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
 import {
   CONTACT_FIELD_LAYOUT_KEY,
   getDefaultFieldOrder,
@@ -1057,18 +1058,59 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
         {/* CENTER COLUMN - Conversations */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-muted/20">
-          <div className="px-6 h-14 border-b border-border flex items-center justify-between shrink-0 bg-card z-10">
-             <div className="flex items-center gap-3">
+          <div className="px-6 min-h-14 border-b border-border flex flex-wrap items-center justify-between gap-y-2 gap-x-3 shrink-0 bg-card z-10 py-3">
+             <div className="flex items-center gap-3 shrink-0">
                 <MessageSquare className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">Conversations</h3>
              </div>
-             <div className="flex bg-muted rounded-lg p-0.5">
-                {["All", "Calls", "SMS", "Email"].map(f => (
-                  <button key={f} onClick={() => setConvoFilter(f as any)} className={cn(
-                    "px-3 py-1 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
-                    convoFilter === f ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}>{f}</button>
-                ))}
+             <div className="flex flex-wrap items-center gap-2 justify-end flex-1 min-w-0">
+                <div className="flex bg-muted rounded-lg p-0.5 shrink-0">
+                  {["All", "Calls", "SMS", "Email"].map((f) => (
+                    <button key={f} onClick={() => setConvoFilter(f as any)} className={cn(
+                      "px-3 py-1 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
+                      convoFilter === f ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}>{f}</button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
+                  <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider shrink-0">From:</span>
+                  {composeTab === "Email" ? (
+                    <select
+                      value={selectedEmailConnectionId}
+                      onChange={(e) => setSelectedEmailConnectionId(e.target.value)}
+                      className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all truncate min-w-0 flex-1"
+                      title={
+                        emailConnections.find((c) => c.id === selectedEmailConnectionId)?.provider_account_email || ""
+                      }
+                    >
+                      {emailConnections.length === 0 ? (
+                        <option value="">No inbox connected</option>
+                      ) : (
+                        emailConnections.map((connection) => (
+                          <option key={connection.id} value={connection.id}>
+                            {connection.provider_account_email}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  ) : (
+                    <select
+                      value={fromNumber}
+                      onChange={(e) => setFromNumber(e.target.value)}
+                      className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all min-w-0 flex-1 max-w-[200px]"
+                    >
+                      {availableNumbers.length === 0 ? (
+                        <option value="">No numbers available</option>
+                      ) : (
+                        availableNumbers.map((n) => (
+                          <option key={n.number} value={n.number}>
+                            {n.label}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  )}
+                </div>
              </div>
           </div>
 
@@ -1239,75 +1281,26 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             })}
           </div>
           
-          {/* Composer */}
-          <div className="bg-card border-t border-border p-4 shrink-0 shadow-sm z-10 relative">
-             <div className="flex gap-1.5 mb-3">
-               {["SMS", "Email"].map(t => (
-                 <button key={t} onClick={() => setComposeTab(t as any)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${composeTab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>{t}</button>
-               ))}
-             </div>
-             <div className="flex flex-col gap-2 bg-accent/50 p-2 rounded-xl border border-border focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all">
-                {composeTab === "Email" && (
-                  <>
-                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50">
-                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">From:</span>
-                      <select
-                        value={selectedEmailConnectionId}
-                        onChange={(e) => setSelectedEmailConnectionId(e.target.value)}
-                        className="bg-transparent text-xs font-medium focus:outline-none"
-                      >
-                        {emailConnections.length === 0 ? (
-                          <option value="">No inbox connected</option>
-                        ) : (
-                          emailConnections.map((connection) => (
-                            <option key={connection.id} value={connection.id}>
-                              {connection.provider_account_email}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </div>
-                    <input 
-                      value={emailSubject}
-                      onChange={e => setEmailSubject(e.target.value)}
-                      placeholder="Subject Line"
-                      className="w-full px-3 py-2 bg-transparent text-sm font-bold border-b border-border/50 focus:outline-none placeholder:text-muted-foreground/50"
-                    />
-                  </>
-                )}
-                <div className="flex items-end gap-2">
-                  <textarea 
-                     value={composeText} 
-                     onChange={e => { setComposeText(e.target.value); }} 
-                     placeholder={composeTab === "Email" ? "Write your email content..." : `Message ${contact.firstName || 'contact'}...`}
-                     rows={Math.max(1, Math.min(6, composeText.split('\n').length))}
-                     className="flex-1 min-h-[40px] max-h-[200px] px-3 py-2.5 bg-transparent resize-none text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none"
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter' && !e.shiftKey && composeTab === "SMS") {
-                         e.preventDefault();
-                         handleSendMessage();
-                       }
-                     }}
-                  />
-                  <div className="flex items-center gap-1 mb-1 shadow-sm bg-card/50 rounded-lg p-1 border">
-                    <button
-                      type="button"
-                      title="Templates"
-                      onClick={handleOpenComposeTemplates}
-                      className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-                    >
-                      <FileText className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={handleSendMessage} 
-                      disabled={!composeText.trim() || messageSending || (composeTab === "SMS" && !contact.phone) || (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))}
-                      className="h-9 px-4 rounded-md bg-primary text-primary-foreground font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 transition-all shrink-0 shadow-sm"
-                    >
-                       {messageSending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
-                    </button>
-                  </div>
-                </div>
-              </div>
+          {/* Composer — matches dialer MessageComposePanel */}
+          <div className="shrink-0 z-10 relative pb-4 pt-1 px-0 bg-muted/20">
+            <MessageComposePanel
+              className="mx-6 mt-3"
+              channel={composeTab === "SMS" ? "sms" : "email"}
+              onChannelChange={handleComposeChannelChange}
+              messageText={composeText}
+              onMessageChange={setComposeText}
+              subjectText={emailSubject}
+              onSubjectChange={setEmailSubject}
+              onOpenTemplates={handleOpenComposeTemplates}
+              onSendMessage={handleSendMessage}
+              sendDisabled={
+                !composeText.trim() ||
+                messageSending ||
+                (composeTab === "SMS" && (!contact.phone || !fromNumber.trim())) ||
+                (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))
+              }
+              sendLoading={messageSending}
+            />
           </div>
         </div>
 

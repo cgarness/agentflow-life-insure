@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { MessageSquare, Phone, Pencil, Activity, Mail, FileText, Send, Mic, Play, ChevronDown } from "lucide-react";
+import { MessageSquare, Phone, Pencil, Activity, Mail, Mic, Play, ChevronDown } from "lucide-react";
 import { HistorySkeleton } from "./DialerSkeletons";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
+import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
+import type { UserEmailConnection } from "@/lib/supabase-email";
 
 interface HistoryItem {
   id: string;
@@ -35,6 +37,9 @@ interface ConversationHistoryProps {
   onSubjectChange: (text: string) => void;
   onCallerNumberChange: (num: string) => void;
   historyEndRef?: React.RefObject<HTMLDivElement>;
+  emailConnections: UserEmailConnection[];
+  selectedEmailConnectionId: string;
+  onEmailConnectionChange: (id: string) => void;
 }
 
 function historyIcon(type: string) {
@@ -82,6 +87,9 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   onSubjectChange,
   onCallerNumberChange,
   historyEndRef,
+  emailConnections,
+  selectedEmailConnectionId,
+  onEmailConnectionChange,
 }) => {
   const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
   const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
@@ -106,20 +114,42 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
             <MessageSquare className="w-4 h-4 text-primary" />
             <span className="font-semibold text-sm text-foreground">Conversation History</span>
           </div>
-          <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border">
-            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">From:</span>
-            <select
-              value={selectedCallerNumber}
-              onChange={(e) => onCallerNumberChange(e.target.value)}
-              className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all"
-            >
-              <option value="">AI Local Presence</option>
-              {availableNumbers.map(n => (
-                <option key={n.phone_number} value={n.phone_number}>
-                  {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
+            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider shrink-0">From:</span>
+            {smsTab === "email" ? (
+              <select
+                value={selectedEmailConnectionId}
+                onChange={(e) => onEmailConnectionChange(e.target.value)}
+                className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all truncate min-w-0 flex-1"
+                title={
+                  emailConnections.find((c) => c.id === selectedEmailConnectionId)?.provider_account_email || ""
+                }
+              >
+                {emailConnections.length === 0 ? (
+                  <option value="">No inbox connected</option>
+                ) : (
+                  emailConnections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.provider_account_email}
+                    </option>
+                  ))
+                )}
+              </select>
+            ) : (
+              <select
+                value={selectedCallerNumber}
+                onChange={(e) => onCallerNumberChange(e.target.value)}
+                className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all min-w-0 flex-1"
+              >
+                <option value="">AI Local Presence</option>
+                {availableNumbers.map((n) => (
+                  <option key={n.phone_number} value={n.phone_number}>
+                    {n.friendly_name ? `${n.friendly_name} - ` : ""}
+                    {n.phone_number}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
@@ -271,73 +301,17 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
         </div>
       </div>
 
-      {/* SMS composer — shrink-0, fixed at bottom */}
-      <div className="shrink-0 bg-card border rounded-xl flex flex-col mt-3">
-        <div className="px-4 pt-3">
-          {smsTab === "email" ? (
-            <div className="flex flex-col gap-2">
-              <input
-                value={subjectText}
-                onChange={(e) => onSubjectChange(e.target.value)}
-                placeholder="Subject"
-                className="bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground w-full focus:ring-1 focus:ring-primary outline-none"
-              />
-              <textarea
-                value={messageText}
-                onChange={(e) => onMessageChange(e.target.value)}
-                placeholder="Type EMAIL message…"
-                className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground resize-none h-20 focus:ring-1 focus:ring-primary outline-none"
-              />
-            </div>
-          ) : (
-            <div className="text-foreground">
-              <input
-                value={messageText}
-                onChange={(e) => onMessageChange(e.target.value)}
-                placeholder="Type SMS message…"
-                className="w-full bg-accent border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:ring-1 focus:ring-primary outline-none"
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between px-4 py-3 border-t mt-3">
-          <div className="flex gap-1">
-            {(["sms", "email"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => onSmsTabChange(tab)}
-                className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all ${
-                  smsTab === tab
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-accent"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onOpenTemplates}
-              className="bg-accent text-muted-foreground border border-border rounded-lg px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-accent/80 transition-colors"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Templates
-            </button>
-
-            <button
-              onClick={onSendMessage}
-              className="bg-success text-success-foreground rounded-lg px-4 py-1.5 text-xs font-bold flex items-center gap-2 hover:bg-success/90 transition-all shadow-sm border border-success/20"
-              title={smsTab === "email" ? "Send Email" : "Send SMS"}
-            >
-              <span>Send</span>
-              <Send className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
+      <MessageComposePanel
+        className="mt-3"
+        channel={smsTab}
+        onChannelChange={onSmsTabChange}
+        messageText={messageText}
+        onMessageChange={onMessageChange}
+        subjectText={subjectText}
+        onSubjectChange={onSubjectChange}
+        onOpenTemplates={onOpenTemplates}
+        onSendMessage={onSendMessage}
+      />
     </div>
   );
 };

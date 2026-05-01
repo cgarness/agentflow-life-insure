@@ -107,6 +107,7 @@ import { ConversationHistory } from "@/components/dialer/ConversationHistory";
 import { DialerActions } from "@/components/dialer/DialerActions";
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
+import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
 
 /* ─── Types ─── */
 
@@ -416,6 +417,8 @@ export default function DialerPage() {
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
+  const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
+  const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [assignedAgentName, setAssignedAgentName] = useState<string | null>(null);
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
@@ -531,6 +534,33 @@ export default function DialerPage() {
       agencyName: branding.companyName,
     };
   }, [currentLead, profile, branding.companyName]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setEmailConnections([]);
+      setSelectedEmailConnectionId("");
+      return;
+    }
+    (async () => {
+      try {
+        const rows = await emailSupabaseApi.getMyConnections();
+        if (cancelled) return;
+        const connected = rows.filter((c) => c.status === "connected");
+        setEmailConnections(connected);
+        setSelectedEmailConnectionId(connected[0]?.id ?? "");
+      } catch {
+        if (!cancelled) {
+          setEmailConnections([]);
+          setSelectedEmailConnectionId("");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
@@ -3432,6 +3462,9 @@ export default function DialerPage() {
           onSubjectChange={(text) => setSubjectText(text)}
           onCallerNumberChange={setSelectedCallerNumber}
           historyEndRef={historyEndRef}
+          emailConnections={emailConnections}
+          selectedEmailConnectionId={selectedEmailConnectionId}
+          onEmailConnectionChange={setSelectedEmailConnectionId}
         />
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
