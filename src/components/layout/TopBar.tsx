@@ -116,7 +116,6 @@ const TopBar: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const location = useLocation();
   const [statusIdx, setStatusIdx] = useState(0);
-  const [statusDropdown, setStatusDropdown] = useState(false);
   const [userDropdown, setUserDropdown] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotifTab>("All");
@@ -237,33 +236,6 @@ const TopBar: React.FC = () => {
             </button>
           </div>
 
-          {/* Status */}
-          <div className="relative hidden sm:block">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={() => setStatusDropdown(!statusDropdown)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center sidebar-transition">
-                  <div className={`w-2.5 h-2.5 rounded-full ${dotClass} ${dotPulse ? "animate-pulse" : ""}`} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{dotTooltip}</TooltipContent>
-            </Tooltip>
-            {statusDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-44 bg-card border rounded-lg shadow-lg py-1 z-50">
-                {statusOptions.map((s, i) => (
-                  <button key={s.label} onClick={() => { setStatusIdx(i); setStatusDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left">
-                    <div className={`w-2.5 h-2.5 rounded-full ${s.dotClass}`} />
-                    <span className={`text-foreground ${i === statusIdx ? "font-semibold" : ""}`}>{s.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Theme Toggle */}
-          <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center sidebar-transition hidden sm:flex">
-            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-
           {/* User Avatar */}
           <div className="relative">
             {isLoading || !profile ? (
@@ -272,21 +244,29 @@ const TopBar: React.FC = () => {
             <button
               type="button"
               onClick={() => setUserDropdown(!userDropdown)}
-              className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full bg-primary/20 text-primary ring-offset-background hover:ring-2 hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sidebar-transition"
+              className="relative h-8 w-8 shrink-0 rounded-full bg-primary/20 text-primary ring-offset-background hover:ring-2 hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sidebar-transition"
               aria-expanded={userDropdown}
               aria-haspopup="menu"
+              aria-label={`Account menu, status: ${dotTooltip}`}
             >
-              {profile.avatar_url?.trim() ? (
-                <img
-                  src={profile.avatar_url}
-                  alt={`${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "Profile"}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-xs font-bold">
-                  {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
-                </span>
-              )}
+              <span className="flex h-full w-full overflow-hidden rounded-full">
+                {profile.avatar_url?.trim() ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xs font-bold">
+                    {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
+                  </span>
+                )}
+              </span>
+              <span
+                className={`pointer-events-none absolute bottom-0 left-0 z-10 h-2 w-2 rounded-full ring-2 ring-background ${dotClass} ${dotPulse ? "animate-pulse" : ""}`}
+                aria-hidden
+                title={dotTooltip}
+              />
             </button>
             )}
             {userDropdown && (
@@ -321,6 +301,43 @@ const TopBar: React.FC = () => {
                     </>
                   )}
                 </div>
+                <div className="border-b px-3 py-1.5">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Availability</p>
+                  <div className="flex flex-col gap-0.5">
+                    {statusOptions.map((s, i) => (
+                      <button
+                        key={s.label}
+                        type="button"
+                        onClick={() => {
+                          setStatusIdx(i);
+                          setUserDropdown(false);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent ${i === statusIdx ? "bg-accent/70 font-semibold" : ""}`}
+                      >
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dotClass}`} aria-hidden />
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                >
+                  {theme === "dark" ? (
+                    <>
+                      <Sun className="h-4 w-4 shrink-0" />
+                      Light mode
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="h-4 w-4 shrink-0" />
+                      Dark mode
+                    </>
+                  )}
+                </button>
+                <div className="h-px bg-border mx-3" />
                 <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
                 <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
                 <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><Keyboard className="w-4 h-4" />Keyboard Shortcuts</button>

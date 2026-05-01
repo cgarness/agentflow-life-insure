@@ -160,6 +160,10 @@
   *What:* **`HeaderDateCalendar`** in **`TopBar`** (to the **right of Quick Add**): **`w-8 h-8`** to match the manual add control — **solid blue** month strip (**short month** text), **white** day area, **rounded-lg**, light border/shadow; no pin or fold. **`aria-label`** + hover title use the full calendar date; **1-minute** tick for day rollover. Locale via **`toLocaleString`**.
   *Files:* **`src/components/layout/HeaderDateCalendar.tsx`**, **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
 
+- **2026-05-01 | [DONE] | TopBar — status + theme inside profile menu**
+  *What:* **Availability** choices and **light/dark** toggle removed from the header strip; they appear under the **profile avatar** dropdown (Availability section + theme row). Header avatar shows the **current status color** as a small dot on the **bottom-left** of the photo (dialer override colors unchanged), with **`aria-label`** naming status on the menu button.
+  *Files:* **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
+
 - **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
   *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
   **(1) `getAll()` signature:** Added optional `organizationId?: string` to the `filters` parameter type.
