@@ -1052,12 +1052,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-l border-r border-border bg-muted/20">
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-card border rounded-xl">
-              <div className="shrink-0 flex flex-col border-b border-border">
-                <div className="flex items-center px-4 py-3 gap-2 min-w-0">
-                  <MessageSquare className="w-4 h-4 text-primary shrink-0" />
-                  <span className="font-semibold text-sm text-foreground">Conversation History</span>
-                </div>
-                <div className="flex justify-end px-4 pb-2.5 pt-0">
+              <div className="shrink-0 border-b border-border">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                    <span className="font-semibold text-sm text-foreground">Conversation History</span>
+                  </div>
                   <div className="flex bg-muted rounded-lg p-0.5 shrink-0">
                     {["All", "Calls", "SMS", "Email"].map((f) => (
                       <button
