@@ -2443,3 +2443,37 @@ Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed
 **What changed:** The lead import UX moved from a fixed-width modal overlay into a proper full-page route (`/contacts/import`). The modal's visual chrome (overlay, backdrop, 860px fixed width) is hidden in page mode via the new `renderAsPage` prop; all import logic is untouched. Contacts and CampaignDetail entry points navigate to the new route; Contacts refreshes its lead list when the import page signals completion via `location.state.importCompleted`.
 
 **What's next:** No immediate follow-on; the existing `/contacts` detail-route BLOCKER (no `/contacts/:id` route) is still open from the Global Search context snapshot above.
+
+---
+
+### Work Log — 2026-05-02 — Bugfix: Contact Full View Layout Shift `[DONE]`
+
+**Task:** Eliminate the 2–3 paint wave layout shift in `FullScreenContactView`'s left-column field grid.
+
+**Files modified:**
+- `src/components/contacts/FullScreenContactView.tsx`
+
+**Changes:**
+- Added `coreLoading` boolean state (default `true`).
+- `useLayoutEffect` resets `coreLoading` to `true` on `contact.id` / type change, alongside the existing `setRosterLoaded(false)` reset.
+- `loadData()` sets `setCoreLoading(false)` in a single call immediately after `setAgents(agentRows)` and `setRosterLoaded(true)` — the one location where all three data sources (fieldOrder from `contact_management_settings`, customFields from `custom_fields`, agents from `profiles`) are confirmed populated.
+- `customFields` was already fetched inside `settingsP`, which is part of the outer `Promise.all` — no consolidation required.
+- The entire field grid block (`fieldOrder.map(...)`, supplemental custom fields grid) is now gated: renders a 2-column × 3-row skeleton (6 `h-8 rounded-md bg-muted animate-pulse` pills) while `coreLoading === true`, then swaps to the real grid atomically.
+- Contact header (avatar, name, EDIT button) and status badge are not skeletonized — both render from synchronous state set in `useLayoutEffect`.
+- Right column (conversation tab) unchanged.
+- No dialer refs, telephony code, `useLayoutEffect` deps, or `Promise.all` structure changed.
+
+**No new migrations, env vars, or schema changes.**
+
+### Context Snapshot — 2026-05-02 — Contact Full View Layout Shift Fix
+
+**Root cause:** The left-column field grid rendered in multiple waves. `useLayoutEffect` painted immediately with default `fieldOrder`. Then `Promise.all` resolved and each `setState` call — `setFieldOrder`, `setCustomFields`, `setAgents` — triggered a separate re-render, causing visible field reordering and appending jank.
+
+**Fix:** `coreLoading` acts as an atomic gate. It starts `true` on every contact switch (reset in `useLayoutEffect`). It only becomes `false` inside `loadData()` after the single `Promise.all` has resolved and all three state setters have run. Until then the grid slot shows a fixed-size skeleton shimmer that approximates the real grid height, so the panel layout is stable from first paint.
+
+**Decisions:**
+- `customFields` was already fetched inside the nested `settingsP` async IIFE, which is itself one of the arms of the outer `Promise.all`. All three data sources resolve together — no restructuring of the fetch waterfall was needed.
+- `setCoreLoading(false)` is placed in exactly one location, immediately after `setRosterLoaded(true)`. Adding it anywhere else (e.g. error branches) is intentionally avoided — if the fetch fails silently, the component still recovers because `loadData()` is re-run on the next `contact.id` change.
+- Skeleton is 6 pills (2-col, 3-row) matching the typical core field count, keeping panel height stable.
+
+**What's next:** No immediate follow-on. The `/contacts/:id` detail-route BLOCKER from the Global Search context snapshot remains open.

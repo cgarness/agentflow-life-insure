@@ -224,6 +224,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
+  const [coreLoading, setCoreLoading] = useState(true);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
   const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
@@ -279,6 +280,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     setPipelineStages([]);
     setFieldOrder(getDefaultFieldOrder(type));
     setRosterLoaded(false);
+    setCoreLoading(true);
   }, [contact?.id, type]);
 
   // Same contact refreshed from parent (e.g. after save + list refetch). Compare snapshot so Dialer/Calendar inline `contact` objects do not re-sync every parent render.
@@ -465,6 +467,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       }
       setAgents(agentRows);
       setRosterLoaded(true);
+      setCoreLoading(false);
 
       setEditMode(false);
       setHasChanges(false);
@@ -940,6 +943,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               </div>
             )}
             
+              {coreLoading ? (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-8 rounded-md bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-3">
                     {fieldOrder.map(fieldId => {
@@ -958,7 +968,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           </div>
                         );
                       }
-                      
+
                       // Standard Fields mapping
                       switch (fieldId) {
                         case 'firstName': return renderField("First Name", "firstName");
@@ -978,7 +988,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         case 'faceAmount': return type === "client" ? renderField("Face Amount", "faceAmount") : null;
                         case 'issueDate': return type === "client" ? renderField("Issue Date", "issueDate", "date") : null;
                         case 'status': return type === "recruit" ? renderField("Status", "status", "select", recruitStatuses) : null;
-                        case 'assignedAgentId': 
+                        case 'assignedAgentId':
                           return (
                             <div key="assignedAgentId" className="bg-muted/40 rounded-md px-2.5 py-2 col-span-2">
                               <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">Assigned Agent</label>
@@ -1028,6 +1038,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                   </div>
                 )}
               </div>
+              )}
               
               <div className="mt-auto pt-3 border-t border-border">
                 <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
