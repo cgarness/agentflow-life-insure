@@ -1115,16 +1115,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                                     isOutbound ? "hover:bg-white/10" : "hover:bg-black/[0.04] dark:hover:bg-white/10",
                                   )}
                                   aria-expanded={isExpanded}
-                                  aria-label={isExpanded ? "Hide email body" : "Show email body"}
+                                  aria-label={
+                                    isExpanded
+                                      ? "Hide full email"
+                                      : `Show full email: ${subjectLine}`
+                                  }
                                 >
-                                  <span
-                                    className={cn(
-                                      "text-[11px] font-semibold shrink-0",
-                                      isOutbound ? "text-violet-200" : "text-violet-600 dark:text-violet-400",
-                                    )}
-                                  >
-                                    {isOutbound ? "Sent" : "Received"}
-                                  </span>
                                   <span
                                     className={cn(
                                       "flex-1 text-[13px] font-medium min-w-0 text-left line-clamp-2 break-words",
