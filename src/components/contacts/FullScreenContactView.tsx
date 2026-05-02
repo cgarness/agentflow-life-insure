@@ -1075,25 +1075,107 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         : item.direction !== "inbound" && item.direction !== "incoming";
 
                     if (item._type === "email") {
+                      const isExpanded = expandedEmails[item.id] ?? false;
                       const emailBody = typeof item.body === "string" ? item.body : "";
-                      return isOutbound ? (
-                        <div key={item.id} className="flex justify-end">
-                          <div className="flex flex-col max-w-[85%] items-end">
-                            <div className="rounded-2xl px-4 py-2.5 text-[13px] shadow-sm bg-[#007AFF] text-white rounded-tr-sm">
-                              {item.subject && <p className="font-semibold text-[12px] mb-1 opacity-90">{item.subject}</p>}
-                              <p className="opacity-90 leading-relaxed">{emailBody.slice(0, 120)}{emailBody.length > 120 ? "…" : ""}</p>
+                      const bodyLines = emailBody.split("\n");
+                      const subjectLine =
+                        typeof item.subject === "string" && item.subject.trim()
+                          ? item.subject.trim()
+                          : "(No subject)";
+                      return (
+                        <div
+                          key={item.id}
+                          className={cn("flex w-full", isOutbound ? "justify-end" : "justify-start")}
+                        >
+                          <div className="flex flex-col max-w-[85%] min-w-0">
+                            <div
+                              className={cn(
+                                "min-w-0 rounded-2xl text-sm shadow-sm overflow-hidden transition-all border",
+                                isOutbound
+                                  ? "rounded-tr-sm border-violet-400/40 bg-[#007AFF] text-white"
+                                  : "rounded-tl-sm border-border/60 bg-[#E9E9EB] dark:bg-[#262629] text-foreground",
+                              )}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleEmail(item.id)}
+                                className={cn(
+                                  "w-full px-3 py-2.5 flex items-center gap-2 text-left transition-colors",
+                                  isOutbound ? "hover:bg-white/10" : "hover:bg-black/[0.04] dark:hover:bg-white/10",
+                                )}
+                                aria-expanded={isExpanded}
+                                aria-label={isExpanded ? "Hide email body" : "Show email body"}
+                              >
+                                <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10 ring-1 ring-violet-400/25">
+                                  <Mail className="w-3.5 h-3.5 text-violet-400" aria-hidden />
+                                </div>
+                                <span
+                                  className={cn(
+                                    "text-[11px] font-semibold shrink-0",
+                                    isOutbound ? "text-violet-200" : "text-violet-600 dark:text-violet-400",
+                                  )}
+                                >
+                                  {isOutbound ? "Sent" : "Received"}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "flex-1 text-[13px] font-medium min-w-0 text-left line-clamp-2 break-words",
+                                    isOutbound ? "text-white" : "text-foreground",
+                                  )}
+                                  title={subjectLine}
+                                >
+                                  {subjectLine}
+                                </span>
+                                <ChevronDown
+                                  className={cn(
+                                    "w-3.5 h-3.5 shrink-0 transition-transform duration-200",
+                                    isExpanded && "rotate-180",
+                                    isOutbound ? "text-white/85" : "text-muted-foreground",
+                                  )}
+                                  aria-hidden
+                                />
+                              </button>
+                              {isExpanded ? (
+                                <div
+                                  className={cn(
+                                    "px-3.5 pb-3 pt-2 border-t max-h-[min(60vh,28rem)] overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-200",
+                                    isOutbound ? "border-white/25" : "border-border/50",
+                                  )}
+                                >
+                                  {bodyLines.map((line, i) =>
+                                    line.startsWith(">") ? (
+                                      <p
+                                        key={i}
+                                        className={cn(
+                                          "text-[11px] leading-relaxed",
+                                          isOutbound ? "text-white/70" : "text-muted-foreground",
+                                        )}
+                                      >
+                                        {line}
+                                      </p>
+                                    ) : (
+                                      <p
+                                        key={i}
+                                        className={cn(
+                                          "text-sm leading-relaxed",
+                                          isOutbound ? "text-white" : "text-foreground",
+                                        )}
+                                      >
+                                        {line}
+                                      </p>
+                                    ),
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
-                            <p className="text-[10px] text-muted-foreground mt-1 mx-1">{formatDateTime(new Date(item._ts))}</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div key={item.id} className="flex justify-start">
-                          <div className="flex flex-col max-w-[85%] items-start">
-                            <div className="rounded-2xl px-4 py-2.5 text-[13px] shadow-sm bg-card border border-border text-foreground rounded-tl-sm">
-                              {item.subject && <p className="font-semibold text-[12px] mb-1 opacity-80">{item.subject}</p>}
-                              <p className="leading-relaxed">{emailBody.slice(0, 120)}{emailBody.length > 120 ? "…" : ""}</p>
+                            <div
+                              className={cn(
+                                "text-[10px] text-muted-foreground mt-1 px-1 flex",
+                                isOutbound ? "justify-end" : "justify-start",
+                              )}
+                            >
+                              {formatDateTime(new Date(item._ts))}
                             </div>
-                            <p className="text-[10px] text-muted-foreground mt-1 mx-1">{formatDateTime(new Date(item._ts))}</p>
                           </div>
                         </div>
                       );
