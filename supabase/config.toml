@@ -74,6 +74,12 @@ verify_jwt = false
 [functions.provision-twilio-subaccount]
 verify_jwt = false
 
+# Super Admin retry tool for orgs in twilio_subaccount_status='pending'/'pending_manual'.
+# JWT validated in-code (ES256 gateway constraint, AGENT_RULES.md §Telephony / Security);
+# also enforces is_super_admin via JWT claim AND profiles.is_super_admin server-side.
+[functions.retry-twilio-provisioning]
+verify_jwt = false
+
 # Outbound SMS — JWT from the logged-in agent; Twilio credentials read from phone_settings.
 [functions.twilio-sms]
 verify_jwt = false

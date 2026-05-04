@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
 
 const FN = "[twilio-search-numbers]";
 
@@ -78,28 +79,15 @@ Deno.serve(async (req) => {
 
     const orgId = profile.organization_id as string;
 
-    const { data: settings, error: settingsError } = await supabase
-      .from("phone_settings")
-      .select("account_sid, auth_token")
-      .eq("organization_id", orgId)
-      .maybeSingle();
-
-    if (settingsError) {
-      console.error(`${FN} phone_settings read:`, settingsError.message);
-      return new Response(JSON.stringify({ error: "Could not load phone settings" }), {
-        status: 500,
+    const credsResult = await loadSubaccountCreds(supabase, orgId);
+    if (!credsResult.ok) {
+      console.error(`${FN} subaccount creds:`, credsResult.code);
+      return new Response(JSON.stringify({ error: credsResult.error, code: credsResult.code }), {
+        status: credsResult.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const accountSid = settings?.account_sid?.trim() ?? "";
-    const authToken = settings?.auth_token?.trim() ?? "";
-    if (!accountSid || !authToken) {
-      return new Response(JSON.stringify({ error: "Twilio credentials not configured." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { accountSid, authToken } = credsResult.creds;
 
     let body: SearchBody = {};
     try {
