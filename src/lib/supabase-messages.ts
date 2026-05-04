@@ -134,24 +134,21 @@ export const messagesSupabaseApi = {
 
     const calls = (callsRes.data || []).map(c => ({
       ...c,
-      _type: "call",
+      type: "call",
       _ts: new Date(c.started_at || c.created_at || 0).getTime(),
       description: c.disposition_name || "Call",
-      type: "call"
     }));
     const msgs = (msgsRes.data || []).map(m => ({
       ...m,
-      _type: "sms",
+      type: "sms",
       _ts: new Date(m.sent_at || m.created_at || 0).getTime(),
       description: m.body,
-      type: "sms"
     }));
     const emails = (emailsRes.data || []).map(e => ({
       ...e,
-      _type: "email",
+      type: "email",
       _ts: new Date(e.received_at || e.sent_at || e.created_at || 0).getTime(),
       description: e.body_text || e.body_html || "(No content)",
-      type: "email"
     }));
 
     return [...calls, ...msgs, ...emails].sort((a, b) => a._ts - b._ts);

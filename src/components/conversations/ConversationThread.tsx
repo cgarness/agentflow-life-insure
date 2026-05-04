@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Mail, Phone, Info, MoreVertical, Send, Loader2, Play, Mic } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { MessageSquare, Mail, Phone, Info, MoreVertical, Send, Loader2, Play, Mic, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { messagesSupabaseApi } from "@/lib/supabase-messages";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
+import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { format } from "date-fns";
 
 interface ConversationThreadProps {
@@ -28,6 +29,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
   const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
+  const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,67 +91,169 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const renderMessage = (msg: any) => {
-    const isOutbound = msg.direction === "outbound";
-    const type = msg._type; // sms, email, call
+  const toggleEmail = (id: string) => {
+    setExpandedEmails(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
-    if (type === "call") {
+  const historyIcon = (type: string) => {
+    switch (type) {
+      case "call":
+        return (
+          <div className="w-6 h-6 rounded-full flex items-center justify-center bg-emerald-500/10">
+            <Phone className="w-3.5 h-3.5 text-emerald-500" />
+          </div>
+        );
+      case "sms":
+        return (
+          <div className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-400/10">
+            <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+          </div>
+        );
+      case "email":
+        return (
+          <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+            <Mail className="w-3.5 h-3.5 text-violet-400" />
+          </div>
+        );
+      default:
+        return (
+          <div className="w-6 h-6 rounded-full flex items-center justify-center bg-muted">
+            <Info className="w-3.5 h-3.5 text-muted-foreground" />
+          </div>
+        );
+    }
+  };
+
+  const renderMessage = (item: any) => {
+    const isOutbound = item.type !== "call" ? item.direction !== "inbound" : !isCallsRowInboundDirection(item.direction);
+    const formatDateTime = (date: Date) => format(date, "M/d/yyyy h:mm a");
+
+    if (item.type === "email") {
+      const isExpanded = expandedEmails[item.id] ?? false;
+      const emailBody = item.body || item.description || "";
+      const bodyLines = emailBody.split('\n');
       return (
-        <div key={msg.id} className="flex justify-center my-4">
-          <div className="bg-muted/50 border border-border rounded-full px-4 py-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Phone className="w-3 h-3" />
-            <span className="font-medium">{msg.direction === 'inbound' ? 'Inbound' : 'Outbound'} Call</span>
-            <span className="opacity-50">•</span>
-            <span>{msg.disposition_name || 'No Disposition'}</span>
-            <span className="opacity-50">•</span>
-            <span>{msg.duration ? `${Math.floor(msg.duration / 60)}:${String(msg.duration % 60).padStart(2, '0')}` : '0:00'}</span>
-            {msg.recording_url && (
-              <button 
-                onClick={() => toggleRecording(msg.id)}
-                className="ml-2 p-1 hover:bg-accent rounded-full transition-colors text-primary"
-              >
-                <Play className="w-3 h-3 fill-current" />
-              </button>
+        <div key={item.id} className="flex flex-col w-full mb-4">
+          <div className="bg-card border border-violet-400/20 rounded-xl overflow-hidden shadow-sm max-w-[85%] mr-auto">
+            <button
+              onClick={() => toggleEmail(item.id)}
+              className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-accent/40 transition-colors"
+            >
+              <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+                <Mail className="w-3.5 h-3.5 text-violet-400" />
+              </div>
+              <span className="text-[11px] font-semibold text-violet-400 shrink-0">
+                {isOutbound ? "Sent" : "Received"}
+              </span>
+              <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
+                {item.subject || item.description || "(No subject)"}
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+            </button>
+            {isExpanded && (
+              <div className="px-3.5 pb-3 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200 bg-accent/10">
+                {bodyLines.map((line: string, i: number) =>
+                  line.startsWith('>') ? (
+                    <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{line}</p>
+                  ) : (
+                    <p key={i} className="text-sm text-foreground leading-relaxed">{line}</p>
+                  )
+                )}
+              </div>
             )}
           </div>
-          {expandedRecordings[msg.id] && msg.recording_url && (
-            <div className="w-full max-w-md mt-2 p-3 bg-card border border-border rounded-xl shadow-sm">
-               <RecordingPlayer callId={msg.id} compact />
-            </div>
-          )}
+          <div className="text-[10px] text-muted-foreground mt-1 px-1">
+            {formatDateTime(new Date(item._ts || item.created_at))}
+          </div>
         </div>
       );
     }
 
     return (
       <div
-        key={msg.id}
-        className={cn(
-          "flex flex-col mb-4 max-w-[80%]",
-          isOutbound ? "ml-auto items-end" : "mr-auto items-start"
-        )}
+        key={item.id}
+        className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group mb-4`}
       >
-        <div
-          className={cn(
-            "px-4 py-2.5 rounded-2xl text-sm relative group transition-all",
-            isOutbound
-              ? "bg-primary text-primary-foreground rounded-tr-sm shadow-md"
-              : "bg-card border border-border text-foreground rounded-tl-sm shadow-sm"
-          )}
-        >
-          {type === 'email' && msg.subject && (
-            <div className="font-bold text-[10px] uppercase tracking-wider mb-1 opacity-70">
-              Subject: {msg.subject}
+        <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+          {/* Minimalist Icon Indicator */}
+          <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>
+            {historyIcon(item.type)}
+          </div>
+
+          <div className="flex flex-col">
+            <div 
+              className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
+                isOutbound 
+                  ? "bg-[#007AFF] text-white rounded-tr-sm" 
+                  : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+              }`}
+            >
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="leading-tight font-semibold shrink-0">
+                    {item.type === "call"
+                      ? isCallsRowInboundDirection(item.direction)
+                        ? "Inbound Call"
+                        : "Outbound Call"
+                      : item.type === "sms" 
+                        ? (isOutbound ? "SMS Sent" : "SMS Received")
+                        : item.type}
+                  </span>
+                  
+                  {item.type === "call" && item.disposition_name && (
+                    <span
+                      className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                        isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
+                      } shadow-sm`}
+                    >
+                      {item.disposition_name}
+                    </span>
+                  )}
+
+                  {item.type === "call" && (
+                    <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
+                      {item.duration ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
+                    </span>
+                  )}
+
+                  {item.type === "call" && item.recording_url && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); toggleRecording(item.id); }}
+                      className={`p-1 rounded-full transition-all ml-auto ${
+                        isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
+                      }`}
+                      title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                    >
+                      <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                    </button>
+                  )}
+                </div>
+                
+                {item.type === "sms" && (
+                  <div className="whitespace-pre-wrap leading-relaxed">{item.body || item.description}</div>
+                )}
+              </div>
+
+              {/* Integrated Recording Player */}
+              {item.type === "call" && item.recording_url && expandedRecordings[item.id] && (
+                <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
+                  <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
+                      <Mic className="w-3 h-3 text-current" aria-hidden />
+                    </div>
+                    <span>Call Recording</span>
+                  </div>
+                  <div className={`rounded-xl p-3 ${isOutbound ? "bg-white/10" : "bg-accent/50"} border ${isOutbound ? "border-white/20" : "border-border/50"}`}>
+                    <RecordingPlayer callId={item.id} compact />
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          <div className="whitespace-pre-wrap leading-relaxed">{msg.body || msg.body_text || msg.description}</div>
-          
-          <div className={cn(
-            "text-[10px] mt-1.5 opacity-60 flex items-center gap-1",
-            isOutbound ? "text-primary-foreground/80" : "text-muted-foreground"
-          )}>
-            {type === 'sms' ? <MessageSquare className="w-2.5 h-2.5" /> : <Mail className="w-2.5 h-2.5" />}
-            {format(new Date(msg._ts), "h:mm a")}
+            
+            {/* Timestamp */}
+            <div className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${isOutbound ? "justify-end" : "justify-start"}`}>
+              {formatDateTime(new Date(item._ts || item.created_at))}
+            </div>
           </div>
         </div>
       </div>
@@ -159,9 +263,9 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   return (
     <div className="flex-1 flex flex-col bg-background relative overflow-hidden">
       {/* Thread Header */}
-      <div className="h-16 border-b border-border px-6 flex items-center justify-between bg-card/30 backdrop-blur-sm z-10">
+      <div className="h-16 border-b border-border px-6 flex items-center justify-between bg-card/30 backdrop-blur-sm z-10 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shadow-inner">
             {contactName.split(" ").map(n => n[0]).join("").slice(0, 2)}
           </div>
           <div>
@@ -169,13 +273,13 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
             <div className="flex items-center gap-2">
               <span className={cn(
                 "text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                contactType === 'lead' ? 'bg-blue-500/10 text-blue-500' :
-                contactType === 'client' ? 'bg-green-500/10 text-green-500' :
-                'bg-orange-500/10 text-orange-500'
+                contactType === 'lead' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
+                contactType === 'client' ? 'bg-green-500/10 text-green-500 border border-green-500/20' :
+                'bg-orange-500/10 text-orange-500 border border-orange-500/20'
               )}>
                 {contactType}
               </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Online</span>
             </div>
           </div>
