@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { usersSupabaseApi } from "@/lib/supabase-users";
 import { BRANDING_DEFAULTS } from "@/components/settings/brandingConfig";
+import ProvisioningPanel from "@/components/super-admin/provisioning/ProvisioningPanel";
 
 // ---- Types ----
 interface Organization {
@@ -600,6 +601,9 @@ const SuperAdminDashboard: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Twilio subaccount provisioning */}
+      <ProvisioningPanel />
 
       {/* Provisioning Wizard */}
       <ProvisioningWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onSuccess={fetchData} />

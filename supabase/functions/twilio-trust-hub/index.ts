@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
 
 const FN = "[twilio-trust-hub]";
 const US_A2P_POLICY_SID = "RNdfbf3fae0e1107f8aded0e7cead80bf5";
@@ -233,7 +234,7 @@ Deno.serve(async (req) => {
 
   const { data: settingsRow, error: settingsError } = await supabase
     .from("phone_settings")
-    .select("id, account_sid, auth_token, api_secret, trust_hub_profile_sid")
+    .select("id, api_secret, trust_hub_profile_sid")
     .eq("organization_id", orgId)
     .maybeSingle();
 
@@ -242,8 +243,13 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Could not load phone settings" }, 500);
   }
 
-  const accountSid = String(settingsRow?.account_sid ?? "").trim();
-  const authToken = String(settingsRow?.auth_token ?? "").trim();
+  const credsResult = await loadSubaccountCreds(supabase, orgId);
+  if (!credsResult.ok) {
+    console.error(`${FN} subaccount creds:`, credsResult.code);
+    return jsonResponse({ error: credsResult.error, code: credsResult.code }, credsResult.status);
+  }
+  const accountSid = credsResult.creds.accountSid;
+  const authToken = credsResult.creds.authToken;
 
   if (action === "check-status") {
     const bundle = parseSecretBundle(settingsRow?.api_secret as string | null | undefined);
