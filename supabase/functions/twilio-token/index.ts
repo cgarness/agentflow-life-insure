@@ -6,6 +6,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const json = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
 function base64url(data: ArrayBuffer | string): string {
   const bytes =
     typeof data === "string"
@@ -79,10 +85,7 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "Method not allowed" }, 405);
   }
 
   try {
@@ -93,10 +96,7 @@ Deno.serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized" }, 401);
     }
 
     const {
@@ -106,10 +106,7 @@ Deno.serve(async (req) => {
 
     if (userError || !user) {
       console.error("[twilio-token] Auth error:", userError?.message);
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized" }, 401);
     }
 
     const { data: profile, error: profileError } = await supabaseClient
@@ -118,18 +115,91 @@ Deno.serve(async (req) => {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profileError || !profile) {
-      console.error("[twilio-token] Profile lookup failed:", profileError?.message);
-      return new Response(
-        JSON.stringify({ error: "Could not resolve user profile" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    if (profileError) {
+      console.error("[twilio-token] Profile lookup failed:", profileError.message);
+      return json({ error: "Could not resolve user profile" }, 500);
+    }
+    if (!profile || !profile.organization_id) {
+      return json({ error: "No organization on profile", code: "NO_ORGANIZATION" }, 403);
+    }
+
+    const orgId: string = profile.organization_id;
+
+    const { data: org, error: orgError } = await supabaseClient
+      .from("organizations")
+      .select(
+        "twilio_subaccount_sid, twilio_subaccount_auth_token_vault_key, twilio_subaccount_status",
+      )
+      .eq("id", orgId)
+      .maybeSingle();
+
+    if (orgError) {
+      console.error("[twilio-token] Org lookup failed:", orgError.message);
+      return json({ error: "Could not resolve organization" }, 500);
+    }
+    if (!org) {
+      return json({ error: "Organization not found", code: "NO_ORGANIZATION" }, 403);
+    }
+
+    const status: string = org.twilio_subaccount_status ?? "pending";
+    const sidPartial = org.twilio_subaccount_sid
+      ? String(org.twilio_subaccount_sid).slice(0, 8)
+      : "(none)";
+
+    if (status === "pending") {
+      console.log(`[twilio-token] org=${orgId} sid=${sidPartial} outcome=provisioning_pending`);
+      return json(
+        {
+          error: "Phone system is being set up. Try again in 30 seconds.",
+          code: "PROVISIONING_PENDING",
+        },
+        503,
       );
+    }
+    if (status === "pending_manual") {
+      console.log(`[twilio-token] org=${orgId} sid=${sidPartial} outcome=provisioning_failed`);
+      return json(
+        {
+          error: "Contact support — telephony provisioning needs attention.",
+          code: "PROVISIONING_FAILED",
+        },
+        503,
+      );
+    }
+    if (status === "suspended" || status === "closed") {
+      console.log(`[twilio-token] org=${orgId} sid=${sidPartial} outcome=suspended status=${status}`);
+      return json({ error: "Telephony suspended", code: "TELEPHONY_SUSPENDED" }, 403);
+    }
+    if (status !== "active") {
+      console.error(`[twilio-token] org=${orgId} unexpected status=${status}`);
+      return json({ error: "Telephony unavailable", code: "TELEPHONY_UNAVAILABLE" }, 503);
+    }
+
+    if (!org.twilio_subaccount_sid || !org.twilio_subaccount_auth_token_vault_key) {
+      console.error(
+        `[twilio-token] org=${orgId} status=active but missing sid or vault_key — data integrity error`,
+      );
+      return json({ error: "Telephony configuration error", code: "TELEPHONY_MISCONFIGURED" }, 500);
+    }
+
+    const { data: subaccountToken, error: tokenError } = await supabaseClient.rpc(
+      "get_twilio_subaccount_token",
+      { p_org_id: orgId },
+    );
+
+    if (tokenError) {
+      console.error("[twilio-token] Vault RPC failed:", tokenError.message);
+      return json({ error: "Could not retrieve telephony credentials", code: "TOKEN_LOOKUP_FAILED" }, 500);
+    }
+    if (!subaccountToken) {
+      console.error(`[twilio-token] org=${orgId} sid=${sidPartial} vault returned null`);
+      return json({ error: "Telephony credentials missing", code: "TOKEN_MISSING" }, 500);
     }
 
     let identity: string = profile.twilio_client_identity ?? "";
     if (!identity) {
       identity = generateIdentity(user.id);
-      console.log(`[twilio-token] Generated new identity: ${identity}`);
+      console.log(`[twilio-token] org=${orgId} generated new identity: ${identity}`);
       const { error: updateError } = await supabaseClient
         .from("profiles")
         .update({ twilio_client_identity: identity, updated_at: new Date().toISOString() })
@@ -139,30 +209,30 @@ Deno.serve(async (req) => {
       }
     }
 
-    const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
     const apiKeySid = Deno.env.get("TWILIO_API_KEY_SID");
     const apiKeySecret = Deno.env.get("TWILIO_API_KEY_SECRET");
     const twimlAppSid = Deno.env.get("TWILIO_TWIML_APP_SID");
 
-    if (!accountSid || !apiKeySid || !apiKeySecret || !twimlAppSid) {
-      console.error("[twilio-token] Missing Twilio credentials in environment");
-      return new Response(
-        JSON.stringify({ error: "Server configuration error — missing Twilio credentials" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    if (!apiKeySid || !apiKeySecret || !twimlAppSid) {
+      console.error("[twilio-token] Missing Twilio API key / TwiML app env vars");
+      return json({ error: "Server configuration error" }, 500);
     }
 
-    const token = await buildAccessToken(apiKeySid, apiKeySecret, accountSid, twimlAppSid, identity);
+    const subaccountSid = String(org.twilio_subaccount_sid);
 
-    return new Response(
-      JSON.stringify({ token, identity, expires_in: 14400 }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    const token = await buildAccessToken(
+      apiKeySid,
+      apiKeySecret,
+      subaccountSid,
+      twimlAppSid,
+      identity,
     );
+
+    console.log(`[twilio-token] org=${orgId} sid=${sidPartial} outcome=ok`);
+
+    return json({ token, identity, expires_in: 14400 }, 200);
   } catch (error) {
-    console.error("[twilio-token] Fatal error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Internal server error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    console.error("[twilio-token] Fatal error:", error instanceof Error ? error.message : "unknown");
+    return json({ error: "Internal server error" }, 500);
   }
 });
