@@ -2155,6 +2155,7 @@ export type Database = {
           id: string
           logo_url: string | null
           name: string
+          status: string
           slug: string | null
           updated_at: string | null
         }
@@ -2163,6 +2164,7 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name: string
+          status?: string
           slug?: string | null
           updated_at?: string | null
         }
@@ -2171,6 +2173,7 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name?: string
+          status?: string
           slug?: string | null
           updated_at?: string | null
         }
@@ -2419,7 +2422,7 @@ export type Database = {
           monthly_call_goal: number | null
           monthly_policies_goal: number | null
           monthly_talk_time_goal: number | null
-          monthly_talk_time_goal_hours: number | null
+          monthly_premium_goal: number | null
           npn: string | null
           organization_id: string | null
           phone: string | null
@@ -2458,7 +2461,7 @@ export type Database = {
           monthly_call_goal?: number | null
           monthly_policies_goal?: number | null
           monthly_talk_time_goal?: number | null
-          monthly_talk_time_goal_hours?: number | null
+          monthly_premium_goal?: number | null
           npn?: string | null
           organization_id?: string | null
           phone?: string | null
@@ -2497,7 +2500,7 @@ export type Database = {
           monthly_call_goal?: number | null
           monthly_policies_goal?: number | null
           monthly_talk_time_goal?: number | null
-          monthly_talk_time_goal_hours?: number | null
+          monthly_premium_goal?: number | null
           npn?: string | null
           organization_id?: string | null
           phone?: string | null
@@ -3050,7 +3053,7 @@ export type Database = {
           monthly_call_goal: number | null
           monthly_policies_goal: number | null
           monthly_talk_time_goal: number | null
-          monthly_talk_time_goal_hours: number | null
+          monthly_premium_goal: number | null
           npn: string | null
           organization_id: string | null
           phone: string | null
@@ -3095,6 +3098,18 @@ export type Database = {
       set_claim: {
         Args: { claim: string; uid: string; value: Json }
         Returns: string
+      }
+      super_admin_dashboard_snapshot: {
+        Args: Record<string, never>
+        Returns: Json
+      }
+      super_admin_organization_detail: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
+      super_admin_update_organization_status: {
+        Args: { p_organization_id: string; p_status: string }
+        Returns: undefined
       }
       text2ltree: { Args: { "": string }; Returns: unknown }
     }

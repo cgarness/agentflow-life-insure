@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Loader2, Plus, Mic, Info } from "lucide-react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
+import { X, Phone, Mail, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, MessageSquare, ChevronDown, Play, Save, Clipboard, AlertTriangle, Plus, Mic } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
@@ -27,45 +27,25 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
+import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
+import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
+import {
+  CONTACT_FIELD_LAYOUT_KEY,
+  getDefaultFieldOrder,
+  resolveFieldOrder,
+  type ContactType,
+} from "@/lib/contactFieldLayout";
+import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
+import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
+import { HistorySkeleton } from "@/components/dialer/DialerSkeletons";
 
-type ContactType = "lead" | "client" | "recruit";
-
-/** Stable grid order so the left column does not flash from “legacy” layout → saved order when settings load. */
-function getDefaultFieldOrder(t: ContactType): string[] {
-  if (t === "lead") {
-    return [
-      "firstName",
-      "lastName",
-      "phone",
-      "email",
-      "state",
-      "leadSource",
-      "leadScore",
-      "age",
-      "dateOfBirth",
-      "spouseInfo",
-      "assignedAgentId",
-      "notes",
-    ];
+function parseUserContactFieldOrder(contactLayoutBlob: unknown, t: ContactType): string[] | undefined {
+  if (!contactLayoutBlob || typeof contactLayoutBlob !== "object" || Array.isArray(contactLayoutBlob)) {
+    return undefined;
   }
-  if (t === "client") {
-    return [
-      "firstName",
-      "lastName",
-      "phone",
-      "email",
-      "policyType",
-      "carrier",
-      "state",
-      "policyNumber",
-      "premiumAmount",
-      "faceAmount",
-      "issueDate",
-      "assignedAgentId",
-      "notes",
-    ];
-  }
-  return ["firstName", "lastName", "phone", "email", "status", "state", "assignedAgentId", "notes"];
+  const arr = (contactLayoutBlob as Record<string, unknown>)[t];
+  if (!Array.isArray(arr) || arr.length === 0 || !arr.every((x) => typeof x === "string")) return undefined;
+  return arr as string[];
 }
 
 const US_STATES = [
@@ -80,60 +60,6 @@ const initialLeadSources = ["Facebook Ads", "Google Ads", "Direct Mail", "Referr
 const bestTimes = ["Morning 8am-12pm", "Afternoon 12pm-5pm", "Evening 5pm-8pm", "Anytime"];
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 const policyTypes = ["Term", "Whole Life", "IUL", "Final Expense"];
-
-/** Call row merged into the contact conversation timeline (`_type: "call"`). */
-type ContactConvoCallRow = {
-  id: string;
-  _type: "call";
-  _ts: number;
-  direction: string | null;
-  duration: number | null;
-  disposition_name: string | null;
-  recording_url: string | null;
-  twilio_call_sid: string | null;
-  started_at: string | null;
-  created_at: string | null;
-  ended_at: string | null;
-  caller_id_used: string | null;
-  agent_id: string | null;
-  contact_name: string | null;
-  contact_phone: string | null;
-  status: string | null;
-  outcome: string | null;
-  is_missed: boolean | null;
-  amd_result: string | null;
-  notes: string | null;
-  hangup_details: string | null;
-  quality_percentage: number | null;
-  mos: number | null;
-  shaken_stir: string | null;
-  provider_session_id: string | null;
-  provider_error_code: string | null;
-  sip_response_code: number | null;
-  pdd_seconds: number | null;
-  recording_duration: number | null;
-  campaign_id: string | null;
-  flagged_for_coaching: boolean | null;
-};
-
-function formatMmSs(sec: number | null | undefined): string {
-  const n = Math.max(0, Math.floor(sec ?? 0));
-  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
-}
-
-function formatDateTimeShort(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-function callRecordingLabel(c: ContactConvoCallRow): string {
-  if (c.recording_url === "__recording_pending__") return "Processing…";
-  if (c.recording_url && c.recording_url !== "__recording_pending__") return "Available";
-  if (c.twilio_call_sid && (c.duration ?? 0) > 0) return "Available";
-  return "None";
-}
 
 const fallbackStatusStyles: Record<string, string> = {
   New: "#3B82F6",
@@ -162,6 +88,29 @@ const normalizeStatusDisplay = (status: string) => {
   // Fix the common typo APPPINTMENT -> Appointment
   return status.replace(/AP+PINTMENT/i, "Appointment");
 };
+
+/** Matches `ConversationHistory` `historyIcon` — green calls, blue SMS, violet email (side strip, not inside bubble). */
+function contactTimelineBubbleIcon(kind: "call" | "sms" | "email") {
+  if (kind === "call") {
+    return (
+      <div className="w-6 h-6 rounded-full flex items-center justify-center bg-emerald-500/10">
+        <Phone className="w-3.5 h-3.5 text-emerald-500" />
+      </div>
+    );
+  }
+  if (kind === "email") {
+    return (
+      <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
+        <Mail className="w-3.5 h-3.5 text-violet-400" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-400/10">
+      <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+    </div>
+  );
+}
 
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -232,11 +181,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const toggleRecording = (id: string) => {
     setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
   };
+  const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
+  const toggleEmail = (id: string) => {
+    setExpandedEmails((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile } = useAuth();
-  const { formatDate } = useBranding();
+  const { formatDate, formatDateTime, branding } = useBranding();
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
@@ -271,6 +224,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
+  const [coreLoading, setCoreLoading] = useState(true);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
   const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
@@ -280,15 +234,38 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   // Conversations
   const [convoLoading, setConvoLoading] = useState(false);
   const [convoItems, setConvoItems] = useState<any[]>([]);
-  const [convoCallDetail, setConvoCallDetail] = useState<ContactConvoCallRow | null>(null);
   const [convoFilter, setConvoFilter] = useState<"All" | "Calls" | "SMS" | "Email">("All");
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
+  const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+  const historyEndRef = useRef<HTMLDivElement>(null);
   const latestContactIdRef = useRef<string | null>(null);
   latestContactIdRef.current = contact?.id ?? null;
+
+  const messageTemplateMergeInput = useMemo((): MessageTemplateMergeInput => {
+    const cUnknown = contact as Record<string, unknown> | undefined;
+    return {
+      contact: cUnknown ?? null,
+      agentFirstName: profile?.first_name,
+      agentLastName: profile?.last_name,
+      agentPhone: profile?.phone,
+      agentEmail: profile?.email,
+      agencyName: branding.companyName,
+    };
+  }, [contact, profile, branding.companyName]);
+
+  const handleOpenComposeTemplates = useCallback(() => setShowTemplatesModal(true), []);
+
+  const handleComposeChannelChange = useCallback((ch: "sms" | "email") => {
+    setComposeTab(ch === "sms" ? "SMS" : "Email");
+    setComposeText("");
+    setEmailSubject("");
+  }, []);
 
   // Sync form + clear per-contact UI before paint when switching contact or type (avoids wrong lead's notes/fields flashing).
   useLayoutEffect(() => {
@@ -303,6 +280,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     setPipelineStages([]);
     setFieldOrder(getDefaultFieldOrder(type));
     setRosterLoaded(false);
+    setCoreLoading(true);
   }, [contact?.id, type]);
 
   // Same contact refreshed from parent (e.g. after save + list refetch). Compare snapshot so Dialer/Calendar inline `contact` objects do not re-sync every parent render.
@@ -345,10 +323,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
       const settingsP = (async () => {
         try {
-          const [sources, fields] = await Promise.all([
+          const prefsProm =
+            profile?.id != null
+              ? supabase.from("user_preferences").select("settings").eq("user_id", profile.id).maybeSingle()
+              : Promise.resolve({ data: null });
+
+          const [sources, fields, prefsResult] = await Promise.all([
             leadSourcesSupabaseApi.getAll(),
             customFieldsSupabaseApi.getAll(organizationId),
+            prefsProm,
           ]);
+
           let settings: Record<string, unknown> | null = null;
           if (organizationId) {
             const { data } = await (supabase as any)
@@ -358,10 +343,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               .maybeSingle();
             settings = data;
           }
-          return { sources, fields, settings };
+
+          const prefsSettings = prefsResult?.data?.settings as Record<string, unknown> | undefined;
+          const contactLayoutBlob = prefsSettings?.[CONTACT_FIELD_LAYOUT_KEY];
+
+          return { sources, fields, settings, contactLayoutBlob };
         } catch (err) {
           console.error("Error fetching dynamic settings:", err);
-          return { sources: [] as LeadSource[], fields: [] as CustomField[], settings: null };
+          return {
+            sources: [] as LeadSource[],
+            fields: [] as CustomField[],
+            settings: null,
+            contactLayoutBlob: undefined,
+          };
         }
       })();
 
@@ -414,23 +408,31 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         setPipelineStages(fetchedStages);
       }
 
-      const { sources, fields, settings } = settingsPack;
+      const { sources, fields, settings, contactLayoutBlob } = settingsPack;
       if (sources.length > 0) setLeadSources(sources.map((s) => s.name));
       const relevantFields = fields.filter(
         (f) => f.active && f.appliesTo.includes(myType === "lead" ? "Leads" : myType === "client" ? "Clients" : "Recruits")
       );
       setCustomFields(relevantFields);
+
+      let orgOrderRaw: unknown;
       if (settings) {
-        const raw =
+        orgOrderRaw =
           myType === "lead"
             ? (settings as any).field_order_lead
             : myType === "client"
               ? (settings as any).field_order_client
               : (settings as any).field_order_recruit;
-        setFieldOrder(Array.isArray(raw) && raw.length > 0 ? raw : getDefaultFieldOrder(myType));
       } else {
-        setFieldOrder(getDefaultFieldOrder(myType));
+        orgOrderRaw = undefined;
       }
+      const orgOrder =
+        Array.isArray(orgOrderRaw) && orgOrderRaw.length > 0 && orgOrderRaw.every((x: unknown) => typeof x === "string")
+          ? (orgOrderRaw as string[])
+          : undefined;
+
+      const userOrder = parseUserContactFieldOrder(contactLayoutBlob, myType);
+      setFieldOrder(resolveFieldOrder(myType, userOrder, orgOrder));
 
       if (myType === "lead" && campaignRes.data) {
         setCampaigns(campaignRes.data.map((cl: any) => cl.campaigns).filter(Boolean));
@@ -465,6 +467,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       }
       setAgents(agentRows);
       setRosterLoaded(true);
+      setCoreLoading(false);
 
       setEditMode(false);
       setHasChanges(false);
@@ -476,11 +479,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       setStatusDropdownOpen(false);
       setShowAppt(false);
       setEmailSubject("");
+      const userConnections = await emailSupabaseApi.getMyConnections();
+      const connectedConnections = userConnections.filter((connection) => connection.status === "connected");
+      setEmailConnections(connectedConnections);
+      setSelectedEmailConnectionId(connectedConnections[0]?.id || "");
 
       if (!isCurrent()) return;
 
       // Conversation timeline (calls + SMS) can be heavy — load after the rest so the left column and activity are not blocked.
-      const [callsRes, msgsRes] = await Promise.all([
+      const [callsRes, msgsRes, emailsRes] = await Promise.all([
         supabase
           .from("calls")
           .select(
@@ -495,6 +502,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           .eq("lead_id", myId)
           .order("sent_at", { ascending: false })
           .limit(300),
+        emailSupabaseApi.getContactEmails(myId),
       ]);
 
       if (!isCurrent()) return;
@@ -513,7 +521,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           _ts: new Date((m as any).sent_at).getTime(),
         }))
         .reverse();
-      setConvoItems([...calls, ...msgs].sort((a, b) => a._ts - b._ts));
+      const emails = (emailsRes || [])
+        .map((e: any) => ({
+          ...e,
+          body: e.body_text || e.body_html || "(No body)",
+          _type: "email",
+          _ts: new Date(e.received_at || e.sent_at || e.created_at || 0).getTime(),
+        }))
+        .reverse();
+      setConvoItems([...calls, ...msgs, ...emails].sort((a, b) => a._ts - b._ts));
       setConvoLoading(false);
     }
 
@@ -533,7 +549,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   if (!contact) return null;
 
-  const filteredConvos = convoFilter === "All" ? convoItems : convoItems.filter(i => i._type === convoFilter.toLowerCase());
+  const filteredConvos = useMemo(
+    () => (convoFilter === "All" ? convoItems : convoItems.filter((i) => i._type === convoFilter.toLowerCase())),
+    [convoItems, convoFilter],
+  );
+  /** Newest-first for dialer-aligned `flex-col-reverse` timeline (ConversationHistory uses `reversedHistory`). */
+  const reversedFilteredConvos = useMemo(() => [...filteredConvos].reverse(), [filteredConvos]);
   const getAgentDisplayName = (agentId: string) => {
     if (!agentId?.trim()) return "";
     const id = agentId.trim();
@@ -637,33 +658,70 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   };
 
   const handleSendMessage = async () => {
-    if (!composeText.trim() || !contact.phone) return;
-    if (!fromNumber.trim()) {
-      toast.error("Select an agency number to send from.");
-      return;
-    }
+    if (!composeText.trim()) return;
     setMessageSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { toast.error("You must be logged in to send messages"); setMessageSending(false); return; }
-      const base = import.meta.env.VITE_SUPABASE_URL as string;
-      const res = await fetch(`${base}/functions/v1/twilio-sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          to: toE164Plus(contact.phone),
-          from: toE164Plus(fromNumber),
-          body: composeText.trim(),
+      if (composeTab === "Email") {
+        if (!contact.email) {
+          toast.error("This contact has no email address.");
+          setMessageSending(false);
+          return;
+        }
+        if (!selectedEmailConnectionId) {
+          toast.error("No connected inbox found. Connect one in Settings > Email Setup.");
+          setMessageSending(false);
+          return;
+        }
+        const selectedConnection = emailConnections.find((connection) => connection.id === selectedEmailConnectionId);
+        const result = await emailSupabaseApi.sendContactEmail({
           contact_id: contact.id,
-          contact_type: type,
-          subject: composeTab === "Email" ? emailSubject.trim() : undefined,
-          lead_id: contact.id,
-        }),
-      });
-      const result = await res.json();
-      if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
-      toast.success("Message sent"); setComposeText(""); setEmailSubject("");
-      setConvoItems(prev => [...prev, { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+          to_email: contact.email,
+          subject: emailSubject.trim() || `Message from ${AGENT_NAME}`,
+          body_text: composeText.trim(),
+          connection_id: selectedEmailConnectionId,
+          from_email: selectedConnection?.provider_account_email,
+        });
+        if (!result.success) {
+          toast.error(result.error || "Failed to send email");
+          setMessageSending(false);
+          return;
+        }
+        toast.success("Email queued");
+        setComposeText("");
+        setEmailSubject("");
+        setConvoItems(prev => [...prev, { id: `optim-email-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "email", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+      } else {
+        if (!contact.phone) {
+          toast.error("This contact has no phone number.");
+          setMessageSending(false);
+          return;
+        }
+        if (!fromNumber.trim()) {
+          toast.error("Select an agency number to send from.");
+          setMessageSending(false);
+          return;
+        }
+        const base = import.meta.env.VITE_SUPABASE_URL as string;
+        const res = await fetch(`${base}/functions/v1/twilio-sms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({
+            to: toE164Plus(contact.phone),
+            from: toE164Plus(fromNumber),
+            body: composeText.trim(),
+            contact_id: contact.id,
+            contact_type: type,
+            lead_id: contact.id,
+          }),
+        });
+        const result = await res.json();
+        if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
+        toast.success("Message sent");
+        setComposeText("");
+        setConvoItems(prev => [...prev, { id: `optim-${Date.now()}`, body: composeText.trim(), direction: "outbound", _type: "sms", _ts: Date.now(), sent_at: new Date().toISOString() }]);
+      }
     } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { setMessageSending(false); }
   };
 
@@ -857,7 +915,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       <div className="flex flex-1 overflow-hidden min-w-0 w-full">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border-r border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card flex flex-col min-h-0 shadow-sm z-10 shrink-0">
           <div className="px-6 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -885,6 +943,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               </div>
             )}
             
+              {coreLoading ? (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-8 rounded-md bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-3">
                     {fieldOrder.map(fieldId => {
@@ -903,7 +968,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           </div>
                         );
                       }
-                      
+
                       // Standard Fields mapping
                       switch (fieldId) {
                         case 'firstName': return renderField("First Name", "firstName");
@@ -923,7 +988,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         case 'faceAmount': return type === "client" ? renderField("Face Amount", "faceAmount") : null;
                         case 'issueDate': return type === "client" ? renderField("Issue Date", "issueDate", "date") : null;
                         case 'status': return type === "recruit" ? renderField("Status", "status", "select", recruitStatuses) : null;
-                        case 'assignedAgentId': 
+                        case 'assignedAgentId':
                           return (
                             <div key="assignedAgentId" className="bg-muted/40 rounded-md px-2.5 py-2 col-span-2">
                               <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">Assigned Agent</label>
@@ -973,6 +1038,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                   </div>
                 )}
               </div>
+              )}
               
               <div className="mt-auto pt-3 border-t border-border">
                 <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
@@ -982,213 +1048,303 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           </div>
         </div>
 
-        {/* CENTER COLUMN - Conversations */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-muted/20">
-          <div className="px-6 h-14 border-b border-border flex items-center justify-between shrink-0 bg-card z-10">
-             <div className="flex items-center gap-3">
-                <MessageSquare className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">Conversations</h3>
-             </div>
-             <div className="flex bg-muted rounded-lg p-0.5">
-                {["All", "Calls", "SMS", "Email"].map(f => (
-                  <button key={f} onClick={() => setConvoFilter(f as any)} className={cn(
-                    "px-3 py-1 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
-                    convoFilter === f ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}>{f}</button>
-                ))}
-             </div>
-          </div>
-
-          
-          {/* Thread Area */}
-          <div ref={threadRef} className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-4 bg-muted/30">
-            {convoLoading && (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            )}
-            {!convoLoading && filteredConvos.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-24 text-center">
-                 <div className="w-12 h-12 rounded-full bg-accent flex items-center justify-center mb-3">
-                    <MessageSquare className="w-5 h-5 text-muted-foreground" />
-                 </div>
-                 <h4 className="text-sm font-medium text-foreground">No conversations yet</h4>
-                 <p className="text-xs text-muted-foreground mt-1 max-w-xs">Calls, texts, and emails with this {type} will appear here.</p>
-              </div>
-            )}
-            
-            {!convoLoading && filteredConvos.map(item => {
-              const isOutbound =
-                item._type === "sms"
-                  ? item.direction === "outbound"
-                  : !isCallsRowInboundDirection(item.direction);
-              const timestamp = new Date(item._ts).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-
-              if (item._type === "call") {
-                return (
-                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"} w-full`}>
-                    <div className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} max-w-[85%]`}>
-                      <div className={`px-4 py-2.5 rounded-2xl text-[13px] shadow-sm relative transition-all ${
-                        isOutbound 
-                          ? "bg-[#007AFF] text-white rounded-tr-sm" 
-                          : "bg-card border border-border text-foreground rounded-tl-sm"
-                      }`}>
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-2 min-w-0">
-                              <span className="font-semibold shrink-0">
-                                {isOutbound ? "Outbound Call" : "Inbound Call"}
-                              </span>
-
-                              {item.disposition_name && (
-                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                                  isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
-                                } shadow-sm`}>
-                                  {item.disposition_name}
-                                </span>
-                              )}
-
-                              <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
-                                {item.duration != null && item.duration > 0 ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, "0")}` : "0:00"}
-                              </span>
-                            </div>
-                            <div className="flex items-center shrink-0 gap-0.5">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setConvoCallDetail(item as ContactConvoCallRow);
-                                }}
-                                className={`p-1 rounded-full transition-all ${
-                                  isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
-                                }`}
-                                title="Call details"
-                                aria-label="View full call details"
-                              >
-                                <Info className="w-3 h-3" strokeWidth={2.5} />
-                              </button>
-                              {((item.recording_url && item.recording_url !== "__recording_pending__") || (item.twilio_call_sid && item.duration > 0)) && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleRecording(item.id);
-                                  }}
-                                  className={`p-1 rounded-full transition-all ${
-                                    isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
-                                  }`}
-                                  title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
-                                >
-                                  <Play className={`w-3 h-3 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Integrated Recording Player */}
-                        {((item.recording_url && item.recording_url !== '__recording_pending__') || (item.twilio_call_sid && item.duration > 0)) && expandedRecordings[item.id] && (
-                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
-                            <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
-                                <Mic className="w-3 h-3 text-current" aria-hidden />
-                              </div>
-                              <span>Call Recording</span>
-                            </div>
-                            <div className={`rounded-xl p-3 ${isOutbound ? "bg-white/10" : "bg-accent/50"} border ${isOutbound ? "border-white/20" : "border-border/50"}`}>
-                              <RecordingPlayer callId={item.id} compact />
-                            </div>
-                          </div>
+        {/* CENTER COLUMN — structure matches dialer ConversationHistory.tsx */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-l border-r border-border bg-muted/20">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-card border rounded-xl">
+              <div className="shrink-0 border-b border-border">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                    <span className="font-semibold text-sm text-foreground">Conversation History</span>
+                  </div>
+                  <div className="flex bg-muted rounded-lg p-0.5 shrink-0">
+                    {["All", "Calls", "SMS", "Email"].map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setConvoFilter(f as "All" | "Calls" | "SMS" | "Email")}
+                        className={cn(
+                          "px-3 py-1 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
+                          convoFilter === f ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                         )}
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
-                    </div>
-                  </div>
-                );
-              }
-              
-              if (item._type === "sms") {
-                return (
-                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex flex-col max-w-[75%] ${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed shadow-sm ${isOutbound ? "bg-[#007AFF] text-white rounded-tr-sm" : "bg-card border border-border text-foreground rounded-tl-sm"}`}>
-                         <p>{item.body}</p>
-                       </div>
-                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
-                    </div>
-                  </div>
-                );
-              }
-              
-              if (item._type === "email") {
-                return (
-                  <div key={item.id} className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex flex-col max-w-[85%] ${isOutbound ? "items-end" : "items-start"}`}>
-                       <div className={`rounded-xl px-5 py-3.5 text-[13px] leading-relaxed shadow-sm border ${isOutbound ? "bg-card border-border text-foreground rounded-br-sm" : "bg-card border-border text-foreground rounded-bl-sm"}`}>
-                         <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50">
-                            <Mail className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</span>
-                         </div>
-                         <p>{item.body}</p>
-                       </div>
-                       <p className="text-[10px] text-muted-foreground mt-1 mx-1">{timestamp}</p>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })}
-          </div>
-          
-          {/* Composer */}
-          <div className="bg-card border-t border-border p-4 shrink-0 shadow-sm z-10 relative">
-             <div className="flex gap-1.5 mb-3">
-               {["SMS", "Email"].map(t => (
-                 <button key={t} onClick={() => setComposeTab(t as any)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${composeTab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>{t}</button>
-               ))}
-             </div>
-             <div className="flex flex-col gap-2 bg-accent/50 p-2 rounded-xl border border-border focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all">
-                {composeTab === "Email" && (
-                   <input 
-                     value={emailSubject}
-                     onChange={e => setEmailSubject(e.target.value)}
-                     placeholder="Subject Line"
-                     className="w-full px-3 py-2 bg-transparent text-sm font-bold border-b border-border/50 focus:outline-none placeholder:text-muted-foreground/50"
-                   />
-                )}
-                <div className="flex items-end gap-2">
-                  <textarea 
-                     value={composeText} 
-                     onChange={e => { setComposeText(e.target.value); }} 
-                     placeholder={composeTab === "Email" ? "Write your email content..." : `Message ${contact.firstName || 'contact'}...`}
-                     rows={Math.max(1, Math.min(6, composeText.split('\n').length))}
-                     className="flex-1 min-h-[40px] max-h-[200px] px-3 py-2.5 bg-transparent resize-none text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none"
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter' && !e.shiftKey && composeTab === "SMS") {
-                         e.preventDefault();
-                         handleSendMessage();
-                       }
-                     }}
-                  />
-                  <div className="flex items-center gap-1 mb-1 shadow-sm bg-card/50 rounded-lg p-1 border">
-                    <button onClick={() => toast.info("Templates coming soon")} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0">
-                       <FileText className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={handleSendMessage} 
-                      disabled={!composeText.trim() || messageSending || (composeTab === "SMS" && !contact.phone) || (composeTab === "Email" && !contact.email)}
-                      className="h-9 px-4 rounded-md bg-primary text-primary-foreground font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 transition-all shrink-0 shadow-sm"
-                    >
-                       {messageSending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
-                    </button>
+                      >
+                        {f}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
+
+              <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-3 min-h-0">
+                <div ref={historyEndRef} />
+
+                {convoLoading && <HistorySkeleton />}
+
+                {!convoLoading && filteredConvos.length === 0 && (
+                  <p className="text-muted-foreground text-sm text-center py-6">No activity yet</p>
+                )}
+
+                {!convoLoading &&
+                  reversedFilteredConvos.map((item) => {
+                    const isOutbound =
+                      item._type === "call"
+                        ? !isCallsRowInboundDirection(item.direction)
+                        : item.direction !== "inbound" && item.direction !== "incoming";
+
+                    if (item._type === "email") {
+                      const isExpanded = expandedEmails[item.id] ?? false;
+                      const emailBody = typeof item.body === "string" ? item.body : "";
+                      const bodyLines = emailBody.split("\n");
+                      const subjectLine =
+                        typeof item.subject === "string" && item.subject.trim()
+                          ? item.subject.trim()
+                          : "(No subject)";
+                      return (
+                        <div
+                          key={item.id}
+                          className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
+                        >
+                          <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                            <div className="shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                              {contactTimelineBubbleIcon("email")}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <div
+                                className={cn(
+                                  "min-w-0 rounded-2xl text-sm shadow-sm overflow-hidden transition-all border",
+                                  isOutbound
+                                    ? "rounded-tr-sm border-violet-400/40 bg-[#007AFF] text-white"
+                                    : "rounded-tl-sm border-border/60 bg-[#E9E9EB] dark:bg-[#262629] text-foreground",
+                                )}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleEmail(item.id)}
+                                  className={cn(
+                                    "w-full px-3.5 py-2.5 flex items-center gap-2 text-left transition-colors",
+                                    isOutbound ? "hover:bg-white/10" : "hover:bg-black/[0.04] dark:hover:bg-white/10",
+                                  )}
+                                  aria-expanded={isExpanded}
+                                  aria-label={
+                                    isExpanded
+                                      ? "Hide full email"
+                                      : `Show full email: ${subjectLine}`
+                                  }
+                                >
+                                  <span
+                                    className={cn(
+                                      "flex-1 text-[13px] font-medium min-w-0 text-left line-clamp-2 break-words",
+                                      isOutbound ? "text-white" : "text-foreground",
+                                    )}
+                                    title={subjectLine}
+                                  >
+                                    {subjectLine}
+                                  </span>
+                                  <ChevronDown
+                                    className={cn(
+                                      "w-3.5 h-3.5 shrink-0 transition-transform duration-200",
+                                      isExpanded && "rotate-180",
+                                      isOutbound ? "text-white/85" : "text-muted-foreground",
+                                    )}
+                                    aria-hidden
+                                  />
+                                </button>
+                                {isExpanded ? (
+                                  <div
+                                    className={cn(
+                                      "px-3.5 pb-3 pt-2 border-t max-h-[min(60vh,28rem)] overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-200",
+                                      isOutbound ? "border-white/25" : "border-border/50",
+                                    )}
+                                  >
+                                    {bodyLines.map((line, i) =>
+                                      line.startsWith(">") ? (
+                                        <p
+                                          key={i}
+                                          className={cn(
+                                            "text-[11px] leading-relaxed",
+                                            isOutbound ? "text-white/70" : "text-muted-foreground",
+                                          )}
+                                        >
+                                          {line}
+                                        </p>
+                                      ) : (
+                                        <p
+                                          key={i}
+                                          className={cn(
+                                            "text-sm leading-relaxed",
+                                            isOutbound ? "text-white" : "text-foreground",
+                                          )}
+                                        >
+                                          {line}
+                                        </p>
+                                      ),
+                                    )}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div
+                                className={cn(
+                                  "text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1",
+                                  isOutbound ? "justify-end" : "justify-start",
+                                )}
+                              >
+                                {formatDateTime(new Date(item._ts))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item._type === "call") {
+                      const hasDialerRecording = Boolean(item.recording_url && item.recording_url !== "__recording_pending__");
+                      const durationSec = item.duration ?? 0;
+                      return (
+                        <div key={item.id} className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}>
+                          <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                            <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>{contactTimelineBubbleIcon("call")}</div>
+                            <div className="flex flex-col min-w-0">
+                              <div
+                                className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
+                                  isOutbound ? "bg-[#007AFF] text-white rounded-tr-sm" : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                                }`}
+                              >
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="leading-tight font-semibold shrink-0">
+                                      {isCallsRowInboundDirection(item.direction) ? "Inbound Call" : "Outbound Call"}
+                                    </span>
+                                    {item.disposition_name ? (
+                                      <span
+                                        className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                          isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
+                                        } shadow-sm`}
+                                      >
+                                        {item.disposition_name}
+                                      </span>
+                                    ) : null}
+                                    <span
+                                      className={`text-[11px] font-medium opacity-80 ${
+                                        isOutbound ? "text-white" : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {durationSec ? `${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, "0")}` : "0:00"}
+                                    </span>
+                                    {hasDialerRecording ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleRecording(item.id);
+                                        }}
+                                        className={`p-1 rounded-full transition-all ml-auto ${
+                                          isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
+                                        }`}
+                                        title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
+                                      >
+                                        <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                {hasDialerRecording && expandedRecordings[item.id] ? (
+                                  <div
+                                    className={`mt-3 pt-3 border-t ${
+                                      isOutbound ? "border-white/30" : "border-border/30"
+                                    } animate-in fade-in slide-in-from-top-1 duration-200`}
+                                  >
+                                    <div
+                                      className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${
+                                        isOutbound ? "text-white" : "text-foreground"
+                                      }`}
+                                    >
+                                      <div
+                                        className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                          isOutbound ? "bg-white/20" : "bg-primary/10"
+                                        }`}
+                                      >
+                                        <Mic className="w-3 h-3 text-current" aria-hidden />
+                                      </div>
+                                      <span>Call Recording</span>
+                                    </div>
+                                    <div
+                                      className={`rounded-xl p-3 ${
+                                        isOutbound ? "bg-white/10" : "bg-accent/50"
+                                      } border ${isOutbound ? "border-white/20" : "border-border/50"}`}
+                                    >
+                                      <RecordingPlayer callId={item.id} compact />
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div
+                                className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${
+                                  isOutbound ? "justify-end" : "justify-start"
+                                }`}
+                              >
+                                {formatDateTime(new Date(item._ts))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item._type !== "sms") return null;
+
+                    return (
+                      <div key={item.id} className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}>
+                        <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                          <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>{contactTimelineBubbleIcon("sms")}</div>
+                          <div className="flex flex-col">
+                            <div
+                              className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
+                                isOutbound ? "bg-[#007AFF] text-white rounded-tr-sm" : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
+                              }`}
+                            >
+                              <div className="flex flex-col gap-1.5">
+                                <p className={`leading-relaxed whitespace-pre-wrap break-words ${isOutbound ? "text-white" : "text-foreground"}`}>{item.body}</p>
+                              </div>
+                            </div>
+                            <div
+                              className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${
+                                isOutbound ? "justify-end" : "justify-start"
+                              }`}
+                            >
+                              {formatDateTime(new Date(item._ts))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            <MessageComposePanel
+              className="mt-3 shrink-0"
+              channel={composeTab === "SMS" ? "sms" : "email"}
+              onChannelChange={handleComposeChannelChange}
+              messageText={composeText}
+              onMessageChange={setComposeText}
+              subjectText={emailSubject}
+              onSubjectChange={setEmailSubject}
+              onOpenTemplates={handleOpenComposeTemplates}
+              onSendMessage={handleSendMessage}
+              sendDisabled={
+                !composeText.trim() ||
+                messageSending ||
+                (composeTab === "SMS" && (!contact.phone || !fromNumber.trim())) ||
+                (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))
+              }
+              sendLoading={messageSending}
+            />
           </div>
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card border-l border-border flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card flex flex-col min-h-0 shadow-sm z-10 shrink-0">
           <div className="px-4 h-14 border-b border-border shrink-0 bg-muted/10 flex items-center justify-center">
             <div className="flex bg-muted rounded-lg p-0.5 w-full">
               <button onClick={() => setRightTab("Activity")} className={cn(
@@ -1327,81 +1483,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         
       </div>
 
-      <Dialog open={!!convoCallDetail} onOpenChange={(open) => !open && setConvoCallDetail(null)}>
-        <DialogContent className="max-w-lg max-h-[min(85vh,640px)] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Call details</DialogTitle>
-            <DialogDescription>
-              Everything we store for this phone conversation. Use the play button in the thread to listen when a recording is available.
-            </DialogDescription>
-          </DialogHeader>
-          {convoCallDetail && (
-            <dl className="space-y-0 text-sm border border-border rounded-lg divide-y divide-border">
-              {[
-                {
-                  label: "Direction",
-                  value: isCallsRowInboundDirection(convoCallDetail.direction) ? "Inbound" : "Outbound",
-                },
-                { label: "Disposition", value: convoCallDetail.disposition_name?.trim() || "—" },
-                { label: "Talk time", value: formatMmSs(convoCallDetail.duration) },
-                { label: "Started", value: formatDateTimeShort(convoCallDetail.started_at) },
-                { label: "Ended", value: formatDateTimeShort(convoCallDetail.ended_at) },
-                { label: "Logged in system", value: formatDateTimeShort(convoCallDetail.created_at) },
-                { label: "Outbound caller ID used", value: convoCallDetail.caller_id_used ? formatPhoneNumber(convoCallDetail.caller_id_used) : "—" },
-                { label: "Agent on call", value: getAgentDisplayName(convoCallDetail.agent_id || "") || "—" },
-                { label: "Prospect name (snapshot)", value: convoCallDetail.contact_name?.trim() || "—" },
-                {
-                  label: "Prospect phone (snapshot)",
-                  value: convoCallDetail.contact_phone ? formatPhoneNumber(convoCallDetail.contact_phone) : "—",
-                },
-                { label: "Call status", value: convoCallDetail.status?.trim() || "—" },
-                { label: "Outcome", value: convoCallDetail.outcome?.trim() || "—" },
-                { label: "Missed call", value: convoCallDetail.is_missed ? "Yes" : "No" },
-                { label: "Voicemail / machine detection", value: convoCallDetail.amd_result?.trim() || "—" },
-                { label: "Recording", value: callRecordingLabel(convoCallDetail) },
-                {
-                  label: "Recording length",
-                  value:
-                    convoCallDetail.recording_duration != null && convoCallDetail.recording_duration > 0
-                      ? formatMmSs(convoCallDetail.recording_duration)
-                      : "—",
-                },
-                { label: "Hang-up details", value: convoCallDetail.hangup_details?.trim() || "—" },
-                { label: "Agent notes on call", value: convoCallDetail.notes?.trim() || "—" },
-                {
-                  label: "Flagged for coaching",
-                  value: convoCallDetail.flagged_for_coaching ? "Yes" : "No",
-                },
-                {
-                  label: "Quality score",
-                  value:
-                    convoCallDetail.quality_percentage != null
-                      ? `${convoCallDetail.quality_percentage}%`
-                      : "—",
-                },
-                { label: "Audio clarity (MOS)", value: convoCallDetail.mos != null ? String(convoCallDetail.mos) : "—" },
-                { label: "Caller ID attestation (STIR/SHAKEN)", value: convoCallDetail.shaken_stir?.trim() || "—" },
-                { label: "Carrier session ID", value: convoCallDetail.provider_session_id?.trim() || "—" },
-                { label: "Provider error", value: convoCallDetail.provider_error_code?.trim() || "—" },
-                { label: "SIP response code", value: convoCallDetail.sip_response_code != null ? String(convoCallDetail.sip_response_code) : "—" },
-                {
-                  label: "Post-dial delay (seconds)",
-                  value: convoCallDetail.pdd_seconds != null ? String(convoCallDetail.pdd_seconds) : "—",
-                },
-                { label: "Campaign ID", value: convoCallDetail.campaign_id?.trim() || "—" },
-                { label: "Call control ID", value: convoCallDetail.twilio_call_sid?.trim() || "—" },
-                { label: "Internal row ID", value: convoCallDetail.id },
-              ].map((row) => (
-                <div key={row.label} className="grid grid-cols-[minmax(0,38%)_1fr] gap-x-3 px-3 py-2.5">
-                  <dt className="text-muted-foreground font-medium leading-snug">{row.label}</dt>
-                  <dd className="text-foreground break-words leading-snug">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
@@ -1440,6 +1521,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MessageTemplatesPickerModal
+        open={showTemplatesModal}
+        onOpenChange={setShowTemplatesModal}
+        channel={composeTab === "Email" ? "email" : "sms"}
+        mergeInput={messageTemplateMergeInput}
+        onApply={({ body, subject }) => {
+          setComposeText(body);
+          if (subject !== null) setEmailSubject(subject);
+        }}
+      />
 
       <AppointmentModal
         open={showAppt}

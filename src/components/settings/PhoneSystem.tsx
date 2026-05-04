@@ -43,10 +43,10 @@ interface PhoneSystemProps {
 
 const tabTriggerClass =
   "rounded-md px-3 py-2 text-sm font-medium transition-all " +
-  "text-muted-foreground hover:bg-primary/15 hover:text-primary " +
-  "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md " +
+  "text-muted-foreground hover:bg-background hover:text-foreground " +
+  "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm " +
   "data-[state=active]:hover:bg-primary data-[state=active]:hover:text-primary-foreground " +
-  "focus-visible:ring-primary/40";
+  "focus-visible:ring-primary/30";
 
 const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
   const phone = usePhoneSettingsController();
@@ -55,8 +55,8 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
     return (
       <div className="space-y-4">
         <h3 className="flex items-center gap-2.5 text-lg font-semibold text-foreground">
-          <span className="h-6 w-1 shrink-0 rounded-full bg-primary shadow-sm" aria-hidden />
-          <span className="text-primary">Phone System</span>
+          <span className="h-6 w-1 shrink-0 rounded-full bg-border" aria-hidden />
+          <span className="text-foreground">Phone System</span>
         </h3>
         <div className="space-y-6">
           <Skeleton className="h-48 rounded-xl" />
@@ -69,11 +69,11 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
   return (
     <div className="space-y-4">
       <h3 className="flex items-center gap-2.5 text-lg font-semibold text-foreground">
-        <span className="h-6 w-1 shrink-0 rounded-full bg-primary shadow-sm" aria-hidden />
-        <span className="text-primary">Phone System</span>
+        <span className="h-6 w-1 shrink-0 rounded-full bg-border" aria-hidden />
+        <span className="text-foreground">Phone System</span>
       </h3>
       <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-primary/25 bg-primary/10 p-1.5 shadow-sm">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-muted/50 p-1.5">
           <TabsTrigger value="phone" className={tabTriggerClass}>
             Trust Hub
           </TabsTrigger>

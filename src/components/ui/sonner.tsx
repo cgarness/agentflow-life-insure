@@ -14,10 +14,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
         classNames: {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
+          /* Sonner does not add `.success` / `.error` group classes — use ! so these override the base toast background. */
           success:
-            "group-[.success]:group-[.toaster]:bg-green-600 group-[.success]:group-[.toaster]:text-white group-[.success]:group-[.toaster]:border-green-700",
-          error:
-            "group-[.error]:group-[.toaster]:bg-destructive group-[.error]:group-[.toaster]:text-destructive-foreground",
+            "!bg-green-600 !text-white !border-green-700 dark:!bg-green-700 dark:!border-green-800",
+          error: "!bg-destructive !text-destructive-foreground !border-destructive",
           description: "group-[.toast]:text-muted-foreground",
           actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",

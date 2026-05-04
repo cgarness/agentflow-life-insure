@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
@@ -23,10 +23,12 @@ import type { Json } from "@/integrations/supabase/types";
 import { calcAging, getAgentName, getAgentInitials } from "@/lib/data-helpers";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import AddLeadModal from "@/components/contacts/AddLeadModal";
+import type { AddLeadSaveMeta } from "@/components/contacts/AddLeadModal";
+import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import AddClientModal from "@/components/contacts/AddClientModal";
 import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
-import ImportLeadsModal, { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
+import { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
@@ -234,8 +236,9 @@ const DeleteConfirmModal: React.FC<{
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
   const { user, profile, isBuildingOrganization } = useAuth();
-  const { organizationId, role } = useOrganization();
+  const { organizationId, role, isSuperAdmin } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
+  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
@@ -277,7 +280,16 @@ const Contacts: React.FC = () => {
   const [recruits, setRecruits] = useState<Recruit[]>([]);
   const [agents, setAgents] = useState<UserWithProfile[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
-  const [realCampaigns, setRealCampaigns] = useState<{ id: string; name: string; type: string; status: string }[]>([]);
+  const [realCampaigns, setRealCampaigns] = useState<
+    {
+      id: string;
+      name: string;
+      type: string;
+      status: string;
+      user_id?: string | null;
+      assigned_agent_ids?: unknown;
+    }[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
@@ -410,16 +422,21 @@ const Contacts: React.FC = () => {
           return next ?? prev;
         });
       } else if (tab === "Agents") {
-        const agentData = await usersApi.getAll({ search: searchQuery }).catch(e => {
-          console.error("Error fetching agents:", e);
-          return [] as UserWithProfile[];
-        });
-        setAgents(agentData);
-        setSelectedAgent((prev) => {
-          if (!prev) return null;
-          const next = agentData.find((u) => u.id === prev.id);
-          return next ?? prev;
-        });
+        if (!organizationId) {
+          setAgents([]);
+          setSelectedAgent(null);
+        } else {
+          const agentData = await usersApi.getAll({ search: searchQuery, organizationId }).catch(e => {
+            console.error("Error fetching agents:", e);
+            return [] as UserWithProfile[];
+          });
+          setAgents(agentData);
+          setSelectedAgent((prev) => {
+            if (!prev) return null;
+            const next = agentData.find((u) => u.id === prev.id);
+            return next ?? prev;
+          });
+        }
       }
 
       // Deep-link fallback: if pendingContactId is not in the loaded tab slice, fetch by ID
@@ -456,7 +473,7 @@ const Contacts: React.FC = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
+  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -527,7 +544,6 @@ const Contacts: React.FC = () => {
   /** Lead source name → hex from Settings → Lead Sources */
   const [leadSourceColorMap, setLeadSourceColorMap] = useState<Record<string, string>>({});
   const [filterOpen, setFilterOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
@@ -906,10 +922,41 @@ const Contacts: React.FC = () => {
       if (data) setAgentProfiles(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
     });
     // Fetch campaigns for import modal
-    supabase.from("campaigns").select("id, name, type, status").then(({ data }) => {
-      if (data) setRealCampaigns(data);
-    });
+    supabase
+      .from("campaigns")
+      .select("id, name, type, status, user_id, assigned_agent_ids")
+      .then(({ data }) => {
+        if (data) {
+          setRealCampaigns(
+            data as {
+              id: string;
+              name: string;
+              type: string;
+              status: string;
+              user_id?: string | null;
+              assigned_agent_ids?: unknown;
+            }[],
+          );
+        }
+      });
   }, []);
+
+  const assignableAgentsForAddLead = React.useMemo(() => {
+    if (!user?.id) return [] as { id: string; firstName: string; lastName: string }[];
+    if (role === "Team Leader") {
+      const allowed = new Set([user.id, ...downlineAgents.map((d) => d.id)]);
+      return agentProfiles.filter((a) => allowed.has(a.id));
+    }
+    if (role === "Admin" || isSuperAdmin) return agentProfiles;
+    return [] as { id: string; firstName: string; lastName: string }[];
+  }, [user?.id, role, isSuperAdmin, downlineAgents, agentProfiles]);
+
+  const assignableAgentIdsForImport = React.useMemo(() => {
+    if (!user?.id) return [] as string[];
+    if (role === "Agent" && !isSuperAdmin) return [user.id];
+    if (role === "Team Leader") return [user.id, ...downlineAgents.map((d) => d.id)];
+    return agentProfiles.map((a) => a.id);
+  }, [user?.id, role, isSuperAdmin, downlineAgents, agentProfiles]);
 
   const getLeadStatusColor = (status: string) => leadStageColors[status] || fallbackStatusColors[status] || "#6B7280";
   const getRecruitStatusColor = (status: string) => recruitStageColors[status] || fallbackRecruitColors[status] || "#6B7280";
@@ -964,6 +1011,15 @@ const Contacts: React.FC = () => {
     setBulkAssignOpen(false);
     setBulkStatusOpen(false);
   }, [tab]);
+
+  // Refresh leads + import history when returning from the /contacts/import page
+  useEffect(() => {
+    const state = location.state as Record<string, unknown> | null;
+    if (state?.importCompleted) {
+      fetchData({ silent: true });
+      fetchImportHistory();
+    }
+  }, [location.state]);
 
   // Auto-open a contact modal when navigated with openContactId state
   useEffect(() => {
@@ -1020,21 +1076,41 @@ const Contacts: React.FC = () => {
   }, [leads, clients, recruits, agents]);
 
   // ===== Lead CRUD =====
-  const handleAddLead = async (data: Partial<Lead>) => {
+  const handleAddLead = async (data: Partial<Lead>, meta?: AddLeadSaveMeta) => {
     const leadSource =
       String(data.leadSource ?? "").trim() ||
       allLeadSources[0] ||
       "Other";
-    await leadsSupabaseApi.create(
+    const ownerId = meta?.assignToAgentId ?? user?.id ?? "";
+    if (!ownerId) {
+      toast.error("Could not determine assignee.");
+      return;
+    }
+
+    const row = await leadsSupabaseApi.create(
       {
         ...data,
-        leadScore: 5,
-        assignedAgentId: user?.id || "u1",
+        leadScore: data.leadScore ?? 5,
+        assignedAgentId: ownerId,
+        userId: ownerId,
         leadSource,
         status: (data.status as LeadStatus) || "New",
       } as unknown as Omit<Lead, "id" | "createdAt" | "updatedAt">,
       organizationId
     );
+
+    if (meta?.campaignId?.trim()) {
+      try {
+        const { skipped } = await addLeadsToCampaignBatched(meta.campaignId.trim(), [row.id]);
+        if (skipped > 0) {
+          toast.message("Lead saved, but campaign rules skipped adding it to that queue.", { duration: 5000 });
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        toast.error(`Lead saved, but campaign attach failed: ${msg}`);
+      }
+    }
+
     toast.success("Lead added successfully");
     fetchData();
   };
@@ -1763,7 +1839,7 @@ const Contacts: React.FC = () => {
           leadSources={allLeadSources}
         />
         <div className="flex-1" />
-        {tab === "Leads" && <button onClick={() => setImportModalOpen(true)} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
+        {tab === "Leads" && <button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
         {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
@@ -2072,7 +2148,7 @@ const Contacts: React.FC = () => {
                 <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">When you import leads via CSV, your history will appear here.</p>
-                <button onClick={() => setImportModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>
+                <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>
               </div>
             ) : (
               <div className="divide-y divide-border">
@@ -2137,11 +2213,37 @@ const Contacts: React.FC = () => {
       )}
 
       {/* Modals */}
-      {tab === "Leads" && <AddLeadModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddLead} />}
+      {tab === "Leads" && (
+        <AddLeadModal
+          open={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          onSave={handleAddLead}
+          currentUserId={user?.id}
+          organizationId={organizationId}
+          viewerRole={role}
+          viewerIsSuperAdmin={isSuperAdmin}
+          assignableAgents={assignableAgentsForAddLead}
+        />
+      )}
       {tab === "Clients" && <AddClientModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddClient} />}
       {tab === "Recruits" && <AddRecruitModal open={addModalOpen} onClose={() => setAddModalOpen(false)} onSave={handleAddRecruit} />}
       
-      <AddLeadModal open={!!editLead} onClose={() => setEditLead(null)} onSave={async (d) => { if (editLead) { await handleUpdateLead(editLead.id, d); setEditLead(null); } }} initial={editLead} />
+      <AddLeadModal
+        open={!!editLead}
+        onClose={() => setEditLead(null)}
+        onSave={async (d) => {
+          if (editLead) {
+            await handleUpdateLead(editLead.id, d);
+            setEditLead(null);
+          }
+        }}
+        initial={editLead}
+        currentUserId={user?.id}
+        organizationId={organizationId}
+        viewerRole={role}
+        viewerIsSuperAdmin={isSuperAdmin}
+        assignableAgents={assignableAgentsForAddLead}
+      />
       <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} />
       <AddRecruitModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} />
       {selectedLead && (
@@ -2207,54 +2309,6 @@ const Contacts: React.FC = () => {
         onClose={() => setRowDeletePending(null)}
       />
 
-      {/* Import Modal */}
-      <ImportLeadsModal
-        open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        existingLeads={leads}
-        campaigns={realCampaigns}
-        organizationId={organizationId}
-        currentUserId={user?.id}
-        currentUserDisplayName={[profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim()}
-        agentProfiles={agentProfiles}
-        onCampaignCreated={async (campaign) => {
-          const { data, error } = await supabase
-            .from("campaigns")
-            .insert({
-              name: campaign.name,
-              type: campaign.type,
-              description: campaign.description,
-              status: "Active",
-              total_leads: 0,
-              organization_id: organizationId,
-              created_by: user?.id,
-            } as Record<string, unknown>)
-            .select("id")
-            .maybeSingle();
-          if (error || !data?.id) {
-            toast.error(error?.message || "Failed to create campaign during import");
-            return null;
-          }
-          const { data: list } = await supabase.from("campaigns").select("id, name, type, status");
-          if (list) setRealCampaigns(list);
-          return { id: data.id as string };
-        }}
-        onImportComplete={async (newLeads, historyEntry, strategy) => {
-          // Insert import history row into Supabase
-          await supabase.from("import_history").insert({
-            file_name: historyEntry.fileName,
-            total_records: historyEntry.totalRecords,
-            imported: historyEntry.imported,
-            duplicates: historyEntry.duplicates,
-            errors: historyEntry.errors,
-            agent_id: user?.id || null,
-            imported_lead_ids: historyEntry.importedLeadIds,
-            organization_id: organizationId,
-          } as any);
-          await fetchImportHistory();
-          fetchData();
-        }}
-      />
 
       {/* Undo Confirmation */}
       {undoConfirm && (

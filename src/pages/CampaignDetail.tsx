@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft, Plus, Upload, Search, X, Loader2, MoreHorizontal,
   Lock, Trash2, AlertTriangle, Users, Phone, BarChart3, Mail,
@@ -138,45 +138,6 @@ function getAgentDisplayName(a: AgentProfile): string {
   return full || a.email || "Unknown";
 }
 
-// ---- CSV helpers ----
-function parseCSV(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length === 0) return { headers: [], rows: [] };
-  const parseLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') inQuotes = !inQuotes;
-      else if (ch === "," && !inQuotes) { result.push(current.trim()); current = ""; }
-      else current += ch;
-    }
-    result.push(current.trim());
-    return result;
-  };
-  return { headers: parseLine(lines[0]), rows: lines.slice(1).map(parseLine) };
-}
-
-const FIELD_MAP: Record<string, string[]> = {
-  first_name: ["first name", "firstname", "first", "fname"],
-  last_name: ["last name", "lastname", "last", "lname", "surname"],
-  phone: ["phone", "phone number", "cell", "mobile", "telephone"],
-  email: ["email", "email address", "e-mail"],
-  state: ["state", "st", "province", "region"],
-};
-
-function autoMapHeaders(headers: string[]): Record<number, string> {
-  const map: Record<number, string> = {};
-  headers.forEach((h, i) => {
-    const lower = h.toLowerCase().trim();
-    for (const [field, variants] of Object.entries(FIELD_MAP)) {
-      if (variants.some(v => lower === v || lower.includes(v))) { map[i] = field; break; }
-    }
-    if (!map[i]) map[i] = "skip";
-  });
-  return map;
-}
 
 
 
@@ -323,195 +284,6 @@ const AddLeadsModal: React.FC<{
   );
 };
 
-// ---- CSV Import Modal ----
-const ImportCSVModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  campaignId: string;
-  onImported: () => void;
-}> = ({ open, onClose, campaignId, onImported }) => {
-  const { user } = useAuth();
-  const { organizationId } = useOrganization();
-  const [step, setStep] = useState(1);
-  const [file, setFile] = useState<File | null>(null);
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [rows, setRows] = useState<string[][]>([]);
-  const [mappings, setMappings] = useState<Record<number, string>>({});
-  const [importing, setImporting] = useState(false);
-  const fileRef = React.useRef<HTMLInputElement>(null);
-
-  useEffect(() => { if (open) { setStep(1); setFile(null); setHeaders([]); setRows([]); setMappings({}); } }, [open]);
-
-  const handleFile = (f: File) => {
-    if (!f.name.endsWith(".csv")) return;
-    setFile(f);
-    const reader = new FileReader();
-    reader.onload = e => {
-      const { headers: h, rows: r } = parseCSV(e.target?.result as string);
-      setHeaders(h); setRows(r); setMappings(autoMapHeaders(h)); setStep(2);
-    };
-    reader.readAsText(f);
-  };
-
-  const doImport = async () => {
-    setImporting(true);
-    try {
-      const fieldToCol: Record<string, number> = {};
-      Object.entries(mappings).forEach(([idx, field]) => { if (field !== "skip") fieldToCol[field] = Number(idx); });
-      const getVal = (row: string[], field: string) => { const idx = fieldToCol[field]; return idx !== undefined ? row[idx]?.trim() || "" : ""; };
-      
-      const leadsToProcess = rows.map(row => ({
-        first_name: getVal(row, "first_name"),
-        last_name: getVal(row, "last_name"),
-        phone: getVal(row, "phone"),
-        email: getVal(row, "email"),
-        state: getVal(row, "state"),
-      })).filter(r => r.phone || r.first_name);
-
-      if (leadsToProcess.length === 0) {
-        setImporting(false);
-        return;
-      }
-
-      // 1. Process leads in batches to ensure they exist in the master 'leads' table
-      const processedLeads = [];
-      
-      for (const lead of leadsToProcess) {
-        // Try to find existing lead by phone or email
-        let existingId = null;
-        if (lead.phone || lead.email) {
-          const queryParts = [];
-          if (lead.phone) queryParts.push(`phone.eq.${lead.phone}`);
-          if (lead.email) queryParts.push(`email.eq.${lead.email}`);
-          
-          const { data: existingLeads } = await supabase
-            .from("leads")
-            .select("id")
-            .or(queryParts.join(','))
-            .maybeSingle();
-            
-          if (existingLeads) existingId = existingLeads.id;
-        }
-
-        if (!existingId) {
-          // Create new master lead
-          const { data: newLead, error: createError } = await supabase
-            .from("leads")
-            .insert({
-              first_name: lead.first_name,
-              last_name: lead.last_name,
-              phone: lead.phone,
-              email: lead.email,
-              state: lead.state,
-              status: "New",
-              organization_id: organizationId
-            } as any)
-            .select("id")
-            .single();
-          
-          if (createError) {
-            console.error("Failed to create master lead record:", createError);
-            continue; // Skip this one if we can't create a master record
-          }
-          existingId = newLead.id;
-        }
-        
-        processedLeads.push({
-          ...lead,
-          lead_id: existingId,
-          campaign_id: campaignId,
-          status: "Queued",
-          organization_id: organizationId
-        });
-      }
-
-      // 2. Insert into campaign_leads via ownership-validated RPC
-      if (processedLeads.length > 0) {
-        const leadIds = processedLeads.map(l => l.lead_id).filter(Boolean) as string[];
-        const { data, error } = await (supabase.rpc as any)("add_leads_to_campaign", {
-          p_campaign_id: campaignId,
-          p_lead_ids: leadIds,
-        });
-        if (error) {
-          toast.error("Import failed: " + error.message, { duration: 3000, position: "bottom-right" });
-        } else {
-          const result = data as unknown as { added: number; skipped: number; skipped_ids: string[] };
-          await supabase.from("import_history").insert({
-            campaign_id: campaignId,
-            agent_id: user?.id ?? null,
-            organization_id: organizationId,
-            file_name: file?.name ?? "",
-            total_records: rows.length,
-            imported: result.added,
-            duplicates: result.skipped,
-            errors: leadsToProcess.length - processedLeads.length,
-          } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-          if (result.skipped > 0) {
-            toast.success(`${result.added} leads imported, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
-          } else {
-            toast.success(`${result.added} leads imported to campaign`, { duration: 3000, position: "bottom-right" });
-          }
-          onImported();
-          onClose();
-        }
-      }
-    } catch (err: any) {
-      toast.error("An error occurred during import: " + err.message);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 animate-in fade-in zoom-in-95">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">Import CSV to Campaign</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-        </div>
-        {step === 1 && (
-          <div className="border-2 border-dashed rounded-lg p-12 text-center cursor-pointer hover:border-primary/50 transition-colors border-border" onClick={() => fileRef.current?.click()}>
-            <Upload className="w-8 h-8 text-primary mx-auto mb-3" />
-            <p className="text-foreground text-sm font-medium">Drop your CSV file here or click to browse</p>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-          </div>
-        )}
-        {step === 2 && (
-          <>
-            <p className="text-sm text-muted-foreground">{file?.name} — {rows.length} rows detected. Map your columns:</p>
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {headers.map((h, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className="text-sm text-foreground w-1/3 truncate">{h}</span>
-                  <span className="text-muted-foreground">→</span>
-                  <select value={mappings[i] || "skip"} onChange={e => setMappings(prev => ({ ...prev, [i]: e.target.value }))} className="flex-1 h-8 px-2 rounded-lg bg-muted text-sm text-foreground border border-border">
-                    <option value="skip">Skip</option>
-                    <option value="first_name">First Name</option>
-                    <option value="last_name">Last Name</option>
-                    <option value="phone">Phone</option>
-                    <option value="email">Email</option>
-                    <option value="state">State</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setStep(1)} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent transition-colors">Back</button>
-              <button onClick={doImport} disabled={importing} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                {importing && <Loader2 className="w-4 h-4 animate-spin" />}
-                Import {rows.length} Leads
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ---- Sortable Lead Row ----
 const SortableLeadRow: React.FC<{
   lead: CampaignLead;
@@ -620,6 +392,7 @@ const SortableLeadRow: React.FC<{
 const CampaignDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, profile } = useAuth();
   const { formatDate, formatDateTime } = useBranding();
 
@@ -634,7 +407,6 @@ const CampaignDetail: React.FC = () => {
   const [addLeadsOpen, setAddLeadsOpen] = useState(false);
   const [statsDateFrom, setStatsDateFrom] = useState<Date | undefined>(undefined);
   const [statsDateTo, setStatsDateTo] = useState<Date | undefined>(undefined);
-  const [importCSVOpen, setImportCSVOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [removeLeadId, setRemoveLeadId] = useState<string | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
@@ -985,7 +757,7 @@ const CampaignDetail: React.FC = () => {
             <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
               <Plus className="w-4 h-4" /> Add Leads
             </button>
-            <button onClick={() => setImportCSVOpen(true)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
+            <button onClick={() => navigate(`/contacts/import?campaignId=${id}`)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
               <Upload className="w-4 h-4" /> Import CSV
             </button>
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{leads.length} leads</span>
@@ -1447,7 +1219,6 @@ const CampaignDetail: React.FC = () => {
 
       {/* Modals */}
       <AddLeadsModal open={addLeadsOpen} onClose={() => setAddLeadsOpen(false)} campaignId={id!} existingLeadIds={existingLeadIds} onAdded={() => { fetchLeads(); fetchCampaign(); }} />
-      <ImportCSVModal open={importCSVOpen} onClose={() => setImportCSVOpen(false)} campaignId={id!} onImported={() => { fetchLeads(); fetchCampaign(); }} />
       <ConfirmDialog
         open={deleteConfirm}
         title="Delete Campaign"

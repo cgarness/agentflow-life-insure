@@ -20,6 +20,12 @@ const SettingsInner: React.FC = () => {
     if (searchParams.get("section") === "spam") {
       setSearchParams({ section: "number-reputation" }, { replace: true });
     }
+    if (searchParams.get("section") === "email") {
+      setSearchParams({ section: "email-settings" }, { replace: true });
+    }
+    if (searchParams.get("section") === "goals") {
+      setSearchParams({ section: "my-profile" }, { replace: true });
+    }
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -46,19 +52,13 @@ const SettingsInner: React.FC = () => {
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1
-          className={`text-2xl font-bold capitalize ${
-            phoneStackPage ? "text-primary" : "text-foreground"
-          }`}
-        >
+        <h1 className="text-2xl font-bold capitalize text-foreground">
           {activeSlug.replace(/-/g, " ")} Settings
         </h1>
       </div>
 
       <div
-        className={`rounded-xl border bg-card p-6 min-h-[600px] ${
-          phoneStackPage ? "border-primary/25 shadow-sm shadow-primary/5" : ""
-        }`}
+        className={`rounded-xl border bg-card p-6 min-h-[600px] ${phoneStackPage ? "shadow-sm" : ""}`}
       >
         <SettingsRenderer activeSlug={activeSlug} isSuperAdmin={isSuperAdmin} />
       </div>

@@ -3,13 +3,15 @@ import { AvatarSkeleton, NameSkeleton } from "@/components/ui/ProfileSkeleton";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
-  Search, Plus, Bell, Sun, Moon, ChevronDown, Menu,
-  User, Keyboard, LogOut, X, Megaphone, Phone, PhoneCall, IdCard,
+  Plus, Bell, Sun, Moon, Menu, ChevronDown,
+  User, LogOut, X, Phone, PhoneCall, IdCard,
   Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings,
   Eye,
 } from "lucide-react";
+import GlobalSearch from "@/components/search/GlobalSearch";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import ViewAsModal from "@/components/layout/ViewAsModal";
+import HeaderDateCalendar from "@/components/layout/HeaderDateCalendar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -113,11 +115,13 @@ const TopBar: React.FC = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [statusIdx, setStatusIdx] = useState(0);
-  const [statusDropdown, setStatusDropdown] = useState(false);
   const [userDropdown, setUserDropdown] = useState(false);
+  const [availabilityMenuOpen, setAvailabilityMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!userDropdown) setAvailabilityMenuOpen(false);
+  }, [userDropdown]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotifTab>("All");
 
@@ -189,41 +193,7 @@ const TopBar: React.FC = () => {
         </div>
 
         {/* Search */}
-        <div className="flex-1 max-w-lg mx-auto relative">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search contacts, campaigns, conversations..."
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(e.target.value.length > 0); }}
-              onFocus={() => searchQuery.length > 0 && setSearchOpen(true)}
-              onBlur={() => setTimeout(() => setSearchOpen(false), 200)}
-              className="w-full h-9 pl-9 pr-8 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 sidebar-transition"
-            />
-            {searchQuery && (
-              <button onClick={() => { setSearchQuery(""); setSearchOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          {searchOpen && (
-            <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg py-2 z-50">
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase">Contacts</div>
-              {["John Martinez", "Sarah Williams", "Mike Johnson"].map((n) => (
-                <button key={n} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">{n.split(" ").map(w => w[0]).join("")}</div>
-                  <div><p className="font-medium text-foreground">{n}</p><p className="text-xs text-muted-foreground">Lead · Florida</p></div>
-                </button>
-              ))}
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase border-t mt-1 pt-2">Campaigns</div>
-              <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left">
-                <Megaphone className="w-4 h-4 text-primary" />
-                <span className="text-foreground">Q1 Facebook Leads</span>
-              </button>
-            </div>
-          )}
-        </div>
+        <GlobalSearch />
 
         {/* Right Actions */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -257,6 +227,8 @@ const TopBar: React.FC = () => {
             <TooltipContent>Add New Contact</TooltipContent>
           </Tooltip>
 
+          <HeaderDateCalendar />
+
           {/* Notifications */}
           <div className="relative">
             <button onClick={() => setNotifOpen(!notifOpen)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition">
@@ -269,33 +241,6 @@ const TopBar: React.FC = () => {
             </button>
           </div>
 
-          {/* Status */}
-          <div className="relative hidden sm:block">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button onClick={() => setStatusDropdown(!statusDropdown)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center sidebar-transition">
-                  <div className={`w-2.5 h-2.5 rounded-full ${dotClass} ${dotPulse ? "animate-pulse" : ""}`} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{dotTooltip}</TooltipContent>
-            </Tooltip>
-            {statusDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-44 bg-card border rounded-lg shadow-lg py-1 z-50">
-                {statusOptions.map((s, i) => (
-                  <button key={s.label} onClick={() => { setStatusIdx(i); setStatusDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left">
-                    <div className={`w-2.5 h-2.5 rounded-full ${s.dotClass}`} />
-                    <span className={`text-foreground ${i === statusIdx ? "font-semibold" : ""}`}>{s.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Theme Toggle */}
-          <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center sidebar-transition hidden sm:flex">
-            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-
           {/* User Avatar */}
           <div className="relative">
             {isLoading || !profile ? (
@@ -304,25 +249,33 @@ const TopBar: React.FC = () => {
             <button
               type="button"
               onClick={() => setUserDropdown(!userDropdown)}
-              className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full bg-primary/20 text-primary ring-offset-background hover:ring-2 hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sidebar-transition"
+              className="relative h-8 w-8 shrink-0 rounded-full bg-primary/20 text-primary ring-offset-background hover:ring-2 hover:ring-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sidebar-transition"
               aria-expanded={userDropdown}
               aria-haspopup="menu"
+              aria-label={`Account menu, status: ${dotTooltip}`}
             >
-              {profile.avatar_url?.trim() ? (
-                <img
-                  src={profile.avatar_url}
-                  alt={`${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "Profile"}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-xs font-bold">
-                  {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
-                </span>
-              )}
+              <span className="flex h-full w-full overflow-hidden rounded-full">
+                {profile.avatar_url?.trim() ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xs font-bold">
+                    {`${(profile.first_name || "?")[0]}${(profile.last_name || "?")[0]}`}
+                  </span>
+                )}
+              </span>
+              <span
+                className={`pointer-events-none absolute bottom-0 left-0 z-10 h-2 w-2 rounded-full ring-2 ring-background ${dotClass} ${dotPulse ? "animate-pulse" : ""}`}
+                aria-hidden
+                title={dotTooltip}
+              />
             </button>
             )}
             {userDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-48 bg-card border rounded-lg shadow-lg py-1 z-50">
+              <div className="absolute right-0 top-full mt-2 w-56 min-w-[14rem] bg-card border rounded-lg shadow-lg py-1 z-50">
                 <div className="flex items-center gap-3 border-b px-3 py-2.5">
                   {isLoading || !profile ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
@@ -355,7 +308,60 @@ const TopBar: React.FC = () => {
                 </div>
                 <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
                 <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
-                <button className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><Keyboard className="w-4 h-4" />Keyboard Shortcuts</button>
+                <div className="border-b border-t">
+                  <button
+                    type="button"
+                    onClick={() => setAvailabilityMenuOpen((o) => !o)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                    aria-expanded={availabilityMenuOpen}
+                    aria-controls="profile-availability-options"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClass} ${dotPulse ? "animate-pulse" : ""}`}
+                        aria-hidden
+                      />
+                      <span className="truncate font-medium">Availability</span>
+                      <span className="truncate text-muted-foreground">· {dotTooltip}</span>
+                    </span>
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${availabilityMenuOpen ? "rotate-180" : ""}`} aria-hidden />
+                  </button>
+                  {availabilityMenuOpen && (
+                    <div id="profile-availability-options" className="border-t bg-muted/40 px-2 py-1.5" role="group" aria-label="Availability options">
+                      {statusOptions.map((s, i) => (
+                        <button
+                          key={s.label}
+                          type="button"
+                          onClick={() => {
+                            setStatusIdx(i);
+                            setAvailabilityMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent ${i === statusIdx ? "bg-accent font-semibold" : ""}`}
+                        >
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dotClass}`} aria-hidden />
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                >
+                  {theme === "dark" ? (
+                    <>
+                      <Sun className="h-4 w-4 shrink-0" />
+                      Light mode
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="h-4 w-4 shrink-0" />
+                      Dark mode
+                    </>
+                  )}
+                </button>
                 {isSuperAdmin && (
                   <>
                     <div className="h-px bg-border mx-2 my-1" />

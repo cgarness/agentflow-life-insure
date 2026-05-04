@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Phone, MessageSquare, Mail, Plus, Clock, User, Calendar as CalendarIcon, ChevronRight } from "lucide-react";
+import { Plus, Clock, User, Calendar as CalendarIcon, ChevronRight } from "lucide-react";
 import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
 
 import { toast as toastSonner } from "sonner";
@@ -200,7 +200,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [startTime, setStartTime] = useState("10:00 AM");
   const [endTime, setEndTime] = useState("10:30 AM");
   const [userInteractedWithEnd, setUserInteractedWithEnd] = useState(false);
-  const [agent, setAgent] = useState("Chris Garcia");
+  const [assignedAgentId, setAssignedAgentId] = useState("");
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -218,18 +218,36 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [newPhone, setNewPhone] = useState("");
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
 
+  const { user, profile } = useAuth();
+  const isAgent = profile?.role === "Agent";
+
   useEffect(() => {
-    supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
+    if (!organizationId || !user?.id || profile?.role === "Agent") return;
+    const uid = user.id;
+    const base = supabase
+      .from("profiles")
+      .select("id, first_name, last_name, status")
+      .eq("status", "Active")
+      .eq("organization_id", organizationId);
+    const q = profile?.role === "Team Leader"
+      ? base.or(`id.eq.${uid},upline_id.eq.${uid}`)
+      : base;
+    q.then(({ data }) => {
       if (data) setAgents(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" })));
     });
-  }, []);
+  }, [organizationId, user?.id, profile?.role]);
 
   const contactInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { user, profile } = useAuth();
-  const isAgent = profile?.role === "Agent";
-  const isManager = profile?.role === "Admin" || profile?.role === "Team Leader";
+  const nonTerminalStatuses = STATUSES.filter(s => s !== "Completed" && s !== "Cancelled" && s !== "No Show");
+  const isPastUnresolved = (() => {
+    if (!date) return false;
+    const apptDate = new Date(date + "T00:00:00");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return apptDate < today && nonTerminalStatuses.includes(status);
+  })();
 
   useEffect(() => {
     if (!open) return;
@@ -251,7 +269,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       setDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`);
       setStartTime(editing.startTime);
       setEndTime(editing.endTime);
-      setAgent(editing.agent);
+      setAssignedAgentId(editing.user_id || user?.id || "");
       setNotes(editing.notes);
     } else {
       setType("Sales Call"); setStatus("Scheduled");
@@ -259,7 +277,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       setContactName(prefillContactName || "");
       setStartTime(defaultTime || "10:00 AM");
       setEndTime(defaultTime ? advanceTime(defaultTime) : "10:30 AM");
-      setAgent("Chris Garcia"); setNotes("");
+      setAssignedAgentId(user?.id || ""); setNotes("");
       if (defaultDate) {
         const d = defaultDate;
         setDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`);
@@ -325,17 +343,19 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     const dateObj = new Date(y, m - 1, d);
     const contactIdPayload = editing?.contactId ?? prefillContactId ?? selectedContactId ?? "";
     
-    // For agents, always assign to themselves unless editing an existing one they have access to
-    const targetUserId = isAgent ? user?.id : (agents.find(a => `${a.firstName} ${a.lastName}` === agent)?.id || user?.id);
+    const agentRecord = agents.find(a => a.id === assignedAgentId);
+    const agentDisplayName = agentRecord
+      ? `${agentRecord.firstName} ${agentRecord.lastName}`
+      : profile ? `${profile.first_name} ${profile.last_name}` : "";
 
     onSave({
       title: title.trim(), type, status,
       contactName: contactName.trim(),
       contactId: contactIdPayload,
-      date: dateObj, startTime, endTime, 
-      agent: agent.trim(), 
+      date: dateObj, startTime, endTime,
+      agent: agentDisplayName.trim(),
       notes: notes.trim(),
-      user_id: targetUserId 
+      user_id: assignedAgentId || user?.id,
     } as any);
     toastSonner.success(editing ? "Saved" : "Scheduled");
     onClose();
@@ -355,25 +375,6 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     setMiniCardOpen(true);
   };
 
-  const handleStartCall = () => {
-    if (!contactInfo?.phone) return;
-    window.dispatchEvent(new CustomEvent("quick-call", {
-      detail: {
-        phone: contactInfo.phone,
-        contactId: contactId,
-        name: contactInfo.name,
-        type: "lead" 
-      }
-    }));
-    toastSonner.info(`Connecting to ${contactInfo.name}...`);
-  };
-
-  const handleComingSoon = (type: string) => {
-    toastSonner.info(`${type} messaging coming soon!`, {
-      description: "We are building our Omni-channel center."
-    });
-  };
-
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
       <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[95vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
@@ -389,33 +390,6 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </div>
           
           <div className="flex items-center gap-2 mr-6">
-            <div className="flex items-center bg-background/50 border border-border/50 rounded-lg p-0.5 mr-2">
-               <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 gap-1.5"
-                onClick={handleStartCall}
-              >
-                <Phone className="w-3 h-3" /> CALL
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[10px] font-bold text-blue-600 hover:bg-blue-50 gap-1.5"
-                onClick={() => handleComingSoon("SMS")}
-              >
-                <MessageSquare className="w-3 h-3" /> SMS
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[10px] font-bold text-orange-600 hover:bg-orange-50 gap-1.5"
-                onClick={() => handleComingSoon("EMAIL")}
-              >
-                <Mail className="w-3 h-3" /> EMAIL
-              </Button>
-            </div>
-
             {editing && onDelete && (
               <Button
                 variant="ghost"
@@ -629,20 +603,24 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                   className="w-full h-8"
                 />
               </div>
-              {isManager && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assignee</label>
-                  <select 
-                    value={agent} 
-                    onChange={e => setAgent(e.target.value)} 
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assigned Agent</label>
+                {isAgent ? (
+                  <p className="h-8 px-2 flex items-center text-xs text-foreground font-medium">
+                    {profile?.first_name} {profile?.last_name}
+                  </p>
+                ) : (
+                  <select
+                    value={assignedAgentId}
+                    onChange={e => setAssignedAgentId(e.target.value)}
                     className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                   >
                     {agents.map(a => (
-                      <option key={a.id} value={`${a.firstName} ${a.lastName}`}>{a.firstName} {a.lastName}</option>
+                      <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
                     ))}
                   </select>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 p-3 bg-muted/30 rounded-xl border border-border/50">
@@ -669,14 +647,22 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </div>
         </div>
 
+        {isPastUnresolved && (
+          <div className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200 dark:border-amber-800 flex items-start gap-2">
+            <span className="text-amber-800 dark:text-amber-200 text-xs leading-relaxed">
+              This appointment is in the past. Please update the status before saving.
+            </span>
+          </div>
+        )}
         <DialogFooter className="p-4 border-t border-border bg-muted/5 flex items-center justify-end gap-3 sm:justify-end">
           <Button variant="ghost" size="sm" onClick={onClose} className="h-8 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors">
             CANCEL
           </Button>
-          <Button 
-            size="sm" 
-            onClick={handleSave} 
-            className="h-8 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all"
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={isPastUnresolved}
+            className="h-8 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none"
           >
             CONFIRM
           </Button>

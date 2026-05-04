@@ -546,7 +546,7 @@ const UserProfileModal: React.FC<{
         monthlyCallGoal: user.profile.monthlyCallGoal,
         monthlyPoliciesGoal: user.profile.monthlyPoliciesGoal,
         weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal,
-        monthlyTalkTimeGoalHours: user.profile.monthlyTalkTimeGoalHours,
+        monthlyPremiumGoal: user.profile.monthlyPremiumGoal,
         npn: user.profile.npn || "",
         timezone: user.profile.timezone || "",
         carriers: normalizeProfileCarriers(user.profile.carriers),
@@ -649,7 +649,7 @@ const UserProfileModal: React.FC<{
         monthlyCallGoal: form.monthlyCallGoal as number,
         monthlyPoliciesGoal: form.monthlyPoliciesGoal as number,
         weeklyAppointmentGoal: form.weeklyAppointmentGoal as number,
-        monthlyTalkTimeGoalHours: form.monthlyTalkTimeGoalHours as number,
+        monthlyPremiumGoal: form.monthlyPremiumGoal as number,
       });
       toast({ title: "Saved", description: "Goals updated successfully." });
       onSaved();
@@ -728,7 +728,7 @@ const UserProfileModal: React.FC<{
     callsMonth: performance?.callsMonthly ?? 0,
     policiesMonth: performance?.policiesMonthly ?? 0,
     appointmentsWeek: performance?.appsWeekly ?? 0,
-    talkTimeMonth: performance?.talkTimeMonthlyHours ?? 0,
+    premiumMonth: performance?.premiumMonthly ?? 0,
   };
 
   const isSelf = user.id === currentUserId;
@@ -901,10 +901,10 @@ const UserProfileModal: React.FC<{
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       {[
-                        { label: "Monthly Calls Goal", key: "monthlyCallGoal", actual: goalActuals.callsMonth, icon: PhoneCall, color: "text-blue-500", bg: "bg-blue-500/10" },
-                        { label: "Monthly Policies Goal", key: "monthlyPoliciesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-                        { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointmentsWeek, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10" },
-                        { label: "Monthly Talk Time (hrs)", key: "monthlyTalkTimeGoalHours", actual: Math.round(goalActuals.talkTimeMonth), icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10" },
+                        { label: "Monthly Calls Goal", key: "monthlyCallGoal", actual: goalActuals.callsMonth, icon: PhoneCall, color: "text-blue-500", bg: "bg-blue-500/10", fmt: (v: number) => String(v) },
+                        { label: "Monthly Policies Goal", key: "monthlyPoliciesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10", fmt: (v: number) => String(v) },
+                        { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointmentsWeek, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10", fmt: (v: number) => String(v) },
+                        { label: "Monthly Premium Goal ($)", key: "monthlyPremiumGoal", actual: goalActuals.premiumMonth, icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", fmt: (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) },
                       ].map(g => {
                         const Icon = g.icon;
                         const target = (form as any)[g.key] as number || 1;
@@ -912,7 +912,7 @@ const UserProfileModal: React.FC<{
                         return (
                           <div key={g.key} className="bg-card/50 border rounded-xl p-3.5 space-y-3 shadow-sm hover:border-primary/30 transition-colors relative overflow-hidden group">
                             <div className={`absolute -right-4 -top-4 w-16 h-16 rounded-full ${g.bg} opacity-20 blur-2xl group-hover:opacity-40 transition-opacity`} />
-                            
+
                             <div className="flex items-center justify-between relative z-10">
                               <div className="flex items-center gap-2.5">
                                 <div className={`p-1.5 rounded-lg ${g.bg} border border-white/10 shadow-sm`}>
@@ -930,13 +930,13 @@ const UserProfileModal: React.FC<{
                                 />
                               </div>
                             </div>
-                            
+
                             <div className="space-y-2 relative z-10">
                               <div className="flex items-end justify-between px-0.5">
                                 <div className="flex flex-col">
                                   <span className="text-[10px] font-black tracking-widest text-muted-foreground uppercase leading-none mb-1" >Status</span>
                                   <span className={`text-sm font-black tabular-nums tracking-tight ${pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-rose-500"}`}>
-                                    {g.actual} / {target}
+                                    {g.fmt(g.actual)} / {g.fmt(target)}
                                   </span>
                                 </div>
                                 <span className={`text-[10px] font-black tabular-nums bg-accent/80 px-2 py-0.5 rounded-full border border-white/5`}>
@@ -1288,16 +1288,25 @@ const UserManagement: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; user: UserWithProfile | null; action: "deactivate" | "reactivate" }>({ open: false, user: null, action: "deactivate" });
 
   const fetchUsers = useCallback(async () => {
+    // Wait until org context is resolved. Without an org id, the API skips the
+    // organization_id filter and RLS may return cross-org rows (especially for
+    // super admins), causing a brief flash of other orgs' users on refresh.
+    // In User Management we should always scope to the current organization.
+    if (!organizationId) {
+      setAllUsers([]);
+      setLoading(true);
+      return;
+    }
     setLoading(true);
     try {
-      const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter });
+      const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter, organizationId });
       setAllUsers(data);
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter, statusFilter]);
+  }, [search, roleFilter, statusFilter, organizationId, toast]);
 
   const filteredUsers = useMemo(() => {
     if (!currentProfile) return [];
@@ -1309,8 +1318,11 @@ const UserManagement: React.FC = () => {
       // Admin sees everyone in organization (already RLS-filtered)
       if (role === "admin") return true;
       
-      // Manager sees self + downline (already RLS-filtered)
-      if (role === "team leader") return true;
+      // Team Leader: self is always visible; only show users whose direct upline is this leader.
+      // RLS enforces the deep ltree hierarchy — this is a shallow frontend defense-in-depth layer.
+      if (role === "team leader") {
+        return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
+      }
       
       // Agent sees ONLY themselves
       if (role === "agent") {

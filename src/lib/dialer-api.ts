@@ -88,6 +88,18 @@ export async function getCampaigns(organizationId: string | null = null) {
 /** Lowercase `removed` was written historically by the dialer — exclude both. */
 const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Closed Won'];
 
+/**
+ * Campaign `max_attempts === null` means unlimited. When set, a row is over cap when
+ * `call_attempts >= max_attempts` (same as UI: dial while `attempts < cap`).
+ */
+export function isOverCampaignAttemptCap(
+  callAttempts: number | null | undefined,
+  campaignMaxAttempts: number | null | undefined
+): boolean {
+  if (campaignMaxAttempts == null) return false;
+  return (callAttempts ?? 0) >= campaignMaxAttempts;
+}
+
 export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
   // Fetch campaign settings for maxAttempts and retryInterval logic
   const { data: campaign } = await supabase
@@ -96,8 +108,7 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
     .eq("id", campaignId)
     .maybeSingle();
 
-  // Fix 2: NULL max_attempts means "Unlimited" — never block re-queuing
-  const maxAttempts = campaign?.max_attempts ?? 9999;
+  const campaignMaxAttempts = campaign?.max_attempts ?? null;
   const retryIntervalHours = campaign?.retry_interval_hours ?? 0;
 
   // Fix 3: Query campaign_leads directly, filtering by both campaign_id and organization_id
@@ -121,15 +132,17 @@ export async function getCampaignLeads(campaignId: string, organizationId: strin
 
   const now = new Date();
 
-  // Fix 1: Exclude only terminal statuses. NULL / Pending / New / Queued / unrecognized → dialable.
-  // For "Called" leads, still enforce maxAttempts + retryInterval.
+  // Fix 1: Exclude terminal statuses. For finite max_attempts, block any non-terminal
+  // lead at or over the cap (not only status "Called" — dispositions can differ).
+  // For "Called" leads, still enforce retry_interval wait when configured.
   const dialable = ((data as any[]) ?? []).filter(row => {
     const status: string | null = row.status;
 
     if (status && TERMINAL_STATUSES.includes(status)) return false;
 
+    if (isOverCampaignAttemptCap(row.call_attempts, campaignMaxAttempts)) return false;
+
     if (status === 'Called') {
-      if ((row.call_attempts ?? 0) >= maxAttempts) return false;
       if (retryIntervalHours > 0 && row.last_called_at) {
         const hoursSince = (now.getTime() - new Date(row.last_called_at).getTime()) / 3_600_000;
         if (hoursSince < retryIntervalHours) return false;
@@ -212,11 +225,19 @@ export async function getLeadHistory(
       ? supabase.from("dispositions").select("name, color").eq("organization_id", organizationId)
       : Promise.resolve({ data: [] as { name: string; color: string }[] | null, error: null });
 
+  const emailsQuery = supabase
+    .from("contact_emails")
+    .select("id, direction, subject, body_text, from_email, sent_at, received_at, created_at")
+    .eq("contact_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_PER_SOURCE_LIMIT);
+
   // Use Promise.all but respect the signal
-  const [callsRes, activityRes, dispRes] = await Promise.all([
+  const [callsRes, activityRes, dispRes, emailsRes] = await Promise.all([
     callsQuery,
     activityQuery,
     dispositionsPromise,
+    emailsQuery,
   ]);
 
   if (signal?.aborted) {
@@ -226,6 +247,7 @@ export async function getLeadHistory(
   if (callsRes.error) throw new Error(callsRes.error.message);
   if (activityRes.error) throw new Error(activityRes.error.message);
   if (dispRes.error) throw new Error(dispRes.error.message);
+  // email errors are non-fatal — degrade gracefully
 
   const dispositionColorByName: Record<string, string> = {};
   for (const row of dispRes.data ?? []) {
@@ -248,6 +270,9 @@ export async function getLeadHistory(
       created_at: c.created_at ?? c.started_at ?? new Date().toISOString(),
       recording_url: hasRecording ? "proxy" : null,
       duration: c.duration ?? null,
+      subject: null as string | null,
+      from_email: null as string | null,
+      body: null as string | null,
     };
   });
 
@@ -261,9 +286,27 @@ export async function getLeadHistory(
     created_at: a.created_at,
     recording_url: null as string | null,
     duration: null as number | null,
+    subject: null as string | null,
+    from_email: null as string | null,
+    body: null as string | null,
   }));
 
-  const merged = [...callItems, ...activityItems];
+  const emailItems = (emailsRes.data ?? []).map((e) => ({
+    id: e.id,
+    type: "email" as const,
+    description: e.subject || "(No subject)",
+    direction: (e.direction === "inbound" ? "inbound" : "outbound") as "inbound" | "outbound",
+    disposition: null as string | null,
+    disposition_color: null as string | null,
+    created_at: e.received_at || e.sent_at || e.created_at || new Date().toISOString(),
+    recording_url: null as string | null,
+    duration: null as number | null,
+    subject: e.subject ?? null,
+    from_email: e.from_email ?? null,
+    body: e.body_text ?? null,
+  }));
+
+  const merged = [...callItems, ...activityItems, ...emailItems];
   merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   if (merged.length <= HISTORY_TIMELINE_CAP) return merged;
   return merged.slice(merged.length - HISTORY_TIMELINE_CAP);

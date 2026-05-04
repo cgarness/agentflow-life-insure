@@ -31,6 +31,8 @@ interface LeadCardProps {
   editForm: Record<string, unknown>;
   onEditChange: (key: string, value: string) => void;
   isAdvancing?: boolean;
+  /** Resolved layout for connected view; omit or empty → legacy hardcoded order. */
+  fieldDescriptors?: { label: string; key: string; kind: "standard" | "custom" }[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -95,6 +97,7 @@ export default function LeadCard({
   editForm,
   onEditChange,
   isAdvancing,
+  fieldDescriptors,
 }: LeadCardProps) {
   // Track lead ID for fade transition on lead change
   const prevLeadId = useRef<string | null>(null);
@@ -136,7 +139,7 @@ export default function LeadCard({
   }
 
   // ── connected ─────────────────────────────────────────────────────────────
-  const fields = [
+  const fallbackConnectedFields = [
     { label: "First Name", key: "first_name" },
     { label: "Last Name", key: "last_name" },
     { label: "Phone", key: "phone" },
@@ -148,6 +151,9 @@ export default function LeadCard({
     { label: "Spouse", key: "spouse_info" },
     { label: "Source", key: "source" },
   ];
+
+  const fields =
+    fieldDescriptors && fieldDescriptors.length > 0 ? fieldDescriptors : fallbackConnectedFields;
 
   return (
     <div
@@ -169,17 +175,23 @@ export default function LeadCard({
       )}
 
       <div className="grid grid-cols-2 gap-4">
-        {fields.map((f) => (
-          <Field
-            key={f.key}
-            label={f.label}
-            value={lead[f.key]}
-            fieldKey={f.key}
-            isEditing={isEditing}
-            editForm={editForm}
-            onEditChange={onEditChange}
-          />
-        ))}
+        {fields.map((f) => {
+          const rawVal =
+            f.key === "assigned_agent_id"
+              ? lead[f.key] ?? lead["claimed_by"]
+              : lead[f.key];
+          return (
+            <Field
+              key={f.key}
+              label={f.label}
+              value={rawVal}
+              fieldKey={f.key}
+              isEditing={isEditing}
+              editForm={editForm}
+              onEditChange={onEditChange}
+            />
+          );
+        })}
       </div>
     </div>
   );

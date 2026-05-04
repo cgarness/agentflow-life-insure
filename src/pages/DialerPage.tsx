@@ -84,6 +84,11 @@ import {
 import { normalizeState } from "@/utils/stateUtils";
 import { DateInput } from "@/components/shared/DateInput";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  CONTACT_FIELD_LAYOUT_KEY,
+  leadLayoutIdsToDialerDescriptors,
+  resolveFieldOrder,
+} from "@/lib/contactFieldLayout";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
 import CampaignSelection from "@/components/dialer/CampaignSelection";
@@ -100,6 +105,9 @@ import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSke
 import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
 import { ConversationHistory } from "@/components/dialer/ConversationHistory";
 import { DialerActions } from "@/components/dialer/DialerActions";
+import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
+import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
+import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
 
 /* ─── Types ─── */
 
@@ -409,10 +417,9 @@ export default function DialerPage() {
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
+  const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
+  const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [templateSearch, setTemplateSearch] = useState('');
   const [assignedAgentName, setAssignedAgentName] = useState<string | null>(null);
   const [contactLocalTimeDisplay, setContactLocalTimeDisplay] = useState<string>("");
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -442,12 +449,118 @@ export default function DialerPage() {
   const pendingLifecycleIndexRef = useRef<number | null>(null);
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+
+  const [dialerLeadLayoutReady, setDialerLeadLayoutReady] = useState(false);
+  const [dialerUserLeadOrder, setDialerUserLeadOrder] = useState<string[] | undefined>(undefined);
+  const [dialerOrgLeadOrder, setDialerOrgLeadOrder] = useState<string[] | undefined>(undefined);
+
+  useEffect(() => {
+    if (!user?.id || !organizationId) {
+      setDialerLeadLayoutReady(false);
+      setDialerUserLeadOrder(undefined);
+      setDialerOrgLeadOrder(undefined);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [prefsRes, orgRes] = await Promise.all([
+          supabase.from("user_preferences").select("settings").eq("user_id", user.id).maybeSingle(),
+          supabase
+            .from("contact_management_settings")
+            .select("field_order_lead")
+            .eq("organization_id", organizationId)
+            .maybeSingle(),
+        ]);
+        if (cancelled) return;
+
+        let userOrder: string[] | undefined;
+        const rawLayout = (prefsRes.data?.settings as Record<string, unknown> | undefined)?.[CONTACT_FIELD_LAYOUT_KEY];
+        if (rawLayout && typeof rawLayout === "object" && !Array.isArray(rawLayout)) {
+          const arr = (rawLayout as Record<string, unknown>).lead;
+          if (Array.isArray(arr) && arr.length > 0 && arr.every((x) => typeof x === "string")) {
+            userOrder = arr as string[];
+          }
+        }
+
+        let orgOrder: string[] | undefined;
+        const orgRaw = orgRes.data?.field_order_lead;
+        if (Array.isArray(orgRaw) && orgRaw.length > 0 && orgRaw.every((x) => typeof x === "string")) {
+          orgOrder = orgRaw as string[];
+        }
+
+        setDialerUserLeadOrder(userOrder);
+        setDialerOrgLeadOrder(orgOrder);
+        setDialerLeadLayoutReady(true);
+      } catch (e) {
+        console.warn("[DialerPage] Lead field layout prefetch failed:", e);
+        if (!cancelled) {
+          setDialerUserLeadOrder(undefined);
+          setDialerOrgLeadOrder(undefined);
+          setDialerLeadLayoutReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, organizationId]);
+
+  const dialerLeadFieldDescriptors = useMemo(() => {
+    if (!dialerLeadLayoutReady || !user?.id || !organizationId) return undefined;
+    const resolved = resolveFieldOrder("lead", dialerUserLeadOrder, dialerOrgLeadOrder);
+    const d = leadLayoutIdsToDialerDescriptors(resolved);
+    return d.length > 0 ? d : undefined;
+  }, [dialerLeadLayoutReady, dialerUserLeadOrder, dialerOrgLeadOrder, user?.id, organizationId]);
+
   useEffect(() => {
     currentLeadIdForHistoryRef.current = currentLead
       ? String(currentLead.lead_id || currentLead.id)
       : null;
   }, [currentLead]);
-  const { formatDate, formatDateTime } = useBranding();
+  const { formatDate, formatDateTime, branding } = useBranding();
+
+  const messageTemplateMergeInput = useMemo((): MessageTemplateMergeInput => {
+    const leadUnknown = currentLead as Record<string, unknown> | undefined;
+    return {
+      contact: leadUnknown ?? null,
+      agentFirstName: profile?.first_name,
+      agentLastName: profile?.last_name,
+      agentPhone: profile?.phone,
+      agentEmail: profile?.email,
+      agencyName: branding.companyName,
+    };
+  }, [currentLead, profile, branding.companyName]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setEmailConnections([]);
+      setSelectedEmailConnectionId("");
+      return;
+    }
+    (async () => {
+      try {
+        const rows = await emailSupabaseApi.getMyConnections();
+        if (cancelled) return;
+        const connected = rows.filter((c) => c.status === "connected");
+        setEmailConnections(connected);
+        setSelectedEmailConnectionId(connected[0]?.id ?? "");
+      } catch {
+        if (!cancelled) {
+          setEmailConnections([]);
+          setSelectedEmailConnectionId("");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   const { addAppointment } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
@@ -2008,6 +2121,35 @@ export default function DialerPage() {
       console.error("Save error:", { campaignError, phoneError });
     } else {
       toast.success("Calling settings saved");
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === effectiveCampaignId
+            ? { ...c, max_attempts: isUnlimited ? null : maxAttemptsValue }
+            : c
+        )
+      );
+
+      if (effectiveCampaignId === selectedCampaignId && !isUnlimited) {
+        const cap = maxAttemptsValue;
+        let nextIndex = 0;
+        setLeadQueue((prev) => {
+          const current = prev[currentLeadIndex];
+          const filtered = prev.filter((l) => (l.call_attempts ?? 0) < cap);
+          if (filtered.length === 0) {
+            nextIndex = 0;
+            return filtered;
+          }
+          if (!current) {
+            nextIndex = 0;
+            return filtered;
+          }
+          const at = filtered.findIndex((l) => l.id === current.id);
+          nextIndex = at >= 0 ? at : 0;
+          return filtered;
+        });
+        setCurrentLeadIndex(nextIndex);
+      }
+
       const { data: ringRow } = await supabase
         .from("campaigns")
         .select("ring_timeout_seconds")
@@ -2829,16 +2971,7 @@ export default function DialerPage() {
   }
 
 
-  const handleOpenTemplates = async () => {
-    setShowTemplatesModal(true);
-    setTemplatesLoading(true);
-    const { data } = await supabase
-      .from('message_templates')
-      .select('id, name, type, content')
-      .order('name');
-    setTemplates(data || []);
-    setTemplatesLoading(false);
-  };
+  const handleOpenTemplates = () => setShowTemplatesModal(true);
 
   function handleSendMessage() {
     toast.info(`${smsTab.toUpperCase()} sending coming soon`);
@@ -2961,64 +3094,16 @@ export default function DialerPage() {
           </div>
         </div>
       )}
-      {showTemplatesModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-md mx-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">Message Templates</h3>
-              <button
-                onClick={() => { setShowTemplatesModal(false); setTemplateSearch(''); }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                ✕
-              </button>
-            </div>
-            <input
-              type="text"
-              placeholder="Search templates..."
-              value={templateSearch}
-              onChange={e => setTemplateSearch(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-accent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-            {templatesLoading ? (
-              <div className="space-y-2">
-                {[1,2,3].map(i => (
-                  <div key={i} className="h-12 rounded-lg bg-accent animate-pulse" />
-                ))}
-              </div>
-            ) : templates.filter(t =>
-                t.name.toLowerCase().includes(templateSearch.toLowerCase())
-              ).length === 0 ? (
-              <div className="text-center py-6 text-muted-foreground text-sm">
-                {templates.length === 0
-                  ? 'No templates found. Add templates in Settings → Email & SMS Templates.'
-                  : 'No templates match your search.'}
-              </div>
-            ) : (
-              <div className="space-y-1 max-h-72 overflow-y-auto">
-                {templates
-                  .filter(t => t.name.toLowerCase().includes(templateSearch.toLowerCase()))
-                  .map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => {
-                        setMessageText(t.content);
-                        setShowTemplatesModal(false);
-                        setTemplateSearch('');
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-accent sidebar-transition"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">{t.name}</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t.type}</span>
-                      </div>
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <MessageTemplatesPickerModal
+        open={showTemplatesModal}
+        onOpenChange={setShowTemplatesModal}
+        channel={smsTab}
+        mergeInput={messageTemplateMergeInput}
+        onApply={({ body, subject }) => {
+          setMessageText(body);
+          if (subject !== null) setSubjectText(subject);
+        }}
+      />
       {showCallerIdWarning && pendingCall && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
           <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
@@ -3355,6 +3440,7 @@ export default function DialerPage() {
               editForm={editForm}
               onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
               isAdvancing={isAdvancing}
+              fieldDescriptors={dialerLeadFieldDescriptors}
             />
           </div>
         </div>
@@ -3376,6 +3462,9 @@ export default function DialerPage() {
           onSubjectChange={(text) => setSubjectText(text)}
           onCallerNumberChange={setSelectedCallerNumber}
           historyEndRef={historyEndRef}
+          emailConnections={emailConnections}
+          selectedEmailConnectionId={selectedEmailConnectionId}
+          onEmailConnectionChange={setSelectedEmailConnectionId}
         />
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}

@@ -441,6 +441,14 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
 }
 
 function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const aidRaw = data.assignedAgentId as string | undefined | null;
+  const assigned_agent_id =
+    aidRaw === "" || aidRaw === undefined ? null : aidRaw;
+  const uidRaw = data.userId as string | undefined | null;
+  const user_id =
+    uidRaw !== undefined && uidRaw !== ""
+      ? uidRaw
+      : assigned_agent_id;
   return {
     first_name: data.firstName,
     last_name: data.lastName,
@@ -454,8 +462,8 @@ function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { //
     date_of_birth: data.dateOfBirth ?? null,
     best_time_to_call: data.bestTimeToCall ?? null,
     notes: data.notes ?? null,
-    assigned_agent_id: data.assignedAgentId,
-    user_id: data.userId || data.assignedAgentId,
+    assigned_agent_id,
+    user_id,
     last_contacted_at: data.lastContactedAt ?? null,
     custom_fields: data.customFields ?? null,
   };

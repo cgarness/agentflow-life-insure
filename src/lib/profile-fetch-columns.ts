@@ -25,7 +25,7 @@ export const PROFILE_FETCH_FALLBACK_SELECT = [
   "monthly_call_goal",
   "monthly_policies_goal",
   "weekly_appointment_goal",
-  "monthly_talk_time_goal_hours",
+  "monthly_premium_goal",
   "npn",
   "timezone",
   "win_sound_enabled",

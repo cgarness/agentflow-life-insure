@@ -79,37 +79,44 @@ serve(async (req: Request) => {
     if (!orgId) throw new Error("User has no organization_id — set organization on the profile");
 
     stage = "resolve_target_agents";
+    const strategy = assignment.strategy as string | undefined;
+    const isUnassignedLeadImport = strategy === "unassigned" && type !== "clients" && type !== "recruits";
+
     let targetIds: string[] = [];
-    if (assignment.strategy === "self") {
+    let skipAgentValidation = false;
+
+    if (isUnassignedLeadImport) {
+      targetIds = [];
+      skipAgentValidation = true;
+    } else if (strategy === "self") {
       targetIds = [user.id];
-    } else if (assignment.strategy === "specific_agent" && assignment.targetAgentId) {
+    } else if (strategy === "specific_agent" && assignment.targetAgentId) {
       targetIds = [assignment.targetAgentId];
-    } else if (assignment.strategy === "round_robin" && Array.isArray(assignment.targetAgentIds) && assignment.targetAgentIds.length > 0) {
+    } else if (strategy === "round_robin" && Array.isArray(assignment.targetAgentIds) && assignment.targetAgentIds.length > 0) {
       targetIds = assignment.targetAgentIds;
     } else {
-      // Fall back to self rather than 400 — the modal always sends a valid
-      // strategy, but an empty specific/round-robin selection shouldn't break
-      // the whole import.
       targetIds = [user.id];
     }
 
     stage = "validate_target_agents";
-    const { data: allowedProfiles, error: profilesError } = await serviceClient
-      .from("profiles")
-      .select("id")
-      .in("id", targetIds)
-      .eq("organization_id", orgId);
+    if (!skipAgentValidation && targetIds.length > 0) {
+      const { data: allowedProfiles, error: profilesError } = await serviceClient
+        .from("profiles")
+        .select("id")
+        .in("id", targetIds)
+        .eq("organization_id", orgId);
 
-    if (profilesError) throw new Error(`Profiles check failed: ${profilesError.message}`);
-    if (!allowedProfiles || allowedProfiles.length !== targetIds.length) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Forbidden: one or more target agents are outside your organization.",
-          stage,
-        }),
-        { status: 403, headers }
-      );
+      if (profilesError) throw new Error(`Profiles check failed: ${profilesError.message}`);
+      if (!allowedProfiles || allowedProfiles.length !== targetIds.length) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Forbidden: one or more target agents are outside your organization.",
+            stage,
+          }),
+          { status: 403, headers }
+        );
+      }
     }
 
     stage = "fetch_existing";
@@ -154,8 +161,13 @@ serve(async (req: Request) => {
         }
       }
 
-      const assigned_agent_id = targetIds[roundRobinIndex % targetIds.length];
-      roundRobinIndex++;
+      let assigned_agent_id: string | null = null;
+      let user_id_for_row: string | null = null;
+      if (!isUnassignedLeadImport) {
+        assigned_agent_id = targetIds[roundRobinIndex % targetIds.length];
+        user_id_for_row = assigned_agent_id;
+        roundRobinIndex++;
+      }
 
       // Coerce age to a valid integer or null — the leads table stores it as
       // integer and any non-numeric string would cause the entire batch insert
@@ -189,7 +201,7 @@ serve(async (req: Request) => {
           date_of_birth: row?.dateOfBirth || null,
           best_time_to_call: row?.bestTimeToCall || null,
           custom_fields: row?.customFields || null,
-          user_id: assigned_agent_id,
+          user_id: user_id_for_row,
         };
       } else if (tableName === "clients") {
         mappedRow = {

@@ -9,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ---- Types ----
 interface Organization {
@@ -19,6 +21,7 @@ interface Organization {
   name: string;
   slug: string | null;
   created_at: string;
+  status?: "active" | "suspended" | "archived";
 }
 
 interface Profile {
@@ -38,6 +41,20 @@ interface OrgStats {
   totalCampaigns: number;
   totalCalls: number;
   totalAppointments: number;
+}
+
+interface SuperAdminOrganizationDetailRpc {
+  organization: Organization | null;
+  agency_display_name: string | null;
+  stats: {
+    total_users: number;
+    total_leads: number;
+    total_clients: number;
+    total_campaigns: number;
+    total_calls: number;
+    total_appointments: number;
+  };
+  profiles: Profile[];
 }
 
 const StatCard: React.FC<{
@@ -68,6 +85,8 @@ const SuperAdminOrgDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { profile } = useAuth();
+  const isSuperAdmin = Boolean(profile?.is_super_admin);
   
   const [org, setOrg] = useState<Organization | null>(null);
   const [stats, setStats] = useState<OrgStats>({
@@ -83,49 +102,45 @@ const SuperAdminOrgDetail: React.FC = () => {
   const [search, setSearch] = useState("");
   /** Company Branding display name (`company_settings.company_name`). */
   const [agencyDisplayName, setAgencyDisplayName] = useState<string | null>(null);
+  const [statusAction, setStatusAction] = useState<null | "suspend" | "reactivate" | "archive">(null);
+  const orgStatus = org?.status || "active";
+  const orgLocked = orgStatus === "suspended" || orgStatus === "archived";
 
   const fetchData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
-      // 1. Fetch Org Basic Info
-      const [{ data: orgData, error: orgError }, { data: brandRow }] = await Promise.all([
-        supabase.from("organizations").select("*").eq("id", id).single(),
-        supabase.from("company_settings").select("company_name").eq("organization_id", id).maybeSingle(),
-      ]);
-      if (orgError) throw orgError;
-      setOrg(orgData);
-      setAgencyDisplayName(brandRow?.company_name?.trim() || null);
+      // Cross-tenant agency workspace: SECURITY DEFINER RPC (super admin JWT only).
+      const { data: rawDetail, error: detailErr } = await supabase.rpc(
+        "super_admin_organization_detail",
+        { p_organization_id: id }
+      );
+      if (detailErr) throw detailErr;
 
-      // 2. Fetch Aggregates in Parallel
-      const [
-        usersRes,
-        leadsRes,
-        clientsRes,
-        campaignsRes,
-        callsRes,
-        appointmentsRes,
-        profilesRes
-      ] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("leads").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("clients").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("campaigns").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("calls").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("appointments").select("*", { count: "exact", head: true }).eq("organization_id", id),
-        supabase.from("profiles").select("*").eq("organization_id", id).order("created_at", { ascending: false })
-      ]);
+      const detail = rawDetail as SuperAdminOrganizationDetailRpc | null;
+      const orgPayload = detail?.organization;
+      if (!detail || !orgPayload) {
+        toast({ title: "Agency not found", variant: "destructive" });
+        navigate("/super-admin");
+        return;
+      }
 
+      setOrg(orgPayload);
+      const label = typeof detail.agency_display_name === "string" ? detail.agency_display_name.trim() : "";
+      setAgencyDisplayName(label || null);
+
+      const s = detail.stats;
       setStats({
-        totalUsers: usersRes.count || 0,
-        totalLeads: leadsRes.count || 0,
-        totalClients: clientsRes.count || 0,
-        totalCampaigns: campaignsRes.count || 0,
-        totalCalls: callsRes.count || 0,
-        totalAppointments: appointmentsRes.count || 0,
+        totalUsers: Number(s?.total_users) || 0,
+        totalLeads: Number(s?.total_leads) || 0,
+        totalClients: Number(s?.total_clients) || 0,
+        totalCampaigns: Number(s?.total_campaigns) || 0,
+        totalCalls: Number(s?.total_calls) || 0,
+        totalAppointments: Number(s?.total_appointments) || 0,
       });
 
-      setProfiles(profilesRes.data || []);
+      const plist = detail.profiles;
+      setProfiles(Array.isArray(plist) ? plist : []);
     } catch (e: any) {
       toast({ title: "Failed to load agency", description: e.message, variant: "destructive" });
       navigate("/super-admin");
@@ -144,6 +159,26 @@ const SuperAdminOrgDetail: React.FC = () => {
     p.email.toLowerCase().includes(search.toLowerCase())
   );
 
+  const updateOrgStatus = async (nextStatus: "active" | "suspended" | "archived") => {
+    if (!id || !isSuperAdmin) {
+      toast({ title: "Unauthorized", description: "Only super-admins can change agency status.", variant: "destructive" });
+      return;
+    }
+    try {
+      const { error } = await supabase.rpc("super_admin_update_organization_status", {
+        p_organization_id: id,
+        p_status: nextStatus,
+      });
+      if (error) throw error;
+      setOrg((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+      toast({ title: "Agency status updated", description: `Agency is now ${nextStatus}.` });
+    } catch (e: any) {
+      toast({ title: "Failed to update status", description: e.message, variant: "destructive" });
+    } finally {
+      setStatusAction(null);
+    }
+  };
+
   if (loading && !org) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -156,6 +191,7 @@ const SuperAdminOrgDetail: React.FC = () => {
   if (!org) return null;
 
   return (
+    <>
     <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -176,19 +212,59 @@ const SuperAdminOrgDetail: React.FC = () => {
               <Shield className="w-3.5 h-3.5" />
               Created on {new Date(org.created_at).toLocaleDateString(undefined, { dateStyle: 'long' })}
             </p>
+            <Badge variant="outline" className="mt-2 capitalize">{orgStatus}</Badge>
           </div>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setStatusAction("suspend")}
+            disabled={!isSuperAdmin || orgStatus !== "active"}
+            className="gap-2"
+          >
+            Suspend Agency
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setStatusAction("reactivate")}
+            disabled={!isSuperAdmin || orgStatus === "active"}
+            className="gap-2"
+          >
+            Reactivate Agency
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => setStatusAction("archive")}
+            disabled={!isSuperAdmin || orgStatus === "archived"}
+            className="gap-2"
+          >
+            Archive Agency
+          </Button>
           <Button variant="outline" className="gap-2" onClick={fetchData}>
             <Activity className="w-4 h-4" />
             Refresh Data
           </Button>
-          <Button className="gap-2">
+          <Button
+            className="gap-2"
+            disabled={orgLocked}
+            onClick={() => {
+              if (orgLocked) {
+                toast({ title: "Agency inactive", description: "Reactivate this agency to create users.", variant: "destructive" });
+              }
+            }}
+          >
             <Plus className="w-4 h-4" />
             Add User
           </Button>
         </div>
       </div>
+      {orgLocked && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="py-3 text-sm text-destructive">
+            This agency is {orgStatus}. New users and campaigns are blocked until it is reactivated.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -391,6 +467,29 @@ const SuperAdminOrgDetail: React.FC = () => {
         </TabsContent>
       </Tabs>
     </div>
+    <Dialog open={Boolean(statusAction)} onOpenChange={(open) => !open && setStatusAction(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {statusAction === "suspend" && "Suspend agency?"}
+            {statusAction === "reactivate" && "Reactivate agency?"}
+            {statusAction === "archive" && "Archive agency?"}
+          </DialogTitle>
+          <DialogDescription>
+            {statusAction === "suspend" && "Suspended agencies cannot create users or campaigns until reactivated."}
+            {statusAction === "reactivate" && "This will restore access to create users and campaigns."}
+            {statusAction === "archive" && "Archiving is destructive and should be used only for retired agencies."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setStatusAction(null)}>Cancel</Button>
+          {statusAction === "suspend" && <Button variant="destructive" onClick={() => updateOrgStatus("suspended")}>Confirm Suspend</Button>}
+          {statusAction === "reactivate" && <Button onClick={() => updateOrgStatus("active")}>Confirm Reactivate</Button>}
+          {statusAction === "archive" && <Button variant="destructive" onClick={() => updateOrgStatus("archived")}>Confirm Archive</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 };
 

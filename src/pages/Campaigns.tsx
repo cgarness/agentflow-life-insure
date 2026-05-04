@@ -22,6 +22,8 @@ interface Campaign {
   assigned_agent_ids: string[];
   tags: string[];
   total_leads: number;
+  // TODO: add leads_called column to campaigns table and remove fallback
+  leads_called: number;
   leads_contacted: number;
   leads_converted: number;
   created_by: string | null;
@@ -170,6 +172,7 @@ const Campaigns: React.FC = () => {
   const { organizationId } = useOrganization();
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
+  const [orgStatus, setOrgStatus] = useState<"active" | "suspended" | "archived">("active");
 
   const fetchCampaigns = useCallback(async () => {
     if (!organizationId) return;
@@ -184,6 +187,8 @@ const Campaigns: React.FC = () => {
         ...r,
         assigned_agent_ids: r.assigned_agent_ids || [],
         tags: r.tags || [],
+        // TODO: remove fallback once leads_called column exists on campaigns table
+        leads_called: r.leads_called ?? 0,
       })));
     }
     setLoading(false);
@@ -202,6 +207,13 @@ const Campaigns: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchCampaigns(); fetchAgents(); }, [fetchCampaigns, fetchAgents]);
+  useEffect(() => {
+    if (!organizationId) return;
+    supabase.from("organizations").select("status").eq("id", organizationId).maybeSingle().then(({ data }) => {
+      setOrgStatus((data?.status as any) || "active");
+    });
+  }, [organizationId]);
+  const orgLocked = orgStatus !== "active";
 
   const filtered = useMemo(() => {
     return campaigns.filter(c => {
@@ -217,7 +229,13 @@ const Campaigns: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-foreground">Campaigns</h1>
-        <button onClick={() => setCreateOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+        <button onClick={() => {
+          if (orgLocked) {
+            toast.error("This agency is suspended/archived. Reactivate to create campaigns.");
+            return;
+          }
+          setCreateOpen(true);
+        }} disabled={orgLocked} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
           <Plus className="w-4 h-4" /> Create Campaign
         </button>
       </div>
@@ -295,19 +313,18 @@ const Campaigns: React.FC = () => {
                   ))}
                 </div>
               )}
-              <div className="flex gap-4 mb-3">
-                <div className="text-center">
-                  <p className="text-lg font-bold text-foreground">{c.total_leads}</p>
-                  <p className="text-[10px] text-muted-foreground">Total</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-foreground">{c.leads_contacted}</p>
-                  <p className="text-[10px] text-muted-foreground">Contacted</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-foreground">{c.leads_converted}</p>
-                  <p className="text-[10px] text-muted-foreground">Converted</p>
-                </div>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {[
+                  { label: "Total", value: c.total_leads },
+                  { label: "Called", value: c.leads_called },
+                  { label: "Contacted", value: c.leads_contacted },
+                  { label: "Converted", value: c.leads_converted },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-muted/40 rounded-lg p-3 text-center">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
+                    <p className="text-xl font-bold text-foreground">{value}</p>
+                  </div>
+                ))}
               </div>
               {/* Lead Health Bar */}
               <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />

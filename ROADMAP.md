@@ -9,6 +9,8 @@
 
 ### 🔐 Authentication & Tenant Isolation `[STABLE]`
 - **State**: Supabase Auth triggers `profiles` mirroring. Multi-tenant isolation is enforced via custom JWT claims (`organization_id`, `role`) and hierarchical `ltree` logic for downline management.
+- **Recent update (2026-04-30):** **Profiles cross-org leak fixed** — Legacy RLS policies (`Admins can read all profiles`, `Admins can update all profiles`, and the two Team Leader variants from `20260323014000`) were still active and **OR**’d with hierarchical policies, so **any org Admin could read every profile in every org**. New migration **`20260430143000_profiles_drop_legacy_wide_rls_policies.sql`** removes them; access is only via **`profiles_select_hierarchical`** / **`profiles_update_hierarchical`**. **Contacts → Agents** now passes **`organizationId`** into **`usersSupabaseApi.getAll`** (matches User Management). **Apply:** **`npx supabase db push`** (or run the SQL on Supabase).
+- **Recent update (2026-04-30):** **Super-admin = home org in the app; Agencies = cross-tenant console** — JWT super-admins no longer use unscoped **`is_super_admin()`** bypass on tenant tables (leads, contacts, campaigns, calls, profiles, invitations, etc.). They see the same org boundary as **`get_org_id()`** except **Agencies**: **`organizations` SELECT** stays global; new **`organizations_update_super_admin`** lets them change another agency’s **`status`**. Cross-org metrics and org detail use **`super_admin_dashboard_snapshot`**, **`super_admin_organization_detail`**, and **`super_admin_update_organization_status`** (SECURITY DEFINER, gated by **`is_super_admin()`**). **`SuperAdminDashboard.tsx`** / **`SuperAdminOrgDetail.tsx`** call those RPCs. Helper **`super_admin_own_org(uuid)`** scopes super-admin table access to the row’s **`organization_id`** matching JWT org. **Master Admin** explains that raw table browser is org-scoped for platform super-admins. Migration: **`20260430203000_super_admin_scoped_own_org.sql`**. **Apply:** **`npx supabase db push`** (or MCP / SQL Editor). **Production (`jncvvsvckxhqgqvkppmj`, 2026-04-30):** MCP migration ledger **`20260430203000_super_admin_scoped_own_org_p1_functions_and_early_rls`** (functions + policies through **`campaign_leads`**) plus **`execute_sql`** in eight slices for the remainder and ledger companion **`20260430203000_super_admin_scoped_own_org_p2_remaining_rls`** — equivalent to the single repo file (remote version timestamps differ slightly from the filename stamp).
 - **Recent update (2026-04-25):** **Agency name = Company Branding** — Founder onboarding **`useOnboardingPageFlow`** now **`upsert`s `company_settings`** (`company_name`, timezone from wizard, defaults aligned with **`BRANDING_DEFAULTS`**) in addition to **`organizations.name`**. Invite preview reads **`company_settings.company_name`** first. **Agencies** (`SuperAdminDashboard.tsx`) and **org detail** show **`company_settings.company_name`** with fallback to **`organizations.name`**; **slug column removed** from the Agencies table UI. **Provision New Agency** wizard seeds **`company_settings`** after org insert. Migration **`20260425140000_backfill_company_settings_from_organizations.sql`** backfills missing/blank **`company_name`** from **`organizations.name`**.
 - **Recent update (2026-04-25):** **Organizations cleanup** — Removed **9** empty test / duplicate-signup **`organizations`** rows on production (0 profiles, 0 leads each). **Left 2:** **Family First Life - Chris Garcia** (`ffl-chris-garcia`) and **John's Agency** (`john-modjmok9`, **`chrisgarness702@gmail.com`**). Versioned as migration **`20260425120000_cleanup_orphan_test_organizations.sql`** (idempotent `DELETE … WHERE id IN (…)`). Already executed on live DB via Supabase SQL; **`db push`** on drifted histories may still need **`migration repair`** before local sync.
 - **Recent update (2026-04-24):** **Agencies** (sidebar + **`/super-admin`**) — Renamed from “Super Admin”; copy uses **agency** language on **`SuperAdminDashboard`**, **`SuperAdminOrgDetail`**, and **`Sidebar`**; nav tab stays active on **`/super-admin/*`**. **RLS:** migration **`20260424180000_organizations_super_admin_select_rls.sql`** adds **`organizations_select_super_admin_all`** so **`is_super_admin()`** can **SELECT** every **`organizations`** row (fixes Agencies list showing only the super admin’s JWT org while user/lead counts were platform-wide). **Apply:** **`npx supabase db push`** or run the SQL in Supabase. **Verify:** `SELECT count(*) FROM organizations;` matches the Agencies table; a non–super-admin still must not see other agencies’ rows.
@@ -29,6 +31,7 @@
 
 ### 📞 Power Dialer & Telephony `[PRODUCTION-READY]`
 - **State**: 1-Line WebRTC Dialer (**Twilio Voice.js**) with Auto-Dial support. State management is decentralized via Supabase Edge functions and real-time triggers. **Inbound** calls ring the registered WebRTC client; **Floating Dialer** only for answer/decline (green/red) — **`IncomingCallModal`** removed from **`AppLayout`** to avoid duplicate popups (`inbound-call-claim` + webhook org hint).
+- **Recent update (2026-04-26):** **Max call attempts (end-to-end)** — `getCampaignLeads` applies the campaign’s finite `max_attempts` to every non-terminal `campaign_leads` row (not only `Called`). **`get_next_queue_lead`** enforces the same cap from `campaigns.max_attempts` for Team / Open Pool (optional `queue_filters` max is unchanged). **Dialer** calling-settings save optimistically updates `max_attempts` in local campaign state and prunes the in-memory queue so the active contact cannot stay over the new cap. *Files:* **`src/lib/dialer-api.ts`**, **`src/lib/dialer-api-attempt-cap.test.ts`**, **`src/pages/DialerPage.tsx`**, migration **`20260426120000_get_next_queue_lead_campaign_max_attempts.sql`**, **`docs/CAMPAIGN_AND_DIALER_ARCHITECTURE.md`**. **Apply:** run the migration (e.g. **`npx supabase db push`**) on each environment.
 - **Recent update (2026-04-20):** Production **`db push`** applied the Twilio Phase 1 migration pack (after **`migration repair --status reverted 20260418180637`** cleared an orphan remote-only history row). All Twilio voice/SMS/Trust Hub functions plus **`inbound-call-claim`** were redeployed to **`jncvvsvckxhqgqvkppmj`** (webhook deploys used **`--no-verify-jwt`**).
 - **Recent update (2026-04-23):** **Outbound connect chime** — Twilio Voice.js plays a built-in **“outgoing”** UI sound when the PSTN leg connects. **`initTwilioDevice`** now calls **`device.audio?.outgoing(false)`** after **`register()`** (and when returning an already-registered singleton) so agents only hear the live call, not the SDK chime. *File:* **`src/lib/twilio-voice.ts`**.
 - **Recent update (2026-04-23):** **Twilio “application error” at call end** — Twilio plays that message when a **`<Dial action>`** URL returns **403** (often **signature mismatch**). Outbound TwiML built **`action`** from **`X-Forwarded-Host`** while **`twilio-voice-status`** validated signatures against a **hardcoded** `*.supabase.co` host; any mismatch fails verification. **Fix:** derive **both** the embedded callback URLs and signature base URL from **`SUPABASE_URL`** (same helpers in **`twilio-voice-webhook`**, **`twilio-voice-status`**, **`twilio-voice-inbound`**, **`twilio-recording-status`**). **Redeploy** all four Edge functions to production after merge.
@@ -58,6 +61,11 @@
 - **Out of scope (deferred):** Phase 2 wires `twilio-token` Edge Function to load **per-org subaccount** Account SID + auth token (Vault read) instead of master credentials. Phase 3 covers number purchase under each subaccount + CNAM. Client (`DialerPage.tsx`, `TwilioContext.tsx`) is untouched in Phase 1.
 - **Next Up:** Phase 2 — refactor `twilio-token` to read `organizations.twilio_subaccount_sid` + Vault auth token via service-role RPC; add Super Admin retry tool for `pending_manual` orgs.
 
+### 🔍 Global Search `[STABLE]`
+- **State**: Live Supabase RPC `global_search` searching `leads`, `clients`, `recruits`, `campaigns`, and `calls` scoped by `organization_id`. Frontend wired in `GlobalSearch.tsx` with debounce, Zod validation, grouped results, keyboard nav, Escape/click-away dismiss.
+- **⚠️ BLOCKER — Contact detail routing**: No `/contacts/:id`, `/leads/:id`, `/clients/:id`, or `/recruits/:id` route exists in `App.tsx`. Contact results currently navigate to `/contacts?type=<type>&id=<id>` as a v1 fallback. A dedicated contact detail route (or modal-on-query-param pattern in `Contacts.tsx`) must be added before click-through fully resolves a specific record.
+- **Next Up**: v2 — enable `similarity()` / `word_similarity()` from `pg_trgm` (indexes already deployed); recent-searches history; transcript full-text search.
+
 ---
 
 ## 2. Recent Database Migration History (April 2026)
@@ -65,6 +73,7 @@
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
 | `20260502120000` | `twilio_subaccount_provisioning.sql` | **Phase 1.** Adds **`organizations.twilio_subaccount_sid`** (UNIQUE), **`twilio_subaccount_auth_token_vault_key`**, **`twilio_subaccount_status`** (CHECK `pending`/`active`/`pending_manual`/`suspended`/`closed`, default `pending`), **`twilio_provisioned_at`**. New table **`public.provisioning_errors`** (org_id, attempt_number 1–10, error_code, error_message, twilio_response JSONB) — Super Admin SELECT-only RLS. Singleton **`private.twilio_provisioning_config`** (id=1) holds Edge Function URL + service-role key. **`public.set_twilio_subaccount_token(uuid, text)`** SECURITY DEFINER helper writes/updates auth token in **`vault.secrets`** under name **`twilio_subaccount_token_<org_id>`** (EXECUTE → `service_role` only). AFTER INSERT trigger **`on_organization_created_provision_twilio`** calls **`pg_net`** → **`provision-twilio-subaccount`** Edge Function with the new org id; failures `RAISE WARNING` and never block the insert. **Applied to prod 2026-05-02 (recorded as `20260502192607`)**; deploy Edge Function via Supabase MCP, then populate `private.twilio_provisioning_config` in SQL Editor. |
+| `20260429120000` | `global_search_rpc.sql` | Creates `pg_trgm` extension + GIN indexes on `leads`, `clients`, `recruits`, `campaigns`, `calls`. Adds `public.global_search(search_query text)` RPC (`SECURITY DEFINER`, `STABLE`, max 5 results per type, org-scoped via `public.get_org_id()`, ordered by `relevance desc, title asc`). Grants EXECUTE to `authenticated`. |
 | `20260424120000` | `custom_fields_created_by_and_rls.sql` | Adds **`custom_fields.created_by`**; tightens RLS (no cross-tenant **`organization_id IS NULL`** SELECT); per-creator visibility for agents; Admin/Team Leader org-wide inserts. **`NOTIFY pgrst, 'reload schema'`**. |
 | `20260424100000` | `profiles_onboarding_complete.sql` | Adds **`profiles.onboarding_complete`** if missing (**`NOT NULL DEFAULT false`**) + **`NOTIFY pgrst, 'reload schema'`** — fixes onboarding wizard finish when prod **`profiles`** never received older heal migrations. **Apply:** **`npx supabase db push --yes`** (or SQL Editor) on the linked project. |
 | `20260423183000` | `custom_fields_email_phone_types.sql` | Extends **`custom_fields.type`** check constraint with **`Email`** and **`Phone`** (CSV import + Settings). |
@@ -124,6 +133,161 @@
   | **No Telnyx references** | Confirmed. New code references `Twilio Master Account SID`, `Twilio Master Auth Token`, and Twilio API endpoints only. Existing `telnyx-*` Edge Functions (legacy) are unmodified. |
   | **Phase 2 (deferred)** | Refactor `twilio-token` to load per-org subaccount Account SID + auth token (Vault read) instead of master creds. Add Super Admin retry tool for `pending_manual` orgs and a `provisioning_errors` view in Settings. |
   | **Phase 3 (deferred)** | Number purchase + CNAM provisioning under each subaccount. Move existing `phone_numbers` from master to subaccount where applicable. |
+- **2026-05-01 | [DONE] | Bugfix — FullScreenContactView email items now render as iMessage-style bubbles**
+  *What:* Replaced the accordion/pill email render block in **`FullScreenContactView.tsx`** (`filteredConvos.map` → `item._type === "email"` branch) with directional iMessage-style bubbles matching calls and SMS. Outbound emails: right-aligned `flex justify-end`, blue `bg-[#007AFF]` bubble with `rounded-tr-sm`, optional subject line at `text-[12px] font-semibold opacity-90`, body truncated at 120 chars, timestamp below. Inbound emails: left-aligned `flex justify-start`, `bg-card border border-border` bubble with `rounded-tl-sm`, same subject/body/timestamp layout. Removed: `Mail` icon header, `"Sent"` / `"Received"` label spans, `ChevronDown` expand arrow, expand/collapse accordion body. No new state, no logic changes, no new imports. `expandedEmails` and `toggleEmail` remain in file (unused — no state changes allowed per task scope).
+  *Context snapshot:* Email conversation items in **`FullScreenContactView`** now visually match calls and SMS bubbles. Outbound = right/blue, inbound = left/card. Subject rendered as a bolded line inside the bubble when present; body capped at 120 characters with ellipsis. Timestamp uses `formatDateTime(new Date(item._ts))` identical to SMS/call rows. No chevron, no badge pill, no Mail icon, no expand state. No migrations, no new files.
+  *Files:* **`src/components/contacts/FullScreenContactView.tsx`**, **`ROADMAP.md`**.
+
+- **2026-05-01 | [DONE] | Bugfix — FullScreenContactView center column conversation bubble styling**
+  *What:* A prior style pass left two regressions in the center column thread area of **`FullScreenContactView.tsx`**: (1) the header label read **"Conversations"** instead of **"Conversation History"**; (2) inbound (received) call and SMS bubbles used the legacy **`bg-[#E9E9EB] dark:bg-[#262629]`** inline-color treatment instead of the design-system **`bg-card border border-border`** card style that matches the Dialer page `ConversationHistory`. Sent (outbound) bubbles remain **`bg-[#007AFF]`** right-aligned blue — unchanged. Scope: three `className`-only edits in the JSX thread render. No state, hooks, data-fetching, or compose logic touched. No new files. No migrations.
+  *Context snapshot:* Header now reads **CONVERSATION HISTORY** (uppercase via existing `uppercase tracking-wider` class). Inbound calls and inbound SMS both render left-aligned with `bg-card border border-border text-foreground rounded-2xl rounded-tl-sm` — identical to the dialer `ConversationHistory` reference. Filter tabs (All / Calls / SMS / Email), FROM selector, `MessageComposePanel`, and all state wiring preserved exactly as they were.
+  *Files:* **`src/components/contacts/FullScreenContactView.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-30 | [DONE] | Lead assignment — Contacts add / CSV import wiring + drop orphan Assignment Rules tab**
+  *What:* **Manual Add Lead (`AddLeadModal`)** — Agents always assign to self (no picker). Admin / Team Leader / Super Admin get **Assign To**: Myself or Specific Agent (downline/org roster from **`Contacts`**); assigning to someone else exposes optional **Attach to Campaign** scoped to Personal (owner match), Team (participant), or Open Pool (**`campaign-assignee-scope.ts`** + **`AddLeadAssignmentSection.tsx`** fetch). **`handleAddLead`** passes **`assignedAgentId`/`user_id`** into **`leadsSupabaseApi.create`** then **`addLeadsToCampaignBatched`** when a campaign id is supplied. **CSV Import** — **`ImportLeadsModal`** Step 3 uses one **Assign To** dropdown (**Myself / Specific Agent / Round Robin / Unassigned**); Agents locked to Myself; Unassigned imports require Team or Open Pool campaign (existing picker filtered & “none” disabled); **`import-contacts`** Edge Function handles **`strategy: "unassigned"`** for **`type: "leads"`** with **`assigned_agent_id`/`user_id` null**. **Settings:** removed **Assignment Rules** tab (**`AssignmentRulesTab`** deleted); **`Field Layout`** is tab index **5**; **`contact_management_settings`** columns untouched. **`leadToRow`** coerces blank assignee → null for inserts.
+  *Files:* **`AddLeadModal.tsx`** (≤200 lines via **`useAddLeadModalForm.ts`**, **`addLeadLeadFormSchema`** from **`addLeadLeadZod.ts`**, **`AddLeadFormFooter.tsx`**), **`AddLeadLeadFormBody.tsx`**, **`AddLeadAssignmentSection.tsx`**, **`campaign-assignee-scope.ts`**, **`Contacts.tsx`**, **`ImportLeadsModal.tsx`**, **`supabase/functions/import-contacts/index.ts`**, **`supabase-contacts.ts`** (`leadToRow`), **`ContactManagement.tsx`**. *Deploy:* **`import-contacts`** on project **`jncvvsvckxhqgqvkppmj`** — **version 20**, **`verify_jwt: false`** (matches **`config.toml`**; JWT checked in **`auth.getUser(jwt)`**).
+
+- **2026-04-30 | [DONE] | Settings → Contact Flow — remove redundant Display Settings tab**
+  *What:* Removed **Display Settings** from **Contact Management** tabs. Column/sort/per-page controls were disconnected from **`/contacts`** (which uses **`visibleCols`** / **`sortPrefs`** in **`user_preferences`**) or never persisted. **Field Layout** tab index drifted upward as tabs were consolidated (see newer Contact Flow bullets for current index).
+  *Files:* **`src/components/settings/ContactManagement.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-30 | [DONE] | Gmail inbound sync — email-sync-incremental Gmail History API pull + 5-minute cron (Opus)**
+  *What:* Replaced the placeholder body of **`supabase/functions/email-sync-incremental/index.ts`** with a full Gmail-only inbound sync. Cron-only (`x-cron-secret` gate retained). Loads every connected Google inbox across all orgs; refreshes the access token via the shared **`_shared/google-token.ts`** helper; on `invalid_grant` flips **`user_email_connections.status='needs_reconnect'`** and skips. Cursorless connections bootstrap from `messages.list?q=newer_than:7d` (capped at 200 messages) and anchor at `users.getProfile.historyId`; subsequent runs use `users.history.list?startHistoryId=…&historyTypes=messageAdded` and fall back to bootstrap on a 410/404 stale-cursor response. Each new message is fetched with `messages.get?format=full`, headers are parsed case-insensitively (From/To/Cc/Subject/Date/Message-ID/In-Reply-To/References), MIME walked for `text/plain` (preferred) and `text/html` (fallback), echoes of the connection's own outbound mail are skipped, and the From address is matched (lowercase, trimmed) against **leads → clients → recruits** in the same `organization_id` (NULL `contact_id` on miss — row is still inserted). Inserts use `.upsert({...}, { onConflict: 'organization_id,provider,external_message_id', ignoreDuplicates: true })` for idempotency; cursors upsert into **`email_sync_cursors.cursor_value`** keyed on `connection_id`.
+  *Migrations:*
+  **(1)** **`20260430120000_contact_emails_inbound_schema_fixes.sql`** — `ALTER COLUMN contact_id DROP NOT NULL` (so unmatched inbound messages still insert), `ADD COLUMN IF NOT EXISTS in_reply_to TEXT`, `ADD COLUMN IF NOT EXISTS reference_ids TEXT` (named `reference_ids` to avoid quoting the SQL `references` keyword), defensive `IF NOT EXISTS` guards for the existing `external_message_id` column and the `(organization_id, provider, external_message_id)` UNIQUE constraint, `NOTIFY pgrst, 'reload schema'`. Applied to production.
+  **(2)** **`20260430120100_schedule_email_and_calendar_sync.sql`** — creates singleton `private.email_sync_cron_secret` and `private.google_sync_cron_secret` tables (mirroring the `private.recording_retention_cron_secret` pattern from `20260423140000`, since hosted Supabase rejects `ALTER DATABASE … SET app.settings.*` 42501); revokes from anon/authenticated/service_role. Schedules **`email-sync-incremental-every-5m`** (jobid 6) and **`google-calendar-inbound-sync-every-5m`** (jobid 7) at `*/5 * * * *`, each reading its `x-cron-secret` from the matching private singleton. Restores the calendar schedule that was inert because the legacy `20260308171000` migration relied on the forbidden GUC. Applied to production.
+  *Edge function:* deployed as version 7 (`function_id` `b7e500d9-867a-4c79-b11e-5b7745b3f70b`, `verify_jwt: false`, bundled with **`_shared/google-token.ts`**). 401 reachability check against the live function returned `{"success":false,"error":"Unauthorized"}` as expected — the auth gate is wired and the deploy is healthy; full inbound message verification is gated on the operator action below.
+  *⚠️ OPERATOR ACTION REQUIRED before cron will authenticate (Chris, run in Supabase SQL Editor as Super Admin):*
+  ```sql
+  UPDATE private.email_sync_cron_secret
+     SET secret = 'REPLACE_WITH_EMAIL_SYNC_CRON_SECRET_VALUE'
+   WHERE id = 1;
+
+  UPDATE private.google_sync_cron_secret
+     SET secret = 'REPLACE_WITH_GOOGLE_SYNC_CRON_SECRET_VALUE'
+   WHERE id = 1;
+  ```
+  Replace each placeholder with the value of the matching Edge secret (`EMAIL_SYNC_CRON_SECRET` was already set during the 2026-04-29 audit deploy — copy the same value into the private table; `GOOGLE_SYNC_CRON_SECRET` was already set when calendar sync first shipped). Until both rows are populated, the two pg_cron jobs fire with empty `x-cron-secret` headers and the edge functions return 401.
+  *Removed roadmap blocker:* the `google-calendar-inbound-sync` cron schedule was missing in `cron.job` because the legacy `20260308171000` migration used `current_setting('app.settings.google_sync_cron_secret', true)` — disallowed on hosted Supabase. The new private-table-backed schedule restores it.
+  *Kept debt (not addressed in this build):* `_encrypted` column suffix on `user_email_connections.access_token_encrypted` / `refresh_token_encrypted` (tokens are still base64-encoded via `btoa()`, not real encryption); `FullScreenContactView.tsx` 1,570-line component; transitional `decodeToken()` raw fallback in the shared helper.
+  *Files:* **`supabase/functions/email-sync-incremental/index.ts`**, **`supabase/migrations/20260430120000_contact_emails_inbound_schema_fixes.sql`**, **`supabase/migrations/20260430120100_schedule_email_and_calendar_sync.sql`**, **`ROADMAP.md`**.
+
+- **2026-04-29 | [DONE] | Email Setup foundation + Contact Full View email timeline (Codex)**
+  *Shipped (un-logged at the time, retroactively recorded):*
+  - Migration **`20260429143000_email_inbox_connections_and_contact_emails.sql`** — new tables `user_email_connections`, `email_sync_cursors`, `contact_emails` with org-scoped RLS via `public.get_org_id()` and hierarchy helpers.
+  - Migration **`20260429152000_email_oauth_states.sql`** — short-lived OAuth state table; deny-all client RLS (service-role only).
+  - Edge Functions **`email-connect-start`**, **`email-connect-callback`**, **`email-disconnect`**, **`email-send-contact-message`**, **`email-sync-incremental`** with `config.toml` entries (all `verify_jwt = false`, JWT validated in-code).
+  - **`src/components/settings/EmailSetup.tsx`** with real Google/Microsoft OAuth launch + status surface via URL params; routed via `?section=email-settings`.
+  - **`FullScreenContactView.tsx`** loads `contact_emails` into the unified conversation stream alongside calls/SMS; composer Email mode posts through Gmail API with token refresh.
+
+- **2026-05-01 | [DONE] | Message templates in compose (Full View + Dialer)**
+  *What:* **Templates** next to the SMS/Email composers now opens **`MessageTemplatesPickerModal`** (loads `message_templates` on open, search, channel filter). Choosing a template fills the compose body; **email** templates also set **subject**. **Merge tokens** from Settings templates (e.g. `{{contact_first_name}}`) are replaced using the open contact/lead row plus the signed-in profile and **company branding name** where data exists. **Files:** **`src/lib/messageTemplateMerge.ts`**, **`src/components/messaging/MessageTemplatesPickerModal.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/contacts/FullScreenContactView.tsx`**.
+
+- **2026-05-01 | [DONE] | Contact Conversations timeline matches dialer Conversation History visuals**
+  *What:* **`FullScreenContactView`** middle column thread uses the same bubble layout as **`ConversationHistory`** for **calls** and **SMS**: emerald **Phone** / blue **MessageSquare** side icons (muted until hover), **SMS** inbound **`#E9E9EB`** bubble (dark **`#262629`**), **`max-w-[85%]`**, **`text-sm`** / **`px-3.5 py-2`**, **`gap-3`** + **`px-4 py-3`** scroll padding; timestamps use **`formatDateTime`** (branding). **Email** bubbles and center chrome — see BUGFIX entry same date. *File:* **`FullScreenContactView.tsx`**.
+
+- **2026-05-01 | [DONE] | BUGFIX — Contact full view center column: email bubbles, compose tabs, column borders**
+  *What:* **Email** timeline items render as **iMessage-style bubbles** (outbound **`#007AFF`**, inbound **card + border**), **`max-w-[85%]`**, subject + **120-char preview** only (no accordion / chevron / mail header). Removed unused **email expand** state. **Center column** wrapper gains **`border-l border-r border-border`** so it matches L/R rails. **`MessageComposePanel`** SMS/EMAIL switcher uses the same **segmented control** chrome as Conversation filter tabs (**`bg-muted`** track, **`bg-card`** active pill). Applies to dialer compose too via shared panel. *Files:* **`FullScreenContactView.tsx`**, **`MessageComposePanel.tsx`**.
+
+- **2026-05-01 | [DONE] | Bugfix — FullScreenContactView `handleComposeChannelChange` missing (prod crash)**  
+  *What:* **`MessageComposePanel`** referenced **`handleComposeChannelChange`** but the callback was absent from **`FullScreenContactView.tsx`** → runtime **"handleComposeChannelChange is not defined"** when opening Contacts full view. Restored **`useCallback`** that switches **`composeTab`** and clears **`composeText`** / **`emailSubject`**. *File:* **`FullScreenContactView.tsx`**.
+
+- **2026-05-01 | [DONE] | Contact full view composer matches dialer + From shows sending email**
+  *What:* Shared **`MessageComposePanel`** (**`src/components/messaging/MessageComposePanel.tsx`**) — accent inputs, bottom **SMS / EMAIL** pills, **Templates** outline button, green **Send** with plane icon/spinner — used by **`ConversationHistory`** (dialer) and **`FullScreenContactView`**. **From:** column header shows **caller ID numbers** in SMS mode and **connected inbox email addresses** in Email mode on both dialer and contact full view; **`DialerPage`** loads **`user_email_connections`** (connected only) for the email branch. Contact compose clears body/subject when switching channel (same as dialer). **Files:** **`MessageComposePanel.tsx`**, **`ConversationHistory.tsx`**, **`DialerPage.tsx`**, **`FullScreenContactView.tsx`**, **`ROADMAP.md`**.
+
+- **2026-05-01 | [DONE] | Full view conversations column = dialer `ConversationHistory` parity**
+  *What:* **Center column** mirrors **`src/components/dialer/ConversationHistory.tsx`**: **`bg-card border rounded-xl`** vessel, **`font-semibold` Conversation History title**, **`flex-col-reverse`** feed + **`HistorySkeleton`**, dialer-empty **No activity yet**, **violet-mail** accordion emails (subject-only row, chevron, full body expanded), **emerald** phone + **blue** SMS tray icons with **iMessage** bubble colors (**`#007AFF` outbound**, **`#E9E9EB` / dark `#262629` inbound**), call row/disposition/timer/recording block matches dialer (**`recording_url`** only for play/expansion like dialer). **`MessageComposePanel`** sibling below card (**`mt-3`**). **All / Calls / SMS / Email** filters **inline** on the same header row as the title (**`justify-between`**, wrap on narrow width). Removed **call details info** dialog for parity with dialer UI. Outer **left/right** docks no longer add inner vertical borders so **center** **`border-l` `border-r`** is a single seam each side. *File:* **`FullScreenContactView.tsx`**.
+
+- **2026-05-01 | [DONE] | Full view — remove duplicate From in conversation header; email bubble width**
+  *What:* Conversation card header no longer repeats **From** (picker stays on **top toolbar** for SMS outbound numbers). Email rows use **`max-w-[85%]`** strips, **`rounded-2xl`** + directional **`rounded-tr-sm`/`rounded-tl-sm`**, subject + chevron accordion (no **Sent/Received** copy — alignment implies direction). *Follow-up:* **Outbound** emails use **`#007AFF`** bubble + white subject; **Inbound** gray peer bubble (**`#E9E9EB`** / **`#262629`**). **Purple Mail** icon in the **side strip** like calls/SMS. *File:* **`FullScreenContactView.tsx`**.
+  *Note:* **Email-send “from inbox”** still uses **`selectedEmailConnectionId`** (**first connected** inbox after load unless you add Settings or composer UI elsewhere).
+
+- **2026-04-30 | [DONE] | Per-user contact Field Layout — save + Full View + Dialer parity**
+  *What:* **Field Layout** was upserting **`contact_management_settings`**, which only **Admin** may update under RLS — Agents/Team Leaders saw save failures. Layout is now persisted per user in **`user_preferences.settings.contact_field_layout`** (`{ lead?, client?, recruit?: string[] }`), validated with **Zod**, merged on save so tabs do not overwrite each other. Rendering order: **user override → org `field_order_*` fallback → same hardcoded defaults as before** (extracted to **`src/lib/contactFieldLayout.ts`**). **`FullScreenContactView`** loads prefs in parallel with org settings. **`DialerPage`** prefetches user + org lead order once per `user`+`org`; **`LeadCard`** **connected** branch uses optional **`fieldDescriptors`** with the previous hardcoded grid as fallback until ready. No migrations, no schema/RLS changes.
+  *Files:* **`src/lib/contactFieldLayout.ts`** (new), **`src/components/settings/ContactManagement.tsx`** (Field Layout tab only), **`src/components/contacts/FullScreenContactView.tsx`**, **`src/pages/DialerPage.tsx`**, **`src/components/dialer/LeadCard.tsx`**, **`ROADMAP.md`**.
+  *Context snapshot:* Single shared helper holds **`CONTACT_FIELD_LAYOUT_KEY`**, **`resolveFieldOrder`**, **`leadLayoutIdsToDialerDescriptors`** (lead/dialer snake_case map including legacy **`healthStatus`**). **Future work:** org-level **Permissions** flag to forbid downline layout overrides — disable Field Layout editing and resolve with org order instead of user when enabled.
+
+- **2026-04-30 | [DONE] | Settings → Email Setup button polish + status styling**
+  *What:* Updated **Email Setup** connect CTAs to branded styles for **Gmail** and **Outlook**, renamed provider display from "Google" to "Gmail", and removed the MVP sync-scope helper copy under the connect buttons for a cleaner setup panel.
+  *UX polish:* **Connected** status badge uses a stronger solid green and stays the same on hover (no dimming); **Disconnect** stays outline by default but turns red on hover to signal a destructive action.
+  *Refresh check:* Confirmed **Refresh** is functional — it calls `loadConnections()` and re-fetches the latest inbox connections from Supabase, so it was kept.
+  *Files:* **`src/components/settings/EmailSetup.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-30 | [DONE] | Settings → Phone System UI consistency + org-safe number assignment**
+  *What:* Updated **Phone System** settings styling to match the rest of Settings: removed forced blue heading/title treatment, replaced the blue tab container with neutral card/tab chrome, and kept active tabs readable with standard foreground contrast for a cleaner premium look.
+  *Follow-up:* Restored **blue active-tab highlighting** in `PhoneSystem` so the selected tab remains clearly emphasized while keeping the neutral surrounding container.
+  *Ownership fix:* Hardened **Phone Numbers → Assigned to** so only users from the current `organization_id` are available and assignable. `usePhoneSettingsController` now scopes agent fetch by org; `NumberManagementSection` validates selected assignee membership and applies updates with an `organization_id` guard in the update query.
+  *Files:* **`src/components/settings/PhoneSystem.tsx`**, **`src/pages/SettingsPage.tsx`**, **`src/components/settings/phone/usePhoneSettingsController.ts`**, **`src/components/settings/phone/NumberManagementSection.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-30 | [DONE] | Top header — tear-off calendar (today’s date)**
+  *What:* **`HeaderDateCalendar`** in **`TopBar`** (to the **right of Quick Add**): **`w-8 h-8`** to match the manual add control — **solid blue** month strip (**short month** text), **white** day area, **rounded-lg**, light border/shadow; no pin or fold. **`aria-label`** + hover title use the full calendar date; **1-minute** tick for day rollover. Locale via **`toLocaleString`**.
+  *Files:* **`src/components/layout/HeaderDateCalendar.tsx`**, **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
+
+- **2026-05-01 | [DONE] | TopBar — status + theme inside profile menu**
+  *What:* **Availability** choices and **light/dark** toggle removed from the header strip; they appear under the **profile avatar** dropdown (Availability section + theme row). Header avatar shows the **current status color** as a small dot on the **bottom-left** of the photo (dialer override colors unchanged), with **`aria-label`** naming status on the menu button.
+  *Files:* **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
+
+- **2026-05-01 | [DONE] | TopBar profile menu — Availability sub-dropdown**
+  *What:* **Availability** is a **collapsible row** (chevron) **below Agent Profile**, showing live status (**`dotTooltip`** / **`dotClass`**) plus the four presets when expanded. **Keyboard Shortcuts** row removed. Sub-menu resets when the profile menu closes. Dropdown width **`w-56`** for longer labels.
+  *Files:* **`src/components/layout/TopBar.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-29 | [DONE] | User Management — Scope usersApi.getAll() to current organization_id (BUGFIX)**
+  *What:* Scoped `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` to the caller's `organization_id` so that Super Admins querying the User Management settings page only ever see users in their own org. No DB migrations, no RLS changes, no other component or API files modified.
+  **(1) `getAll()` signature:** Added optional `organizationId?: string` to the `filters` parameter type.
+  **(2) Primary query path:** After existing role/status filters, added `if (filters?.organizationId) { q = q.eq("organization_id", filters.organizationId); }`.
+  **(3) Safe-column fallback retry:** Built `safeQ` from the same `supabase.from("profiles").select(safeColumns...)` chain and applied the same `organizationId` filter before `.order()` — ensures both query paths are fully scoped.
+  **(4) `UserManagement.tsx`:** Updated the `fetchUsers` `useCallback` to pass `organizationId` (already destructured from `useOrganization()` at line 1279) into `usersApi.getAll(...)`. Added `organizationId` to the `useCallback` dependency array. No new hooks or imports added.
+  *Context Snapshot:*
+  - **Filter added:** `organization_id` eq-filter is applied in `getAll()` when `organizationId` is present — confirmed on both the primary query path and the safe-column fallback retry.
+  - **Both query paths scoped:** Primary (`allExpectedColumns`) and fallback (`safeColumns`) now both filter by `organization_id` before returning results.
+  - **Super Admin scope:** Super Admins viewing **Settings → User Management** now see only users in their own org. Cross-org user visibility remains available exclusively in the Super Admin Agencies panel (`/super-admin`).
+  *Files:* **`src/lib/supabase-users.ts`**, **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-28 | [DONE] | User Management — Role-Scoped Visibility Fix (BUGFIX)**
+  *What:* Two frontend hardening changes to `src/components/settings/UserManagement.tsx`. No DB migrations, no RLS changes, no other files modified.
+  **(1) API Audit:** Confirmed `usersSupabaseApi.getAll()` in `src/lib/supabase-users.ts` uses the anon/JWT Supabase client (not `service_role`). RLS policy `profiles_select_hierarchical` already enforces correct visibility tiers at the DB layer. **No BLOCKER — no changes to `supabase-users.ts`.**
+  **(2) `filteredUsers` defense-in-depth (Part 2):** Replaced the unconditional `return true` for the `"team leader"` role branch with an explicit downline check: `return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id`. Field name confirmed as `u.profile.uplineId` (mapped from `profiles.upline_id` via `rowToUser`). RLS handles the deep ltree hierarchy; this is a shallow frontend-only layer.
+  **(3) Super Admin gate (Part 3):** Added an early return at the top of the `UserManagement` render. When `isCurrentUserSuperAdmin` is true, renders a centered card with heading "Super Admin View", descriptive subtext, and a "Go to Agencies Panel" button. Button calls `navigate("/super-admin")` — the route already exists (`App.tsx` lines 157–158). No toast fallback needed.
+  *Context Snapshot:*
+  - **What changed:** `filteredUsers` Team Leader branch now validates `uplineId` match; Super Admins see a redirect card instead of the org team list.
+  - **`/super-admin` route status:** EXISTS — `<Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />` in `App.tsx`. The "Go to Agencies Panel" button navigates there successfully.
+  - **Next step for Agencies Panel:** The full cross-org user management surface (viewing/editing users across all agencies from `/super-admin`) is a separate future build. `SuperAdminDashboard.tsx` and `SuperAdminOrgDetail.tsx` are the entry points for that work.
+  *Files:* **`src/components/settings/UserManagement.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-28 | [DONE] | Rename Monthly Talk Time Goal → Monthly Premium Goal (full stack)**
+  *What:* Replaced the "Monthly Talk Time Goal" KPI with "Monthly Premium Goal" (dollars) across every layer of the stack.
+  **(1) DB Migration** `20260428120000_rename_monthly_talk_time_to_premium_goal.sql`: renames `profiles.monthly_talk_time_goal_hours` → `monthly_premium_goal`, sets `DEFAULT 0`, and back-fills the `goals` table — rows with `metric IN ('Monthly Talk Time', 'Monthly Talk Time Goal')` updated to `'Monthly Premium'`.
+  **(2) My Profile** (`src/components/settings/MyProfile.tsx`): state var `monthlyTalkTime` → `monthlyPremiumGoal`; `GoalField` label → `"Monthly Premium Goal"`, unit → `"dollars per month"`, placeholder `"1500"`; reads/writes `monthly_premium_goal`. `GoalField` component gained optional `placeholder` prop.
+  **(3) User Management** (`src/components/settings/UserManagement.tsx`): goal tile key → `monthlyPremiumGoal`, label → `"Monthly Premium Goal ($)"`, actual → `performance.premiumMonthly`; status display uses a `fmt` formatter — non-premium goals use `String(v)`, premium goal uses `toLocaleString` currency (`$X,XXX`).
+  **(4) GoalProgressWidget** (`src/components/dashboard/widgets/GoalProgressWidget.tsx`): `talkTimeMinutes`/`talkTimeTarget` → `premiumSold`/`premiumTarget`; always queries `wins.premium_amount` sum for current month; uses `findTarget("Monthly Premium")` for target; `ProgressBar` gained `formatValue` prop; premium bar displays `$X,XXX / $X,XXX`.
+  **(5) supabase-dashboard.ts** `getGoalProgress()`: added `wins.premium_amount` query (parallel with existing calls/policies fetch); added `{ metric: 'Monthly Premium', label: 'Monthly Premium', currentValue: premiumThisMonth }` to metricsConfig.
+  **(6) supabase-users.ts**: all `monthly_talk_time_goal_hours` column refs → `monthly_premium_goal`; `monthlyTalkTimeGoalHours` JS key → `monthlyPremiumGoal`; `getPerformance()` now queries `wins.premium_amount` in parallel and returns `premiumMonthly`.
+  **(7) Type definitions**: `src/lib/types.ts` (`UserProfile.monthlyPremiumGoal`), `src/contexts/AuthContext.tsx` (`Profile.monthly_premium_goal`), `src/lib/profile-fetch-columns.ts`, `src/integrations/supabase/types.ts` (`profiles` Row/Insert/Update + `list_unrestricted_users` return type).
+  *Goal metric strings now in `goals` table:* `Daily Calls`, `Monthly Policies`, `Monthly Premium` (renamed from `Monthly Talk Time`).
+  *Developer note:* Apply migration via `npx supabase db push`. The old `monthly_talk_time_goal_hours` column is now `monthly_premium_goal`. No other goal metrics were touched. `talkTimeMonthlyHours` in `getPerformance` and the "Talk Time" Performance-tab stat in UserManagement remain for backward-compatible display.
+  *Files:* **`supabase/migrations/20260428120000_rename_monthly_talk_time_to_premium_goal.sql`**, **`src/components/settings/MyProfile.tsx`**, **`src/components/settings/UserManagement.tsx`**, **`src/components/dashboard/widgets/GoalProgressWidget.tsx`**, **`src/lib/supabase-dashboard.ts`**, **`src/lib/supabase-users.ts`**, **`src/lib/types.ts`**, **`src/lib/profile-fetch-columns.ts`**, **`src/contexts/AuthContext.tsx`**, **`src/integrations/supabase/types.ts`**, **`ROADMAP.md`**.
+
+- **2026-04-28 | [DONE] | Campaigns — redesign campaign card stat section to 4-box 2×2 grid**
+  *What:* Replaced the inline 3-number flex row (Total / Contacted / Converted) in `Campaigns.tsx` campaign cards with a `grid grid-cols-2 gap-2` layout of 4 individually boxed stat tiles: **Total**, **Called**, **Contacted**, **Converted**. Each tile uses `bg-muted/40 rounded-lg p-3 text-center` with a muted 10px uppercase label and bold `text-xl` number. `leads_called` added to the `Campaign` interface; falls back to `0` (nullish coalesce in the data map) because the `campaigns` table does not yet have a `leads_called` column — TODO comments left in code, no migration created. `LeadHealthBar` retained below the grid. All Tailwind, no inline styles.
+  *Developer note:* `leads_called` must be added as a DB column and trigger (similar to `leads_contacted`/`leads_converted`) in a future migration before the fallback `0` becomes live data. Remove both TODO comments at that time.
+  *Files:* **`src/pages/Campaigns.tsx`**.
+
+- **2026-04-28 | [DONE] | AppointmentModal — fix TDZ crash ("Cannot access 'ie' before initialization") on Calendar page load**
+  *What:* `const { user, profile } = useAuth()` was declared on line 240, below the first `useEffect` (line 221) that referenced both values in its callback and dependency array. Bundler minified the reference into `ie`, triggering a Temporal Dead Zone error and crashing the Calendar page. Fix: moved `useAuth()` destructuring and the derived `isAgent` const above the first `useEffect` that uses them — 3-line move, no logic changed.
+  *Developer note:* Always declare `useAuth()` / `useOrganization()` hooks before any `useEffect` or derived `const` that depends on them; React hook-call order is preserved, but TDZ fires if a `const` binding is read before its declaration in the module execution order.
+  *Files:* **`src/components/calendar/AppointmentModal.tsx`**.
+
+- **2026-04-28 | [DONE] | AppointmentModal — 3-part fix (header cleanup, assignee user_id, past-status enforcement)**
+  *What:*
+  **(1) Header cleanup:** Removed CALL, SMS, and EMAIL shortcut buttons from the modal header. Deleted associated `handleStartCall` / `handleComingSoon` handlers and the `Phone`, `MessageSquare`, `Mail` lucide imports. Header now shows only title + close (X).
+  **(2) Assignee → Assigned Agent (user_id-based):** Renamed field label to **Assigned Agent**. `agent` state renamed to `assignedAgentId` (stores UUID). Agents useEffect now scopes by role — **Team Leader** fetches self + direct reports (`upline_id = current user`); **Admin/Super Admin** fetches all active org members (`.eq("organization_id", organizationId)` filter added); **Agent** role skips the fetch entirely and shows their own name as read-only text. On modal open for new appointments, `assignedAgentId` defaults to `auth.uid()`; for editing, it loads from `editing.user_id`. `handleSave` resolves the agent display name from the agents list and passes `user_id: assignedAgentId` in the payload. `CalendarPage.handleSave` updated to use `(data as any).user_id || user?.id` so the assignee choice persists to the DB.
+  **(3) Past-appointment enforcement:** Added `nonTerminalStatuses` (STATUSES minus "Completed", "Cancelled", "No Show"). `isPastUnresolved` is `true` when the appointment date is before today AND the status is non-terminal. Renders an amber warning banner (`bg-amber-50 / border-amber-200 / text-amber-800`) above the footer when true. CONFIRM button is `disabled` when `isPastUnresolved` — agents must change status to a terminal value to save.
+  *Developer note:* `upline_id` confirmed present on `profiles` (validated via `types.ts` FK constraint `profiles_upline_id_fkey`). No new migrations required — only frontend logic changes. No BLOCKER.
+  *Files:* **`src/components/calendar/AppointmentModal.tsx`**, **`src/pages/CalendarPage.tsx`**, **`ROADMAP.md`**.
+
+- **2026-04-29 | [DONE] | Settings — add dedicated Email Setup tab**
+  *What:* Added a first-class **Email Setup** item in **Settings → Automation & API** so users can find email configuration quickly. It routes to the existing **Email & SMS Templates** experience, and legacy deep links like **`?section=email`** now auto-map to the new email settings section.
+  *Files:* **`src/config/settingsConfig.ts`**, **`src/components/settings/SettingsRenderer.tsx`**, **`src/pages/SettingsPage.tsx`**, **`ROADMAP.md`**.
 
 - **2026-04-24 | [DONE] | Marketing landing — hero badge clears fixed nav**
   *What:* Hero section used **`pt-16`**, matching the fixed **`MarketingNav`** height with no gap, so the “Built for Life Insurance Professionals” pill sat flush under the header and could read as clipped. Increased to **`pt-24 md:pt-28`** so the badge sits clearly below the bar.
@@ -1006,6 +1170,9 @@
 
 - **2026-04-24 | [DONE] Dashboard — remove Daily Briefing welcome popup**
   *What:* Removed **`DailyBriefingModal`** (morning/afternoon greeting + stat rows + **Let's Go**) and all auto-open / **`localStorage`** briefing logic from **`Dashboard.tsx`**. Removed **View Daily Briefing** from the notifications panel in **`TopBar.tsx`**. Deleted **`src/components/dashboard/DailyBriefingModal.tsx`**. The **`daily-briefing`** Edge Function remains in the repo for possible future reuse.
+
+- **2026-04-30 | [DONE] Goals — single source in My Profile; dashboard Goal Progress fixed**
+  *What:* Removed **Settings → Goal Setting** (`goals` slug) and **`GoalSetting.tsx`** (it used the separate **`goals`** table while agents set targets in **My Profile** on **`profiles`**). **`SettingsPage`** redirects **`?section=goals`** → **`my-profile`**. **`GoalProgressWidget`** now loads targets from **`profiles`** (`monthly_call_goal`, `monthly_policies_goal`, `weekly_appointment_goal`, `monthly_premium_goal`) and computes progress with user-scoped queries: **outbound** calls **today**, **`clients`** **MTD**, **`wins`** premium **MTD**, **Scheduled** **`appointments`** **this ISO week**; optional **Weekly Appointments** bar when the weekly target is set. Stops using dashboard **`useDashboardStats`** for this card (default month range had mislabeled “daily” counts). **`supabase-dashboard.ts`** **`getGoalProgress`** uses the same profile targets and actuals for consistency.
 
 - **2026-04-23 | [DONE] Dashboard — Callbacks detail row opens contact full view**
   *What:* **`DashboardDetailModal`** — **`callbacks`** rows used the same navigation as **`appointments`** (**`/calendar`**). Row click now goes to **`/contacts?contact=<contact_id>`** (from the **`appointments`** row) so **`FullScreenContactView`** opens via the existing Contacts deep link; missing **`contact_id`** shows a toast. **`appointments`** detail unchanged (**`/calendar`**).
@@ -2174,6 +2341,10 @@ This document should be the first file read by any agent tasking with "Dialer" o
 
 | Date | Status | Notes |
 |---|---|---|
+| 2026-04-30 | [DONE] | **Bugfix — remove sender email from collapsed email timeline item:** Collapsed email cards in `FullScreenContactView.tsx` and `ConversationHistory.tsx` now show only the violet Mail icon, Sent/Received label, subject line, and chevron. The `senderLabel` variable and its conditional render were removed from `FullScreenContactView`; the `from_email` conditional span was removed from `ConversationHistory`. Expanded state unchanged. No migrations, no env vars. `npx tsc --noEmit` clean. |
+| 2026-04-30 | [DONE] | **Polish email conversation timeline — color coding + collapsible emails:** `ConversationHistory.tsx`: `historyIcon()` rewritten with colored background pills (calls → emerald-500, SMS → blue-400, email → violet-400); `HistoryItem` extended with `subject`, `from_email`, `body`; collapsible email branch added (collapsed by default, chevron rotate, quoted `>` lines de-emphasized). `FullScreenContactView.tsx`: `Mail` icon recolored to violet-400 with pill wrapper; email items now collapsible (subject + sender in header, full body on expand, CSS transition). `dialer-api.ts`: `getLeadHistory` now fetches `contact_emails` in parallel so actual email records appear in the dialer panel timeline. No migrations, no env vars, no backend changes. |
+| 2026-04-29 | [DONE] | **Global Search v1 — RPC + frontend wired:** Migration `20260429120000_global_search_rpc.sql` adds `pg_trgm` + GIN indexes + `global_search` RPC across leads/clients/recruits/campaigns/calls. Frontend: new `GlobalSearch.tsx`, `SearchResultsDropdown.tsx`, `SearchResultItem.tsx`, `useDebounce.ts`. Replaced hardcoded mock results in `TopBar.tsx`. **BLOCKER:** no `/contacts/:id` detail route — contact results navigate to `/contacts?type=<type>&id=<id>` as v1 fallback. |
+| 2026-04-29 | [DONE] | **Remove Super Admin gate from UserManagement.tsx:** Deleted the `if (isCurrentUserSuperAdmin)` early-return block that was rendering a redirect card instead of the Team Management view. Super Admin now sees the full user list. `filteredUsers` logic unchanged — `isCurrentUserSuperAdmin` still returns `allUsers`. No migrations, no env vars. |
 | 2026-04-23 | [DONE] | **Fix CSV import "Unauthorized" — explicit auth token in ImportLeadsModal:** Replaced `supabase.functions.invoke` in `doImport` with an explicit `fetch` that first calls `supabase.auth.getSession()`, gates on a valid session, and passes `Authorization: Bearer <access_token>` + `apikey` headers directly. Stale/missing cached tokens can no longer produce `Bearer undefined` or expired JWTs. No Edge Function changes; no new env vars. |
 | 2026-04-23 | [DONE] | **Fix imported leads `user_id` + remove ghost `health_status`:** `import-contacts` edge function: added `user_id: assigned_agent_id` to `mappedRow` for leads only (spread conditional); confirmed `health_status` was already absent. Added `[functions.import-contacts] verify_jwt = false` to `config.toml`. Redeploy required with `SUPABASE_ACCESS_TOKEN` set. |
 | 2026-04-18 | [DONE] | **Twilio Migration Phase 9 — Number Management Edge Functions + UI Wiring:** `twilio-search-numbers` + `twilio-buy-number` (JWT, per-org Twilio creds from `phone_settings`); purchase sets voice/SMS/status webhooks to Supabase functions URL; inserts `phone_numbers` with `twilio_sid`. `NumberManagementSection`: search/buy live, Twilio SID column, released-number tooltip; release remains DB-only. Config: `verify_jwt = true` for both. Not deployed yet. |
@@ -2225,3 +2396,115 @@ This document should be the first file read by any agent tasking with "Dialer" o
 **No new env vars or migrations required.** `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` were already present throughout the codebase.
 
 **Test next:** Log in, let the session sit idle for >1 hour (or manually clear the Supabase session cache), then attempt a CSV import. Confirm the import completes without a 401/Unauthorized error and each inserted `leads` row has the correct `user_id`.
+
+### Context Snapshot — 2026-04-29 — Remove Super Admin Gate from UserManagement
+
+**What was changed:** Removed the `if (isCurrentUserSuperAdmin)` early-return block from `src/components/settings/UserManagement.tsx`. The block rendered a centered "Super Admin View" card with a "Go to Agencies Panel" button, redirecting Super Admins away from the standard Team Management view.
+
+**Gate removed:** The 16-line early-return (former lines 1444–1459) is deleted entirely. Super Admin no longer receives a redirect card when navigating to User Management.
+
+**filteredUsers unchanged:** The `filteredUsers` memo at line 1302 still contains `if (isCurrentUserSuperAdmin) return allUsers;`. This line is untouched — Super Admin continues to receive the full unfiltered `allUsers` list as before.
+
+**Result:** Super Admin now lands on the standard Team Management view and sees all org users, identical to the Admin experience. No other component, file, migration, or setting was modified.
+
+**Files touched:** `src/components/settings/UserManagement.tsx`, `ROADMAP.md`.
+
+### Context Snapshot — 2026-04-29 — Global Search v1
+
+**What was done:**
+
+Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed search.
+
+**Backend (`supabase/migrations/20260429120000_global_search_rpc.sql`):**
+- Enabled `pg_trgm` extension (schema `public`) and added GIN trigram indexes on every searched column across `leads`, `clients`, `recruits`, `campaigns`, and `calls`. These make ILIKE '%q%' fast today and enable `similarity()` fuzzy matching in v2 with a one-line change.
+- Created `public.global_search(search_query text)` RPC: `SECURITY DEFINER`, `STABLE`, `set search_path = public`. Returns columns `(result_type, id, title, subtitle, match_field, relevance)`. Uses CTEs — one per source table — each `LIMIT 5`, then `UNION ALL` with a final `ORDER BY relevance desc, title asc`.
+- Org-scoping is `organization_id = public.get_org_id()` on every branch.
+- Returns empty set when `search_query` is null, empty, or shorter than 2 chars.
+- Granted `EXECUTE` to `authenticated`; all other roles revoked.
+
+**Frontend:**
+- `src/hooks/useDebounce.ts` — generic 250ms debounce hook.
+- `src/components/search/GlobalSearch.tsx` — controlled input, Zod validation (`min(2).max(100)`), RPC call with cancellation token, keyboard nav (ArrowUp/Down/Enter/Escape), click-away via `mousedown` ref, loading spinner while in flight.
+- `src/components/search/SearchResultsDropdown.tsx` — groups results under **Contacts / Campaigns / Conversations** section headers; empty-state "No results" card when array is empty.
+- `src/components/search/SearchResultItem.tsx` — single result row with type-colored icon, title, subtitle, type badge.
+- `src/components/layout/TopBar.tsx` — removed mock dropdown + `searchOpen`/`searchQuery` state; replaced with `<GlobalSearch />`.
+
+**Schema decisions made:**
+- `leads`, `clients`, `recruits` all have `first_name` + `last_name` (no `full_name` column); RPC concatenates them.
+- `call_logs` does NOT have `caller_name`/`phone_number`/`disposition` — those live on the `calls` table (`contact_name`, `contact_phone`, `disposition_name`). RPC searches `calls` for the "Conversations" result type.
+- `clients` and `recruits` both have `organization_id` (confirmed via `types.ts`).
+- Result types are split (`lead` / `client` / `recruit` / `campaign` / `conversation`) per user decision; frontend groups all three contact types under a single "Contacts" header.
+
+**BLOCKER documented:**
+`App.tsx` registers no detail route for contacts (`/contacts/:id`, `/leads/:id`, etc.). Contact results navigate to `/contacts?type=<type>&id=<id>` as a v1 fallback until a detail route or query-param modal is added to `Contacts.tsx`.
+
+**What's next (v2 ideas):**
+- Enable fuzzy matching: swap `ilike q.pattern` for `similarity(field, trim(search_query)) > 0.3` — indexes are already in place.
+- Recent searches: persist last 5 queries in `localStorage` and show on focus when input is empty.
+- Transcript full-text search: `calls.transcript` is JSONB; add a `tsvector` generated column + GIN index and union a sixth branch.
+- Add `/contacts/:id` (or equivalent modal) so contact click-through resolves a specific record.
+
+**Files touched:** `supabase/migrations/20260429120000_global_search_rpc.sql`, `src/hooks/useDebounce.ts`, `src/components/search/GlobalSearch.tsx`, `src/components/search/SearchResultsDropdown.tsx`, `src/components/search/SearchResultItem.tsx`, `src/components/layout/TopBar.tsx`, `ROADMAP.md`.
+
+---
+
+### Work Log — 2026-05-01 — Import CSV: Modal → Full-Page Route `[DONE]`
+
+**Task:** Convert the Import Leads flow from a fixed-width modal overlay to a full-page authenticated route at `/contacts/import`.
+
+**Files created:**
+- `src/pages/ImportLeadsPage.tsx` (158 lines) — page wrapper that reads `?campaignId` from query params, loads agent profiles, campaigns, and existing leads, then renders `ImportLeadsModal` in `renderAsPage` mode.
+
+**Files modified:**
+- `src/components/contacts/ImportLeadsModal.tsx` — shell only; added `renderAsPage`, `defaultCampaignId`, and `onViewLeads` props. `renderAsPage` suppresses the overlay/backdrop and renders the content in a `max-w-4xl mx-auto` column. `defaultCampaignId` pre-selects the campaign in the campaign picker. `onViewLeads` overrides the "View Leads" button action in step 5.
+- `src/App.tsx` — added `<Route path="/contacts/import" element={<ImportLeadsPage />} />` inside the `ProtectedRoute` block next to `/contacts`.
+- `src/pages/Contacts.tsx` — removed `importModalOpen` state and `<ImportLeadsModal>` render block; both "Import CSV" buttons now `navigate('/contacts/import')`; added `useEffect` watching `location.state.importCompleted` to refresh leads + import history on return.
+- `src/pages/CampaignDetail.tsx` — removed the inline `ImportCSVModal` component (+ `parseCSV`, `autoMapHeaders`, `FIELD_MAP` helpers); removed `importCSVOpen` state; "Import CSV" button now `navigate(\`/contacts/import?campaignId=\${id}\`)`. Added `useLocation`.
+
+**Decisions:**
+- Core import logic in `ImportLeadsModal.tsx` was not changed — only the outermost return statement was refactored to share a single `innerContent` JSX variable between modal and page modes.
+- `existingLeads` passed to `ImportLeadsModal` from `ImportLeadsPage` are real rows (id/phone/email) loaded on mount; server-side duplicate detection via `import-contacts` Edge Function still fires regardless.
+- `onClose` (X / Cancel) → `navigate(-1)` on the import page; "View Leads" → `navigate('/contacts?tab=Leads', { state: { importCompleted: true } })`. The `importCompleted` state flag is what triggers the leads refresh in `Contacts.tsx`.
+- No sidebar nav entry added for `/contacts/import` (per spec).
+
+**No new migrations or env vars required.**
+
+### Context Snapshot — 2026-05-01 — Import CSV: Modal → Full-Page Route
+
+**What changed:** The lead import UX moved from a fixed-width modal overlay into a proper full-page route (`/contacts/import`). The modal's visual chrome (overlay, backdrop, 860px fixed width) is hidden in page mode via the new `renderAsPage` prop; all import logic is untouched. Contacts and CampaignDetail entry points navigate to the new route; Contacts refreshes its lead list when the import page signals completion via `location.state.importCompleted`.
+
+**What's next:** No immediate follow-on; the existing `/contacts` detail-route BLOCKER (no `/contacts/:id` route) is still open from the Global Search context snapshot above.
+
+---
+
+### Work Log — 2026-05-02 — Bugfix: Contact Full View Layout Shift `[DONE]`
+
+**Task:** Eliminate the 2–3 paint wave layout shift in `FullScreenContactView`'s left-column field grid.
+
+**Files modified:**
+- `src/components/contacts/FullScreenContactView.tsx`
+
+**Changes:**
+- Added `coreLoading` boolean state (default `true`).
+- `useLayoutEffect` resets `coreLoading` to `true` on `contact.id` / type change, alongside the existing `setRosterLoaded(false)` reset.
+- `loadData()` sets `setCoreLoading(false)` in a single call immediately after `setAgents(agentRows)` and `setRosterLoaded(true)` — the one location where all three data sources (fieldOrder from `contact_management_settings`, customFields from `custom_fields`, agents from `profiles`) are confirmed populated.
+- `customFields` was already fetched inside `settingsP`, which is part of the outer `Promise.all` — no consolidation required.
+- The entire field grid block (`fieldOrder.map(...)`, supplemental custom fields grid) is now gated: renders a 2-column × 3-row skeleton (6 `h-8 rounded-md bg-muted animate-pulse` pills) while `coreLoading === true`, then swaps to the real grid atomically.
+- Contact header (avatar, name, EDIT button) and status badge are not skeletonized — both render from synchronous state set in `useLayoutEffect`.
+- Right column (conversation tab) unchanged.
+- No dialer refs, telephony code, `useLayoutEffect` deps, or `Promise.all` structure changed.
+
+**No new migrations, env vars, or schema changes.**
+
+### Context Snapshot — 2026-05-02 — Contact Full View Layout Shift Fix
+
+**Root cause:** The left-column field grid rendered in multiple waves. `useLayoutEffect` painted immediately with default `fieldOrder`. Then `Promise.all` resolved and each `setState` call — `setFieldOrder`, `setCustomFields`, `setAgents` — triggered a separate re-render, causing visible field reordering and appending jank.
+
+**Fix:** `coreLoading` acts as an atomic gate. It starts `true` on every contact switch (reset in `useLayoutEffect`). It only becomes `false` inside `loadData()` after the single `Promise.all` has resolved and all three state setters have run. Until then the grid slot shows a fixed-size skeleton shimmer that approximates the real grid height, so the panel layout is stable from first paint.
+
+**Decisions:**
+- `customFields` was already fetched inside the nested `settingsP` async IIFE, which is itself one of the arms of the outer `Promise.all`. All three data sources resolve together — no restructuring of the fetch waterfall was needed.
+- `setCoreLoading(false)` is placed in exactly one location, immediately after `setRosterLoaded(true)`. Adding it anywhere else (e.g. error branches) is intentionally avoided — if the fetch fails silently, the component still recovers because `loadData()` is re-run on the next `contact.id` change.
+- Skeleton is 6 pills (2-col, 3-row) matching the typical core field count, keeping panel height stable.
+
+**What's next:** No immediate follow-on. The `/contacts/:id` detail-route BLOCKER from the Global Search context snapshot remains open.

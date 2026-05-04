@@ -28,7 +28,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       monthlyCallGoal: row.monthly_call_goal || 0,
       monthlyPoliciesGoal: row.monthly_policies_goal || 0,
       weeklyAppointmentGoal: row.weekly_appointment_goal || 0,
-      monthlyTalkTimeGoalHours: row.monthly_talk_time_goal_hours || 0,
+      monthlyPremiumGoal: row.monthly_premium_goal || 0,
       npn: row.npn || "",
       timezone: row.timezone || "Eastern Time (US & Canada)",
       winSoundEnabled: row.win_sound_enabled ?? true,
@@ -44,46 +44,52 @@ function rowToUser(row: any): User & { profile: UserProfile } {
 }
 
 export const usersSupabaseApi = {
-  async getAll(filters?: { search?: string; role?: string; status?: string }): Promise<(User & { profile: UserProfile })[]> {
+  async getAll(filters?: { search?: string; role?: string; status?: string; organizationId?: string }): Promise<(User & { profile: UserProfile })[]> {
     const allExpectedColumns = [
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
-      "resident_state", "commission_level", "upline_id", 
+      "resident_state", "commission_level", "upline_id",
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
-      "monthly_talk_time_goal_hours", "npn", "timezone", 
+      "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
       "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
     ];
 
     const safeColumns = [
-      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
+      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "is_super_admin"
     ];
 
     let q = supabase.from("profiles").select(allExpectedColumns.join(","));
-    
+
     if (filters?.search) {
       const search = filters.search.toLowerCase();
       q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
     }
-    
+
     if (filters?.role && filters.role !== "All") {
       q = q.eq("role", filters.role);
     }
-    
+
     if (filters?.status && filters.status !== "All") {
       q = q.eq("status", filters.status);
     } else {
       q = q.neq("status", "Deleted");
     }
-    
+
+    if (filters?.organizationId) {
+      q = q.eq("organization_id", filters.organizationId);
+    }
+
     const { data, error } = await q.order("first_name", { ascending: true });
-    
+
     if (error && error.message.includes("does not exist")) {
       console.warn("Retrying fetch with safe column set due to schema mismatch:", error.message);
-      const { data: safeData, error: safeError } = await supabase
-        .from("profiles")
-        .select(safeColumns.join(","))
+      let safeQ = supabase.from("profiles").select(safeColumns.join(","));
+      if (filters?.organizationId) {
+        safeQ = safeQ.eq("organization_id", filters.organizationId);
+      }
+      const { data: safeData, error: safeError } = await safeQ
         .order("first_name", { ascending: true });
       
       if (safeError) throw safeError;
@@ -94,7 +100,7 @@ export const usersSupabaseApi = {
         monthly_sales_goal: 0,
         monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
-        monthly_talk_time_goal_hours: 0,
+        monthly_premium_goal: 0,
         onboarding_items: [],
         licensed_states: [],
         carriers: []
@@ -112,7 +118,7 @@ export const usersSupabaseApi = {
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
       "resident_state", "commission_level", "upline_id", 
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
-      "monthly_talk_time_goal_hours", "npn", "timezone", 
+      "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
       "push_notifications_enabled", "carriers", "organization_id", "team_id"
     ];
@@ -144,7 +150,7 @@ export const usersSupabaseApi = {
         monthly_sales_goal: 0,
         monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
-        monthly_talk_time_goal_hours: 0,
+        monthly_premium_goal: 0,
         onboarding_items: [],
         licensed_states: [],
         carriers: []
@@ -184,7 +190,7 @@ export const usersSupabaseApi = {
     if (data.monthlyCallGoal !== undefined) payload.monthly_call_goal = data.monthlyCallGoal;
     if (data.monthlyPoliciesGoal !== undefined) payload.monthly_policies_goal = data.monthlyPoliciesGoal;
     if (data.weeklyAppointmentGoal !== undefined) payload.weekly_appointment_goal = data.weeklyAppointmentGoal;
-    if (data.monthlyTalkTimeGoalHours !== undefined) payload.monthly_talk_time_goal_hours = data.monthlyTalkTimeGoalHours;
+    if (data.monthlyPremiumGoal !== undefined) payload.monthly_premium_goal = data.monthlyPremiumGoal;
     if (data.npn !== undefined) payload.npn = data.npn;
     if (data.timezone !== undefined) payload.timezone = data.timezone;
     if (data.winSoundEnabled !== undefined) payload.win_sound_enabled = data.winSoundEnabled;
@@ -198,7 +204,7 @@ export const usersSupabaseApi = {
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", 
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
-      "monthly_talk_time_goal_hours", "npn", "timezone", 
+      "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
     ];
@@ -234,7 +240,7 @@ export const usersSupabaseApi = {
         monthly_sales_goal: 0,
         monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
-        monthly_talk_time_goal_hours: 0,
+        monthly_premium_goal: 0,
         onboarding_items: [],
         licensed_states: [],
         carriers: []
@@ -448,30 +454,38 @@ export const usersSupabaseApi = {
     sunday.setHours(0, 0, 0, 0);
     const startOfWeek = sunday.toISOString();
 
-    const { data: calls } = await supabase
-      .from("calls")
-      .select("outcome, duration, created_at")
-      .eq("agent_id", userId)
-      .gte("created_at", startOfMonth);
-    
-    const { data: apps } = await supabase
-      .from("appointments")
-      .select("id, created_at")
-      .eq("user_id", userId)
-      .eq("status", "Scheduled")
-      .gte("created_at", startOfWeek);
+    const [{ data: calls }, { data: apps }, { data: winsData }] = await Promise.all([
+      supabase
+        .from("calls")
+        .select("outcome, duration, created_at")
+        .eq("agent_id", userId)
+        .gte("created_at", startOfMonth),
+      supabase
+        .from("appointments")
+        .select("id, created_at")
+        .eq("user_id", userId)
+        .eq("status", "Scheduled")
+        .gte("created_at", startOfWeek),
+      supabase
+        .from("wins")
+        .select("premium_amount")
+        .eq("agent_id", userId)
+        .gte("created_at", startOfMonth),
+    ]);
 
     const callsMonthly = calls?.length || 0;
     const policiesMonthly = calls?.filter(c => (c.outcome || "").toLowerCase().includes("sold")).length || 0;
     const talkTimeMonthlyHours = (calls?.reduce((sum, c) => sum + (c.duration || 0), 0) || 0) / 3600;
-    
+    const premiumMonthly = (winsData ?? []).reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0);
+
     const appsWeekly = apps?.length || 0;
-    
+
     return {
       callsMonthly,
       policiesMonthly,
       appsWeekly,
       talkTimeMonthlyHours,
+      premiumMonthly,
       // For backward compatibility
       callsMade: callsMonthly,
       policiesSold: policiesMonthly,

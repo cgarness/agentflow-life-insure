@@ -131,7 +131,7 @@ const MyProfile: React.FC = () => {
   const [dailyCalls, setDailyCalls] = useState(profile?.monthly_call_goal ?? 50);
   const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthly_policies_goal ?? 10);
   const [weeklyAppts, setWeeklyAppts] = useState(profile?.weekly_appointment_goal ?? 15);
-  const [monthlyTalkTime, setMonthlyTalkTime] = useState(profile?.monthly_talk_time_goal_hours ?? 40);
+  const [monthlyPremium, setMonthlyPremium] = useState(profile?.monthly_premium_goal ?? 0);
   const [goalSaving, setGoalSaving] = useState(false);
   const [goalErrors, setGoalErrors] = useState<Record<string, string>>({});
 
@@ -150,7 +150,7 @@ const MyProfile: React.FC = () => {
       setDailyCalls(profile.monthly_call_goal || 0);
       setMonthlyPolicies(profile.monthly_policies_goal || 0);
       setWeeklyAppts(profile.weekly_appointment_goal || 0);
-      setMonthlyTalkTime(profile.monthly_talk_time_goal_hours || 0);
+      setMonthlyPremium(profile.monthly_premium_goal || 0);
       setResidentState(profile.resident_state || "");
       setCommissionLevel(profile.commission_level || "0%");
       setNpn(profile.npn || "");
@@ -304,7 +304,7 @@ const MyProfile: React.FC = () => {
     if (dailyCalls < 0) errors.dailyCalls = "Must be 0 or greater";
     if (monthlyPolicies < 0) errors.monthlyPolicies = "Must be 0 or greater";
     if (weeklyAppts < 0) errors.weeklyAppts = "Must be 0 or greater";
-    if (monthlyTalkTime < 0) errors.monthlyTalkTime = "Must be 0 or greater";
+    if (monthlyPremium < 0) errors.monthlyPremium = "Must be 0 or greater";
     setGoalErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -314,7 +314,7 @@ const MyProfile: React.FC = () => {
         monthly_call_goal: dailyCalls,
         monthly_policies_goal: monthlyPolicies,
         weekly_appointment_goal: weeklyAppts,
-        monthly_talk_time_goal_hours: monthlyTalkTime
+        monthly_premium_goal: monthlyPremium
       });
       toast({ title: "Goals updated.", className: "bg-success text-success-foreground" });
     } catch (err: any) {
@@ -655,7 +655,7 @@ const MyProfile: React.FC = () => {
             <GoalField label="Daily Calls Goal" unit="calls per day" value={dailyCalls} onChange={setDailyCalls} error={goalErrors.dailyCalls} />
             <GoalField label="Monthly Policies Goal" unit="policies per month" value={monthlyPolicies} onChange={setMonthlyPolicies} error={goalErrors.monthlyPolicies} />
             <GoalField label="Weekly Appointments Goal" unit="appointments per week" value={weeklyAppts} onChange={setWeeklyAppts} error={goalErrors.weeklyAppts} />
-            <GoalField label="Monthly Talk Time Goal" unit="minutes per month" value={monthlyTalkTime} onChange={setMonthlyTalkTime} error={goalErrors.monthlyTalkTime} />
+            <GoalField label="Monthly Premium Goal" unit="dollars per month" placeholder="1500" value={monthlyPremium} onChange={setMonthlyPremium} error={goalErrors.monthlyPremium} />
             <div className="flex justify-start pt-2 border-t border-border/50">
               <Button onClick={handleSaveGoals} disabled={goalSaving} className="px-6 rounded-lg">
                 {goalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Goals"}
@@ -756,14 +756,14 @@ function PasswordField({ label, value, onChange, show, onToggle }: { label: stri
   );
 }
 
-function GoalField({ label, unit, value, onChange, error }: { label: string; unit: string; value: number; onChange: (v: number) => void; error?: string }) {
+function GoalField({ label, unit, placeholder, value, onChange, error }: { label: string; unit: string; placeholder?: string; value: number; onChange: (v: number) => void; error?: string }) {
   return (
     <div>
       <div className="flex items-center justify-between">
         <label className="text-sm font-medium text-foreground">{label}</label>
         <span className="text-xs text-muted-foreground">{unit}</span>
       </div>
-      <Input type="number" min={0} step={1} value={value} onChange={(e) => onChange(parseInt(e.target.value) || 0)} className="mt-1" />
+      <Input type="number" min={0} step={1} placeholder={placeholder} value={value} onChange={(e) => onChange(parseInt(e.target.value) || 0)} className="mt-1" />
       {error && <p className="text-xs text-destructive mt-1">{error}</p>}
     </div>
   );

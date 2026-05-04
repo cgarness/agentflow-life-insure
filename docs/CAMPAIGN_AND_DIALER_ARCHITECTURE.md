@@ -11,7 +11,7 @@ The dialer relies on a strict separation of the Master CRM record and the Campai
 *   **`public.campaigns` (Rules Engine):**
     *   **Core:** `id`, `organization_id`, `name`, `type` (`POOL`, `TEAM`, `PERSONAL`), `status` (`Active`, `Paused`, `Draft`).
     *   **Settings:** 
-        *   `max_attempts`: Integer (or `NULL` for Unlimited).
+        *   `max_attempts`: Integer (or `NULL` for Unlimited). When set, eligibility is compared to **lifetime** `campaign_leads.call_attempts` for that contact in the campaign (not “attempts only after you change the setting”). Lowering the cap or switching from unlimited to a number can immediately stop further dials for contacts already at or over the cap.
         *   `calling_hours_start`/`end`: `TIME` (e.g., `08:00:00`).
         *   `retry_interval_hours`: Integer (hours to wait before a lead re-enters the queue; `0` bypasses the wait).
         *   `queue_filters`: `JSONB` blob containing manager-set filters (`status`, `state`, `min_score`, etc.).

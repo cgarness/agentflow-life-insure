@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Target, TrendingUp, PhoneCall, ShieldCheck } from "lucide-react";
+import { Target, TrendingUp, PhoneCall, ShieldCheck, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { StatData } from "@/hooks/useDashboardStats";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 
 interface GoalProgressWidgetProps {
   userId: string;
-  stats?: StatData | null;
 }
 
 interface GoalData {
@@ -16,9 +14,20 @@ interface GoalData {
   callsTarget: number;
   policiesMonth: number;
   policiesTarget: number;
-  talkTimeMinutes: number;
-  talkTimeTarget: number;
+  premiumSold: number;
+  premiumTarget: number;
+  appointmentsWeek: number;
+  appointmentsWeekTarget: number;
   hasGoals: boolean;
+}
+
+function startOfIsoWeek(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  monday.setDate(diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
 }
 
 const ProgressBar: React.FC<{
@@ -27,9 +36,11 @@ const ProgressBar: React.FC<{
   label: string;
   icon: React.ElementType;
   gradient: string;
-}> = ({ current, target, label, icon: Icon, gradient }) => {
+  formatValue?: (v: number) => string;
+}> = ({ current, target, label, icon: Icon, gradient, formatValue }) => {
   const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
-  
+  const fmt = formatValue ?? ((v: number) => String(v));
+
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-end px-1">
@@ -40,7 +51,7 @@ const ProgressBar: React.FC<{
           <span className="text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
         </div>
         <span className="text-[10px] font-bold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
-          {current} / {target}
+          {fmt(current)} / {fmt(target)}
         </span>
       </div>
       <div className="relative h-3 bg-muted/30 rounded-full overflow-hidden border border-white/5 shadow-inner">
@@ -50,7 +61,6 @@ const ProgressBar: React.FC<{
           transition={{ duration: 1, ease: "easeOut" }}
           className={`h-full rounded-full ${gradient} relative shadow-[0_0_10px_rgba(0,0,0,0.1)]`}
         >
-          {/* Shimmer effect */}
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent w-full animate-shimmer" style={{ backgroundSize: "200% 100%" }} />
         </motion.div>
       </div>
@@ -58,57 +68,36 @@ const ProgressBar: React.FC<{
   );
 };
 
-const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }) => {
+const fmtCurrency = (v: number) =>
+  v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
   const navigate = useNavigate();
   const [data, setData] = useState<GoalData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchGoalsAndStats = async () => {
+    const fetchGoalsAndActuals = async () => {
       if (!userId) return;
-      
+
       try {
-        // We only need to fetch the goals from the DB if they weren't passed in.
-        // Actually, even if stats are passed in, we still need the targets from the goals table.
-        const { data: goalsResult, error: goalsError } = await supabase
-          .from("goals")
-          .select("*");
-        
-        if (goalsError) throw goalsError;
-        const goals = goalsResult ?? [];
-
-        if (goals.length === 0) {
-          setData({ callsToday: 0, callsTarget: 0, policiesMonth: 0, policiesTarget: 0, talkTimeMinutes: 0, talkTimeTarget: 0, hasGoals: false });
-          setLoading(false);
-          return;
-        }
-
-        const findTarget = (metric: string) => {
-          const g = goals.find((goal) => goal.metric === metric);
-          return g?.target_value ?? 0;
-        };
-
-        // If stats are provided from the parent, use them to avoid redundant network calls.
-        if (stats) {
-          setData({
-            callsToday: stats.callsToday,
-            callsTarget: findTarget("Daily Calls"),
-            policiesMonth: stats.policiesThisMonth,
-            policiesTarget: findTarget("Monthly Policies"),
-            talkTimeMinutes: stats.talkTimeMinutes,
-            talkTimeTarget: findTarget("Monthly Talk Time") * 60, // Assuming goal is in hours
-            hasGoals: true,
-          });
-          setLoading(false);
-          return;
-        }
-
-        // Fallback for independent use (though redirected to central stats normally)
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const weekStart = startOfIsoWeek(now).toISOString();
 
-        const [callsResult, winsResult, talkTimeResult] = await Promise.all([
+        const [
+          profileRes,
+          callsRes,
+          policiesRes,
+          winsRes,
+          apptsRes,
+        ] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("monthly_call_goal, monthly_policies_goal, weekly_appointment_goal, monthly_premium_goal")
+            .eq("id", userId)
+            .maybeSingle(),
           supabase
             .from("calls")
             .select("id", { count: "exact", head: true })
@@ -121,28 +110,42 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
             .eq("assigned_agent_id", userId)
             .gte("created_at", startOfMonth),
           supabase
-            .from("calls")
-            .select("duration")
-            .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
+            .from("wins")
+            .select("premium_amount")
             .eq("agent_id", userId)
             .gte("created_at", startOfMonth),
+          supabase
+            .from("appointments")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "Scheduled")
+            .eq("user_id", userId)
+            .gte("start_time", weekStart),
         ]);
 
-        const talkTimeMinutes = Math.round(
-          (talkTimeResult.data ?? []).reduce(
-            (sum, c) => sum + (c.duration ?? 0),
-            0
-          ) / 60
+        const p = profileRes.data;
+        const callsTarget = Number(p?.monthly_call_goal) || 0;
+        const policiesTarget = Number(p?.monthly_policies_goal) || 0;
+        const appointmentsWeekTarget = Number(p?.weekly_appointment_goal) || 0;
+        const premiumTarget = Number(p?.monthly_premium_goal) || 0;
+
+        const hasGoals =
+          callsTarget > 0 || policiesTarget > 0 || appointmentsWeekTarget > 0 || premiumTarget > 0;
+
+        const premiumSold = (winsRes.data ?? []).reduce(
+          (sum, w) => sum + (Number(w.premium_amount) || 0),
+          0
         );
 
         setData({
-          callsToday: callsResult.count ?? 0,
-          callsTarget: findTarget("calls_daily") || findTarget("calls"),
-          policiesMonth: winsResult.count ?? 0,
-          policiesTarget: findTarget("policies_monthly") || findTarget("policies"),
-          talkTimeMinutes,
-          talkTimeTarget: findTarget("talk_time_monthly") || findTarget("talk_time"),
-          hasGoals: true,
+          callsToday: callsRes.count ?? 0,
+          callsTarget,
+          policiesMonth: policiesRes.count ?? 0,
+          policiesTarget,
+          premiumSold,
+          premiumTarget,
+          appointmentsWeek: apptsRes.count ?? 0,
+          appointmentsWeekTarget,
+          hasGoals,
         });
       } catch {
         setData(null);
@@ -150,8 +153,8 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
         setLoading(false);
       }
     };
-    fetchGoalsAndStats();
-  }, [userId, stats]);
+    fetchGoalsAndActuals();
+  }, [userId]);
 
   if (loading) {
     return (
@@ -174,10 +177,11 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
         </div>
         <p className="text-sm text-muted-foreground font-medium mb-4">No goals configured</p>
         <button
-          onClick={() => navigate("/settings")}
+          type="button"
+          onClick={() => navigate("/settings?section=my-profile")}
           className="text-xs font-bold text-primary hover:text-primary/80 uppercase tracking-widest bg-primary/5 px-4 py-2 rounded-xl transition-all"
         >
-          Configure Goals
+          Configure goals in My Profile
         </button>
       </div>
     );
@@ -203,26 +207,24 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, stats }
           gradient="premium-gradient-emerald"
         />
       )}
-      {data.talkTimeTarget > 0 && (
+      {data.appointmentsWeekTarget > 0 && (
         <ProgressBar
-          current={data.talkTimeMinutes}
-          target={data.talkTimeTarget}
-          label="Total Talk Time"
-          icon={TrendingUp}
-          gradient="premium-gradient-violet"
+          current={data.appointmentsWeek}
+          target={data.appointmentsWeekTarget}
+          label="Weekly Appointments"
+          icon={Calendar}
+          gradient="premium-gradient-amber"
         />
       )}
-      
-      {data.callsTarget === 0 && data.policiesTarget === 0 && data.talkTimeTarget === 0 && (
-        <div className="text-center py-4 bg-muted/20 rounded-xl border border-dashed border-muted-foreground/20">
-          <p className="text-xs font-medium text-muted-foreground px-4">Targets are not yet configured for your metrics</p>
-          <button
-            onClick={() => navigate("/settings")}
-            className="text-[10px] font-bold text-primary hover:underline mt-2 uppercase tracking-widest"
-          >
-            Go to Settings
-          </button>
-        </div>
+      {data.premiumTarget > 0 && (
+        <ProgressBar
+          current={data.premiumSold}
+          target={data.premiumTarget}
+          label="Monthly Premium"
+          icon={TrendingUp}
+          gradient="premium-gradient-violet"
+          formatValue={fmtCurrency}
+        />
       )}
     </div>
   );

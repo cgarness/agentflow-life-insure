@@ -9,6 +9,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "sonner";
+import {
+  CONTACT_FIELD_LAYOUT_KEY,
+  ContactFieldLayoutSchema,
+  resolveFieldOrder,
+  type ContactFieldLayout,
+  type ContactType,
+} from "@/lib/contactFieldLayout";
 import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
   CheckCircle2, MinusCircle, Lock, AlertTriangle,
@@ -35,7 +43,7 @@ const PRESET_COLORS = [
   { name: "Teal", hex: "#14B8A6" },
 ];
 
-const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Assignment Rules", "Display Settings", "Field Layout"];
+const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Field Layout"];
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -1098,443 +1106,6 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
   );
 };
 
-// ==================== ASSIGNMENT RULES TAB ====================
-
-interface AgentProfile {
-  id: string;
-  name: string;
-  initials: string;
-}
-
-const AssignmentRulesTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
-  const [agents, setAgents] = useState<AgentProfile[]>([]);
-  const [loadingAgents, setLoadingAgents] = useState(true);
-  const [method, setMethod] = useState<string>(settings?.assignmentMethod || "unassigned");
-  const [specificAgent, setSpecificAgent] = useState(settings?.assignmentSpecificAgentId || "");
-  const [rotation, setRotation] = useState<Record<string, boolean>>(() => {
-    const r: Record<string, boolean> = {};
-    settings?.assignmentRotation?.forEach(id => r[id] = true);
-    return r;
-  });
-  const [importOverride, setImportOverride] = useState(settings?.importOverride || false);
-  const [importMethod, setImportMethod] = useState(settings?.importMethod || "unassigned");
-  const [importAgent, setImportAgent] = useState(settings?.importSpecificAgentId || "");
-  const [importRotation, setImportRotation] = useState<Record<string, boolean>>(() => {
-    const r: Record<string, boolean> = {};
-    settings?.importRotation?.forEach(id => r[id] = true);
-    return r;
-  });
-
-  useEffect(() => {
-    if (settings) {
-      setMethod(settings.assignmentMethod);
-      setSpecificAgent(settings.assignmentSpecificAgentId || "");
-      const r: Record<string, boolean> = {};
-      settings.assignmentRotation?.forEach(id => r[id] = true);
-      setRotation(r);
-      
-      setImportOverride(settings.importOverride);
-      setImportMethod(settings.importMethod);
-      setImportAgent(settings.importSpecificAgentId || "");
-      const ir: Record<string, boolean> = {};
-      settings.importRotation?.forEach(id => ir[id] = true);
-      setImportRotation(ir);
-    }
-  }, [settings]);
-
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id, first_name, last_name")
-          .not("role", "eq", "admin")
-          .eq("status", "Active");
-
-        if (error) throw error;
-
-        const transformed: AgentProfile[] = (data || []).map(p => ({
-          id: p.id,
-          name: `${p.first_name || ""} ${p.last_name || ""}`.trim() || "Unknown Agent",
-          initials: `${p.first_name?.[0] || ""}${p.last_name?.[0] || ""}`.toUpperCase() || "??",
-        }));
-
-        setAgents(transformed);
-        
-        // If rotation is empty, initialize it with all agents
-        if (!settings?.assignmentRotation?.length) {
-          const rot: Record<string, boolean> = {};
-          transformed.forEach(a => rot[a.id] = true);
-          setRotation(prev => Object.keys(prev).length ? prev : rot);
-        }
-        if (!settings?.importRotation?.length) {
-          const iRot: Record<string, boolean> = {};
-          transformed.forEach(a => iRot[a.id] = true);
-          setImportRotation(prev => Object.keys(prev).length ? prev : iRot);
-        }
-      } catch (err) {
-        console.error("Error fetching agents for assignment rules:", err);
-      } finally {
-        setLoadingAgents(false);
-      }
-    };
-
-    fetchAgents();
-  }, [settings?.assignmentRotation?.length, settings?.importRotation?.length]);
-
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if (method === "specific" && !specificAgent) {
-      toast({ title: "Please select an agent before saving", variant: "destructive" });
-      return;
-    }
-    if (importOverride && importMethod === "specific" && !importAgent) {
-      toast({ title: "Please select an agent for import assignment", variant: "destructive" });
-      return;
-    }
-    if (!settings?.organizationId) return;
-    
-    setSaving(true);
-    try {
-      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .from("contact_management_settings")
-        .upsert({
-          organization_id: settings.organizationId,
-          assignment_method: method,
-          assignment_specific_agent_id: specificAgent || null,
-          assignment_rotation: Object.keys(rotation).filter(id => rotation[id]),
-          import_override: importOverride,
-          import_method: importMethod,
-          import_specific_agent_id: importAgent || null,
-          import_rotation: Object.keys(importRotation).filter(id => importRotation[id]),
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'organization_id' });
-
-      if (error) throw error;
-      
-      toast({ title: "Assignment rules saved" });
-      onReload();
-    } catch (err) {
-      console.error("Error saving assignment rules:", err);
-      toast({ title: "Failed to save settings", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const firstInRotation = agents.find(a => rotation[a.id]);
-  const firstInImportRotation = agents.find(a => importRotation[a.id]);
-  const allRotationOff = agents.every(a => !rotation[a.id]);
-  const allImportRotationOff = agents.every(a => !importRotation[a.id]);
-
-  const RadioOption = ({ value, current, onChange, label, desc }: { value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
-    <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => onChange(value)}>
-      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
-        {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        {desc && <p className="text-xs text-muted-foreground">{desc}</p>}
-      </div>
-    </label>
-  );
-
-  const renderMethodFields = (
-    m: string, agent: string, setAgent: (v: string) => void,
-    rot: Record<string, boolean>, setRot: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
-    allOff: boolean, firstIn: AgentProfile | undefined
-  ) => (
-    <>
-      {m === "specific" && (
-        <div className="pl-7 mt-2">
-          <label className="text-xs font-medium text-muted-foreground block mb-1.5">Assign all new contacts to:</label>
-          <Select value={agent} onValueChange={setAgent}>
-            <SelectTrigger className="w-64"><SelectValue placeholder="Select an agent..." /></SelectTrigger>
-            <SelectContent>
-              {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-      {m === "round_robin" && (
-        <div className="pl-7 mt-2 space-y-2">
-          {agents.map(a => (
-            <div key={a.id} className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-full bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center text-[10px] font-bold">{a.initials}</div>
-                <span className="text-sm text-foreground">{a.name}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">Include</span>
-                <Switch checked={rot[a.id]} onCheckedChange={v => setRot(prev => ({ ...prev, [a.id]: v }))} />
-              </div>
-            </div>
-          ))}
-          {allOff ? (
-            <div className="bg-[#431407] border border-[#F97316] rounded-lg p-3 flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-[#F97316] mt-0.5 shrink-0" />
-              <p className="text-xs text-[#F97316]">No agents are in the rotation. New contacts will be Unassigned until at least one agent is added.</p>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Next in queue: {firstIn?.name}</p>
-          )}
-        </div>
-      )}
-    </>
-  );
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-base font-semibold text-foreground">Assignment Rules</h4>
-        <p className="text-sm text-muted-foreground">Control how new leads are assigned when added manually or imported via CSV.</p>
-      </div>
-
-      <div className="bg-[#1E3A5F] border border-[#3B82F6] rounded-lg p-3 flex items-start gap-2.5">
-        <Info className="w-4 h-4 text-[#93C5FD] mt-0.5 shrink-0" />
-        <p className="text-xs text-[#93C5FD]">Changing assignment rules does not retroactively reassign existing contacts. Only applies to new contacts going forward.</p>
-      </div>
-
-      {/* Card 1 */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Default Assignment Method</h5>
-          <p className="text-xs text-muted-foreground">Choose how new leads are assigned when added to the system.</p>
-        </div>
-        <RadioOption value="unassigned" current={method} onChange={setMethod} label="Unassigned" desc="New contacts are added without an assigned agent. Admin or agents assign manually." />
-        <RadioOption value="specific" current={method} onChange={setMethod} label="Always Assign to Specific Agent" desc="Every new contact is assigned to one designated agent." />
-        <RadioOption value="round_robin" current={method} onChange={setMethod} label="Round Robin Among Active Agents" desc="New contacts are distributed evenly among agents in the rotation." />
-        {renderMethodFields(method, specificAgent, setSpecificAgent, rotation, setRotation, allRotationOff, firstInRotation)}
-      </div>
-
-      {/* Card 2 */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Import Override</h5>
-          <p className="text-xs text-muted-foreground">Choose whether CSV imports follow the same assignment rule or use a different method.</p>
-        </div>
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-foreground">Use a different assignment method for CSV imports</p>
-          <Switch checked={importOverride} onCheckedChange={v => { setImportOverride(v); if (v) setImportMethod("unassigned"); }} />
-        </div>
-        {importOverride && (
-          <div className="space-y-1 pt-2 border-t border-border">
-            <RadioOption value="unassigned" current={importMethod} onChange={setImportMethod} label="Unassigned" desc="Imported contacts have no agent assigned." />
-            <RadioOption value="specific" current={importMethod} onChange={setImportMethod} label="Always Assign to Specific Agent" desc="Every imported contact is assigned to one designated agent." />
-            <RadioOption value="round_robin" current={importMethod} onChange={setImportMethod} label="Round Robin Among Active Agents" desc="Imported contacts are distributed evenly." />
-            {renderMethodFields(importMethod, importAgent, setImportAgent, importRotation, setImportRotation, allImportRotationOff, firstInImportRotation)}
-          </div>
-        )}
-      </div>
-
-      <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Assignment Rules"}</Button>
-    </div>
-  );
-};
-
-// ==================== DISPLAY SETTINGS TAB ====================
-
-const ALL_COLUMNS = [
-  { name: "Name", locked: true, defaultChecked: true },
-  { name: "Phone", locked: true, defaultChecked: true },
-  { name: "Status", locked: true, defaultChecked: true },
-  { name: "Email", locked: false, defaultChecked: true },
-  { name: "State", locked: false, defaultChecked: true },
-  { name: "Lead Source", locked: false, defaultChecked: true },
-  { name: "Lead Score", locked: false, defaultChecked: false },
-  { name: "Age", locked: false, defaultChecked: true },
-  { name: "Assigned Agent", locked: false, defaultChecked: true },
-  { name: "Last Contacted", locked: false, defaultChecked: true },
-  { name: "Created Date", locked: false, defaultChecked: false },
-];
-
-const SORT_OPTIONS = ["Name", "Phone", "Status", "Lead Source", "Lead Score", "Age", "Last Contacted", "Created Date"];
-
-const DisplaySettingsTab: React.FC = () => {
-  const { user } = useAuth();
-  const [columns, setColumns] = useState(() => ALL_COLUMNS.map((c, i) => ({ ...c, checked: c.defaultChecked, order: i })));
-  const [sortBy, setSortBy] = useState("Created Date");
-  const [sortDesc, setSortDesc] = useState(true);
-  const [perPage, setPerPage] = useState(25);
-  const [saving, setSaving] = useState(false);
-  const [loadingPrefs, setLoadingPrefs] = useState(true);
-
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!user?.id) { setLoadingPrefs(false); return; }
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from("user_preferences")
-          .select("settings")
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (data?.settings) {
-          const settings = data.settings as any;
-          if (settings.contact_columns) {
-            setColumns(settings.contact_columns as typeof columns);
-          }
-        }
-      } finally {
-        setLoadingPrefs(false);
-      }
-    })();
-  }, [user?.id]);
-
-  const checkedColumns = columns.filter(c => c.checked).sort((a, b) => a.order - b.order);
-  const previewText = checkedColumns.map(c => c.name).join(", ");
-
-  const toggleColumn = (name: string) => {
-    setColumns(prev => prev.map(c => c.name === name && !c.locked ? { ...c, checked: !c.checked } : c));
-  };
-
-  const handleColumnDrop = (toIdx: number) => {
-    if (dragIdx === null || dragIdx === toIdx) { setDragIdx(null); setOverIdx(null); return; }
-    const reordered = [...checkedColumns];
-    const [moved] = reordered.splice(dragIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    const orderMap: Record<string, number> = {};
-    reordered.forEach((c, i) => orderMap[c.name] = i);
-    setColumns(prev => prev.map(c => c.checked && orderMap[c.name] !== undefined ? { ...c, order: orderMap[c.name] } : c));
-    setDragIdx(null);
-    setOverIdx(null);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      if (user?.id) {
-        // 1. Fetch current settings to merge
-        const { data: current } = await supabase
-          .from("user_preferences")
-          .select("settings")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        const newSettings = {
-          ...(current?.settings as object || {}),
-          contact_columns: columns
-        };
-
-        const { error } = await supabase
-          .from("user_preferences")
-          .upsert(
-            { user_id: user.id, settings: newSettings as any },
-            { onConflict: "user_id" }
-          );
-        if (error) throw error;
-      }
-      toast({ title: "Display settings saved" });
-    } catch (err) {
-      console.error("Failed to save display settings:", err);
-      toast({ title: "Failed to save settings", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-base font-semibold text-foreground">Display Settings</h4>
-        <p className="text-sm text-muted-foreground">Control how the Contacts page looks and behaves by default for all agents.</p>
-      </div>
-
-      {/* Card 1 — Default Table Columns */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Default Table Columns</h5>
-          <p className="text-xs text-muted-foreground">Choose which columns appear in the Leads table by default. Agents can customize their own view but this sets the starting point.</p>
-        </div>
-        <div className="space-y-1">
-          {/* Locked columns first */}
-          {columns.filter(c => c.locked).map(c => (
-            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg">
-              <Checkbox checked disabled className="opacity-40" />
-              <span className="flex-1 text-sm text-foreground">{c.name}</span>
-              <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-            </div>
-          ))}
-          {/* Toggleable columns */}
-          {columns.filter(c => !c.locked).map(c => (
-            <div key={c.name} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-              <Checkbox checked={c.checked} onCheckedChange={() => toggleColumn(c.name)} />
-              <span className="flex-1 text-sm text-foreground">{c.name}</span>
-              {c.checked && <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />}
-            </div>
-          ))}
-        </div>
-        {/* Drag reorder for checked columns */}
-        {checkedColumns.length > 0 && (
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Drag to reorder visible columns:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {checkedColumns.map((c, idx) => (
-                <span
-                  key={c.name}
-                  draggable
-                  onDragStart={() => setDragIdx(idx)}
-                  onDragOver={e => { e.preventDefault(); setOverIdx(idx); }}
-                  onDrop={() => handleColumnDrop(idx)}
-                  onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-                  className={`text-[11px] px-2 py-1 rounded border cursor-grab transition-all ${overIdx === idx && dragIdx !== null ? "border-[#3B82F6] bg-[#3B82F6]/10" : "border-border bg-muted"} ${dragIdx === idx ? "opacity-50" : ""} text-foreground`}
-                >
-                  {c.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        <p className="text-xs text-muted-foreground">Current column order: {previewText}</p>
-      </div>
-
-      {/* Card 2 — Default Sort */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Default Sort</h5>
-          <p className="text-xs text-muted-foreground">Choose how the Leads table is sorted when an agent first loads it.</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <label className="text-xs text-muted-foreground block mb-1">Sort by</label>
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {SORT_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2 pt-4">
-            <span className="text-xs text-muted-foreground">Ascending</span>
-            <Switch checked={sortDesc} onCheckedChange={setSortDesc} />
-            <span className="text-xs text-muted-foreground">Descending</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Card 3 — Records Per Page */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Records Per Page</h5>
-          <p className="text-xs text-muted-foreground">How many contacts load per page in the Leads table.</p>
-        </div>
-        <div className="flex gap-3">
-          {[25, 50, 100].map(n => (
-            <button key={n} onClick={() => setPerPage(n)} className={`flex-1 py-3 rounded-lg border-2 text-lg font-bold transition-all ${perPage === n ? "border-[#3B82F6] text-[#3B82F6] bg-[#3B82F6]/10" : "border-border text-muted-foreground hover:border-[#64748B]"}`}>
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <Button onClick={handleSave} disabled={saving || loadingPrefs} className="w-full">{saving ? "Saving..." : "Save Display Settings"}</Button>
-    </div>
-  );
-};
-
 // ==================== MAIN COMPONENT ====================
 
 const ContactManagement: React.FC = () => {
@@ -1663,9 +1234,7 @@ const ContactManagement: React.FC = () => {
       {activeTab === 2 && <LeadSourcesTab />}
       {activeTab === 3 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} />}
       {activeTab === 4 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 5 && <AssignmentRulesTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 6 && <DisplaySettingsTab />}
-      {activeTab === 7 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 5 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
     </div>
   );
 };
@@ -1712,13 +1281,28 @@ const STANDARD_FIELDS_RECRUIT = [
   { id: "notes", name: "System Notes" }
 ];
 
+function sanitizeContactFieldLayoutFromSettings(raw: unknown): ContactFieldLayout {
+  const out: ContactFieldLayout = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  const o = raw as Record<string, unknown>;
+  for (const k of ["lead", "client", "recruit"] as ContactType[]) {
+    const arr = o[k];
+    if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
+      out[k] = arr as string[];
+    }
+  }
+  return out;
+}
+
 const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onReload: () => void }> = ({ settings, onReload }) => {
-  const [activeType, setActiveType] = useState<"lead" | "client" | "recruit">("lead");
+  const { user } = useAuth();
+  const [activeType, setActiveType] = useState<ContactType>("lead");
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [items, setItems] = useState<{ id: string, name: string, isCustom: boolean }[]>([]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [userContactLayout, setUserContactLayout] = useState<ContactFieldLayout | undefined>(undefined);
 
   const fetchCustomFields = useCallback(async () => {
     const oid = settings?.organizationId;
@@ -1739,25 +1323,60 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   }, [fetchCustomFields]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setUserContactLayout(undefined);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("user_preferences")
+          .select("settings")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (cancelled) return;
+        const rawSettings = data?.settings as Record<string, unknown> | undefined;
+        const blob = rawSettings?.[CONTACT_FIELD_LAYOUT_KEY];
+        setUserContactLayout(sanitizeContactFieldLayoutFromSettings(blob));
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setUserContactLayout({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!settings) return;
 
     let standard: { id: string, name: string }[] = [];
-    let order: string[] = [];
     let appliesTo: string = "";
+    let orgOrder: string[] | undefined;
 
     if (activeType === "lead") {
       standard = STANDARD_FIELDS_LEAD;
-      order = settings.fieldOrderLead || standard.map(f => f.id);
       appliesTo = "Leads";
+      orgOrder = Array.isArray(settings.fieldOrderLead) ? settings.fieldOrderLead : undefined;
     } else if (activeType === "client") {
       standard = STANDARD_FIELDS_CLIENT;
-      order = settings.fieldOrderClient || standard.map(f => f.id);
       appliesTo = "Clients";
+      orgOrder = Array.isArray(settings.fieldOrderClient) ? settings.fieldOrderClient : undefined;
     } else {
       standard = STANDARD_FIELDS_RECRUIT;
-      order = settings.fieldOrderRecruit || standard.map(f => f.id);
       appliesTo = "Recruits";
+      orgOrder = Array.isArray(settings.fieldOrderRecruit) ? settings.fieldOrderRecruit : undefined;
     }
+
+    const userOrder = userContactLayout?.[activeType];
+    const order = resolveFieldOrder(
+      activeType,
+      userOrder,
+      orgOrder,
+    );
 
     const availableCustom = customFields
       .filter(f => f.active && f.appliesTo?.includes(appliesTo as any))
@@ -1774,7 +1393,7 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     const missingFields = allFields.filter(f => !order.includes(f.id));
     
     setItems([...orderedItems, ...missingFields]);
-  }, [settings, activeType, customFields]);
+  }, [settings, activeType, customFields, userContactLayout]);
 
   const handleDrop = (idx: number) => {
     if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return; }
@@ -1787,28 +1406,45 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   };
 
   const handleSave = async () => {
-    if (!settings?.organizationId) return;
+    if (!user?.id) {
+      toast({ title: "Error saving layout", description: "Not signed in.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
-      const fieldIds = items.map(i => i.id);
-      const payload: any = {};
-      if (activeType === "lead") payload.field_order_lead = fieldIds;
-      else if (activeType === "client") payload.field_order_client = fieldIds;
-      else payload.field_order_recruit = fieldIds;
+      const fieldIds = items.map((i) => i.id);
 
-      const { error } = await (supabase as any)
-        .from("contact_management_settings")
-        .upsert({
-          organization_id: settings.organizationId,
-          ...payload,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'organization_id' });
+      const { data: current, error: curErr } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (curErr) throw curErr;
+
+      const currentSettings = (current?.settings as Record<string, unknown> | undefined) ?? {};
+      const prevSanitized = sanitizeContactFieldLayoutFromSettings(currentSettings[CONTACT_FIELD_LAYOUT_KEY]);
+
+      const contact_field_layout = ContactFieldLayoutSchema.parse({
+        ...prevSanitized,
+        [activeType]: fieldIds,
+      });
+
+      const newSettings = {
+        ...currentSettings,
+        [CONTACT_FIELD_LAYOUT_KEY]: contact_field_layout,
+      };
+
+      const { error } = await supabase
+        .from("user_preferences")
+        .upsert({ user_id: user.id, settings: newSettings }, { onConflict: "user_id" });
 
       if (error) throw error;
-      toast({ title: "Field layout saved" });
+      setUserContactLayout(contact_field_layout);
+      sonnerToast.success("Field layout saved");
       onReload();
-    } catch (e: any) {
-      toast({ title: "Error saving layout", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      toast({ title: "Error saving layout", description: message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
