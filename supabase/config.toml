@@ -69,6 +69,11 @@ verify_jwt = false
 [functions.recording-retention-purge]
 verify_jwt = false
 
+# Twilio subaccount provisioning — invoked by Postgres AFTER INSERT trigger on organizations
+# via pg_net (private.twilio_provisioning_config), not by an authenticated user JWT.
+[functions.provision-twilio-subaccount]
+verify_jwt = false
+
 # Outbound SMS — JWT from the logged-in agent; Twilio credentials read from phone_settings.
 [functions.twilio-sms]
 verify_jwt = false
