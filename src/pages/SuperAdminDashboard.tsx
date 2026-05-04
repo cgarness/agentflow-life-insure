@@ -24,7 +24,8 @@ import { usersSupabaseApi } from "@/lib/supabase-users";
 import { BRANDING_DEFAULTS } from "@/components/settings/brandingConfig";
 import ProvisioningPanel from "@/components/super-admin/provisioning/ProvisioningPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail } from "lucide-react";
+import { Mail, RefreshCw } from "lucide-react";
+import ProvisioningStatusBadge from "@/components/super-admin/provisioning/ProvisioningStatusBadge";
 
 // ---- Types ----
 interface Organization {
@@ -38,6 +39,9 @@ interface Organization {
   userCount?: number;
   leadCount?: number;
   status?: "active" | "suspended" | "archived";
+  twilio_subaccount_sid?: string | null;
+  twilio_subaccount_status?: string | null;
+  twilio_provisioned_at?: string | null;
 }
 
 /** From RPC `super_admin_dashboard_snapshot`. */
@@ -52,6 +56,9 @@ interface SuperAdminDashboardSnapshot {
     display_name: string;
     user_count: number;
     lead_count: number;
+    twilio_subaccount_sid: string | null;
+    twilio_subaccount_status: string | null;
+    twilio_provisioned_at: string | null;
   }>;
   total_users: number;
   total_leads: number;
@@ -384,6 +391,9 @@ const SuperAdminDashboard: React.FC = () => {
         displayName: row.display_name?.trim() || row.name || "Agency",
         userCount: row.user_count ?? 0,
         leadCount: row.lead_count ?? 0,
+        twilio_subaccount_sid: row.twilio_subaccount_sid,
+        twilio_subaccount_status: row.twilio_subaccount_status,
+        twilio_provisioned_at: row.twilio_provisioned_at,
       }));
 
       setOrgs(enriched);
@@ -422,6 +432,27 @@ const SuperAdminDashboard: React.FC = () => {
       fetchUsers(); // Refresh list
     } catch (e: any) {
       toast({ title: "Failed to update user", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleRetryProvisioning = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke<Record<string, unknown>>(
+        "retry-twilio-provisioning",
+        { body: { organization_id: orgId } },
+      );
+      if (error) throw error;
+      
+      const status = String((data as { status?: string } | null)?.status ?? "");
+      toast({
+        title: status === "active" ? "Provisioned" : status === "already_provisioned" ? "Already provisioned" : "Retry submitted",
+        description: status === "active" 
+          ? "Twilio subaccount created successfully." 
+          : `Status: ${status || "unknown"}`,
+      });
+      fetchData(); // Refresh to show new status
+    } catch (e: any) {
+      toast({ title: "Retry failed", description: e.message, variant: "destructive" });
     }
   };
 
@@ -602,11 +633,12 @@ const SuperAdminDashboard: React.FC = () => {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b bg-muted/30">
+                        <tr className="border-b bg-muted/30">
                         <th className="text-left font-medium text-muted-foreground px-6 py-3">Agency</th>
                         <th className="text-center font-medium text-muted-foreground px-4 py-3">Users</th>
                         <th className="text-center font-medium text-muted-foreground px-4 py-3">Leads</th>
-                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Status</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Twilio Status</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Org Status</th>
                         <th className="text-left font-medium text-muted-foreground px-4 py-3">Created</th>
                         <th className="text-right font-medium text-muted-foreground px-6 py-3">Actions</th>
                       </tr>
@@ -616,19 +648,28 @@ const SuperAdminDashboard: React.FC = () => {
                         <tr 
                           key={org.id} 
                           className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer group"
-                          onClick={() => handleViewDetail(org.id)}
                         >
-                          <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors">
+                          <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors" onClick={() => handleViewDetail(org.id)}>
                             {org.displayName}
                           </td>
-                          <td className="px-4 py-4 text-center">{org.userCount}</td>
-                          <td className="px-4 py-4 text-center">{org.leadCount}</td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-4 text-center" onClick={() => handleViewDetail(org.id)}>{org.userCount}</td>
+                          <td className="px-4 py-4 text-center" onClick={() => handleViewDetail(org.id)}>{org.leadCount}</td>
+                          <td className="px-4 py-4" onClick={() => handleViewDetail(org.id)}>
+                            <div className="flex flex-col gap-1">
+                              <ProvisioningStatusBadge status={org.twilio_subaccount_status} />
+                              {org.twilio_subaccount_sid && (
+                                <span className="text-[10px] font-mono text-muted-foreground opacity-70">
+                                  {org.twilio_subaccount_sid.substring(0, 8)}...
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4" onClick={() => handleViewDetail(org.id)}>
                             <Badge variant="outline" className="capitalize">
                               {org.status || "active"}
                             </Badge>
                           </td>
-                          <td className="px-4 py-4 text-muted-foreground">
+                          <td className="px-4 py-4 text-muted-foreground" onClick={() => handleViewDetail(org.id)}>
                             {org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -653,6 +694,18 @@ const SuperAdminDashboard: React.FC = () => {
                                   <Users className="w-4 h-4" />
                                   Manage Users
                                 </DropdownMenuItem>
+                                {(org.twilio_subaccount_status === 'pending' || org.twilio_subaccount_status === 'pending_manual') && !org.twilio_subaccount_sid && (
+                                  <DropdownMenuItem 
+                                    className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRetryProvisioning(org.id);
+                                    }}
+                                  >
+                                    <RefreshCw className="w-4 h-4" />
+                                    Retry Twilio Provisioning
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </td>
@@ -815,10 +868,7 @@ const SuperAdminDashboard: React.FC = () => {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Twilio subaccount provisioning */}
-      <ProvisioningPanel />
-
+ 
       {/* Provisioning Wizard */}
       <ProvisioningWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onSuccess={fetchData} />
     </div>
