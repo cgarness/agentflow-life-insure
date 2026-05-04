@@ -23,6 +23,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { usersSupabaseApi } from "@/lib/supabase-users";
 import { BRANDING_DEFAULTS } from "@/components/settings/brandingConfig";
 import ProvisioningPanel from "@/components/super-admin/provisioning/ProvisioningPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Mail } from "lucide-react";
 
 // ---- Types ----
 interface Organization {
@@ -54,6 +56,19 @@ interface SuperAdminDashboardSnapshot {
   total_users: number;
   total_leads: number;
   active_calls: number;
+}
+
+interface SuperAdminUser {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+  role: string;
+  status: string;
+  organization_id: string;
+  organization_name: string;
+  agency_display_name: string;
+  created_at: string;
 }
 
 const ORG_STATUS_OPTIONS = ["All", "Active", "Suspended", "Archived"] as const;
@@ -337,6 +352,11 @@ const SuperAdminDashboard: React.FC = () => {
   const [totalLeads, setTotalLeads] = useState(0);
   const [activeCalls, setActiveCalls] = useState(0);
 
+  // Users state
+  const [allUsers, setAllUsers] = useState<SuperAdminUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -377,9 +397,38 @@ const SuperAdminDashboard: React.FC = () => {
     }
   }, [toast]);
 
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const { data, error } = await supabase.rpc("super_admin_all_users");
+      if (error) throw error;
+      setAllUsers((data as SuperAdminUser[]) || []);
+    } catch (e: any) {
+      toast({ title: "Failed to load users", description: e.message, variant: "destructive" });
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, [toast]);
+
+  const handleUpdateUser = async (userId: string, role?: string, status?: string) => {
+    try {
+      const { error } = await supabase.rpc("super_admin_update_user", {
+        p_user_id: userId,
+        p_role: role,
+        p_status: status,
+      });
+      if (error) throw error;
+      toast({ title: "User updated successfully" });
+      fetchUsers(); // Refresh list
+    } catch (e: any) {
+      toast({ title: "Failed to update user", description: e.message, variant: "destructive" });
+    }
+  };
+
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    fetchUsers();
+  }, [fetchData, fetchUsers]);
 
   const handleVerifyBadge = async () => {
     try {
@@ -432,6 +481,14 @@ const SuperAdminDashboard: React.FC = () => {
   const filtered = orgs.filter((o) =>
     (o.displayName || o.name).toLowerCase().includes(search.toLowerCase()) &&
     (statusFilter === "All" || (o.status || "active") === statusFilter.toLowerCase())
+  );
+
+  const filteredUsers = allUsers.filter((u) =>
+    (u.first_name || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+    (u.last_name || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+    u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+    u.organization_name.toLowerCase().includes(userSearch.toLowerCase()) ||
+    u.agency_display_name.toLowerCase().includes(userSearch.toLowerCase())
   );
   
   const handleViewDetail = (id: string) => {
@@ -491,116 +548,273 @@ const SuperAdminDashboard: React.FC = () => {
         />
       </div>
 
-      {/* Agencies table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Agencies</CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search agencies…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 h-9"
-              />
-            </div>
-          </div>
-          <div className="mt-3 flex items-center gap-2 flex-wrap">
-            {ORG_STATUS_OPTIONS.map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  statusFilter === status
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background text-muted-foreground border-border hover:bg-muted/70"
-                }`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="text-left font-medium text-muted-foreground px-6 py-3">Agency</th>
-                    <th className="text-center font-medium text-muted-foreground px-4 py-3">Users</th>
-                    <th className="text-center font-medium text-muted-foreground px-4 py-3">Leads</th>
-                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Status</th>
-                    <th className="text-left font-medium text-muted-foreground px-4 py-3">Created</th>
-                    <th className="text-right font-medium text-muted-foreground px-6 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((org) => (
-                    <tr 
-                      key={org.id} 
-                      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer group"
-                      onClick={() => handleViewDetail(org.id)}
-                    >
-                      <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors">
-                        {org.displayName}
-                      </td>
-                      <td className="px-4 py-4 text-center">{org.userCount}</td>
-                      <td className="px-4 py-4 text-center">{org.leadCount}</td>
-                      <td className="px-4 py-4">
-                        <Badge variant="outline" className="capitalize">
-                          {org.status || "active"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                              <MoreHorizontal className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem 
-                              className="gap-2 cursor-pointer"
-                              onClick={() => handleViewDetail(org.id)}
+      {/* Main Content Tabs */}
+      <Tabs defaultValue="agencies" className="space-y-6">
+        <TabsList className="bg-muted/50 p-1">
+          <TabsTrigger value="agencies" className="gap-2">
+            <Building2 className="w-4 h-4" />
+            Agencies
+          </TabsTrigger>
+          <TabsTrigger value="users" className="gap-2">
+            <Users className="w-4 h-4" />
+            Users
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="agencies" className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Platform Agencies</CardTitle>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search agencies…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9 h-9"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                {ORG_STATUS_OPTIONS.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setStatusFilter(status)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      statusFilter === status
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:bg-muted/70"
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left font-medium text-muted-foreground px-6 py-3">Agency</th>
+                        <th className="text-center font-medium text-muted-foreground px-4 py-3">Users</th>
+                        <th className="text-center font-medium text-muted-foreground px-4 py-3">Leads</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Status</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Created</th>
+                        <th className="text-right font-medium text-muted-foreground px-6 py-3">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((org) => (
+                        <tr 
+                          key={org.id} 
+                          className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer group"
+                          onClick={() => handleViewDetail(org.id)}
+                        >
+                          <td className="px-6 py-4 font-medium group-hover:text-primary transition-colors">
+                            {org.displayName}
+                          </td>
+                          <td className="px-4 py-4 text-center">{org.userCount}</td>
+                          <td className="px-4 py-4 text-center">{org.leadCount}</td>
+                          <td className="px-4 py-4">
+                            <Badge variant="outline" className="capitalize">
+                              {org.status || "active"}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-4 text-muted-foreground">
+                            {org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem 
+                                  className="gap-2 cursor-pointer"
+                                  onClick={() => handleViewDetail(org.id)}
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                  View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  className="gap-2 cursor-pointer"
+                                  onClick={() => handleViewDetail(org.id)}
+                                >
+                                  <Users className="w-4 h-4" />
+                                  Manage Users
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
+                        </tr>
+                      ))}
+                      {filtered.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                            {search ? "No agencies match your search." : "No agencies yet."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="users" className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Platform Users</CardTitle>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search users…"
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="pl-9 h-9"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left font-medium text-muted-foreground px-6 py-3">User</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Agency</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Role</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Status</th>
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">Joined</th>
+                        <th className="text-right font-medium text-muted-foreground px-6 py-3">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredUsers.map((user) => (
+                        <tr key={user.id} className="border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                                {(user.first_name?.[0] || user.email[0]).toUpperCase()}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-foreground">
+                                  {user.first_name} {user.last_name}
+                                </span>
+                                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <Mail className="w-3 h-3" />
+                                  {user.email}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div 
+                              className="text-primary hover:underline cursor-pointer font-medium"
+                              onClick={() => handleViewDetail(user.organization_id)}
                             >
-                              <ExternalLink className="w-4 h-4" />
-                              View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              className="gap-2 cursor-pointer"
-                              onClick={() => handleViewDetail(org.id)}
-                            >
-                              <Users className="w-4 h-4" />
-                              Manage Users
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
-                  ))}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center py-8 text-muted-foreground">
-                        {search ? "No agencies match your search." : "No agencies yet."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                              {user.agency_display_name || user.organization_name}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <Badge variant="outline" className={`
+                              ${user.role === 'Admin' ? 'border-amber-500/50 text-amber-600 bg-amber-500/5' : 'border-blue-500/50 text-blue-600 bg-blue-500/5'}
+                              font-medium text-[10px] uppercase tracking-wide
+                            `}>
+                              {user.role}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-1.5 h-1.5 rounded-full ${user.status === 'Active' ? 'bg-green-500' : 'bg-red-400'}`} />
+                              <span className="text-xs">{user.status}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 text-muted-foreground text-xs">
+                            {new Date(user.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-b mb-1">
+                                  Manage Role
+                                </div>
+                                {["Admin", "Team Leader", "Agent"].map((role) => (
+                                  <DropdownMenuItem 
+                                    key={role}
+                                    className="cursor-pointer"
+                                    onClick={() => handleUpdateUser(user.id, role)}
+                                  >
+                                    <ShieldCheck className={`w-4 h-4 mr-2 ${user.role === role ? "text-primary" : "opacity-0"}`} />
+                                    {role}
+                                  </DropdownMenuItem>
+                                ))}
+                                
+                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground border-b my-1">
+                                  Manage Status
+                                </div>
+                                {["Active", "Inactive"].map((status) => (
+                                  <DropdownMenuItem 
+                                    key={status}
+                                    className="cursor-pointer"
+                                    onClick={() => handleUpdateUser(user.id, undefined, status)}
+                                  >
+                                    <CheckCircle2 className={`w-4 h-4 mr-2 ${user.status === status ? "text-green-500" : "opacity-0"}`} />
+                                    {status}
+                                  </DropdownMenuItem>
+                                ))}
+
+                                <div className="border-t my-1" />
+                                <DropdownMenuItem 
+                                  className="gap-2 cursor-pointer"
+                                  onClick={() => handleViewDetail(user.organization_id)}
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                  View Agency Details
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="text-center py-12 text-muted-foreground">
+                            {userSearch ? "No users match your criteria." : "No users found across any agency."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Twilio subaccount provisioning */}
       <ProvisioningPanel />
