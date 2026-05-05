@@ -900,12 +900,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
       </div>
 
-      {/* 3 COLUMN LAYOUT */}
-      <div className="flex flex-1 overflow-hidden min-w-0 w-full">
+      {/* 3 COLUMN LAYOUT - "Island" Style matching Dialer */}
+      <div className="flex flex-1 overflow-hidden min-w-0 w-full p-3 gap-3 bg-accent/5">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card flex flex-col min-h-0 shadow-sm z-10 shrink-0">
-          <div className="px-6 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">
+          <div className="px-4 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
             <div className="flex items-center gap-3">
               <div className={cn(
                 "w-8 h-8 rounded-full text-white flex items-center justify-center text-xs font-bold shadow-sm",
@@ -1038,7 +1038,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* CENTER COLUMN — structure matches dialer ConversationHistory.tsx */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-l border-r border-border bg-muted/20">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-card border rounded-xl">
               <div className="shrink-0 border-b border-border">
@@ -1333,7 +1333,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card flex flex-col min-h-0 shadow-sm z-10 shrink-0">
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">
           <div className="px-4 h-14 border-b border-border shrink-0 bg-muted/10 flex items-center justify-center">
             <div className="flex bg-muted rounded-lg p-0.5 w-full">
               <button onClick={() => setRightTab("Activity")} className={cn(
