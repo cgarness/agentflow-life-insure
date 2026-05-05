@@ -38,6 +38,7 @@ import {
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 import { HistorySkeleton } from "@/components/dialer/DialerSkeletons";
+import { TasksPanel } from "./TasksPanel";
 
 function parseUserContactFieldOrder(contactLayoutBlob: unknown, t: ContactType): string[] | undefined {
   if (!contactLayoutBlob || typeof contactLayoutBlob !== "object" || Array.isArray(contactLayoutBlob)) {
@@ -181,7 +182,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { formatDate, formatDateTime, branding } = useBranding();
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
-  const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns">("Activity");
+  const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns" | "Tasks">("Activity");
   
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
@@ -1344,6 +1345,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                 "flex-1 px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
                 rightTab === "Notes" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               )}>Notes</button>
+              <button onClick={() => setRightTab("Tasks")} className={cn(
+                "flex-1 px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
+                rightTab === "Tasks" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}>Tasks</button>
                {type === "lead" && (
                   <button onClick={() => setRightTab("Campaigns")} className={cn(
                     "flex-1 px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tight",
@@ -1428,6 +1433,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                    )}
                 </div>
               </div>
+            )}
+            
+            {/* TASKS TAB */}
+            {rightTab === "Tasks" && organizationId && (
+               <div className="h-full overflow-hidden">
+                 <TasksPanel contactId={contact.id} contactType={type} organizationId={organizationId} />
+               </div>
             )}
             
             {/* CAMPAIGNS TAB */}

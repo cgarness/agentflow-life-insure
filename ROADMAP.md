@@ -2601,3 +2601,20 @@ Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed
 - Skeleton is 6 pills (2-col, 3-row) matching the typical core field count, keeping panel height stable.
 
 **What's next:** No immediate follow-on. The `/contacts/:id` detail-route BLOCKER from the Global Search context snapshot remains open.
+
+---
+
+### Work Log — 2026-05-05 — Building Contact Follow-up Tasks `[DONE]`
+
+**Task:** Implement a non-call follow-up task management system for the CRM. This involves creating a `tasks` table with robust RLS policies, an API wrapper for data operations, and UI components (`TasksPanel` and `AddTaskModal`) for the FullScreenContactView that allow agents to track and complete follow-up items.
+
+**Files created:**
+- `supabase/migrations/20260505221000_create_tasks_table.sql` — created tasks table with indexes and RLS policies (including Team Leader downline check).
+- `src/lib/tasksApi.ts` — API wrappers for creating, retrieving, updating, and deleting tasks.
+- `src/components/contacts/AddTaskModal.tsx` — Modal with Zod validation for task creation.
+- `src/components/contacts/TasksPanel.tsx` — Right-panel component rendering task lists categorized by status.
+
+**Files modified:**
+- `src/components/contacts/FullScreenContactView.tsx` — integrated the `TasksPanel` into the right tab selection, adjacent to Activity, Notes, and Campaigns.
+- `ROADMAP.md` — logged this work.
+
