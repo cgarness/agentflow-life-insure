@@ -61,10 +61,32 @@ export function useTraining() {
 
   // Mutations
   const addResource = useMutation({
-    mutationFn: async (resource: Partial<TrainingResource>) => {
+    mutationFn: async ({ resource, file }: { resource: Partial<TrainingResource>, file?: File }) => {
+      let content_url = resource.content_url;
+
+      if (file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${organizationId}/${fileName}`;
+
+        const { error: uploadError, data } = await supabase.storage
+          .from('agency_materials')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('agency_materials')
+          .getPublicUrl(filePath);
+
+        content_url = publicUrl;
+      }
+
       const { data, error } = await supabase
         .from("training_resources" as any)
-        .insert([{ ...resource, organization_id: organizationId }])
+        .insert([{ ...resource, content_url, organization_id: organizationId }])
         .select()
         .single();
       if (error) throw error;

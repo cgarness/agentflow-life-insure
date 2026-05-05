@@ -19,21 +19,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Video, FileText, ScrollText } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Video, FileText, ScrollText, UploadCloud, Link as LinkIcon, Loader2 } from "lucide-react";
 import { TrainingResource, ResourceType, TrainingCategory } from "@/types/training";
 
 interface AddResourceModalProps {
   categories: TrainingCategory[];
-  onAdd: (resource: Partial<TrainingResource>) => void;
+  onAdd: (resource: Partial<TrainingResource>, file?: File) => void;
+  isLoading?: boolean;
 }
 
-const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }) => {
+const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, isLoading }) => {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [type, setType] = useState<ResourceType>("video");
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
+  
+  const [uploadType, setUploadType] = useState<"link" | "upload">("upload");
   const [url, setUrl] = useState("");
+  const [content, setContent] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (categories.length > 0 && !categoryId) {
@@ -45,23 +51,45 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }
     e.preventDefault();
     if (!title) return;
 
+    let finalUrl = url;
+    if (uploadType === "link" && url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      finalUrl = 'https://' + url;
+    }
+
     const newResource: Partial<TrainingResource> = {
       title,
       description,
       type,
       category_id: categoryId || null,
-      content_url: url,
+      content_url: uploadType === "link" ? finalUrl : undefined,
+      content: type === "script" ? content : undefined,
       thumbnail_url: type === 'video' ? "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&q=80&w=400" : undefined,
     };
 
-    onAdd(newResource);
-    setOpen(false);
+    onAdd(newResource, uploadType === "upload" && selectedFile ? selectedFile : undefined);
     
-    // Reset form
+    // Don't close or reset immediately if isLoading, let the parent handle it
+    if (!isLoading) {
+      setOpen(false);
+      resetForm();
+    }
+  };
+
+  const resetForm = () => {
     setTitle("");
     setDescription("");
     setUrl("");
+    setContent("");
+    setSelectedFile(null);
   };
+
+  // Close when loading finishes if it was open
+  useEffect(() => {
+    if (!isLoading && open && title) {
+      setOpen(false);
+      resetForm();
+    }
+  }, [isLoading]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -79,7 +107,7 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }
               Upload a new script, guide, or video link for your agency.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-1">
             <div className="grid gap-2">
               <Label htmlFor="title">Resource Title</Label>
               <Input 
@@ -94,7 +122,7 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="type">Resource Type</Label>
-                <Select value={type} onValueChange={(v) => setType(v as ResourceType)}>
+                <Select value={type} onValueChange={(v) => { setType(v as ResourceType); setSelectedFile(null); setUrl(""); }}>
                   <SelectTrigger id="type">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
@@ -149,18 +177,59 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }
               />
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="url">Content URL or Link</Label>
-              <Input 
-                id="url" 
-                placeholder="https://youtube.com/..." 
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-            </div>
+            {type === "script" ? (
+              <div className="grid gap-2 mt-2">
+                <Label htmlFor="content">Script Content</Label>
+                <Textarea 
+                  id="content" 
+                  placeholder="Paste the script here..." 
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="min-h-[150px]"
+                />
+              </div>
+            ) : (
+              <Tabs value={uploadType} onValueChange={(v) => setUploadType(v as "link" | "upload")} className="w-full mt-2">
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="upload" className="gap-2"><UploadCloud className="h-4 w-4" /> Upload File</TabsTrigger>
+                  <TabsTrigger value="link" className="gap-2"><LinkIcon className="h-4 w-4" /> Link URL</TabsTrigger>
+                </TabsList>
+                <TabsContent value="upload" className="space-y-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="file">File Attachment</Label>
+                    <Input 
+                      id="file" 
+                      type="file"
+                      accept={type === 'video' ? 'video/mp4,video/webm,video/quicktime' : 'application/pdf,image/png,image/jpeg'}
+                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                      className="cursor-pointer file:text-primary file:font-semibold file:bg-primary/10 file:border-0 file:mr-4 file:py-1 file:px-3 file:rounded-full hover:file:bg-primary/20"
+                      required={uploadType === 'upload'}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {type === 'video' ? 'MP4, WebM, or MOV up to 100MB.' : 'PDF or images up to 50MB.'}
+                    </p>
+                  </div>
+                </TabsContent>
+                <TabsContent value="link" className="space-y-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="url">{type === "video" ? "Video URL" : "Document URL"}</Label>
+                    <Input 
+                      id="url" 
+                      placeholder={type === "video" ? "https://youtube.com/..." : "https://drive.google.com/..."}
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      required={uploadType === 'link'}
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" className="w-full">Save Resource</Button>
+            <Button type="submit" className="w-full gap-2" disabled={isLoading}>
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Resource
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -58,20 +58,25 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
           {/* Content Area */}
           <div className="rounded-xl overflow-hidden bg-muted/30 border border-border/50 aspect-video relative flex items-center justify-center">
             {resource.type === 'video' ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-8 text-center">
-                <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center text-primary animate-pulse">
-                  <Play className="h-10 w-10 fill-current" />
+              resource.content_url ? (
+                <video 
+                  controls 
+                  className="w-full h-full object-contain bg-black"
+                  src={resource.content_url}
+                >
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-8 text-center">
+                  <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                    <Play className="h-10 w-10 fill-current" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-lg">No Video Available</h4>
+                    <p className="text-sm text-muted-foreground">This resource does not have a video URL attached.</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-semibold text-lg">Ready to watch?</h4>
-                  <p className="text-sm text-muted-foreground mb-4">This video will open in a new tab for the best experience.</p>
-                  <Button asChild>
-                    <a href={resource.content_url} target="_blank" rel="noopener noreferrer" className="gap-2">
-                      Open Video Player <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </Button>
-                </div>
-              </div>
+              )
             ) : resource.type === 'script' ? (
               <div className="w-full h-full p-8 overflow-y-auto bg-card text-card-foreground">
                 <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -81,25 +86,23 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-8 text-center">
-                <div className="h-20 w-20 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
-                  <FileText className="h-10 w-10" />
-                </div>
-                <div>
-                  <h4 className="font-semibold text-lg">{resource.file_size} Document</h4>
-                  <p className="text-sm text-muted-foreground mb-4">View or download this resource for your reference.</p>
-                  <div className="flex gap-2 justify-center">
-                    <Button variant="outline" asChild>
-                      <a href={resource.content_url} target="_blank" rel="noopener noreferrer" className="gap-2">
-                        View Document <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </Button>
-                    <Button className="gap-2">
-                      Download <Download className="h-4 w-4" />
-                    </Button>
+              resource.content_url ? (
+                <iframe 
+                  src={resource.content_url} 
+                  className="w-full h-full bg-white"
+                  title={resource.title}
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-8 text-center">
+                  <div className="h-20 w-20 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+                    <FileText className="h-10 w-10" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-lg">No Document Available</h4>
+                    <p className="text-sm text-muted-foreground">This resource does not have a document URL attached.</p>
                   </div>
                 </div>
-              </div>
+              )
             )}
           </div>
 

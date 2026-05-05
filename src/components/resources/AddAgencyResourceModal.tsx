@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,12 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, FileText, Download, Link as LinkIcon, Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Link as LinkIcon, UploadCloud, Loader2 } from "lucide-react";
 import { AgencyResource, AgencyResourceCategory } from "@/types/resources";
 
 interface AddAgencyResourceModalProps {
   categories: AgencyResourceCategory[];
-  onAdd: (resource: Partial<AgencyResource>) => void;
+  onAdd: (resource: Partial<AgencyResource>, file?: File) => void;
   isLoading?: boolean;
 }
 
@@ -31,23 +32,45 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  
+  const [uploadType, setUploadType] = useState<"link" | "upload">("upload");
   const [url, setUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !url || !categoryId) return;
+    if (!title || !categoryId) return;
+
+    let finalUrl = url;
+    if (uploadType === "link" && url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      finalUrl = 'https://' + url;
+    }
 
     onAdd({
       title,
       category_id: categoryId,
-      content_url: url,
-    });
+      content_url: uploadType === "link" ? finalUrl : undefined,
+    }, uploadType === "upload" && selectedFile ? selectedFile : undefined);
     
-    setOpen(false);
+    if (!isLoading) {
+      setOpen(false);
+      resetForm();
+    }
+  };
+
+  const resetForm = () => {
     setTitle("");
     setUrl("");
     setCategoryId("");
+    setSelectedFile(null);
   };
+
+  useEffect(() => {
+    if (!isLoading && open && title) {
+      setOpen(false);
+      resetForm();
+    }
+  }, [isLoading]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -95,20 +118,45 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
               </div>
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="url">Document URL</Label>
-              <Input 
-                id="url" 
-                type="url"
-                placeholder="https://drive.google.com/..." 
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                required
-              />
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <LinkIcon className="h-3 w-3" /> Provide a direct link to the file.
-              </p>
-            </div>
+            <Tabs value={uploadType} onValueChange={(v) => setUploadType(v as "link" | "upload")} className="w-full mt-2">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="upload" className="gap-2"><UploadCloud className="h-4 w-4" /> Upload File</TabsTrigger>
+                <TabsTrigger value="link" className="gap-2"><LinkIcon className="h-4 w-4" /> Link URL</TabsTrigger>
+              </TabsList>
+              <TabsContent value="upload" className="space-y-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="file">Document File</Label>
+                  <Input 
+                    id="file" 
+                    type="file"
+                    accept="application/pdf,image/png,image/jpeg"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    className="cursor-pointer file:text-primary file:font-semibold file:bg-primary/10 file:border-0 file:mr-4 file:py-1 file:px-3 file:rounded-full hover:file:bg-primary/20"
+                    required={uploadType === 'upload'}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    PDF or images up to 50MB.
+                  </p>
+                </div>
+              </TabsContent>
+              <TabsContent value="link" className="space-y-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="url">Document URL</Label>
+                  <Input 
+                    id="url" 
+                    type="url"
+                    placeholder="https://drive.google.com/..." 
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    required={uploadType === 'link'}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                    Provide a direct link to the file.
+                  </p>
+                </div>
+              </TabsContent>
+            </Tabs>
+
           </div>
           <DialogFooter>
             <Button type="submit" className="w-full gap-2" disabled={isLoading}>

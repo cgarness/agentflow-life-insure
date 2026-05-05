@@ -73,10 +73,32 @@ export function useResources() {
 
   // Add agency document
   const addDocument = useMutation({
-    mutationFn: async (doc: Partial<AgencyResource>) => {
+    mutationFn: async ({ doc, file }: { doc: Partial<AgencyResource>, file?: File }) => {
+      let content_url = doc.content_url;
+
+      if (file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${organizationId}/${fileName}`;
+
+        const { error: uploadError, data } = await supabase.storage
+          .from('agency_materials')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('agency_materials')
+          .getPublicUrl(filePath);
+
+        content_url = publicUrl;
+      }
+
       const { data, error } = await supabase
         .from("agency_resources" as any)
-        .insert([{ ...doc, organization_id: organizationId }])
+        .insert([{ ...doc, content_url, organization_id: organizationId }])
         .select()
         .single();
       if (error) throw error;

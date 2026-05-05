@@ -28,17 +28,21 @@ const Resources: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabView>("documents");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedScript, setSelectedScript] = useState<Script | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<AgencyResource | null>(null);
 
   const isAdmin = profile?.role?.toLowerCase() === 'admin' || 
                   profile?.role?.toLowerCase() === 'super admin' ||
                   profile?.is_super_admin === true;
 
-  // Set initial selected script if none is selected
+  // Set initial selected script or document if none is selected
   React.useEffect(() => {
     if (activeTab === "scripts" && scripts.length > 0 && !selectedScript) {
       setSelectedScript(scripts[0]);
     }
-  }, [scripts, activeTab, selectedScript]);
+    if (activeTab === "documents" && documents.length > 0 && !selectedDocument) {
+      setSelectedDocument(documents[0]);
+    }
+  }, [scripts, documents, activeTab, selectedScript, selectedDocument]);
 
   const filteredScripts = useMemo(() => {
     return scripts.filter(s => 
@@ -147,38 +151,47 @@ const Resources: React.FC = () => {
               filteredDocuments.map(doc => {
                 const categoryName = categories.find(c => c.id === doc.category_id)?.name || "Unknown";
                 return (
-                <div
+                <button
                   key={doc.id}
-                  className="w-full flex items-center justify-between px-3 py-3 rounded-lg border border-border/50 bg-card/50 hover:bg-muted/50 transition-colors group"
+                  onClick={() => setSelectedDocument(doc)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-3 py-3 rounded-lg border transition-all text-left",
+                    selectedDocument?.id === doc.id
+                      ? "bg-primary/10 border-primary/20 shadow-sm"
+                      : "bg-transparent border-transparent hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                  )}
                 >
                   <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center shrink-0 text-primary">
+                    <div className={cn("h-8 w-8 rounded flex items-center justify-center shrink-0", selectedDocument?.id === doc.id ? "bg-primary/20 text-primary" : "bg-primary/10 text-primary/70")}>
                       <FileText className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold truncate">{doc.title}</p>
+                      <p className={cn("text-sm font-semibold truncate", selectedDocument?.id === doc.id && "text-primary")}>{doc.title}</p>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">{categoryName}</span>
+                        <span className="text-[10px] opacity-80">{categoryName}</span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0 ml-2">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" asChild onClick={(e) => e.stopPropagation()}>
                       <a href={doc.content_url} target="_blank" rel="noopener noreferrer">
-                        <Download className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                        <ExternalLink className="h-4 w-4 opacity-50 hover:opacity-100 hover:text-primary transition-colors" />
                       </a>
                     </Button>
                     {isAdmin && (
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                            <MoreVertical className="h-4 w-4 opacity-50 hover:opacity-100 transition-colors" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem 
                             className="text-destructive focus:text-destructive gap-2"
-                            onClick={() => deleteDocument.mutate(doc.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteDocument.mutate(doc.id);
+                            }}
                           >
                             <Trash2 className="h-4 w-4" />
                             Delete
@@ -187,7 +200,7 @@ const Resources: React.FC = () => {
                       </DropdownMenu>
                     )}
                   </div>
-                </div>
+                </button>
               )})
             ) : (
               <div className="text-center py-8 text-sm text-muted-foreground">
@@ -240,25 +253,66 @@ const Resources: React.FC = () => {
             </div>
           )
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-card/10">
-            <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6">
-              <FileText className="h-10 w-10 text-primary/40" />
-            </div>
-            <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">Agency Documents</h2>
-            <p className="text-muted-foreground text-sm max-w-md mb-8">
-              Quickly access and download carrier documents, forms, and cheat sheets from the list on the left.
-            </p>
-            {isAdmin && (
-              <div className="flex items-center gap-4">
-                <AddAgencyResourceModal categories={categories} onAdd={(doc) => addDocument.mutate(doc)} isLoading={addDocument.isPending} />
-                <ResourceCategoryManager 
-                  categories={categories} 
-                  onAddCategory={(name) => addCategory.mutate(name)} 
-                  onRemoveCategory={(name) => removeCategory.mutate(name)} 
-                />
+          selectedDocument ? (
+            <div className="flex flex-col h-full bg-card/30">
+              <header className="px-8 py-6 border-b border-border/50 bg-background/50 backdrop-blur shrink-0 flex justify-between items-center">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="secondary" className="text-[10px] uppercase tracking-wider bg-blue-500/10 text-blue-500 border-none">
+                      {categories.find(c => c.id === selectedDocument.category_id)?.name || "Document"}
+                    </Badge>
+                  </div>
+                  <h2 className="text-2xl font-bold tracking-tight text-foreground line-clamp-1">
+                    {selectedDocument.title}
+                  </h2>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Button variant="outline" size="sm" className="gap-2" asChild>
+                    <a href={selectedDocument.content_url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                      Open Full Screen
+                    </a>
+                  </Button>
+                  {isAdmin && (
+                    <AddAgencyResourceModal categories={categories} onAdd={(doc, file) => addDocument.mutate({ doc, file })} isLoading={addDocument.isPending} />
+                  )}
+                </div>
+              </header>
+              <div className="flex-1 bg-white/5 relative">
+                {selectedDocument.content_url ? (
+                  <iframe 
+                    src={selectedDocument.content_url} 
+                    className="w-full h-full border-none bg-white"
+                    title={selectedDocument.title}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-muted-foreground">No document file available.</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-card/10">
+              <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6">
+                <FileText className="h-10 w-10 text-primary/40" />
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">Agency Documents</h2>
+              <p className="text-muted-foreground text-sm max-w-md mb-8">
+                Quickly access and download carrier documents, forms, and cheat sheets from the list on the left.
+              </p>
+              {isAdmin && (
+                <div className="flex items-center gap-4">
+                  <AddAgencyResourceModal categories={categories} onAdd={(doc, file) => addDocument.mutate({ doc, file })} isLoading={addDocument.isPending} />
+                  <ResourceCategoryManager 
+                    categories={categories} 
+                    onAddCategory={(name) => addCategory.mutate(name)} 
+                    onRemoveCategory={(name) => removeCategory.mutate(name)} 
+                  />
+                </div>
+              )}
+            </div>
+          )
         )}
       </main>
     </div>
