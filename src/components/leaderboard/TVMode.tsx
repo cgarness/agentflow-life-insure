@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Trophy, X, Settings } from "lucide-react";
+import { Trophy, X, Settings, TrendingUp, Clock, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import { Badge as BadgeType, AgentFireStatus } from "./useLeaderboardBadges";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 type Metric = "Policies Sold" | "Calls Made" | "Appointments Set" | "Talk Time" | "Conversion Rate";
 const METRICS: Metric[] = ["Policies Sold", "Calls Made", "Appointments Set", "Talk Time", "Conversion Rate"];
@@ -62,7 +63,7 @@ interface Props {
 }
 
 const formatMetricValue = (m: Metric, val: number): string => {
-  if (m === "Talk Time") return `${(val / 3600).toFixed(1)} hrs`;
+  if (m === "Talk Time") return `${(val / 3600).toFixed(1)}h`;
   if (m === "Conversion Rate") return `${val.toFixed(1)}%`;
   return String(val);
 };
@@ -183,20 +184,38 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
   };
 
   const metalConfig = (rank: number) => {
-    if (rank === 1) return { metal: "Gold", trophyColor: "text-yellow-500", gradient: "from-yellow-500/20 to-yellow-600/5" };
-    if (rank === 2) return { metal: "Silver", trophyColor: "text-gray-400", gradient: "from-gray-300/20 to-gray-400/5" };
-    return { metal: "Bronze", trophyColor: "text-orange-400", gradient: "from-orange-400/20 to-orange-500/5" };
+    if (rank === 1) return {
+      metal: "Gold",
+      trophyColor: "text-yellow-400",
+      gradient: "from-yellow-500/20 to-yellow-600/5",
+      glow: "shadow-[0_0_50px_-12px_rgba(234,179,8,0.3)]",
+      border: "border-yellow-500/30"
+    };
+    if (rank === 2) return {
+      metal: "Silver",
+      trophyColor: "text-slate-300",
+      gradient: "from-slate-400/10 to-slate-500/5",
+      glow: "shadow-[0_0_40px_-12px_rgba(148,163,184,0.2)]",
+      border: "border-slate-400/20"
+    };
+    return {
+      metal: "Bronze",
+      trophyColor: "text-orange-400",
+      gradient: "from-orange-500/10 to-orange-600/5",
+      glow: "shadow-[0_0_30px_-12px_rgba(251,146,60,0.2)]",
+      border: "border-orange-500/20"
+    };
   };
 
   const renderFireIcon = (agentId: string) => {
     const fire = fireStatus.get(agentId);
     if (!fire || fire.level === "none") return null;
-    return <span className={`inline-block ${fire.level === "blazing" ? "animate-fire-flicker" : "animate-fire-pulse"}`}>{fire.level === "blazing" ? "🔥🔥" : "🔥"}</span>;
+    return <span className={`inline-block ml-1 ${fire.level === "blazing" ? "animate-fire-flicker" : "animate-fire-pulse"}`}>{fire.level === "blazing" ? "🔥🔥" : "🔥"}</span>;
   };
 
   const renderBadgeIcons = (agentId: string, max = 3) => {
     const ab = badges.get(agentId) || [];
-    return ab.slice(0, max).map(b => <span key={b.id} className="text-sm">{b.icon}</span>);
+    return ab.slice(0, max).map(b => <span key={b.id} className="text-sm drop-shadow-sm">{b.icon}</span>);
   };
 
   const winsTicker =
@@ -209,236 +228,317 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
   const tickerText = customBanner?.trim() ? customBanner.trim() : winsTicker;
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-background flex flex-col min-h-0 overflow-hidden">
-      {/* Toolbar in document flow (not overlapping header). Popover default z-[100] sits under this layer — force higher z on content. */}
-      <div className="shrink-0 relative z-[10001] flex h-12 items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-3 backdrop-blur-sm">
-        <Popover modal={false} open={settingsOpen} onOpenChange={setSettingsOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="h-9 w-9 shrink-0 rounded-lg border border-border bg-card shadow-sm"
-              aria-label="TV display options"
-              aria-expanded={settingsOpen}
+    <div className="fixed inset-0 z-[9999] bg-[#020617] text-slate-50 flex flex-col min-h-0 overflow-hidden font-sans">
+      {/* Background Effect */}
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-20"
+           style={{ background: "radial-gradient(circle at 50% 50%, #1e293b 0%, transparent 70%)" }} />
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03] animate-reputation-grid"
+           style={{ backgroundImage: "linear-gradient(to right, #64748b 1px, transparent 1px), linear-gradient(to bottom, #64748b 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
+
+      {/* Toolbar */}
+      <div className="shrink-0 relative z-[10001] flex h-14 items-center justify-between gap-3 border-b border-white/5 bg-black/40 px-6 backdrop-blur-md">
+        <div className="flex items-center gap-4">
+          <Popover modal={false} open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-all shadow-sm"
+                aria-label="TV display options"
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="z-[10020] w-80 max-h-[min(85vh,32rem)] overflow-y-auto p-4 sm:w-96 bg-slate-900 border-slate-800 text-slate-200 shadow-2xl"
+              align="start"
+              side="bottom"
+              sideOffset={8}
             >
-              <Settings className="w-4 h-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="z-[10020] w-80 max-h-[min(85vh,32rem)] overflow-y-auto p-4 sm:w-96"
-            align="start"
-            side="bottom"
-            sideOffset={8}
-            collisionPadding={12}
-            onCloseAutoFocus={e => e.preventDefault()}
-          >
-            <div className="space-y-4">
-              <div>
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Viewing metric</Label>
-                <select
-                  className="mt-1.5 w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  value={currentMetricIdx}
-                  disabled={autoRotate}
-                  onChange={e => {
-                    const v = parseInt(e.target.value, 10);
-                    setCurrentMetricIdx(v);
-                    try {
-                      localStorage.setItem(LS_METRIC, String(v));
-                    } catch {
-                      /* ignore */
-                    }
-                  }}
-                >
-                  {METRICS.map((m, i) => (
-                    <option key={m} value={i}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-muted-foreground mt-1">Pick one stat to rank by, or turn on auto-rotate below.</p>
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-2">
+              <div className="space-y-4">
                 <div>
-                  <Label htmlFor="tv-auto-rotate" className="text-sm font-medium">
-                    Auto-rotate stats
-                  </Label>
-                  <p className="text-[11px] text-muted-foreground">Cycles metrics every 30s (not a timeline view).</p>
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Viewing metric</Label>
+                  <select
+                    className="mt-1.5 w-full h-10 rounded-md border border-slate-700 bg-slate-800 px-3 text-sm text-white focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+                    value={currentMetricIdx}
+                    disabled={autoRotate}
+                    onChange={e => {
+                      const v = parseInt(e.target.value, 10);
+                      setCurrentMetricIdx(v);
+                      try {
+                        localStorage.setItem(LS_METRIC, String(v));
+                      } catch { /* ignore */ }
+                    }}
+                  >
+                    {METRICS.map((m, i) => (
+                      <option key={m} value={i}>{m}</option>
+                    ))}
+                  </select>
                 </div>
-                <Switch
-                  id="tv-auto-rotate"
-                  checked={autoRotate}
-                  onCheckedChange={v => {
-                    setAutoRotate(v);
-                    try {
-                      localStorage.setItem(LS_AUTO, v ? "1" : "0");
-                    } catch {
-                      /* ignore */
-                    }
-                  }}
-                />
-              </div>
-              {canEditBanner && (
-                <div className="border-t border-border pt-3 space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scrolling ticker (org-wide)</Label>
-                  <Textarea
-                    value={bannerDraft}
-                    onChange={e => setBannerDraft(e.target.value)}
-                    placeholder="Leave empty to show live wins from your team…"
-                    rows={3}
-                    className="text-sm resize-y min-h-[72px]"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => setBannerDraft(customBanner ?? "")} disabled={savingBanner}>
-                      Reset
-                    </Button>
-                    <Button type="button" size="sm" onClick={() => void saveBanner()} disabled={savingBanner || bannerDraft === (customBanner ?? "")}>
-                      {savingBanner ? "Saving…" : "Save ticker"}
-                    </Button>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-700/50 bg-slate-800/50 px-3 py-3">
+                  <div>
+                    <Label htmlFor="tv-auto-rotate" className="text-sm font-medium">Auto-rotate stats</Label>
+                    <p className="text-[11px] text-slate-400">Cycles metrics every 30s.</p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">Admins and team leaders only. Empty saves use automatic win feed.</p>
+                  <Switch
+                    id="tv-auto-rotate"
+                    checked={autoRotate}
+                    onCheckedChange={v => {
+                      setAutoRotate(v);
+                      try {
+                        localStorage.setItem(LS_AUTO, v ? "1" : "0");
+                      } catch { /* ignore */ }
+                    }}
+                  />
                 </div>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
+                {canEditBanner && (
+                  <div className="border-t border-slate-800 pt-4 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scrolling ticker (org-wide)</Label>
+                    <Textarea
+                      value={bannerDraft}
+                      onChange={e => setBannerDraft(e.target.value)}
+                      placeholder="Custom message or win feed…"
+                      rows={3}
+                      className="text-sm bg-slate-800 border-slate-700 focus:ring-blue-500"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="outline" size="sm" className="border-slate-700 text-slate-300" onClick={() => setBannerDraft(customBanner ?? "")} disabled={savingBanner}>
+                        Reset
+                      </Button>
+                      <Button type="button" size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => void saveBanner()} disabled={savingBanner || bannerDraft === (customBanner ?? "")}>
+                        {savingBanner ? "Saving…" : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
+          <div className="hidden sm:flex items-center gap-4 text-slate-400 text-xs font-medium uppercase tracking-widest">
+            <div className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-blue-400" /> {format(clock, "h:mm:ss a")}</div>
+            <div className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5 text-emerald-400" /> Live Feed</div>
+          </div>
+        </div>
+
+        <div className="absolute left-1/2 -translate-x-1/2 text-center pointer-events-none">
+           <h1 className="text-lg font-black tracking-tighter uppercase text-white drop-shadow-md">{companyName}</h1>
+        </div>
+
         <Button
           type="button"
-          variant="secondary"
+          variant="ghost"
           size="icon"
-          className="h-9 w-9 shrink-0 rounded-lg border border-border bg-card shadow-sm"
+          className="h-9 w-9 shrink-0 rounded-lg border border-white/10 bg-white/5 hover:bg-red-500/20 hover:text-red-400 text-slate-300 transition-all"
           onClick={onExit}
-          aria-label="Exit TV mode"
         >
           <X className="w-5 h-5" />
         </Button>
       </div>
 
-      <header className="shrink-0 border-b border-border/40 bg-background px-4 py-3 text-center">
-        <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">{companyName}</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-          {format(clock, "EEEE, MMMM d, yyyy")} · {format(clock, "h:mm:ss a")}
-        </p>
-        <p className={`mt-2 text-xs font-medium text-primary transition-opacity duration-400 ${transitioning ? "opacity-0" : "opacity-100"}`}>
-          Ranked by: {metric}
-        </p>
-      </header>
+      {/* Main Layout */}
+      <main className="relative z-10 flex-1 flex flex-col min-h-0 px-6 py-6 gap-8 overflow-hidden">
+        {/* Metric Header */}
+        <div className="text-center space-y-1">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-widest mb-2 shadow-lg shadow-blue-900/20">
+            <TrendingUp className="w-4 h-4" />
+            Live Ranking: {metric}
+          </div>
+          <h2 className="text-4xl font-black text-white tracking-tight drop-shadow-2xl">
+            TOP PERFORMERS
+          </h2>
+        </div>
 
-      <div
-        className={`shrink-0 border-b border-border/50 bg-muted/5 px-4 pb-6 pt-4 transition-opacity duration-400 md:px-6 ${transitioning ? "opacity-0" : "opacity-100"}`}
-        style={{ maxHeight: "min(220px, 26vh)" }}
-      >
-        <div className="mx-auto grid w-full max-w-5xl grid-cols-3 gap-3 md:gap-4">
-          {[top3[1], top3[0], top3[2]].filter(Boolean).map((a, idx) => {
-            if (!a) return <div key={idx} />;
-            const rank = idx === 0 ? 2 : idx === 1 ? 1 : 3;
-            const mc = metalConfig(rank);
-            const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
-            const val = formatMetricValue(metric, a[key] as number);
-            const isMid = rank === 1;
-            return (
-              <div
-                key={a.id}
-                className={`rounded-xl border border-border/40 bg-gradient-to-b px-3 py-3 text-center shadow-sm md:px-4 md:py-4 ${mc.gradient} ${isMid ? "ring-2 ring-amber-500/70" : ""}`}
-              >
-                <div className={`inline-flex items-center justify-center mb-2 ${isMid ? "animate-tv-trophy-shimmer" : ""}`}>
-                  <Trophy className={`${isMid ? "w-10 h-10 md:w-11 md:h-11" : "w-8 h-8"} ${mc.trophyColor}`} />
-                </div>
-                <LeaderboardAgentAvatar
-                  avatarUrl={a.avatar_url}
-                  initials={initials}
-                  alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
-                  className={`mx-auto mb-2 ${isMid ? "h-16 w-16 md:h-[4.25rem] md:w-[4.25rem]" : "h-12 w-12"}`}
-                  fallbackClassName={isMid ? "text-xl" : "text-lg"}
-                />
-                <h3 className={`font-bold text-foreground ${isMid ? "text-lg md:text-xl" : "text-base md:text-lg"} leading-tight`}>
-                  {a.first_name} {a.last_name?.[0]}.
-                  {renderFireIcon(a.id)}
-                </h3>
-                <div className="flex justify-center gap-0.5 mt-0.5 min-h-[1.25rem]">{renderBadgeIcons(a.id)}</div>
-                <p className={`font-bold text-foreground mt-2 tabular-nums ${isMid ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl"}`}>{val}</p>
-                <p className="text-[11px] md:text-xs text-muted-foreground font-medium uppercase tracking-wide mt-0.5">{metric.toLowerCase()}</p>
+        {/* Podium Area */}
+        <div className="shrink-0 flex items-end justify-center w-full max-w-6xl mx-auto min-h-[340px] gap-4 md:gap-8">
+           <AnimatePresence mode="popLayout">
+            {[top3[1], top3[0], top3[2]].map((a, podiumIdx) => {
+              if (!a) return <div key={`empty-${podiumIdx}`} className="flex-1" />;
+              const rank = podiumIdx === 0 ? 2 : podiumIdx === 1 ? 1 : 3;
+              const mc = metalConfig(rank);
+              const isFirst = rank === 1;
+              const val = formatMetricValue(metric, a[key] as number);
+
+              return (
+                <motion.div
+                  key={a.id}
+                  layout
+                  initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                  className={`relative flex-1 flex flex-col items-center group max-w-[320px]`}
+                >
+                  {/* Glow Background */}
+                  <div className={`absolute -inset-4 z-0 rounded-[2rem] opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-2xl ${isFirst ? "bg-yellow-500/10" : "bg-white/5"}`} />
+
+                  {/* Trophy & Rank Indicator */}
+                  <div className={`relative z-10 mb-6 flex flex-col items-center ${isFirst ? "animate-floating" : ""}`}>
+                    <div className={`p-4 rounded-full bg-white/5 border-2 ${mc.border} ${mc.glow} backdrop-blur-sm shadow-inner mb-[-1.5rem] relative z-20`}>
+                      <Trophy className={`${isFirst ? "w-12 h-12" : "w-8 h-8"} ${mc.trophyColor} drop-shadow-lg`} />
+                    </div>
+                  </div>
+
+                  {/* Card Body */}
+                  <div className={`w-full relative z-10 rounded-2xl border ${mc.border} bg-white/[0.03] backdrop-blur-xl p-6 text-center shadow-2xl overflow-hidden transition-all duration-300 group-hover:bg-white/[0.05] group-hover:scale-[1.02] ${isFirst ? "ring-2 ring-yellow-500/20" : ""}`}>
+                    {/* Animated Shine Effect */}
+                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-white/0 via-white/[0.05] to-white/0 -translate-x-[100%] animate-shimmer" />
+
+                    <div className="relative z-20">
+                      <LeaderboardAgentAvatar
+                        avatarUrl={a.avatar_url}
+                        initials={`${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`}
+                        alt={`${a.first_name} ${a.last_name}`}
+                        className={`mx-auto mb-4 border-2 ${mc.border} shadow-xl ${isFirst ? "h-24 w-24" : "h-20 w-20"}`}
+                        fallbackClassName={isFirst ? "text-3xl bg-blue-600/20" : "text-2xl"}
+                      />
+
+                      <h3 className={`font-black text-white leading-none tracking-tight truncate px-2 ${isFirst ? "text-2xl" : "text-xl"}`}>
+                        {a.first_name} {a.last_name?.[0]}.
+                        {renderFireIcon(a.id)}
+                      </h3>
+
+                      <div className="flex justify-center gap-1.5 mt-3 min-h-[1.5rem]">
+                        {renderBadgeIcons(a.id, 4)}
+                      </div>
+
+                      <div className="mt-6 flex flex-col items-center">
+                        <span className={`font-black tabular-nums text-white drop-shadow-lg leading-none ${isFirst ? "text-5xl" : "text-4xl"}`}>
+                          {val}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 mt-2">
+                          {metric}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Rank Badge */}
+                   <div className={`absolute -bottom-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest shadow-xl border z-30 ${
+                     rank === 1 ? "bg-yellow-500 border-yellow-400 text-black" :
+                     rank === 2 ? "bg-slate-400 border-slate-300 text-black" :
+                     "bg-orange-600 border-orange-500 text-white"
+                   }`}>
+                     #{rank}
+                   </div>
+                </motion.div>
+              );
+            })}
+           </AnimatePresence>
+        </div>
+
+        {/* Table Area */}
+        <div className="flex-1 min-h-0 overflow-hidden mt-4">
+           <div className="mx-auto max-w-6xl h-full flex flex-col rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-md shadow-2xl overflow-hidden">
+             <div className="shrink-0 flex items-center justify-between px-8 py-5 border-b border-white/5 bg-white/5">
+               <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                 <Activity className="w-5 h-5 text-blue-400" />
+                 Full Leaderboard
+               </h3>
+               <div className="text-slate-400 text-sm font-medium">
+                 Showing positions 4-{agents.length}
+               </div>
+             </div>
+
+             <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+               <table className="w-full text-left border-collapse">
+                 <thead className="sticky top-0 z-20 bg-[#0c1325] text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                   <tr className="border-b border-white/5">
+                     <th className="py-4 pl-8 pr-4 w-20">Rank</th>
+                     <th className="py-4 px-4">Agent</th>
+                     <th className="py-4 px-4 text-right">Calls</th>
+                     <th className="py-4 px-4 text-right">Policies</th>
+                     <th className="py-4 px-4 text-right">Appts</th>
+                     <th className="py-4 px-4 text-right">Talk Time</th>
+                     <th className="py-4 px-4 text-right">Conv %</th>
+                     <th className="py-4 pr-8 pl-4 text-right">7D Wins</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-white/[0.05]">
+                   <AnimatePresence mode="popLayout">
+                    {rest.map((a, i) => {
+                      const rank = i + 4;
+                      return (
+                        <motion.tr
+                          key={a.id}
+                          layout
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                          className="group hover:bg-white/[0.05] transition-colors"
+                        >
+                          <td className="py-4 pl-8 pr-4 font-black text-slate-400 group-hover:text-white transition-colors">{rank}</td>
+                          <td className="py-4 px-4">
+                            <div className="flex items-center gap-3">
+                              <LeaderboardAgentAvatar
+                                avatarUrl={a.avatar_url}
+                                initials={`${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`}
+                                alt={`${a.first_name} ${a.last_name}`}
+                                className="h-10 w-10 border border-white/10"
+                                fallbackClassName="text-sm bg-blue-500/10 text-blue-400"
+                              />
+                              <div className="flex flex-col">
+                                <span className="font-bold text-white text-lg">
+                                  {a.first_name} {a.last_name?.[0]}.
+                                  {renderFireIcon(a.id)}
+                                </span>
+                                <div className="flex gap-1 items-center mt-0.5">
+                                  {renderBadgeIcons(a.id, 3)}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-4 text-right tabular-nums text-slate-300 font-medium">{a.callsMade}</td>
+                          <td className="py-4 px-4 text-right tabular-nums text-blue-400 font-bold">{a.policiesSold}</td>
+                          <td className="py-4 px-4 text-right tabular-nums text-emerald-400 font-bold">{a.appointmentsSet}</td>
+                          <td className="py-4 px-4 text-right tabular-nums text-slate-400">{(a.talkTime / 3600).toFixed(1)}h</td>
+                          <td className="py-4 px-4 text-right tabular-nums text-orange-400 font-bold">{a.conversionRate.toFixed(1)}%</td>
+                          <td className="py-4 pr-8 pl-4 text-right">
+                             <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs font-black border border-blue-500/20">
+                               {a.recentWins7d}
+                             </span>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                   </AnimatePresence>
+                   {rest.length === 0 && (
+                     <tr>
+                       <td colSpan={8} className="py-20 text-center text-slate-500 font-medium tracking-wide">
+                         ALL AGENTS COMPETING ON THE PODIUM
+                       </td>
+                     </tr>
+                   )}
+                 </tbody>
+               </table>
+             </div>
+           </div>
+        </div>
+      </main>
+
+      {/* Footer Ticker */}
+      <footer className="shrink-0 h-14 border-t border-white/5 bg-black/60 backdrop-blur-xl flex items-center overflow-hidden">
+        <div className="relative w-full h-full flex items-center overflow-hidden group">
+          <div className="animate-ticker whitespace-nowrap px-4 flex items-center gap-12">
+            {[1, 2].map((group) => (
+              <div key={group} className="flex items-center gap-12">
+                <span className="text-blue-400 font-black uppercase tracking-[0.3em] text-xs px-6 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 shrink-0">
+                  LIVE NEWS FEED
+                </span>
+                <span className="text-sm font-bold text-slate-200 tracking-wide uppercase">
+                  {tickerText}
+                </span>
+                <span className="text-blue-500 opacity-30">•</span>
+                <span className="text-sm font-bold text-slate-400 tracking-wide uppercase">
+                  {format(new Date(), "EEEE HH:mm")}
+                </span>
+                <span className="text-blue-500 opacity-30">•</span>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className={`flex-1 min-h-0 overflow-auto px-4 pb-16 pt-3 transition-opacity duration-400 md:px-6 ${transitioning ? "opacity-0" : "opacity-100"}`}>
-        <div className="mx-auto max-w-6xl rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="flex items-center border-b border-border bg-accent/40 px-4 py-2.5">
-            <h3 className="text-sm font-semibold text-foreground">Full Rankings</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm md:text-base">
-              <thead>
-                <tr className="border-b border-border bg-muted/30 text-muted-foreground">
-                  <th className="w-14 py-3 pl-4 pr-2 text-left font-medium">Rank</th>
-                  <th className="py-3 pr-4 text-left font-medium">Agent</th>
-                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Calls</th>
-                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Policies</th>
-                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Appts</th>
-                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Talk Time</th>
-                  <th className="py-3 px-2 text-right font-medium whitespace-nowrap">Conv %</th>
-                  <th
-                    className="py-3 pr-4 pl-2 text-right font-medium whitespace-nowrap text-foreground/90"
-                    title="Policies closed (wins) in the last 7 days"
-                  >
-                    Recent wins
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rest.map((a, i) => {
-                  const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
-                  return (
-                    <tr key={a.id} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
-                      <td className="py-3 pl-4 pr-2 font-bold text-foreground">{i + 4}</td>
-                      <td className="py-3 pr-4 min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <LeaderboardAgentAvatar
-                            avatarUrl={a.avatar_url}
-                            initials={initials}
-                            alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
-                            className="h-8 w-8 shrink-0"
-                            fallbackClassName="text-xs"
-                          />
-                          <span className="font-medium text-foreground truncate">
-                            {a.first_name} {a.last_name?.[0]}.
-                            {renderFireIcon(a.id)}
-                          </span>
-                          <span className="flex gap-0.5 shrink-0">{renderBadgeIcons(a.id, 2)}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{a.callsMade}</td>
-                      <td className="py-3 px-2 text-right font-medium tabular-nums text-foreground">{a.policiesSold}</td>
-                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{a.appointmentsSet}</td>
-                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{(a.talkTime / 3600).toFixed(1)} hrs</td>
-                      <td className="py-3 px-2 text-right tabular-nums text-foreground">{a.conversionRate.toFixed(1)}%</td>
-                      <td className="py-3 pr-4 pl-2 text-right font-medium tabular-nums text-foreground">{a.recentWins7d}</td>
-                    </tr>
-                  );
-                })}
-                {rest.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                      All agents shown in podium above
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            ))}
           </div>
         </div>
-      </div>
-
-      <div className="shrink-0 h-11 border-t border-border/40 bg-card/95 backdrop-blur flex items-center overflow-hidden">
-        <div className="animate-ticker whitespace-nowrap text-sm text-foreground px-2">
-          <span className="inline-block">
-            {tickerText} &nbsp;·&nbsp; {tickerText}
-          </span>
-        </div>
-      </div>
+      </footer>
     </div>
   );
 };

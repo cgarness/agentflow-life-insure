@@ -139,6 +139,14 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.35" },
         },
+        "glow-pulse": {
+          "0%, 100%": { opacity: "0.4", filter: "blur(8px)" },
+          "50%": { opacity: "0.8", filter: "blur(12px)" },
+        },
+        "floating": {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-10px)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -153,6 +161,8 @@ export default {
         "reputation-grid": "reputation-grid 10s linear infinite",
         "reputation-scan-sweep": "reputation-scan-sweep 3.2s ease-in-out infinite",
         "reputation-pulse-dot": "reputation-pulse-dot 1.4s ease-in-out infinite",
+        "glow-pulse": "glow-pulse 3s ease-in-out infinite",
+        "floating": "floating 4s ease-in-out infinite",
       },
     },
   },
