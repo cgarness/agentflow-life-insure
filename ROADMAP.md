@@ -115,6 +115,10 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-05 | [DONE] | Fix invite RPC anon grant — unauthenticated users blocked from executing get_invitation_by_token_rpc**
+  *What:* Invited users were hitting "Verification Failed" on the accept-invite page because the `public.get_invitation_by_token_rpc` Postgres function lacked `EXECUTE` permissions for the `anon` role. Since invited users do not have a session when they first click the email link, they must be able to resolve the invitation via this RPC anonymously. Migration `20260505000000_fix_invitation_rpc_anon_grant.sql` grants `EXECUTE` to both `anon` and `authenticated` roles and reloads the PostgREST schema.
+  *Files:* **`supabase/migrations/20260505000000_fix_invitation_rpc_anon_grant.sql`** (new), **`ROADMAP.md`**.
+
 - **2026-05-04 | [DONE] | AI Agents Visual Shell**
   *What:* Replaced the existing ComingSoon placeholder on `/ai-agents` with a full visual shell for AI agents. Built the `AIAgentsPage` index page with a CSS grid of mock agents, a plan usage bar, and filter pills. Built the `AIAgentCreate` full-screen page with a split layout for agent type selection and configuration form. All data is hardcoded for visual demonstration, with no Supabase backend connectivity or TanStack Query.
   *Files:* **`src/pages/AIAgentsPage.tsx`**, **`src/pages/AIAgentCreate.tsx`**, **`src/components/ai-agents/AgentCard.tsx`**, **`src/components/ai-agents/AgentTypePicker.tsx`**, **`src/components/ai-agents/AgentConfigForm.tsx`**, **`src/App.tsx`**.
