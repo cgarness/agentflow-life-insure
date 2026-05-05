@@ -340,14 +340,14 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
       {/* Main Layout */}
       <main className="relative z-10 flex-1 flex flex-col min-h-0 px-6 py-6 gap-8 overflow-hidden">
         {/* Metric Header */}
-        <div className="text-center space-y-1">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-widest mb-2 shadow-lg shadow-blue-900/20">
-            <TrendingUp className="w-4 h-4" />
-            Live Ranking: {metric}
-          </div>
+        <div className="text-center space-y-4">
           <h2 className="text-4xl font-black text-white tracking-tight drop-shadow-2xl">
             TOP PERFORMERS
           </h2>
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-widest shadow-lg shadow-blue-900/20">
+            <TrendingUp className="w-4 h-4" />
+            Live Ranking: {metric}
+          </div>
         </div>
 
         {/* Podium Area */}
@@ -370,8 +370,8 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
                   transition={{ type: "spring", stiffness: 260, damping: 20 }}
                   className={`relative flex-1 flex flex-col items-center group max-w-[320px]`}
                 >
-                  {/* Glow Background */}
-                  <div className={`absolute -inset-4 z-0 rounded-[2rem] opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-2xl ${isFirst ? "bg-yellow-500/10" : "bg-white/5"}`} />
+                  {/* Glow Background - Persistent */}
+                  <div className={`absolute -inset-4 z-0 rounded-[2rem] opacity-100 transition-opacity duration-500 blur-2xl ${isFirst ? "bg-yellow-500/15" : "bg-white/10"}`} />
 
                   {/* Trophy & Rank Indicator */}
                   <div className={`relative z-10 mb-6 flex flex-col items-center ${isFirst ? "animate-floating" : ""}`}>
@@ -382,9 +382,6 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
 
                   {/* Card Body */}
                   <div className={`w-full relative z-10 rounded-2xl border ${mc.border} bg-white/[0.03] backdrop-blur-xl p-6 text-center shadow-2xl overflow-hidden transition-all duration-300 group-hover:bg-white/[0.05] group-hover:scale-[1.02] ${isFirst ? "ring-2 ring-yellow-500/20" : ""}`}>
-                    {/* Animated Shine Effect */}
-                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-white/0 via-white/[0.05] to-white/0 -translate-x-[100%] animate-shimmer" />
-
                     <div className="relative z-20">
                       <LeaderboardAgentAvatar
                         avatarUrl={a.avatar_url}
@@ -519,10 +516,10 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
 
       {/* Footer Ticker */}
       <footer className="shrink-0 h-14 border-t border-white/5 bg-black/60 backdrop-blur-xl flex items-center overflow-hidden">
-        <div className="relative w-full h-full flex items-center overflow-hidden group">
-          <div className="animate-ticker whitespace-nowrap px-4 flex items-center gap-12">
-            {[1, 2].map((group) => (
-              <div key={group} className="flex items-center gap-12">
+        <div className="relative w-full h-full flex items-center overflow-hidden">
+          <div className="animate-ticker whitespace-nowrap px-4 flex items-center min-w-max">
+            {[1, 2, 3, 4].map((group) => (
+              <div key={group} className="flex items-center gap-12 pr-12">
                 <span className="text-blue-400 font-black uppercase tracking-[0.3em] text-xs px-6 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 shrink-0">
                   LIVE NEWS FEED
                 </span>
@@ -531,7 +528,7 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
                 </span>
                 <span className="text-blue-500 opacity-30">•</span>
                 <span className="text-sm font-bold text-slate-400 tracking-wide uppercase">
-                  {format(new Date(), "EEEE HH:mm")}
+                  {format(clock, "EEEE HH:mm")}
                 </span>
                 <span className="text-blue-500 opacity-30">•</span>
               </div>

@@ -125,7 +125,7 @@ export default {
         },
         "ticker": {
           "0%": { transform: "translateX(0)" },
-          "100%": { transform: "translateX(-50%)" },
+          "100%": { transform: "translateX(-25%)" },
         },
         "reputation-grid": {
           "0%": { backgroundPosition: "0 0" },
