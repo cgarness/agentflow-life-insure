@@ -65,7 +65,10 @@ function Field({
           className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
         />
       ) : (
-        <div className="text-sm font-semibold text-foreground mt-0.5 truncate">
+        <div 
+          className="text-sm font-semibold text-foreground mt-0.5 break-words line-clamp-2 leading-tight"
+          title={String(value || "")}
+        >
           {String(value || "—")}
         </div>
       )}
