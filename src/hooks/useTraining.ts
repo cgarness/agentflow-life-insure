@@ -124,6 +124,9 @@ export function useTraining() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["training_categories"] });
       toast({ title: "Category added" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add category", description: error.message, variant: "destructive" });
     }
   });
 
@@ -140,6 +143,9 @@ export function useTraining() {
       queryClient.invalidateQueries({ queryKey: ["training_categories"] });
       queryClient.invalidateQueries({ queryKey: ["training_resources"] });
       toast({ title: "Category removed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to remove category", description: error.message, variant: "destructive" });
     }
   });
 

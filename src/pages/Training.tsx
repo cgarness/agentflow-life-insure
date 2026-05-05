@@ -124,25 +124,6 @@ const Training: React.FC = () => {
             ))}
           </nav>
         </div>
-
-        <div className="pt-8 space-y-4 border-t border-border/50">
-          <p className="text-xs font-medium text-muted-foreground">Overview</p>
-          <div className="space-y-3">
-            {[
-              { icon: Play, label: "Videos", count: resources.filter(r => r.type === 'video').length, color: "text-blue-500" },
-              { icon: ScrollText, label: "Scripts", count: resources.filter(r => r.type === 'script').length, color: "text-amber-500" },
-              { icon: FileText, label: "Docs", count: resources.filter(r => r.type === 'document').length, color: "text-emerald-500" },
-            ].map((stat, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <stat.icon className={cn("h-3.5 w-3.5", stat.color)} />
-                  {stat.label}
-                </div>
-                <span className="font-bold">{stat.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </aside>
 
       {/* Main Content Area */}
