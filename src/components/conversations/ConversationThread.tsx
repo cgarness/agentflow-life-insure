@@ -95,11 +95,11 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   };
 
   const renderIcon = (type: string, isOutbound: boolean) => {
-    const iconCls = "w-3 h-3 opacity-40";
+    const iconCls = "w-3.5 h-3.5 transition-all duration-200 hover:scale-125 hover:opacity-100 cursor-default";
     switch (type) {
-      case "call": return <Phone className={cn(iconCls, "text-emerald-500")} />;
-      case "sms": return <MessageSquare className={cn(iconCls, "text-blue-500")} />;
-      case "email": return <Mail className={cn(iconCls, "text-violet-500")} />;
+      case "call": return <Phone className={cn(iconCls, "text-emerald-500 opacity-70")} />;
+      case "sms": return <MessageSquare className={cn(iconCls, "text-blue-500 opacity-70")} />;
+      case "email": return <Mail className={cn(iconCls, "text-violet-500 opacity-70")} />;
       default: return null;
     }
   };

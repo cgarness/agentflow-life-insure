@@ -5,6 +5,7 @@ import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
 import type { UserEmailConnection } from "@/lib/supabase-email";
+import { cn } from "@/lib/utils";
 
 interface HistoryItem {
   id: string;
@@ -42,32 +43,19 @@ interface ConversationHistoryProps {
   onEmailConnectionChange: (id: string) => void;
 }
 
-function historyIcon(type: string) {
+function renderHistoryIcon(type: string) {
+  const iconCls = "w-3.5 h-3.5 transition-all duration-200 hover:scale-125 hover:opacity-100 cursor-default";
   switch (type) {
     case "call":
-      return (
-        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-emerald-500/10">
-          <Phone className="w-3.5 h-3.5 text-emerald-500" />
-        </div>
-      );
+      return <Phone className={cn(iconCls, "text-emerald-500 opacity-70")} />;
     case "sms":
-      return (
-        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-400/10">
-          <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-        </div>
-      );
+      return <MessageSquare className={cn(iconCls, "text-blue-500 opacity-70")} />;
     case "email":
-      return (
-        <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
-          <Mail className="w-3.5 h-3.5 text-violet-400" />
-        </div>
-      );
+      return <Mail className={cn(iconCls, "text-violet-500 opacity-70")} />;
     case "note":
-      return <Pencil className="w-3.5 h-3.5 text-muted-foreground" />;
-    case "status":
-      return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
+      return <Pencil className={cn(iconCls, "text-amber-500 opacity-70")} />;
     default:
-      return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
+      return <Activity className={cn(iconCls, "text-slate-400 opacity-70")} />;
   }
 }
 
@@ -107,14 +95,14 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
   return (
     <div className="flex-[1.5] flex flex-col overflow-hidden min-h-0 h-full">
-      <div className="flex flex-col flex-1 overflow-hidden bg-card border rounded-xl">
+      <div className="flex flex-col flex-1 overflow-hidden bg-card border rounded-xl shadow-sm">
         {/* Header */}
-        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-accent/5">
           <div className="flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-primary" />
             <span className="font-semibold text-sm text-foreground">Conversation History</span>
           </div>
-          <div className="flex items-center gap-2 px-2 py-1 bg-accent/30 rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
+          <div className="flex items-center gap-2 px-2 py-1 bg-background rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
             <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider shrink-0">From:</span>
             {smsTab === "email" ? (
               <select
@@ -154,14 +142,17 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
         </div>
 
         {/* Scrollable feed — uses flex-col-reverse to anchor to bottom (chat style) */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-3">
+        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-3 bg-accent/2">
           {/* Anchor div — first child in flex-col-reverse renders at visual bottom */}
           <div ref={historyEndRef} />
 
           {loadingHistory && <HistorySkeleton />}
 
           {!loadingHistory && history.length === 0 && (
-            <p className="text-muted-foreground text-sm text-center py-6">No activity yet</p>
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/40">
+               <MessageSquare className="w-12 h-12 mb-2" />
+               <p className="text-sm">No activity yet</p>
+            </div>
           )}
 
           {!loadingHistory &&
@@ -172,39 +163,44 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               if (item.type === "email") {
                 const isExpanded = expandedEmails[item.id] ?? false;
                 const emailBody = item.body || item.description || "";
-                const bodyLines = emailBody.split('\n');
+                
                 return (
-                  <div key={item.id} className="flex flex-col w-full">
-                    <div className="bg-card border border-violet-400/20 rounded-xl overflow-hidden shadow-sm">
-                      <button
-                        onClick={() => toggleEmail(item.id)}
-                        className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-accent/40 transition-colors"
-                      >
-                        <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
-                          <Mail className="w-3.5 h-3.5 text-violet-400" />
-                        </div>
-                        <span className="text-[11px] font-semibold text-violet-400 shrink-0">
-                          {isOutbound ? "Sent" : "Received"}
-                        </span>
-                        <span className="flex-1 text-sm font-medium text-foreground truncate min-w-0">
-                          {item.subject || item.description || "(No subject)"}
-                        </span>
-                        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
-                      </button>
-                      {isExpanded && (
-                        <div className="px-3.5 pb-3 pt-2.5 border-t border-border/50 animate-in fade-in slide-in-from-top-1 duration-200">
-                          {bodyLines.map((line, i) =>
-                            line.startsWith('>') ? (
-                              <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{line}</p>
-                            ) : (
-                              <p key={i} className="text-sm text-foreground leading-relaxed">{line}</p>
-                            )
+                  <div key={item.id} className={cn("flex flex-col mb-1", isOutbound ? "items-end" : "items-start")}>
+                    <div className={cn("flex items-end gap-2", isOutbound ? "flex-row-reverse" : "flex-row")}>
+                      <div className="mb-2">{renderHistoryIcon("email")}</div>
+                      <div className="flex flex-col">
+                        <button 
+                          onClick={() => toggleEmail(item.id)}
+                          className={cn(
+                            "px-3.5 py-2 rounded-2xl text-sm shadow-sm flex items-center gap-2 transition-all",
+                            isOutbound 
+                              ? "bg-[#007AFF] text-white rounded-tr-sm" 
+                              : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
                           )}
+                        >
+                          <span className="font-semibold truncate max-w-[200px]">{item.subject || "(No Subject)"}</span>
+                          <ChevronDown className={cn("w-3.5 h-3.5 opacity-70 transition-transform duration-200", isExpanded && "rotate-180")} />
+                        </button>
+                        {isExpanded && (
+                          <div className={cn(
+                            "mt-2 p-4 rounded-2xl text-sm border bg-card shadow-lg max-w-lg z-10 animate-in fade-in slide-in-from-top-1",
+                            isOutbound ? "mr-0" : "ml-0"
+                          )}>
+                            <div className="whitespace-pre-wrap leading-relaxed text-foreground/90">
+                               {emailBody.split('\n').map((line, i) =>
+                                 line.startsWith('>') ? (
+                                   <p key={i} className="text-[11px] text-muted-foreground leading-relaxed">{line}</p>
+                                 ) : (
+                                   <p key={i} className="text-sm leading-relaxed">{line}</p>
+                                 )
+                               )}
+                            </div>
+                          </div>
+                        )}
+                        <div className={cn("text-[10px] text-muted-foreground mt-1 px-1", isOutbound ? "text-right" : "text-left")}>
+                          {formatDateTime(new Date(item.created_at))}
                         </div>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-1 px-1">
-                      {formatDateTime(new Date(item.created_at))}
+                      </div>
                     </div>
                   </div>
                 );
@@ -213,39 +209,39 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               return (
                 <div
                   key={item.id}
-                  className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
+                  className={cn("flex flex-col mb-1", isOutbound ? "items-end" : "items-start")}
                 >
-                  <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
+                  <div className={cn("flex items-end gap-2 max-w-[90%]", isOutbound ? "flex-row-reverse" : "flex-row")}>
                     {/* Minimalist Icon Indicator */}
-                    <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>
-                      {historyIcon(item.type)}
+                    <div className="mb-2">
+                      {renderHistoryIcon(item.type)}
                     </div>
 
                     <div className="flex flex-col">
                       <div 
-                        className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
+                        className={cn(
+                          "px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative",
                           isOutbound 
                             ? "bg-[#007AFF] text-white rounded-tr-sm" 
                             : "bg-[#E9E9EB] dark:bg-[#262629] text-foreground rounded-tl-sm"
-                        }`}
+                        )}
                       >
-                        <div className="flex flex-col gap-1.5">
+                        <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="leading-tight font-semibold shrink-0">
                               {item.type === "call"
                                 ? isCallsRowInboundDirection(item.direction)
                                   ? "Inbound Call"
                                   : "Outbound Call"
-                                : item.direction === "inbound"
-                                  ? "Inbound Call"
-                                  : "Call"}
+                                : item.type === "note" ? "Note" : item.type.toUpperCase()}
                             </span>
                             
                             {item.type === "call" && item.disposition && (
                               <span
-                                className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                className={cn(
+                                  "text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shadow-sm",
                                   isOutbound ? "bg-white/20 text-white" : "bg-black/10 text-foreground/70"
-                                } shadow-sm`}
+                                )}
                                 style={!isOutbound && item.disposition_color ? {
                                   backgroundColor: `${item.disposition_color}22`,
                                   color: item.disposition_color
@@ -255,34 +251,38 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                               </span>
                             )}
 
-                            <span className={`text-[11px] font-medium opacity-80 ${isOutbound ? "text-white" : "text-muted-foreground"}`}>
-                              {item.duration ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
-                            </span>
+                            {item.type === "call" && (
+                              <span className={cn("text-[11px] font-medium opacity-80", isOutbound ? "text-white" : "text-muted-foreground")}>
+                                {item.duration ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '0:00'}
+                              </span>
+                            )}
 
                             {item.type === "call" && item.recording_url && (
                               <button 
                                 onClick={(e) => { e.stopPropagation(); toggleRecording(item.id); }}
-                                className={`p-1 rounded-full transition-all ml-auto ${
-                                  isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary"
-                                }`}
+                                className={cn("p-1 rounded-full transition-all ml-auto", isOutbound ? "hover:bg-white/30 text-white" : "hover:bg-primary/10 text-primary")}
                                 title={expandedRecordings[item.id] ? "Hide Recording" : "Play Recording"}
                               >
-                                <Play className={`w-3.5 h-3.5 ${expandedRecordings[item.id] ? "fill-current" : ""}`} />
+                                <Play className={cn("w-3.5 h-3.5", expandedRecordings[item.id] && "fill-current")} />
                               </button>
                             )}
                           </div>
+                          
+                          {item.type !== "call" && (
+                            <div className="whitespace-pre-wrap leading-relaxed opacity-95">{item.description}</div>
+                          )}
                         </div>
 
                         {/* Integrated Recording Player */}
                         {item.type === "call" && item.recording_url && expandedRecordings[item.id] && (
-                          <div className={`mt-3 pt-3 border-t ${isOutbound ? "border-white/30" : "border-border/30"} animate-in fade-in slide-in-from-top-1 duration-200`}>
-                            <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${isOutbound ? "text-white" : "text-foreground"}`}>
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isOutbound ? "bg-white/20" : "bg-primary/10"}`}>
-                                <Mic className="w-3 h-3 text-current" aria-hidden />
+                          <div className={cn("mt-3 pt-3 border-t", isOutbound ? "border-white/30" : "border-border/30")}>
+                            <div className={cn("flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest mb-3", isOutbound ? "text-white" : "text-foreground")}>
+                              <div className={cn("w-6 h-6 rounded-full flex items-center justify-center", isOutbound ? "bg-white/20" : "bg-primary/10")}>
+                                <Mic className="w-3 h-3 text-current" />
                               </div>
                               <span>Call Recording</span>
                             </div>
-                            <div className={`rounded-xl p-3 ${isOutbound ? "bg-white/10" : "bg-accent/50"} border ${isOutbound ? "border-white/20" : "border-border/50"}`}>
+                            <div className={cn("rounded-xl p-3 border", isOutbound ? "bg-white/10 border-white/20" : "bg-accent/50 border-border/50")}>
                               <RecordingPlayer callId={item.id} compact />
                             </div>
                           </div>
@@ -290,7 +290,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                       </div>
                       
                       {/* Timestamp */}
-                      <div className={`text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1 ${isOutbound ? "justify-end" : "justify-start"}`}>
+                      <div className={cn("text-[10px] text-muted-foreground mt-1 px-1 flex items-center gap-1", isOutbound ? "justify-end text-right" : "justify-start text-left")}>
                         {formatDateTime(new Date(item.created_at))}
                       </div>
                     </div>

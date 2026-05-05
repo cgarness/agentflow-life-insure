@@ -91,25 +91,14 @@ const normalizeStatusDisplay = (status: string) => {
 
 /** Matches `ConversationHistory` `historyIcon` — green calls, blue SMS, violet email (side strip, not inside bubble). */
 function contactTimelineBubbleIcon(kind: "call" | "sms" | "email") {
+  const iconCls = "w-3.5 h-3.5 transition-all duration-200 hover:scale-125 hover:opacity-100 cursor-default";
   if (kind === "call") {
-    return (
-      <div className="w-6 h-6 rounded-full flex items-center justify-center bg-emerald-500/10">
-        <Phone className="w-3.5 h-3.5 text-emerald-500" />
-      </div>
-    );
+    return <Phone className={cn(iconCls, "text-emerald-500 opacity-70")} />;
   }
   if (kind === "email") {
-    return (
-      <div className="w-6 h-6 rounded-full flex items-center justify-center bg-violet-400/10">
-        <Mail className="w-3.5 h-3.5 text-violet-400" />
-      </div>
-    );
+    return <Mail className={cn(iconCls, "text-violet-500 opacity-70")} />;
   }
-  return (
-    <div className="w-6 h-6 rounded-full flex items-center justify-center bg-blue-400/10">
-      <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-    </div>
-  );
+  return <MessageSquare className={cn(iconCls, "text-blue-500 opacity-70")} />;
 }
 
 function timeAgo(dateStr: string) {
@@ -1106,7 +1095,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                           className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}
                         >
                           <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
-                            <div className="shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                            <div className="shrink-0 mb-1">
                               {contactTimelineBubbleIcon("email")}
                             </div>
                             <div className="flex flex-col min-w-0">
@@ -1203,7 +1192,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                       return (
                         <div key={item.id} className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}>
                           <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
-                            <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>{contactTimelineBubbleIcon("call")}</div>
+                            <div className="shrink-0 mb-1">{contactTimelineBubbleIcon("call")}</div>
                             <div className="flex flex-col min-w-0">
                               <div
                                 className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
@@ -1296,7 +1285,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     return (
                       <div key={item.id} className={`flex flex-col ${isOutbound ? "items-end" : "items-start"} w-full group`}>
                         <div className={`flex items-end gap-2 max-w-[85%] ${isOutbound ? "flex-row-reverse" : "flex-row"}`}>
-                          <div className={`shrink-0 mb-1 opacity-40 group-hover:opacity-100 transition-opacity`}>{contactTimelineBubbleIcon("sms")}</div>
+                          <div className="shrink-0 mb-1">{contactTimelineBubbleIcon("sms")}</div>
                           <div className="flex flex-col">
                             <div
                               className={`px-3.5 py-2 rounded-2xl text-sm shadow-sm transition-all relative ${
