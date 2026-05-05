@@ -115,6 +115,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-04 | [DONE] | AI Agents Visual Shell**
+  *What:* Replaced the existing ComingSoon placeholder on `/ai-agents` with a full visual shell for AI agents. Built the `AIAgentsPage` index page with a CSS grid of mock agents, a plan usage bar, and filter pills. Built the `AIAgentCreate` full-screen page with a split layout for agent type selection and configuration form. All data is hardcoded for visual demonstration, with no Supabase backend connectivity or TanStack Query.
+  *Files:* **`src/pages/AIAgentsPage.tsx`**, **`src/pages/AIAgentCreate.tsx`**, **`src/components/ai-agents/AgentCard.tsx`**, **`src/components/ai-agents/AgentTypePicker.tsx`**, **`src/components/ai-agents/AgentConfigForm.tsx`**, **`src/App.tsx`**.
+  *Next:* Functional wiring — Supabase schema, real CRUD, campaign assignment.
+
+
 - **2026-05-04 | [DONE] | HOTFIX — Organizations RLS: enable row-level security + tenant-scoped update policy**
   *What:* `public.organizations` never had `ENABLE ROW LEVEL SECURITY` applied. Without it, any authenticated Supabase client could read or overwrite every agency's name with no database-level enforcement. The onboarding wizard's `.eq('id', orgId)` filter (line 155, `src/hooks/useOnboardingPageFlow.ts`) was the sole protection — a one-line regression would silently corrupt all tenants. Migration **`20260504140000_organizations_rls_enable_and_tenant_update.sql`** enables RLS and adds two tenant-scoped policies: **`organizations_select_own_org`** (SELECT, `id = get_org_id()`) and **`organizations_update_own_org`** (UPDATE, `id = get_org_id() AND get_user_role() = 'Admin'`, WITH CHECK enforces same scope). Existing super-admin policies (`organizations_select_super_admin_all`, `organizations_update_super_admin`) are untouched and continue to work via OR logic. No application code changed — `useOnboardingPageFlow.ts` already has the correct `.eq()` filter and calls `refreshSessionUntilClaimsReady()` before the update so JWT role/org claims are present. `create-organization` Edge Function uses service role and bypasses RLS correctly. `handle_new_user` trigger is SECURITY DEFINER and is unaffected.
   *Migration:* **`20260504140000_organizations_rls_enable_and_tenant_update.sql`** — apply via `npx supabase db push --yes` or Supabase MCP `apply_migration`.
