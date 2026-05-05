@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useOrganization } from '@/contexts/OrganizationContext';
+import { useOrganization } from '@/hooks/useOrganization';
 import { useAuth } from '@/contexts/AuthContext';
 import { tasksApi } from '@/lib/tasksApi';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
