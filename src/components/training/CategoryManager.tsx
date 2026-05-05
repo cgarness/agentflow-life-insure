@@ -12,9 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, X, Settings2 } from "lucide-react";
+import { TrainingCategory } from "@/types/training";
 
 interface CategoryManagerProps {
-  categories: string[];
+  categories: TrainingCategory[];
   onAddCategory: (category: string) => void;
   onRemoveCategory: (category: string) => void;
 }
@@ -63,17 +64,17 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
           </div>
 
           <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-            {categories.filter(c => c !== "All").map(category => (
+            {categories.map(category => (
               <div 
-                key={category} 
+                key={category.id} 
                 className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border/50 group"
               >
-                <span className="text-sm font-medium">{category}</span>
+                <span className="text-sm font-medium">{category.name}</span>
                 <Button 
                   variant="ghost" 
                   size="icon" 
                   className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors"
-                  onClick={() => onRemoveCategory(category)}
+                  onClick={() => onRemoveCategory(category.name)}
                 >
                   <X className="h-4 w-4" />
                 </Button>

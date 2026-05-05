@@ -38,7 +38,7 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
             <Badge variant="outline" className="uppercase tracking-widest text-[10px]">
-              {resource.category}
+              {resource.category_name || "Uncategorized"}
             </Badge>
             <span className="text-muted-foreground text-xs">|</span>
             <div className="flex items-center gap-1 text-xs text-muted-foreground uppercase font-medium">
@@ -66,7 +66,7 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
                   <h4 className="font-semibold text-lg">Ready to watch?</h4>
                   <p className="text-sm text-muted-foreground mb-4">This video will open in a new tab for the best experience.</p>
                   <Button asChild>
-                    <a href={resource.contentUrl} target="_blank" rel="noopener noreferrer" className="gap-2">
+                    <a href={resource.content_url} target="_blank" rel="noopener noreferrer" className="gap-2">
                       Open Video Player <ExternalLink className="h-4 w-4" />
                     </a>
                   </Button>
@@ -86,11 +86,11 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
                   <FileText className="h-10 w-10" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-lg">{resource.fileSize} PDF Document</h4>
+                  <h4 className="font-semibold text-lg">{resource.file_size} Document</h4>
                   <p className="text-sm text-muted-foreground mb-4">View or download this resource for your reference.</p>
                   <div className="flex gap-2 justify-center">
                     <Button variant="outline" asChild>
-                      <a href={resource.contentUrl} target="_blank" rel="noopener noreferrer" className="gap-2">
+                      <a href={resource.content_url} target="_blank" rel="noopener noreferrer" className="gap-2">
                         View Document <ExternalLink className="h-4 w-4" />
                       </a>
                     </Button>
@@ -106,17 +106,17 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
           {/* Action Footer */}
           <div className="flex items-center justify-between pt-4 border-t border-border/50">
             <div className="text-sm text-muted-foreground">
-              Added on {new Date(resource.createdAt).toLocaleDateString()}
+              Added on {new Date(resource.created_at).toLocaleDateString()}
             </div>
             <Button 
-              variant={resource.isCompleted ? "outline" : "default"}
+              variant={resource.is_completed ? "outline" : "default"}
               onClick={() => onToggleComplete(resource.id)}
               className={cn(
                 "gap-2 transition-all",
-                resource.isCompleted && "bg-green-500/10 text-green-500 hover:bg-green-500/20 hover:text-green-600 border-green-500/20"
+                resource.is_completed && "bg-green-500/10 text-green-500 hover:bg-green-500/20 hover:text-green-600 border-green-500/20"
               )}
             >
-              {resource.isCompleted ? (
+              {resource.is_completed ? (
                 <>
                   <CheckCircle2 className="h-4 w-4" />
                   Completed

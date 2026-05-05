@@ -36,9 +36,9 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick, onDelete
     >
       {/* Thumbnail */}
       <div className="relative aspect-video overflow-hidden bg-muted shrink-0">
-        {resource.thumbnailUrl ? (
+        {resource.thumbnail_url ? (
           <img 
-            src={resource.thumbnailUrl} 
+            src={resource.thumbnail_url} 
             alt={resource.title} 
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
           />
@@ -60,7 +60,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick, onDelete
         )}
 
         <div className="absolute top-2 right-2 flex gap-1">
-          {resource.isCompleted && (
+          {resource.is_completed && (
             <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20 backdrop-blur-md h-5 px-1.5">
               <CheckCircle2 className="mr-1 h-3 w-3" />
               Completed
@@ -100,11 +100,11 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick, onDelete
       <CardHeader className="p-4 space-y-2">
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-semibold py-0 h-4">
-            {resource.category}
+            {resource.category_name || "Uncategorized"}
           </Badge>
           <span className="text-muted-foreground text-[10px] flex items-center gap-1">
             {resource.type === 'document' ? <Download className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-            {resource.fileSize || resource.duration || "5 min"}
+            {resource.file_size || resource.duration || "5 min"}
           </span>
         </div>
         <CardTitle className="text-base group-hover:text-primary transition-colors line-clamp-1">
@@ -121,7 +121,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick, onDelete
           {resource.type.toUpperCase()}
         </div>
         <div className="text-[10px] text-muted-foreground">
-          {new Date(resource.createdAt).toLocaleDateString()}
+          {new Date(resource.created_at).toLocaleDateString()}
         </div>
       </div>
     </Card>

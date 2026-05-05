@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { Search, GraduationCap, Play, ScrollText, FileText, ChevronRight, Hash } from "lucide-react";
+import { Search, GraduationCap, Play, ScrollText, FileText, ChevronRight, Hash, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { MOCK_RESOURCES, TRAINING_CATEGORIES } from "@/constants/trainingData";
+import { useTraining } from "@/hooks/useTraining";
 import ResourceCard from "@/components/training/ResourceCard";
 import ResourceDetail from "@/components/training/ResourceDetail";
 import AddResourceModal from "@/components/training/AddResourceModal";
@@ -13,56 +13,55 @@ import { cn } from "@/lib/utils";
 
 const Training: React.FC = () => {
   const { profile } = useAuth();
+  const { 
+    categories, 
+    resources, 
+    isLoading, 
+    addResource, 
+    deleteResource, 
+    toggleComplete, 
+    addCategory, 
+    removeCategory 
+  } = useTraining();
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("All");
+  const [activeCategoryId, setActiveCategoryId] = useState<string>("all");
   const [selectedResource, setSelectedResource] = useState<TrainingResource | null>(null);
-  const [resources, setResources] = useState<TrainingResource[]>(MOCK_RESOURCES);
-  const [categories, setCategories] = useState<string[]>(TRAINING_CATEGORIES);
 
   // Derived state for filtered resources
   const filteredResources = useMemo(() => {
     return resources.filter((resource) => {
       const matchesSearch = resource.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           resource.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = activeCategory === "All" || resource.category === activeCategory;
+                           resource.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = activeCategoryId === "all" || resource.category_id === activeCategoryId;
       return matchesSearch && matchesCategory;
     });
-  }, [searchQuery, activeCategory, resources]);
+  }, [searchQuery, activeCategoryId, resources]);
 
   const handleToggleComplete = (id: string) => {
-    setResources(prev => prev.map(r => 
-      r.id === id ? { ...r, isCompleted: !r.isCompleted } : r
-    ));
-    if (selectedResource?.id === id) {
-      setSelectedResource(prev => prev ? { ...prev, isCompleted: !prev.isCompleted } : null);
+    const resource = resources.find(r => r.id === id);
+    if (resource) {
+      toggleComplete.mutate({ id, completed: !resource.is_completed });
     }
   };
 
-  const handleAddResource = (newResource: TrainingResource) => {
-    setResources(prev => [newResource, ...prev]);
-  };
-
-  const handleDeleteResource = (id: string) => {
-    setResources(prev => prev.filter(r => r.id !== id));
-  };
-
-  const handleAddCategory = (newCategory: string) => {
-    if (!categories.includes(newCategory)) {
-      setCategories(prev => [...prev, newCategory]);
-    }
-  };
-
-  const handleRemoveCategory = (categoryToRemove: string) => {
-    setCategories(prev => prev.filter(c => c !== categoryToRemove));
-    if (activeCategory === categoryToRemove) {
-      setActiveCategory("All");
-    }
-  };
+  const activeCategoryName = activeCategoryId === "all" 
+    ? "All Resources" 
+    : categories.find(c => c.id === activeCategoryId)?.name || "Category";
 
   // Case-insensitive role check for Admin and Super Admin
   const isAdmin = profile?.role?.toLowerCase() === 'admin' || 
                   profile?.role?.toLowerCase() === 'super admin' ||
                   profile?.is_super_admin === true;
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">Loading training center...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)] bg-background/50 animate-in fade-in duration-500">
@@ -84,28 +83,43 @@ const Training: React.FC = () => {
             {isAdmin && (
               <CategoryManager 
                 categories={categories} 
-                onAddCategory={handleAddCategory} 
-                onRemoveCategory={handleRemoveCategory} 
+                onAddCategory={(name) => addCategory.mutate(name)} 
+                onRemoveCategory={(name) => removeCategory.mutate(name)} 
               />
             )}
           </div>
           <nav className="space-y-1">
+            <button
+              onClick={() => setActiveCategoryId("all")}
+              className={cn(
+                "w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all group",
+                activeCategoryId === "all" 
+                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" 
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <Hash className={cn("h-3.5 w-3.5 opacity-50", activeCategoryId === "all" ? "text-primary-foreground" : "text-primary")} />
+                All Resources
+              </div>
+              {activeCategoryId === "all" && <ChevronRight className="h-3 w-3" />}
+            </button>
             {categories.map((category) => (
               <button
-                key={category}
-                onClick={() => setActiveCategory(category)}
+                key={category.id}
+                onClick={() => setActiveCategoryId(category.id)}
                 className={cn(
                   "w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all group",
-                  activeCategory === category 
+                  activeCategoryId === category.id 
                     ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" 
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
                 <div className="flex items-center gap-2">
-                  <Hash className={cn("h-3.5 w-3.5 opacity-50", activeCategory === category ? "text-primary-foreground" : "text-primary")} />
-                  {category}
+                  <Hash className={cn("h-3.5 w-3.5 opacity-50", activeCategoryId === category.id ? "text-primary-foreground" : "text-primary")} />
+                  {category.name}
                 </div>
-                {activeCategory === category && <ChevronRight className="h-3 w-3" />}
+                {activeCategoryId === category.id && <ChevronRight className="h-3 w-3" />}
               </button>
             ))}
           </nav>
@@ -135,9 +149,9 @@ const Training: React.FC = () => {
       <main className="flex-1 p-6 lg:p-10 space-y-8 overflow-y-auto">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <h2 className="text-2xl font-bold tracking-tight">{activeCategory}</h2>
+            <h2 className="text-2xl font-bold tracking-tight">{activeCategoryName}</h2>
             <p className="text-muted-foreground text-sm">
-              Viewing {filteredResources.length} resources in {activeCategory}
+              Viewing {filteredResources.length} resources in {activeCategoryName}
             </p>
           </div>
           
@@ -154,7 +168,7 @@ const Training: React.FC = () => {
             {isAdmin && (
               <AddResourceModal 
                 categories={categories} 
-                onAdd={handleAddResource} 
+                onAdd={(data) => addResource.mutate(data)} 
               />
             )}
           </div>
@@ -168,7 +182,7 @@ const Training: React.FC = () => {
                 key={resource.id} 
                 resource={resource} 
                 onClick={setSelectedResource}
-                onDelete={handleDeleteResource}
+                onDelete={(id) => deleteResource.mutate(id)}
                 isAdmin={isAdmin}
               />
             ))}

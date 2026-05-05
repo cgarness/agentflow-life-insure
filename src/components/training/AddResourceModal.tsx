@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,35 +20,38 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Video, FileText, ScrollText } from "lucide-react";
-import { TrainingResource, ResourceType } from "@/types/training";
+import { TrainingResource, ResourceType, TrainingCategory } from "@/types/training";
 
 interface AddResourceModalProps {
-  categories: string[];
-  onAdd: (resource: TrainingResource) => void;
+  categories: TrainingCategory[];
+  onAdd: (resource: Partial<TrainingResource>) => void;
 }
 
 const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }) => {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [type, setType] = useState<ResourceType>("video");
-  const [category, setCategory] = useState(categories[1] || categories[0]);
+  const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    if (categories.length > 0 && !categoryId) {
+      setCategoryId(categories[0].id);
+    }
+  }, [categories, categoryId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) return;
 
-    const newResource: TrainingResource = {
-      id: Date.now().toString(),
+    const newResource: Partial<TrainingResource> = {
       title,
       description,
       type,
-      category,
-      contentUrl: url,
-      isCompleted: false,
-      createdAt: new Date().toISOString(),
-      thumbnailUrl: type === 'video' ? "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&q=80&w=400" : undefined,
+      category_id: categoryId || null,
+      content_url: url,
+      thumbnail_url: type === 'video' ? "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&q=80&w=400" : undefined,
     };
 
     onAdd(newResource);
@@ -120,14 +123,14 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd }
               
               <div className="grid gap-2">
                 <Label htmlFor="category">Category</Label>
-                <Select value={category} onValueChange={setCategory}>
+                <Select value={categoryId} onValueChange={setCategoryId}>
                   <SelectTrigger id="category">
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {categories.filter(c => c !== "All").map(cat => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
+                    {categories.map(cat => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
