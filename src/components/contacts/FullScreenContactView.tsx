@@ -1438,7 +1438,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             {/* TASKS TAB */}
             {rightTab === "Tasks" && organizationId && (
                <div className="h-full overflow-hidden">
-                 <TasksPanel contactId={contact.id} contactType={type} organizationId={organizationId} />
+                 <TasksPanel contactId={contact.id} contactType={type} organizationId={organizationId} agents={agents} />
                </div>
             )}
             

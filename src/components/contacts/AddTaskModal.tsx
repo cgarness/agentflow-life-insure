@@ -11,9 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useOrganization } from '@/hooks/useOrganization';
 import { useAuth } from '@/contexts/AuthContext';
 import { tasksApi } from '@/lib/tasksApi';
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
-import { usersSupabaseApi } from '@/lib/supabase-users';
 
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -35,19 +34,14 @@ interface AddTaskModalProps {
   onOpenChange: (open: boolean) => void;
   contactId: string;
   contactType: 'lead' | 'client' | 'recruit';
+  agents: { id: string; firstName: string; lastName: string }[];
 }
 
-export function AddTaskModal({ open, onOpenChange, contactId, contactType }: AddTaskModalProps) {
+export function AddTaskModal({ open, onOpenChange, contactId, contactType, agents }: AddTaskModalProps) {
   const { organizationId } = useOrganization();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  const { data: agents } = useQuery({
-    queryKey: ['org-agents', organizationId],
-    queryFn: () => usersSupabaseApi.getAll({ organizationId: organizationId! }),
-    enabled: !!organizationId
-  });
 
   const form = useForm<z.infer<typeof taskSchema>>({
     resolver: zodResolver(taskSchema),

@@ -12,9 +12,10 @@ interface TasksPanelProps {
   contactId: string;
   contactType: 'lead' | 'client' | 'recruit';
   organizationId: string;
+  agents: { id: string; firstName: string; lastName: string }[];
 }
 
-export function TasksPanel({ contactId, contactType, organizationId }: TasksPanelProps) {
+export function TasksPanel({ contactId, contactType, organizationId, agents }: TasksPanelProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -136,6 +137,7 @@ export function TasksPanel({ contactId, contactType, organizationId }: TasksPane
         onOpenChange={setIsAddModalOpen} 
         contactId={contactId}
         contactType={contactType}
+        agents={agents}
       />
     </div>
   );
