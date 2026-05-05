@@ -206,34 +206,6 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
 
   return (
     <div className="flex-1 flex flex-col bg-background relative overflow-hidden">
-      {/* Thread Header */}
-      <div className="h-16 border-b border-border px-6 flex items-center justify-between bg-card/30 backdrop-blur-sm z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-            {contactName.split(" ").map(n => n[0]).join("").slice(0, 2)}
-          </div>
-          <div>
-            <h2 className="font-bold text-sm text-foreground">{contactName}</h2>
-            <div className="flex items-center gap-2">
-              <span className={cn(
-                "text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                contactType === 'lead' ? 'bg-blue-500/10 text-blue-500' :
-                contactType === 'client' ? 'bg-green-500/10 text-green-500' :
-                'bg-orange-500/10 text-orange-500'
-              )}>
-                {contactType}
-              </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Online</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="p-2 hover:bg-accent rounded-full text-muted-foreground transition-colors"><Info className="w-5 h-5" /></button>
-          <button className="p-2 hover:bg-accent rounded-full text-muted-foreground transition-colors"><MoreVertical className="w-5 h-5" /></button>
-        </div>
-      </div>
-
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 flex flex-col">
         {loading ? (
