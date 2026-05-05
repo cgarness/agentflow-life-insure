@@ -205,7 +205,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-background relative overflow-hidden min-h-0">
+    <div className="flex-1 flex flex-col bg-background relative overflow-hidden min-h-0 h-full">
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 flex flex-col min-h-0">
         {loading ? (
@@ -226,7 +226,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
       </div>
 
       {/* Composer Area */}
-      <div className="p-6 pt-0">
+      <div className="p-6 pt-0 shrink-0 bg-background/80 backdrop-blur-sm z-20">
         <MessageComposePanel
           channel={channel}
           onChannelChange={setChannel}
