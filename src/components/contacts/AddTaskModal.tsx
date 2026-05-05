@@ -13,6 +13,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { tasksApi } from '@/lib/tasksApi';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
+import { useEffect, useState } from 'react';
+import { usersSupabaseApi } from '@/lib/supabase-users';
 
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -39,9 +41,35 @@ interface AddTaskModalProps {
 
 export function AddTaskModal({ open, onOpenChange, contactId, contactType, agents }: AddTaskModalProps) {
   const { organizationId } = useOrganization();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const [assignableAgents, setAssignableAgents] = useState<{ id: string; firstName: string; lastName: string }[]>(agents);
+
+  useEffect(() => {
+    if (!profile) return;
+    
+    if (profile.role === 'Admin' || profile.role === 'Super Admin' || profile.is_super_admin) {
+      setAssignableAgents(agents);
+    } else if (profile.role === 'Team Leader') {
+      usersSupabaseApi.getDownlineAgents(profile.id).then(downlines => {
+        const self = agents.find(a => a.id === profile.id);
+        const list = [...downlines];
+        if (self && !list.some(a => a.id === self.id)) {
+           list.unshift(self);
+        }
+        setAssignableAgents(list);
+      }).catch(err => {
+        console.error("Failed to fetch downline", err);
+        const self = agents.find(a => a.id === profile.id);
+        setAssignableAgents(self ? [self] : []);
+      });
+    } else {
+      const self = agents.find(a => a.id === profile.id);
+      setAssignableAgents(self ? [self] : []);
+    }
+  }, [profile, agents]);
 
   const form = useForm<z.infer<typeof taskSchema>>({
     resolver: zodResolver(taskSchema),
@@ -139,7 +167,7 @@ export function AddTaskModal({ open, onOpenChange, contactId, contactType, agent
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl><SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {agents?.map(agent => (
+                      {assignableAgents?.map(agent => (
                         <SelectItem key={agent.id} value={agent.id}>
                           {agent.firstName} {agent.lastName}
                         </SelectItem>
