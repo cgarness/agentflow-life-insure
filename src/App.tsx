@@ -27,6 +27,7 @@ import Leaderboard from "./pages/Leaderboard";
 import Reports from "./pages/Reports";
 import AIAgents from "./pages/AIAgents";
 import Training from "./pages/Training";
+import Resources from "./pages/Resources";
 import AppLinkEmbedPage from "./pages/AppLinkEmbedPage";
 import SettingsPage from "./pages/SettingsPage";
 import AgentProfile from "./pages/AgentProfile";
@@ -153,6 +154,7 @@ const App = () => (
                           <Route path="/reports" element={<Reports />} />
                           <Route path="/ai-agents" element={<AIAgents />} />
                           <Route path="/training" element={<Training />} />
+                          <Route path="/resources" element={<Resources />} />
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />

@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
-  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X
+  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
@@ -25,6 +25,7 @@ const MAIN_MENU = [
   { icon: BarChart3, label: "Reports", path: "/reports" },
   { icon: Bot, label: "AI Agents", path: "/ai-agents" },
   { icon: GraduationCap, label: "Training", path: "/training" },
+  { icon: FileText, label: "Resources", path: "/resources" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ] as const;
 
