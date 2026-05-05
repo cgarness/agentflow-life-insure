@@ -138,7 +138,7 @@ const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
   if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic text-xs">—</span>;
   return (
     <div className="flex items-center justify-between group w-full min-w-0">
-      <span className="text-foreground font-medium text-xs leading-snug break-all mr-1" title={display}>{display}</span>
+      <span className="text-foreground font-semibold text-xs leading-snug break-all mr-1" title={display}>{display}</span>
       <button
         onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
         className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
