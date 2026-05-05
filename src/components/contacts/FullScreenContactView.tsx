@@ -789,8 +789,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             {/* LOCAL TIME */}
             {contact.state && (
               <div className="h-8 px-2.5 flex items-center gap-1.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-lg border border-green-500/20 shadow-sm whitespace-nowrap">
-                <Clock className="w-3 h-3" />
-                <span className="text-[10px] font-bold uppercase tracking-wider"><ContactLocalTime state={contact.state} /></span>
+                <Clock className="w-3.5 h-3.5" />
+                <span className="text-xs font-bold uppercase tracking-widest"><ContactLocalTime state={contact.state} /></span>
               </div>
             )}
 
