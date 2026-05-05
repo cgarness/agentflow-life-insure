@@ -3148,7 +3148,7 @@ export default function DialerPage() {
           </div>
         </div>
       )}
-      <div className="flex flex-col h-[calc(100vh-80px)] lg:h-[calc(100vh-88px)] -mt-4 lg:-mt-6 -mb-4 lg:-mb-6 overflow-hidden bg-background text-foreground">
+      <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
         {/* ── CAMPAIGN TYPE STRIPE (3px, full-width) ── */}
         {lockMode && (() => {
           const t = campaignType.toUpperCase();
