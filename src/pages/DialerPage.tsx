@@ -450,6 +450,25 @@ export default function DialerPage() {
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
 
+  // Fetch agent roster for resolving IDs to names in LeadCard
+  const { data: agentRoster } = useQuery({
+    queryKey: ["agent-roster", organizationId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .eq("status", "Active");
+      if (error) throw error;
+      return (data || []).map((p) => ({
+        id: p.id,
+        firstName: p.first_name || "",
+        lastName: p.last_name || "",
+      }));
+    },
+    enabled: !!organizationId,
+    staleTime: 1000 * 60 * 5,
+  });
+
   const [dialerLeadLayoutReady, setDialerLeadLayoutReady] = useState(false);
   const [dialerUserLeadOrder, setDialerUserLeadOrder] = useState<string[] | undefined>(undefined);
   const [dialerOrgLeadOrder, setDialerOrgLeadOrder] = useState<string[] | undefined>(undefined);
@@ -3441,6 +3460,7 @@ export default function DialerPage() {
               onEditChange={(key, val) => setEditForm((prev: any) => ({ ...prev, [key]: val }))}
               isAdvancing={isAdvancing}
               fieldDescriptors={dialerLeadFieldDescriptors}
+              agents={agentRoster}
             />
           </div>
         </div>

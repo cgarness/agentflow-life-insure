@@ -33,6 +33,8 @@ interface LeadCardProps {
   isAdvancing?: boolean;
   /** Resolved layout for connected view; omit or empty → legacy hardcoded order. */
   fieldDescriptors?: { label: string; key: string; kind: "standard" | "custom" }[];
+  /** Agent roster for name resolution. */
+  agents?: { id: string; firstName: string; lastName: string }[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -101,6 +103,7 @@ export default function LeadCard({
   onEditChange,
   isAdvancing,
   fieldDescriptors,
+  agents,
 }: LeadCardProps) {
   // Track lead ID for fade transition on lead change
   const prevLeadId = useRef<string | null>(null);
@@ -179,10 +182,16 @@ export default function LeadCard({
 
       <div className="grid grid-cols-2 gap-4">
         {fields.map((f) => {
-          const rawVal =
-            f.key === "assigned_agent_id"
-              ? lead[f.key] ?? lead["claimed_by"]
-              : lead[f.key];
+          let rawVal = lead[f.key];
+          
+          // Resolve agent names for assignment fields
+          if ((f.key === "assigned_agent_id" || f.key === "claimed_by") && rawVal && typeof rawVal === "string") {
+            const agent = agents?.find(a => a.id === rawVal);
+            if (agent) {
+              rawVal = `${agent.firstName} ${agent.lastName}`.trim();
+            }
+          }
+
           return (
             <Field
               key={f.key}
