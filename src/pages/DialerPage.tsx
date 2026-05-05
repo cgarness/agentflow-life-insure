@@ -3287,7 +3287,7 @@ export default function DialerPage() {
       ) : (
         <div className="flex flex-1 overflow-hidden p-3 gap-3">
             {/* ── NEW LEFT COLUMN (Contact Info) ── */}
-            <div className="w-80 shrink-0 flex flex-col overflow-hidden">
+            <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] shrink-0 flex flex-col overflow-hidden">
           <div className="bg-card border rounded-xl flex flex-col overflow-hidden h-full">
             {/* Header section — shrink-0 */}
             <div className="p-3 border-b flex flex-col gap-2 bg-card shrink-0">

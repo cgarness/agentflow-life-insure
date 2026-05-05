@@ -66,7 +66,7 @@ function Field({
         />
       ) : (
         <div 
-          className="text-sm font-semibold text-foreground mt-0.5 break-words line-clamp-2 leading-tight"
+          className="text-xs font-semibold text-foreground mt-0.5 break-words line-clamp-2 leading-tight"
           title={String(value || "")}
         >
           {String(value || "—")}
