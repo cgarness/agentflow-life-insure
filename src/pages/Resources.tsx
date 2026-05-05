@@ -11,6 +11,7 @@ import { useResources } from "@/hooks/useResources";
 import { cn } from "@/lib/utils";
 import AddAgencyResourceModal from "@/components/resources/AddAgencyResourceModal";
 import ResourceCategoryManager from "@/components/resources/ResourceCategoryManager";
+import AgencyResourceCard from "@/components/resources/AgencyResourceCard";
 import { Script, AgencyResource } from "@/types/resources";
 import {
   DropdownMenu,
@@ -29,20 +30,18 @@ const Resources: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedScript, setSelectedScript] = useState<Script | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<AgencyResource | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("all");
 
   const isAdmin = profile?.role?.toLowerCase() === 'admin' || 
                   profile?.role?.toLowerCase() === 'super admin' ||
                   profile?.is_super_admin === true;
 
-  // Set initial selected script or document if none is selected
+  // Set initial selected script if none is selected
   React.useEffect(() => {
     if (activeTab === "scripts" && scripts.length > 0 && !selectedScript) {
       setSelectedScript(scripts[0]);
     }
-    if (activeTab === "documents" && documents.length > 0 && !selectedDocument) {
-      setSelectedDocument(documents[0]);
-    }
-  }, [scripts, documents, activeTab, selectedScript, selectedDocument]);
+  }, [scripts, activeTab, selectedScript]);
 
   const filteredScripts = useMemo(() => {
     return scripts.filter(s => 
@@ -52,12 +51,18 @@ const Resources: React.FC = () => {
   }, [scripts, searchQuery]);
 
   const filteredDocuments = useMemo(() => {
-    return documents.filter(d => {
+    let filtered = documents;
+    
+    if (selectedCategoryId !== "all") {
+      filtered = filtered.filter(d => d.category_id === selectedCategoryId);
+    }
+    
+    return filtered.filter(d => {
       const categoryName = categories.find(c => c.id === d.category_id)?.name || "Unknown";
       return d.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
              categoryName.toLowerCase().includes(searchQuery.toLowerCase());
     });
-  }, [documents, categories, searchQuery]);
+  }, [documents, categories, searchQuery, selectedCategoryId]);
 
   if (isLoading) {
     return (
@@ -115,7 +120,7 @@ const Resources: React.FC = () => {
           </div>
         </div>
 
-        {/* List Area */}
+        {/* Sidebar Content */}
         <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-1 custom-scrollbar">
           {activeTab === "scripts" ? (
             filteredScripts.length > 0 ? (
@@ -147,66 +152,54 @@ const Resources: React.FC = () => {
               </div>
             )
           ) : (
-            filteredDocuments.length > 0 ? (
-              filteredDocuments.map(doc => {
-                const categoryName = categories.find(c => c.id === doc.category_id)?.name || "Unknown";
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground mb-3 px-2">Folders</p>
+              <button
+                onClick={() => setSelectedCategoryId("all")}
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-2 text-left rounded-md transition-all text-sm font-medium",
+                  selectedCategoryId === "all"
+                    ? "bg-primary/10 text-primary"
+                    : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                )}
+              >
+                All Documents
+                <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                  {documents.length}
+                </span>
+              </button>
+              
+              {categories.map(cat => {
+                const count = documents.filter(d => d.category_id === cat.id).length;
                 return (
-                <button
-                  key={doc.id}
-                  onClick={() => setSelectedDocument(doc)}
-                  className={cn(
-                    "w-full flex items-center justify-between px-3 py-3 rounded-lg border transition-all text-left",
-                    selectedDocument?.id === doc.id
-                      ? "bg-primary/10 border-primary/20 shadow-sm"
-                      : "bg-transparent border-transparent hover:bg-muted/50 text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div className={cn("h-8 w-8 rounded flex items-center justify-center shrink-0", selectedDocument?.id === doc.id ? "bg-primary/20 text-primary" : "bg-primary/10 text-primary/70")}>
-                      <FileText className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className={cn("text-sm font-semibold truncate", selectedDocument?.id === doc.id && "text-primary")}>{doc.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] opacity-80">{categoryName}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-2">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" asChild onClick={(e) => e.stopPropagation()}>
-                      <a href={doc.content_url} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="h-4 w-4 opacity-50 hover:opacity-100 hover:text-primary transition-colors" />
-                      </a>
-                    </Button>
-                    {isAdmin && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4 opacity-50 hover:opacity-100 transition-colors" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem 
-                            className="text-destructive focus:text-destructive gap-2"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteDocument.mutate(doc.id);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategoryId(cat.id)}
+                    className={cn(
+                      "w-full flex items-center justify-between px-3 py-2 text-left rounded-md transition-all text-sm font-medium",
+                      selectedCategoryId === cat.id
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
                     )}
-                  </div>
-                </button>
-              )})
-            ) : (
-              <div className="text-center py-8 text-sm text-muted-foreground">
-                No documents found.
-              </div>
-            )
+                  >
+                    {cat.name}
+                    <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {isAdmin && (
+                <div className="pt-4 mt-4 border-t border-border/50 px-2">
+                  <ResourceCategoryManager 
+                    categories={categories} 
+                    onAddCategory={(name) => addCategory.mutate(name)} 
+                    onRemoveCategory={(name) => removeCategory.mutate(name)} 
+                  />
+                </div>
+              )}
+            </div>
           )}
         </div>
       </aside>
@@ -256,15 +249,22 @@ const Resources: React.FC = () => {
           selectedDocument ? (
             <div className="flex flex-col h-full bg-card/30">
               <header className="px-8 py-6 border-b border-border/50 bg-background/50 backdrop-blur shrink-0 flex justify-between items-center">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="secondary" className="text-[10px] uppercase tracking-wider bg-blue-500/10 text-blue-500 border-none">
-                      {categories.find(c => c.id === selectedDocument.category_id)?.name || "Document"}
-                    </Badge>
+                <div className="flex items-center gap-4">
+                  <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={() => setSelectedDocument(null)}>
+                    <ChevronRight className="h-4 w-4 rotate-180" />
+                    Back to Grid
+                  </Button>
+                  <div className="h-6 w-px bg-border mx-2" />
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="secondary" className="text-[10px] uppercase tracking-wider bg-blue-500/10 text-blue-500 border-none">
+                        {categories.find(c => c.id === selectedDocument.category_id)?.name || "Document"}
+                      </Badge>
+                    </div>
+                    <h2 className="text-xl font-bold tracking-tight text-foreground line-clamp-1">
+                      {selectedDocument.title}
+                    </h2>
                   </div>
-                  <h2 className="text-2xl font-bold tracking-tight text-foreground line-clamp-1">
-                    {selectedDocument.title}
-                  </h2>
                 </div>
                 <div className="flex items-center gap-4">
                   <Button variant="outline" size="sm" className="gap-2" asChild>
@@ -273,44 +273,68 @@ const Resources: React.FC = () => {
                       Open Full Screen
                     </a>
                   </Button>
-                  {isAdmin && (
-                    <AddAgencyResourceModal categories={categories} onAdd={(doc, file) => addDocument.mutate({ doc, file })} isLoading={addDocument.isPending} />
-                  )}
                 </div>
               </header>
-              <div className="flex-1 bg-white/5 relative">
-                {selectedDocument.content_url ? (
-                  <iframe 
-                    src={selectedDocument.content_url} 
-                    className="w-full h-full border-none bg-white"
-                    title={selectedDocument.title}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-muted-foreground">No document file available.</p>
-                  </div>
-                )}
+              <div className="flex-1 bg-muted/30 p-8">
+                <div className="h-full w-full max-w-5xl mx-auto rounded-xl overflow-hidden border border-border/50 shadow-sm bg-white">
+                  {selectedDocument.content_url ? (
+                    <iframe 
+                      src={selectedDocument.content_url} 
+                      className="w-full h-full border-none"
+                      title={selectedDocument.title}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-card">
+                      <p className="text-muted-foreground">No document file available.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-card/10">
-              <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6">
-                <FileText className="h-10 w-10 text-primary/40" />
-              </div>
-              <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">Agency Documents</h2>
-              <p className="text-muted-foreground text-sm max-w-md mb-8">
-                Quickly access and download carrier documents, forms, and cheat sheets from the list on the left.
-              </p>
-              {isAdmin && (
-                <div className="flex items-center gap-4">
-                  <AddAgencyResourceModal categories={categories} onAdd={(doc, file) => addDocument.mutate({ doc, file })} isLoading={addDocument.isPending} />
-                  <ResourceCategoryManager 
-                    categories={categories} 
-                    onAddCategory={(name) => addCategory.mutate(name)} 
-                    onRemoveCategory={(name) => removeCategory.mutate(name)} 
-                  />
+            <div className="flex flex-col h-full bg-card/10">
+              <header className="px-8 py-6 border-b border-border/50 bg-background/50 backdrop-blur shrink-0 flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight text-foreground mb-1">
+                    {selectedCategoryId === "all" ? "All Documents" : categories.find(c => c.id === selectedCategoryId)?.name || "Documents"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {filteredDocuments.length} resources available
+                  </p>
                 </div>
-              )}
+                {isAdmin && (
+                  <AddAgencyResourceModal categories={categories} onAdd={(doc, file) => addDocument.mutate({ doc, file })} isLoading={addDocument.isPending} />
+                )}
+              </header>
+              
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                {filteredDocuments.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 max-w-7xl mx-auto">
+                    {filteredDocuments.map(doc => (
+                      <AgencyResourceCard 
+                        key={doc.id}
+                        resource={doc}
+                        categoryName={categories.find(c => c.id === doc.category_id)?.name || "Unknown"}
+                        onClick={setSelectedDocument}
+                        onDelete={deleteDocument.mutate}
+                        isAdmin={isAdmin}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center h-full max-w-md mx-auto">
+                    <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6">
+                      <FileText className="h-10 w-10 text-primary/40" />
+                    </div>
+                    <h3 className="text-xl font-bold tracking-tight text-foreground mb-2">No documents found</h3>
+                    <p className="text-muted-foreground text-sm mb-8">
+                      {selectedCategoryId === "all" 
+                        ? "There are no agency documents uploaded yet."
+                        : "There are no documents in this category."}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )
         )}
