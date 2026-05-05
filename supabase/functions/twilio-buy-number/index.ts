@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
 
     const base = FUNCTIONS_BASE;
     const voiceUrl = `${base}/twilio-voice-inbound`;
-    const smsUrl = `${base}/twilio-sms`;
+    const smsUrl = `${base}/twilio-sms-webhook`;
     const statusCallback = `${base}/twilio-voice-status`;
 
     const form = new URLSearchParams();

@@ -488,7 +488,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         supabase
           .from("messages")
           .select("id, direction, body, sent_at, from_number")
-          .eq("lead_id", myId)
+          .or(`lead_id.eq.${myId},contact_id.eq.${myId}`)
           .order("sent_at", { ascending: false })
           .limit(300),
         emailSupabaseApi.getContactEmails(myId),

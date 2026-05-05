@@ -68,11 +68,13 @@ Every architectural decision must support SaaS graduation:
 | `twilio-search-numbers` | Supabase JWT (in-code) | Searches Twilio for available numbers to purchase |
 | `twilio-buy-number` | Supabase JWT (in-code) | Purchases a Twilio number and inserts into `phone_numbers` |
 | `twilio-sms` | Supabase JWT (in-code) | Sends outbound SMS via Twilio; reads credentials from `phone_settings` |
+| `twilio-sms-webhook` | X-Twilio-Signature HMAC | Inbound SMS — parses Twilio webhook, resolves contact, inserts `messages` row with `direction = 'inbound'` |
 | `twilio-trust-hub` | Supabase JWT (in-code) | SHAKEN/STIR Trust Hub registration/assignment (Admin/Super Admin only) |
+| `update-sms-urls` | Supabase JWT (in-code) | Super Admin only — batch-patches all purchased numbers' `SmsUrl` in Twilio to point to `twilio-sms-webhook` |
 | `inbound-call-claim` | Supabase JWT (in-code) | Claims an inbound `calls` row for the answering agent using service role; retried up to 18× from client |
 | `recording-retention-purge` | `x-cron-secret` header | Nightly pg_cron job — deletes Storage recordings and clears `calls` fields per org `recording_retention_days` |
 
-All four webhook functions (`twilio-voice-webhook`, `twilio-voice-status`, `twilio-voice-inbound`, `twilio-recording-status`) derive callback URLs and signature base URL from `SUPABASE_URL` — never from `X-Forwarded-Host`. Do not change this without updating all four simultaneously and redeploying.
+All five webhook functions (`twilio-voice-webhook`, `twilio-voice-status`, `twilio-voice-inbound`, `twilio-recording-status`, `twilio-sms-webhook`) derive callback URLs and signature base URL from `SUPABASE_URL` — never from `X-Forwarded-Host`. Do not change this without updating all five simultaneously and redeploying.
 
 #### Key Re-Entrancy Guards (never remove or bypass)
 All guards live in `src/contexts/TwilioContext.tsx` as `useRef` values:

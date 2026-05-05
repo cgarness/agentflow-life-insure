@@ -84,6 +84,14 @@ verify_jwt = false
 [functions.twilio-sms]
 verify_jwt = false
 
+# Inbound SMS webhook — authenticated via X-Twilio-Signature HMAC-SHA1, not Supabase JWT.
+[functions.twilio-sms-webhook]
+verify_jwt = false
+
+# Batch-update SmsUrl on all purchased Twilio numbers — Super Admin only, JWT validated in-code.
+[functions.update-sms-urls]
+verify_jwt = false
+
 # Trust Hub — JWT; Admin/Super Admin only for register/assign; Twilio credentials from phone_settings.
 [functions.twilio-trust-hub]
 verify_jwt = false

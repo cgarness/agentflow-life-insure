@@ -20,7 +20,7 @@ export const messagesSupabaseApi = {
     const [smsRes, emailRes, callRes] = await Promise.all([
       supabase
         .from('messages')
-        .select('lead_id, body, sent_at, direction')
+        .select('lead_id, contact_id, body, sent_at, direction')
         .order('sent_at', { ascending: false })
         .limit(50),
       supabase
@@ -38,9 +38,10 @@ export const messagesSupabaseApi = {
     const items: any[] = [];
 
     (smsRes.data || []).forEach(m => {
-      if (!m.lead_id) return;
+      const cid = m.contact_id || m.lead_id;
+      if (!cid) return;
       items.push({
-        contact_id: m.lead_id,
+        contact_id: cid,
         last_message: m.body,
         last_message_at: m.sent_at || m.created_at,
         channel: 'sms',
@@ -121,7 +122,7 @@ export const messagesSupabaseApi = {
       supabase
         .from("messages")
         .select("*")
-        .eq("lead_id", contactId)
+        .or(`lead_id.eq.${contactId},contact_id.eq.${contactId}`)
         .order("sent_at", { ascending: false })
         .limit(100),
       supabase
