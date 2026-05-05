@@ -1,12 +1,31 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
-import { Script, AgencyResource, ProductType } from "@/types/resources";
+import { Script, AgencyResource, AgencyResourceCategory, ProductType } from "@/types/resources";
 import { toast } from "@/hooks/use-toast";
 
 export function useResources() {
   const { organizationId } = useOrganization();
   const queryClient = useQueryClient();
+
+  // Fetch categories
+  const categoriesQuery = useQuery({
+    queryKey: ["agency_resource_categories", organizationId],
+    enabled: !!organizationId,
+    queryFn: async (): Promise<AgencyResourceCategory[]> => {
+      const { data, error } = await supabase
+        .from("agency_resource_categories" as any)
+        .select("*")
+        .eq("organization_id", organizationId as string)
+        .order("name", { ascending: true });
+
+      if (error) {
+        if (error.code === '42P01') return [];
+        throw error;
+      }
+      return data ?? [];
+    },
+  });
 
   // Fetch active scripts
   const scriptsQuery = useQuery({
@@ -86,11 +105,54 @@ export function useResources() {
     }
   });
 
+  // Add Category
+  const addCategory = useMutation({
+    mutationFn: async (name: string) => {
+      const { data, error } = await supabase
+        .from("agency_resource_categories" as any)
+        .insert([{ name, organization_id: organizationId }])
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agency_resource_categories"] });
+      toast({ title: "Category added" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add category", description: error.message, variant: "destructive" });
+    }
+  });
+
+  // Remove Category
+  const removeCategory = useMutation({
+    mutationFn: async (name: string) => {
+      const { error } = await supabase
+        .from("agency_resource_categories" as any)
+        .delete()
+        .eq("name", name)
+        .eq("organization_id", organizationId as string);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agency_resource_categories"] });
+      queryClient.invalidateQueries({ queryKey: ["agency_resources"] });
+      toast({ title: "Category removed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to remove category", description: error.message, variant: "destructive" });
+    }
+  });
+
   return {
     scripts: scriptsQuery.data ?? [],
     documents: documentsQuery.data ?? [],
-    isLoading: scriptsQuery.isLoading || documentsQuery.isLoading,
+    categories: categoriesQuery.data ?? [],
+    isLoading: scriptsQuery.isLoading || documentsQuery.isLoading || categoriesQuery.isLoading,
     addDocument,
     deleteDocument,
+    addCategory,
+    removeCategory,
   };
 }

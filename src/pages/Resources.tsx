@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useResources } from "@/hooks/useResources";
 import { cn } from "@/lib/utils";
 import AddAgencyResourceModal from "@/components/resources/AddAgencyResourceModal";
+import ResourceCategoryManager from "@/components/resources/ResourceCategoryManager";
 import { Script, AgencyResource } from "@/types/resources";
 import {
   DropdownMenu,
@@ -22,9 +23,9 @@ type TabView = "scripts" | "documents";
 
 const Resources: React.FC = () => {
   const { profile } = useAuth();
-  const { scripts, documents, isLoading, addDocument, deleteDocument } = useResources();
+  const { scripts, documents, categories, isLoading, addDocument, deleteDocument, addCategory, removeCategory } = useResources();
   
-  const [activeTab, setActiveTab] = useState<TabView>("scripts");
+  const [activeTab, setActiveTab] = useState<TabView>("documents");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedScript, setSelectedScript] = useState<Script | null>(null);
 
@@ -47,11 +48,12 @@ const Resources: React.FC = () => {
   }, [scripts, searchQuery]);
 
   const filteredDocuments = useMemo(() => {
-    return documents.filter(d => 
-      d.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      d.category.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [documents, searchQuery]);
+    return documents.filter(d => {
+      const categoryName = categories.find(c => c.id === d.category_id)?.name || "Unknown";
+      return d.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+             categoryName.toLowerCase().includes(searchQuery.toLowerCase());
+    });
+  }, [documents, categories, searchQuery]);
 
   if (isLoading) {
     return (
@@ -142,7 +144,9 @@ const Resources: React.FC = () => {
             )
           ) : (
             filteredDocuments.length > 0 ? (
-              filteredDocuments.map(doc => (
+              filteredDocuments.map(doc => {
+                const categoryName = categories.find(c => c.id === doc.category_id)?.name || "Unknown";
+                return (
                 <div
                   key={doc.id}
                   className="w-full flex items-center justify-between px-3 py-3 rounded-lg border border-border/50 bg-card/50 hover:bg-muted/50 transition-colors group"
@@ -154,8 +158,7 @@ const Resources: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold truncate">{doc.title}</p>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">{doc.category}</span>
-                        <span className="text-[10px] text-muted-foreground px-1.5 bg-muted rounded">{doc.file_size}</span>
+                        <span className="text-[10px] text-muted-foreground">{categoryName}</span>
                       </div>
                     </div>
                   </div>
@@ -185,7 +188,7 @@ const Resources: React.FC = () => {
                     )}
                   </div>
                 </div>
-              ))
+              )})
             ) : (
               <div className="text-center py-8 text-sm text-muted-foreground">
                 No documents found.
@@ -246,7 +249,14 @@ const Resources: React.FC = () => {
               Quickly access and download carrier documents, forms, and cheat sheets from the list on the left.
             </p>
             {isAdmin && (
-              <AddAgencyResourceModal onAdd={(doc) => addDocument.mutate(doc)} isLoading={addDocument.isPending} />
+              <div className="flex items-center gap-4">
+                <AddAgencyResourceModal categories={categories} onAdd={(doc) => addDocument.mutate(doc)} isLoading={addDocument.isPending} />
+                <ResourceCategoryManager 
+                  categories={categories} 
+                  onAddCategory={(name) => addCategory.mutate(name)} 
+                  onRemoveCategory={(name) => removeCategory.mutate(name)} 
+                />
+              </div>
             )}
           </div>
         )}

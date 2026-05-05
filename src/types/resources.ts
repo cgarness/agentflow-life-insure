@@ -9,12 +9,18 @@ export interface Script {
   updatedAt: Date;
 }
 
+export interface AgencyResourceCategory {
+  id: string;
+  organization_id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface AgencyResource {
   id: string;
   organization_id: string;
   title: string;
-  category: string;
+  category_id: string;
   content_url?: string;
-  file_size?: string;
   created_at: string;
 }

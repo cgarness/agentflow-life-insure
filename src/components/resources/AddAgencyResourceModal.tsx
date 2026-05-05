@@ -19,37 +19,34 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, FileText, Download, Link as LinkIcon, Loader2 } from "lucide-react";
-import { AgencyResource } from "@/types/resources";
+import { AgencyResource, AgencyResourceCategory } from "@/types/resources";
 
 interface AddAgencyResourceModalProps {
+  categories: AgencyResourceCategory[];
   onAdd: (resource: Partial<AgencyResource>) => void;
   isLoading?: boolean;
 }
 
-const CATEGORIES = ["Carrier Doc", "Form", "Cheat Sheet", "Reference Guide"];
-
-const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ onAdd, isLoading }) => {
+const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categories, onAdd, isLoading }) => {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [categoryId, setCategoryId] = useState("");
   const [url, setUrl] = useState("");
-  const [fileSize, setFileSize] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !url) return;
+    if (!title || !url || !categoryId) return;
 
     onAdd({
       title,
-      category,
+      category_id: categoryId,
       content_url: url,
-      file_size: fileSize || "Link",
     });
     
     setOpen(false);
     setTitle("");
     setUrl("");
-    setFileSize("");
+    setCategoryId("");
   };
 
   return (
@@ -80,31 +77,21 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ onAdd, 
               />
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="category">Category</Label>
-                <Select value={category} onValueChange={setCategory}>
+                <Select value={categoryId} onValueChange={setCategoryId} required>
                   <SelectTrigger id="category">
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map(cat => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
+                    {categories.map(cat => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="size">Size / Type</Label>
-                <Input 
-                  id="size" 
-                  placeholder="e.g. 2.4 MB or PDF" 
-                  value={fileSize}
-                  onChange={(e) => setFileSize(e.target.value)}
-                />
               </div>
             </div>
 
