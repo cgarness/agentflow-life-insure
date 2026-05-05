@@ -108,7 +108,7 @@ const ConversationsPage = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-background">
+    <div className="flex h-full overflow-hidden bg-background">
       <ConversationsSidebar 
         selectedContactId={selectedContactId}
         onSelectContact={handleSelectContact}
