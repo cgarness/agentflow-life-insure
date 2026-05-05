@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { User, Phone, Mail, MapPin, Calendar, ExternalLink, ShieldCheck, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +14,7 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
   contactId,
   contactType,
 }) => {
+  const navigate = useNavigate();
   const [contact, setContact] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -114,35 +116,12 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
           </div>
         </div>
 
-        <div className="space-y-4">
-          <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Metadata</h4>
-          
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 text-sm group">
-              <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-muted-foreground">
-                <Tag className="w-4 h-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-muted-foreground leading-none mb-1">Status</p>
-                <p className="font-medium truncate">{contact.status || 'New'}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 text-sm group">
-              <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-muted-foreground">
-                <Calendar className="w-4 h-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-muted-foreground leading-none mb-1">Created</p>
-                <p className="font-medium truncate">{new Date(contact.created_at).toLocaleDateString()}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <button className="w-full bg-accent hover:bg-accent/80 text-foreground text-xs font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all mt-4">
+        <button 
+          onClick={() => navigate(`/contacts?contact=${contactId}&contactType=${contactType}`)}
+          className="w-full bg-accent hover:bg-accent/80 text-foreground text-xs font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all mt-4"
+        >
           <ExternalLink className="w-3.5 h-3.5" />
-          Full Profile
+          View Contact
         </button>
       </div>
     </div>
