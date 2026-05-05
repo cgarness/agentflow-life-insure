@@ -110,7 +110,7 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
     : null;
 
   return (
-    <div className="w-80 shrink-0 flex flex-col h-full overflow-hidden">
+    <div className="w-[360px] shrink-0 flex flex-col h-full overflow-hidden">
       {/* Top Actions: Hang Up / Skip / Call */}
       <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
         {voiceCallState === "active" || voiceCallState === "dialing" || voiceCallState === "incoming" ? (
