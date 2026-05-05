@@ -48,6 +48,7 @@ import { needsAppOnboardingWizard, resolvePostAuthPath } from "@/lib/onboarding-
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
+import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -145,6 +146,9 @@ const App = () => (
                           <Route path="/dialer" element={<DialerPage />} />
                           <Route path="/contacts" element={<Contacts />} />
                           <Route path="/contacts/import" element={<ImportLeadsPage />} />
+                          <Route path="/leads/:id" element={<ContactDeepLinkPage contactType="lead" />} />
+                          <Route path="/clients/:id" element={<ContactDeepLinkPage contactType="client" />} />
+                          <Route path="/recruits/:id" element={<ContactDeepLinkPage contactType="recruit" />} />
                           <Route path="/conversations" element={<Conversations />} />
                           <Route path="/calendar" element={<CalendarPage />} />
 

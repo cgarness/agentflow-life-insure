@@ -17,13 +17,11 @@ export type SearchResult = {
 
 const querySchema = z.string().trim().min(2).max(100);
 
-// BLOCKER NOTE: No /contacts/:id, /leads/:id, /clients/:id, or /recruits/:id route exists in App.tsx.
-// Contact results navigate to /contacts?type=<type>&id=<id> as a v1 fallback.
-// A dedicated detail route must be added before contact click-through is fully functional.
 function buildRoute(result: SearchResult): string {
   if (result.result_type === "campaign") return `/campaigns/${result.id}`;
   if (result.result_type === "conversation") return `/conversations?call=${result.id}`;
-  return `/contacts?type=${result.result_type}&id=${result.id}`;
+  // Deep-link directly to the contact record (routes added 2026-05-05).
+  return `/${result.result_type}s/${result.id}`;
 }
 
 const GlobalSearch: React.FC = () => {

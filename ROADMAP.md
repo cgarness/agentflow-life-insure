@@ -66,7 +66,7 @@
 
 ### 🔍 Global Search `[STABLE]`
 - **State**: Live Supabase RPC `global_search` searching `leads`, `clients`, `recruits`, `campaigns`, and `calls` scoped by `organization_id`. Frontend wired in `GlobalSearch.tsx` with debounce, Zod validation, grouped results, keyboard nav, Escape/click-away dismiss.
-- **⚠️ BLOCKER — Contact detail routing**: No `/contacts/:id`, `/leads/:id`, `/clients/:id`, or `/recruits/:id` route exists in `App.tsx`. Contact results currently navigate to `/contacts?type=<type>&id=<id>` as a v1 fallback. A dedicated contact detail route (or modal-on-query-param pattern in `Contacts.tsx`) must be added before click-through fully resolves a specific record.
+- **Contact detail routing**: ✅ Resolved (2026-05-05) — deep-link routes `/leads/:id`, `/clients/:id`, `/recruits/:id` added. `GlobalSearch.tsx` `buildRoute()` updated to use these routes directly.
 - **Next Up**: v2 — enable `similarity()` / `word_similarity()` from `pg_trgm` (indexes already deployed); recent-searches history; transcript full-text search.
 
 ---
@@ -115,6 +115,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-05-05 | [DONE] | Deep-Link Contact Routing — /leads/:id, /clients/:id, /recruits/:id**
+  *What:* Added stable, shareable deep-link routes for all three contact types. New page **`src/pages/ContactDeepLinkPage.tsx`** (~130 lines) is a thin wrapper that reads `:id` from the URL and a `contactType` prop from the route declaration, fetches the record via a raw Supabase query using `.maybeSingle()` + explicit `.eq("organization_id", organizationId)` (defense-in-depth on top of RLS), and renders the existing `FullScreenContactView`. If the record is not found or RLS blocks it, a clean "Contact not found" empty state is shown — no crash, no data leak. **`App.tsx`** gains three new `<Route>` entries inside the existing `<ProtectedRoute><AppLayout>` wrapper — no auth or routing restructuring. **`GlobalSearch.tsx`** `buildRoute()` updated to navigate to the new deep-link URLs instead of the legacy `?type=&id=` query-param fallback; BLOCKER comment removed from both `GlobalSearch.tsx` and ROADMAP.
+  *Files:* **`src/pages/ContactDeepLinkPage.tsx`** (new), **`src/App.tsx`** (+4 lines), **`src/components/search/GlobalSearch.tsx`** (buildRoute update), **`ROADMAP.md`**.
+  *No migrations, no Edge Function changes, no RLS changes — pure frontend routing.*
 
 - **2026-05-05 | [HOTFIX] | twilio-token: revert JWT accountSid to master SID — ConnectionError 53000 across all orgs**
   *What:* Phase 2 (2026-05-04) set `sub = subaccount_sid` in the Voice JWT. This caused **ConnectionError 53000** for every org because TwiML App `AP6ac23752609fdee79751693a2a223cd8` lives on the master Twilio account — a JWT scoped to a subaccount cannot reference a TwiML App on the master account. Fix: single argument change in `buildAccessToken()` — `accountSid` parameter now receives `TWILIO_MASTER_ACCOUNT_SID` (env var, already set as an Edge secret from Phase 1 `provision-twilio-subaccount`). Subaccount SID is still fetched and validated for status-gating; it is NOT used in the JWT `sub` claim. All status gates, vault check, response shape, and `verify_jwt=false` unchanged. No migrations, no client changes, no other files touched.
