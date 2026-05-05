@@ -2,15 +2,27 @@ import React from "react";
 import { TrainingResource } from "@/types/training";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, FileText, ScrollText, CheckCircle2, Clock, Download } from "lucide-react";
+import { 
+  Play, FileText, ScrollText, CheckCircle2, Clock, 
+  Download, MoreVertical, Trash2 
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 
 interface ResourceCardProps {
   resource: TrainingResource;
   onClick: (resource: TrainingResource) => void;
+  onDelete?: (id: string) => void;
+  isAdmin?: boolean;
 }
 
-const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
+const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick, onDelete, isAdmin }) => {
   const Icon = {
     video: Play,
     script: ScrollText,
@@ -19,11 +31,11 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
 
   return (
     <Card 
-      className="group relative overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1 cursor-pointer border-border/50 bg-card/50 backdrop-blur-sm"
+      className="group relative overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1 cursor-pointer border-border/50 bg-card/50 backdrop-blur-sm flex flex-col h-full"
       onClick={() => onClick(resource)}
     >
       {/* Thumbnail */}
-      <div className="relative aspect-video overflow-hidden bg-muted">
+      <div className="relative aspect-video overflow-hidden bg-muted shrink-0">
         {resource.thumbnailUrl ? (
           <img 
             src={resource.thumbnailUrl} 
@@ -47,12 +59,34 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
           </div>
         )}
 
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 right-2 flex gap-1">
           {resource.isCompleted && (
-            <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20 backdrop-blur-md">
+            <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20 backdrop-blur-md h-5 px-1.5">
               <CheckCircle2 className="mr-1 h-3 w-3" />
               Completed
             </Badge>
+          )}
+          
+          {isAdmin && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button variant="secondary" size="icon" className="h-5 w-5 bg-black/50 hover:bg-black/70 border-none text-white backdrop-blur-md">
+                  <MoreVertical className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem 
+                  className="text-destructive focus:text-destructive gap-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete?.(resource.id);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Resource
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
 
@@ -63,9 +97,9 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
         )}
       </div>
 
-      <CardHeader className="p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-semibold py-0">
+      <CardHeader className="p-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-semibold py-0 h-4">
             {resource.category}
           </Badge>
           <span className="text-muted-foreground text-[10px] flex items-center gap-1">
@@ -73,10 +107,10 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
             {resource.fileSize || resource.duration || "5 min"}
           </span>
         </div>
-        <CardTitle className="text-lg group-hover:text-primary transition-colors line-clamp-1">
+        <CardTitle className="text-base group-hover:text-primary transition-colors line-clamp-1">
           {resource.title}
         </CardTitle>
-        <CardDescription className="line-clamp-2 text-xs">
+        <CardDescription className="line-clamp-2 text-xs leading-relaxed">
           {resource.description}
         </CardDescription>
       </CardHeader>
@@ -87,7 +121,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
           {resource.type.toUpperCase()}
         </div>
         <div className="text-[10px] text-muted-foreground">
-          Added {new Date(resource.createdAt).toLocaleDateString()}
+          {new Date(resource.createdAt).toLocaleDateString()}
         </div>
       </div>
     </Card>

@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from "react";
-import { Search, Plus, GraduationCap, Play, ScrollText, FileText, LayoutGrid } from "lucide-react";
+import { Search, GraduationCap, Play, ScrollText, FileText, ChevronRight, Hash } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { MOCK_RESOURCES, TRAINING_CATEGORIES } from "@/constants/trainingData";
 import ResourceCard from "@/components/training/ResourceCard";
 import ResourceDetail from "@/components/training/ResourceDetail";
 import AddResourceModal from "@/components/training/AddResourceModal";
+import CategoryManager from "@/components/training/CategoryManager";
 import { TrainingResource } from "@/types/training";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ const Training: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState("All");
   const [selectedResource, setSelectedResource] = useState<TrainingResource | null>(null);
   const [resources, setResources] = useState<TrainingResource[]>(MOCK_RESOURCES);
+  const [categories, setCategories] = useState<string[]>(TRAINING_CATEGORIES);
 
   // Derived state for filtered resources
   const filteredResources = useMemo(() => {
@@ -32,117 +33,166 @@ const Training: React.FC = () => {
     setResources(prev => prev.map(r => 
       r.id === id ? { ...r, isCompleted: !r.isCompleted } : r
     ));
-    // Also update selected resource if it's the one being toggled
     if (selectedResource?.id === id) {
       setSelectedResource(prev => prev ? { ...prev, isCompleted: !prev.isCompleted } : null);
     }
   };
 
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+  const handleAddResource = (newResource: TrainingResource) => {
+    setResources(prev => [newResource, ...prev]);
+  };
+
+  const handleDeleteResource = (id: string) => {
+    setResources(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleAddCategory = (newCategory: string) => {
+    if (!categories.includes(newCategory)) {
+      setCategories(prev => [...prev, newCategory]);
+    }
+  };
+
+  const handleRemoveCategory = (categoryToRemove: string) => {
+    setCategories(prev => prev.filter(c => c !== categoryToRemove));
+    if (activeCategory === categoryToRemove) {
+      setActiveCategory("All");
+    }
+  };
+
+  // Case-insensitive role check for Admin and Super Admin
+  const isAdmin = profile?.role?.toLowerCase() === 'admin' || 
+                  profile?.role?.toLowerCase() === 'super admin' ||
+                  profile?.is_super_admin === true;
 
   return (
-    <div className="container mx-auto py-8 space-y-8 animate-in fade-in duration-500">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <GraduationCap className="h-8 w-8 text-primary" />
-            Agency Training Center
+    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)] bg-background/50 animate-in fade-in duration-500">
+      {/* Sidebar Navigation */}
+      <aside className="w-full lg:w-64 border-r border-border/50 bg-card/30 backdrop-blur-md p-6 space-y-8 lg:sticky lg:top-0 h-auto lg:h-[calc(100vh-4rem)] overflow-y-auto">
+        <div className="space-y-1">
+          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+            <GraduationCap className="h-6 w-6 text-primary" />
+            Training Center
           </h1>
-          <p className="text-muted-foreground mt-1">
-            Empower your team with scripts, guides, and onboarding videos.
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
+            Knowledge Library
           </p>
         </div>
-        {isAdmin && <AddResourceModal />}
-      </div>
 
-      {/* Search and Filters */}
-      <div className="flex flex-col lg:flex-row gap-4 items-center justify-between bg-card/50 backdrop-blur-sm p-4 rounded-xl border border-border/50">
-        <div className="relative w-full lg:max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search scripts, videos, or guides..." 
-            className="pl-10 bg-background/50 border-border/50 focus-visible:ring-primary/20"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <Tabs 
-          value={activeCategory} 
-          onValueChange={setActiveCategory} 
-          className="w-full lg:w-auto"
-        >
-          <TabsList className="bg-background/50 border border-border/50 h-10 p-1">
-            {TRAINING_CATEGORIES.map(category => (
-              <TabsTrigger 
-                key={category} 
-                value={category}
-                className="px-4 py-1.5 text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">Categories</p>
+            {isAdmin && (
+              <CategoryManager 
+                categories={categories} 
+                onAddCategory={handleAddCategory} 
+                onRemoveCategory={handleRemoveCategory} 
+              />
+            )}
+          </div>
+          <nav className="space-y-1">
+            {categories.map((category) => (
+              <button
+                key={category}
+                onClick={() => setActiveCategory(category)}
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all group",
+                  activeCategory === category 
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" 
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
               >
-                {category}
-              </TabsTrigger>
+                <div className="flex items-center gap-2">
+                  <Hash className={cn("h-3.5 w-3.5 opacity-50", activeCategory === category ? "text-primary-foreground" : "text-primary")} />
+                  {category}
+                </div>
+                {activeCategory === category && <ChevronRight className="h-3 w-3" />}
+              </button>
             ))}
-          </TabsList>
-        </Tabs>
-      </div>
-
-      {/* Resources Grid */}
-      {filteredResources.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
-          {filteredResources.map((resource) => (
-            <ResourceCard 
-              key={resource.id} 
-              resource={resource} 
-              onClick={setSelectedResource}
-            />
-          ))}
+          </nav>
         </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-20 text-center bg-card/30 rounded-3xl border border-dashed border-border/50">
-          <div className="h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
-            <Search className="h-10 w-10 text-muted-foreground/50" />
+
+        <div className="pt-8 space-y-4 border-t border-border/50">
+          <p className="text-xs font-medium text-muted-foreground">Overview</p>
+          <div className="space-y-3">
+            {[
+              { icon: Play, label: "Videos", count: resources.filter(r => r.type === 'video').length, color: "text-blue-500" },
+              { icon: ScrollText, label: "Scripts", count: resources.filter(r => r.type === 'script').length, color: "text-amber-500" },
+              { icon: FileText, label: "Docs", count: resources.filter(r => r.type === 'document').length, color: "text-emerald-500" },
+            ].map((stat, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <stat.icon className={cn("h-3.5 w-3.5", stat.color)} />
+                  {stat.label}
+                </div>
+                <span className="font-bold">{stat.count}</span>
+              </div>
+            ))}
           </div>
-          <h3 className="text-xl font-semibold">No resources found</h3>
-          <p className="text-muted-foreground max-w-xs mt-2">
-            Try adjusting your search or category filters to find what you're looking for.
-          </p>
-          <Button 
-            variant="link" 
-            onClick={() => { setSearchQuery(""); setActiveCategory("All"); }}
-            className="mt-4"
-          >
-            Clear all filters
-          </Button>
         </div>
-      )}
+      </aside>
 
-      {/* Resource Detail Modal */}
-      <ResourceDetail 
-        resource={selectedResource}
-        open={!!selectedResource}
-        onOpenChange={(open) => !open && setSelectedResource(null)}
-        onToggleComplete={handleToggleComplete}
-      />
-
-      {/* Quick Stats / Legend */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-8">
-        {[
-          { icon: Play, label: "Video Lessons", count: resources.filter(r => r.type === 'video').length, color: "text-blue-500" },
-          { icon: ScrollText, label: "Sales Scripts", count: resources.filter(r => r.type === 'script').length, color: "text-amber-500" },
-          { icon: FileText, label: "Resource Guides", count: resources.filter(r => r.type === 'document').length, color: "text-emerald-500" },
-        ].map((stat, i) => (
-          <div key={i} className="flex items-center gap-3 p-4 rounded-xl bg-card/30 border border-border/50">
-            <div className={cn("p-2 rounded-lg bg-background/50 shadow-sm", stat.color)}>
-              <stat.icon className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{stat.label}</p>
-              <p className="text-2xl font-bold">{stat.count}</p>
-            </div>
+      {/* Main Content Area */}
+      <main className="flex-1 p-6 lg:p-10 space-y-8 overflow-y-auto">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-2xl font-bold tracking-tight">{activeCategory}</h2>
+            <p className="text-muted-foreground text-sm">
+              Viewing {filteredResources.length} resources in {activeCategory}
+            </p>
           </div>
-        ))}
-      </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search resources..." 
+                className="pl-10 bg-background/50 border-border/50"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            {isAdmin && (
+              <AddResourceModal 
+                categories={categories} 
+                onAdd={handleAddResource} 
+              />
+            )}
+          </div>
+        </header>
+
+        {/* Resources Grid */}
+        {filteredResources.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+            {filteredResources.map((resource) => (
+              <ResourceCard 
+                key={resource.id} 
+                resource={resource} 
+                onClick={setSelectedResource}
+                onDelete={handleDeleteResource}
+                isAdmin={isAdmin}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-24 text-center bg-card/20 rounded-3xl border border-dashed border-border/50">
+            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Search className="h-8 w-8 text-muted-foreground/50" />
+            </div>
+            <h3 className="text-lg font-semibold">No results found</h3>
+            <p className="text-muted-foreground max-w-xs mt-1 text-sm">
+              We couldn't find any resources matching your criteria in this category.
+            </p>
+          </div>
+        )}
+
+        {/* Resource Detail Modal */}
+        <ResourceDetail 
+          resource={selectedResource}
+          open={!!selectedResource}
+          onOpenChange={(open) => !open && setSelectedResource(null)}
+          onToggleComplete={handleToggleComplete}
+        />
+      </main>
     </div>
   );
 };
