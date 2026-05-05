@@ -3401,7 +3401,7 @@ export default function DialerPage() {
 
               {/* Status and Time */}
               {currentLead && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full">
                   <div className="relative flex-1">
                     <select
                       value={currentLead?.status || ""}
@@ -3419,7 +3419,7 @@ export default function DialerPage() {
                   </div>
                   
                   {contactLocalTimeDisplay && (
-                    <div className="shrink-0 inline-flex items-center justify-center text-green-500 text-[10px] font-bold">
+                    <div className="flex-1 inline-flex items-center justify-center bg-green-500/10 text-green-600 dark:text-green-400 rounded-md border border-green-500/20 py-1 px-2 text-[10px] font-bold shadow-sm whitespace-nowrap">
                       <Clock className="w-2.5 h-2.5 mr-1" />
                       {contactLocalTimeDisplay}
                     </div>
