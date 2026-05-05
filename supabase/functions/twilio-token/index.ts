@@ -212,23 +212,30 @@ Deno.serve(async (req) => {
     const apiKeySid = Deno.env.get("TWILIO_API_KEY_SID");
     const apiKeySecret = Deno.env.get("TWILIO_API_KEY_SECRET");
     const twimlAppSid = Deno.env.get("TWILIO_TWIML_APP_SID");
+    // HOTFIX 2026-05-05: JWT sub must be master account SID, not subaccount SID.
+    // TwiML App AP6ac23752609fdee79751693a2a223cd8 lives on the master account.
+    // A JWT scoped to a subaccount cannot reference a TwiML App on the master account
+    // (causes ConnectionError 53000). Master API keys mint valid tokens for all owned subaccounts.
+    const masterAccountSid = Deno.env.get("TWILIO_MASTER_ACCOUNT_SID");
 
     if (!apiKeySid || !apiKeySecret || !twimlAppSid) {
       console.error("[twilio-token] Missing Twilio API key / TwiML app env vars");
       return json({ error: "Server configuration error" }, 500);
     }
-
-    const subaccountSid = String(org.twilio_subaccount_sid);
+    if (!masterAccountSid) {
+      console.error("[twilio-token] TWILIO_MASTER_ACCOUNT_SID is not set — cannot mint token");
+      return json({ error: "Server configuration error", code: "MASTER_SID_MISSING" }, 500);
+    }
 
     const token = await buildAccessToken(
       apiKeySid,
       apiKeySecret,
-      subaccountSid,
+      masterAccountSid, // sub = master account SID (not subaccount SID)
       twimlAppSid,
       identity,
     );
 
-    console.log(`[twilio-token] org=${orgId} sid=${sidPartial} outcome=ok`);
+    console.log(`[twilio-token] org=${orgId} sid=${sidPartial} master=${masterAccountSid.slice(0, 8)}... outcome=ok`);
 
     return json({ token, identity, expires_in: 14400 }, 200);
   } catch (error) {
