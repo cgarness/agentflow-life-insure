@@ -2604,6 +2604,29 @@ Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed
 
 ---
 
+### Work Log — 2026-05-06 — Phase 1 Dialer Refactor: Extract useDialerSession Hook `[DONE]`
+
+**Task:** Begin incremental decomposition of `DialerPage.tsx` (was 3,843 lines) by extracting self-contained session state into a standalone `useDialerSession` hook. Phase 1 scope only.
+
+**Files created:**
+- `src/hooks/useDialerSession.ts` (117 lines) — new hook holding: `campaigns` list + fetch effect, `campaignsLoading`, `selectedCampaignId`/`setSelectedCampaignId` (URL param management via `useSearchParams`), `selectedCampaign` derived value, `sessionStats` state + setter.
+
+**Files modified:**
+- `src/pages/DialerPage.tsx` — removed extracted state declarations and campaign fetch effect; replaced with single `useDialerSession()` destructure. Before: 3,843 lines. After: 3,793 lines (−50 lines net).
+
+**What was NOT extracted (with reasons):**
+- `syncSettings` effect: calls `twilioInitialize()` + `twilioApplyDialSessionRingTimeout()` — direct Twilio Device dependency.
+- Session duration timer: interleaves `upsertDialerStats` writes with `sessionTimerRef` interval management.
+- `getTodayCallCount` grounding effect: also sets `dialerStats` (cumulative daily stats) — cannot split without side effects.
+- `currentLeadIndex` / `leadQueue`: no Twilio dep but tightly coupled to 25+ queue management handlers. Phase 2 candidate.
+- `dialerStats`: cumulative daily stats, not session stats.
+
+**Re-entrancy guard refs confirmed**: all 9 guards (`isDialingRef`, `twilioVoiceReadyRef`, `initializeInFlightRef`, `endStateProcessedRef`, `callLogSentRef`, `outboundRemoteAnsweredRef`, `callIdsDbSyncedRef`, `outboundRingTimerRef`, `pendingAbortCallIdRef`) remain in `TwilioContext.tsx` — not touched.
+
+**Verification:** `npx tsc --noEmit` passes with zero errors. All existing `setSessionStats`, `setCampaigns`, `selectedCampaignId`, `setSelectedCampaignId` call-sites in DialerPage are syntactically identical — only the source of the values changed.
+
+**No new migrations, env vars, or schema changes.**
+
 ### Work Log — 2026-05-05 — Building Contact Follow-up Tasks `[DONE]`
 
 **Task:** Implement a non-call follow-up task management system for the CRM. This involves creating a `tasks` table with robust RLS policies, an API wrapper for data operations, and UI components (`TasksPanel` and `AddTaskModal`) for the FullScreenContactView that allow agents to track and complete follow-up items.
@@ -2617,4 +2640,37 @@ Replaced four hardcoded mock results in `TopBar.tsx` with a real Supabase-backed
 **Files modified:**
 - `src/components/contacts/FullScreenContactView.tsx` — integrated the `TasksPanel` into the right tab selection, adjacent to Activity, Notes, and Campaigns.
 - `ROADMAP.md` — logged this work.
+
+---
+
+### Context Snapshot — 2026-05-06 — Phase 1 Dialer Refactor: useDialerSession Hook
+
+**What was done:**
+
+`DialerPage.tsx` was 3,843 lines — the single largest technical debt item in the codebase. Phase 1 of the incremental decomposition extracted the cleanest, most self-contained state cluster into `src/hooks/useDialerSession.ts`.
+
+**Extracted to hook:**
+- `campaigns` state + the campaign fetch effect (org/role visibility filtering, Supabase query) — 44 lines removed from DialerPage
+- `selectedCampaignId` (derived from URL `?campaign=` param) + `setSelectedCampaignId` (writes URL param via hook-owned `useSearchParams` instance)
+- `campaignsLoading` boolean
+- `selectedCampaign` derived value (`campaigns.find(c => c.id === selectedCampaignId)`)
+- `sessionStats` state (`{ calls_made, calls_connected, total_talk_seconds, policies_sold }`)
+
+**Hook design decisions:**
+- Hook consumes `useAuth`, `useOrganization`, and its own `useSearchParams` instance. No raw Twilio Device refs accepted or passed.
+- All 8 return values use identical variable names to their DialerPage originals, so every call-site (`setSessionStats(...)`, `setCampaigns(...)`, `selectedCampaignId`, etc.) in DialerPage is syntactically unchanged.
+- `setSessionStats` and `setCampaigns` are exported as raw React dispatch setters so existing embedded call-sites in `handleCall`, `handleHangUp`, `handleSaveOnly`, `handleSaveAndNext`, `handleSaveCallingSettings`, and `handleToggleLocalPresence` continue to work without modification.
+
+**Before / after line count:**
+- `DialerPage.tsx`: 3,843 → 3,793 lines (−50 net)
+- `useDialerSession.ts`: new file, 117 lines
+
+**What's next for Phase 2:**
+The next safest extractions are:
+1. `currentLeadIndex` + `leadQueue` + queue management effects — this is a larger cluster but fully independent of Twilio Device. Would reduce DialerPage by ~300–400 lines.
+2. Calling settings state (`callingSettingsOpen`, `isUnlimited`, `maxAttemptsValue`, `callingHoursStart`, etc.) + `handleSaveCallingSettings` — purely DB interaction, no Twilio dependency.
+
+**Confirmed untouched:** All 9 re-entrancy guard refs (`isDialingRef`, `twilioVoiceReadyRef`, `initializeInFlightRef`, `endStateProcessedRef`, `callLogSentRef`, `outboundRemoteAnsweredRef`, `callIdsDbSyncedRef`, `outboundRingTimerRef`, `pendingAbortCallIdRef`) remain in `TwilioContext.tsx`.
+
+**Files touched:** `src/hooks/useDialerSession.ts` (new), `src/pages/DialerPage.tsx`, `ROADMAP.md`.
 

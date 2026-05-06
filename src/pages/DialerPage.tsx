@@ -99,6 +99,7 @@ import ClaimRing from "@/components/dialer/ClaimRing";
 import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
+import { useDialerSession } from "@/hooks/useDialerSession";
 import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
 import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSkeletons";
@@ -250,12 +251,11 @@ export default function DialerPage() {
   /* --- state --- */
   const [searchParams, setSearchParams] = useSearchParams();
   const [fetchingFromUrl, setFetchingFromUrl] = useState(false);
-  const [campaigns, setCampaigns] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const selectedCampaignId = searchParams.get("campaign");
-  const setSelectedCampaignId = (id: string | null) => {
-    if (id) setSearchParams({ campaign: id });
-    else setSearchParams({});
-  };
+  const {
+    campaigns, setCampaigns, campaignsLoading,
+    selectedCampaignId, setSelectedCampaignId, selectedCampaign,
+    sessionStats, setSessionStats,
+  } = useDialerSession();
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
@@ -363,7 +363,6 @@ export default function DialerPage() {
   const [aptEndTime, setAptEndTime] = useState("10:30 AM");
   const [aptNotes, setAptNotes] = useState("");
   const [dialerStats, setDialerStats] = useState<DialerDailyStats | null>(null);
-  const [sessionStats, setSessionStats] = useState({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
 
   // Keep ?contact= aligned with whichever lead is at currentLeadIndex.
   // Do NOT gate on isAdvancing — advance/skip/queue/arrow handlers bump the index while
@@ -660,8 +659,6 @@ export default function DialerPage() {
   const [showQueueFilters, setShowQueueFilters] = useState(false);
   const [showQueueFieldPicker, setShowQueueFieldPicker] = useState(false);
 
-  const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
-
   // ── Campaign type helpers ──
   const campaignType = (selectedCampaign?.type || "Personal") as string;
   /** True for Team and Open Pool campaigns — uses atomic lock queue. */
@@ -769,8 +766,6 @@ export default function DialerPage() {
   }, [selectedCampaignId, user?.id]);
 
   /* --- queries --- */
-  
-  const [campaignsLoading, setCampaignsLoading] = useState(true);
 
   const { data: campaignStateStats = {} } = useQuery({
     queryKey: ["campaignStateStats"],
@@ -858,53 +853,8 @@ export default function DialerPage() {
   const lastUsedCallerId = useRef<string>("");
 
   /* --- effects for syncing query data to state if needed --- */
-  // Note: We prefer using the data from useQuery directly, but some effects or 
+  // Note: We prefer using the data from useQuery directly, but some effects or
   // handlers might expect these states. We'll update them via useEffect for compatibility.
-  useEffect(() => {
-    const fetchCampaigns = async () => {
-      if (!organizationId) return;
-      setCampaignsLoading(true);
-      // Note: omit `dial_delay_seconds` here so older DBs without that column still load the list;
-      // delay is loaded when a campaign is selected (sync effect + optional follow-up query).
-      const { data, error } = await supabase
-        .from('campaigns')
-        .select('id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, created_by')
-        .eq('organization_id', organizationId)
-        .eq('status', 'Active')
-        .order('name', { ascending: true });
-      if (error) {
-        console.error('[Dialer] campaigns fetch:', error);
-        toast.error('Could not load campaigns. Check your connection or ask an admin to verify database migrations.');
-        setCampaigns([]);
-        setCampaignsLoading(false);
-        return;
-      }
-      if (data) {
-        const userId = user?.id;
-        const roleLower = (profile?.role || '').toLowerCase().trim();
-        const seesAllDialerCampaigns =
-          Boolean(profile?.is_super_admin) ||
-          roleLower === 'admin' ||
-          roleLower === 'manager' ||
-          roleLower === 'team leader' ||
-          roleLower === 'team lead' ||
-          roleLower === 'team_leader';
-        // Agents: POOL is open; PERSONAL/TEAM need creator or assignment. Elevated roles: match RLS (all rows returned).
-        const visible = seesAllDialerCampaigns
-          ? data
-          : data.filter((c: any) => {
-              const t = (c.type || '').toUpperCase();
-              if (t.includes('POOL')) return true;
-              const ids: string[] = Array.isArray(c.assigned_agent_ids) ? c.assigned_agent_ids : [];
-              return c.created_by === userId || ids.includes(userId ?? '');
-            });
-        setCampaigns(visible);
-      }
-      setCampaignsLoading(false);
-    };
-    fetchCampaigns();
-  }, [organizationId, user?.id, profile?.role, profile?.is_super_admin]);
-
   useEffect(() => {
     setDispositions(dispositionsData);
   }, [dispositionsData]);
