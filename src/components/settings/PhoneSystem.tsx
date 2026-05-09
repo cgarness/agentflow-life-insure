@@ -21,8 +21,7 @@ export type PhoneSystemTab =
   | "inbound-routing"
   | "call-recording"
   | "recordings"
-  | "monitoring"
-  | "twilio-connection";
+  | "monitoring";
 
 export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
   if (slug === "phone-system") return "phone";
@@ -32,8 +31,7 @@ export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
     slug === "inbound-routing" ||
     slug === "call-recording" ||
     slug === "recordings" ||
-    slug === "monitoring" ||
-    slug === "twilio-connection"
+    slug === "monitoring"
   ) {
     return slug as PhoneSystemTab;
   }
@@ -99,11 +97,6 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           <TabsTrigger value="monitoring" className={tabTriggerClass}>
             Call Monitoring
           </TabsTrigger>
-          {isSuperAdmin && (
-            <TabsTrigger value="twilio-connection" className={tabTriggerClass}>
-              Twilio Connection
-            </TabsTrigger>
-          )}
         </TabsList>
 
         {/* Trust Hub */}
@@ -157,32 +150,6 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
         <TabsContent value="monitoring" className="mt-4">
           <CallMonitoring />
         </TabsContent>
-
-        {/* Twilio Connection — Super Admin only */}
-        {isSuperAdmin && (
-          <TabsContent value="twilio-connection" className="mt-4">
-            <TwilioCredentialsSection
-              accountSid={phone.accountSid}
-              setAccountSid={phone.setAccountSid}
-              authToken={phone.authToken}
-              setAuthToken={phone.setAuthToken}
-              apiKeySid={phone.apiKeySid}
-              setApiKeySid={phone.setApiKeySid}
-              apiKeySecret={phone.apiKeySecret}
-              setApiKeySecret={phone.setApiKeySecret}
-              applicationSid={phone.applicationSid}
-              setApplicationSid={phone.setApplicationSid}
-              recordingEnabled={phone.recordingEnabled}
-              setRecordingEnabled={phone.setRecordingEnabled}
-              hasChanges={phone.hasChanges}
-              saving={phone.saving}
-              onSave={phone.handleSave}
-              testing={phone.testing}
-              onTest={phone.handleTest}
-              testResult={phone.testResult}
-            />
-          </TabsContent>
-        )}
       </Tabs>
     </div>
   );

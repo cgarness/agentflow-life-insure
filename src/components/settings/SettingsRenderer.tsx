@@ -15,6 +15,7 @@ import DNCSettings from "@/components/settings/DNCSettings";
 import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
 import MasterAdmin from "@/components/settings/MasterAdmin";
+import TwilioConnection from "@/components/settings/TwilioConnection";
 import { Settings } from "lucide-react";
 import { ALL_SETTINGS_SECTIONS } from "@/config/settingsConfig";
 
@@ -48,6 +49,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "menu-links": return <CustomMenuLinks />;
     case "activity-log": return <ActivityLog />;
     case "master-admin": return isSuperAdmin ? <MasterAdmin /> : <MyProfile />;
+    case "twilio-connection": return isSuperAdmin ? <TwilioConnection /> : <MyProfile />;
     case "ai": return (
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">AI Settings</h3>

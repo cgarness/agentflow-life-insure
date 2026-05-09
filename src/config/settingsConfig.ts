@@ -45,7 +45,10 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
   },
   {
     label: "Telephony Stack",
-    sections: [{ slug: "phone-system", icon: Phone, label: "Phone System" }],
+    sections: [
+      { slug: "phone-system", icon: Phone, label: "Phone System" },
+      { slug: "twilio-connection", icon: Database, label: "Twilio Connection" },
+    ],
   },
   {
     label: "Sales Strategy",

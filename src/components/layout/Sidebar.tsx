@@ -62,7 +62,7 @@ const Sidebar: React.FC = () => {
               <div key={cat.label} className="mb-4">
                 {!collapsed && <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">{cat.label}</p>}
                 {cat.sections
-                  .filter((s) => s.slug !== "master-admin" || isSuperAdmin)
+                  .filter((s) => !["master-admin", "twilio-connection"].includes(s.slug) || isSuperAdmin)
                   .map((s) => (
                   <SettingsNavItem
                     key={s.slug}
