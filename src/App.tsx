@@ -38,6 +38,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
+import LandingPageTest1 from "./pages/LandingPageTest1";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
@@ -139,6 +140,7 @@ const App = () => (
                         <Route path="/auth/callback" element={<AuthCallback />} />
                         <Route path="/onboarding" element={<OnboardingShell />} />
                         <Route path="/" element={<LandingPage />} />
+                        <Route path="/homepagetest1" element={<LandingPageTest1 />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
