@@ -98,6 +98,7 @@ type RegisterBody = {
   action?: string;
   business_name?: string;
   business_type?: string;
+  business_industry?: string;
   ein?: string;
   address_street?: string;
   address_city?: string;
@@ -107,7 +108,12 @@ type RegisterBody = {
   contact_last_name?: string;
   contact_email?: string;
   contact_phone?: string;
+  contact_title?: string;
   website?: string;
+  cnam_display_name?: string;
+  enroll_shaken_stir?: boolean;
+  enroll_voice_integrity?: boolean;
+  enroll_cnam?: boolean;
 };
 
 const BUSINESS_TYPES = new Set(["sole_proprietorship", "partnership", "llc", "corporation"]);
@@ -426,17 +432,29 @@ Deno.serve(async (req) => {
       await persistDraft({ customer_profile_sid: customerProfileSid });
     }
 
+    const businessIndustry = String(b.business_industry ?? "INSURANCE").trim();
+    const contactTitle = String(b.contact_title ?? "").trim();
+
     let endUserSid = draft.end_user_sid ?? "";
     if (!endUserSid) {
-      const endUserAttrs = {
+      const endUserAttrs: Record<string, string | undefined> = {
         business_name: businessName,
         business_type: String(b.business_type).trim(),
         ein: einDigits,
-        business_industry: "INSURANCE",
+        business_industry: businessIndustry,
         business_registration_number: einDigits,
         business_regions_of_operation: "US",
         website_url: website || undefined,
+        job_position: contactTitle || undefined,
+        first_name: String(b.contact_first_name ?? "").trim() || undefined,
+        last_name: String(b.contact_last_name ?? "").trim() || undefined,
+        email: contactEmail || undefined,
+        phone_number: String(b.contact_phone ?? "").trim() || undefined,
       };
+      // Remove undefined values
+      for (const k of Object.keys(endUserAttrs)) {
+        if (endUserAttrs[k] === undefined) delete endUserAttrs[k];
+      }
       const er = await postForm(accountSid, authToken, "https://trusthub.twilio.com/v1/EndUsers", {
         FriendlyName: businessName,
         Type: "customer_profile_business_information",

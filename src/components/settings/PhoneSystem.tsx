@@ -1,10 +1,12 @@
 import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useOrganization } from "@/hooks/useOrganization";
 import PhoneSettings from "./PhoneSettings";
 import { NumberManagementSection } from "./phone/NumberManagementSection";
 import { InboundRoutingSection } from "./phone/InboundRoutingSection";
 import { LocalPresenceSection } from "./phone/LocalPresenceSection";
+import { TwilioCredentialsSection } from "./phone/TwilioCredentialsSection";
 import NumberReputation from "./NumberReputation";
 import InboundCallRouting from "./InboundCallRouting";
 import CallRecordingSettings from "./CallRecordingSettings";
@@ -19,7 +21,8 @@ export type PhoneSystemTab =
   | "inbound-routing"
   | "call-recording"
   | "recordings"
-  | "monitoring";
+  | "monitoring"
+  | "twilio-connection";
 
 export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
   if (slug === "phone-system") return "phone";
@@ -29,7 +32,8 @@ export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
     slug === "inbound-routing" ||
     slug === "call-recording" ||
     slug === "recordings" ||
-    slug === "monitoring"
+    slug === "monitoring" ||
+    slug === "twilio-connection"
   ) {
     return slug as PhoneSystemTab;
   }
@@ -37,7 +41,6 @@ export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
 }
 
 interface PhoneSystemProps {
-  /** Tab shown when this screen first mounts (from `?section=` or default). */
   defaultTab?: PhoneSystemTab;
 }
 
@@ -50,6 +53,7 @@ const tabTriggerClass =
 
 const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
   const phone = usePhoneSettingsController();
+  const { isSuperAdmin } = useOrganization();
 
   if (phone.loading) {
     return (
@@ -81,7 +85,7 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
             Phone Numbers
           </TabsTrigger>
           <TabsTrigger value="number-reputation" className={tabTriggerClass}>
-            Number reputation
+            Number Reputation
           </TabsTrigger>
           <TabsTrigger value="inbound-routing" className={tabTriggerClass}>
             Inbound Routing
@@ -95,12 +99,19 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           <TabsTrigger value="monitoring" className={tabTriggerClass}>
             Call Monitoring
           </TabsTrigger>
+          {isSuperAdmin && (
+            <TabsTrigger value="twilio-connection" className={tabTriggerClass}>
+              Twilio Connection
+            </TabsTrigger>
+          )}
         </TabsList>
 
+        {/* Trust Hub */}
         <TabsContent value="phone" className="mt-4">
           <PhoneSettings phone={phone} />
         </TabsContent>
 
+        {/* Phone Numbers */}
         <TabsContent value="phone-numbers" className="mt-4 space-y-6">
           <NumberManagementSection
             organizationId={phone.organizationId ?? null}
@@ -116,10 +127,12 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           />
         </TabsContent>
 
+        {/* Number Reputation */}
         <TabsContent value="number-reputation" className="mt-4">
           <NumberReputation />
         </TabsContent>
 
+        {/* Inbound Routing */}
         <TabsContent value="inbound-routing" className="mt-4 space-y-6">
           <InboundRoutingSection
             inboundRouting={phone.inboundRouting}
@@ -130,17 +143,46 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           <InboundCallRouting />
         </TabsContent>
 
+        {/* Recording Settings */}
         <TabsContent value="call-recording" className="mt-4">
           <CallRecordingSettings />
         </TabsContent>
 
+        {/* Recording Library */}
         <TabsContent value="recordings" className="mt-4">
           <CallRecordingLibrary />
         </TabsContent>
 
+        {/* Call Monitoring */}
         <TabsContent value="monitoring" className="mt-4">
           <CallMonitoring />
         </TabsContent>
+
+        {/* Twilio Connection — Super Admin only */}
+        {isSuperAdmin && (
+          <TabsContent value="twilio-connection" className="mt-4">
+            <TwilioCredentialsSection
+              accountSid={phone.accountSid}
+              setAccountSid={phone.setAccountSid}
+              authToken={phone.authToken}
+              setAuthToken={phone.setAuthToken}
+              apiKeySid={phone.apiKeySid}
+              setApiKeySid={phone.setApiKeySid}
+              apiKeySecret={phone.apiKeySecret}
+              setApiKeySecret={phone.setApiKeySecret}
+              applicationSid={phone.applicationSid}
+              setApplicationSid={phone.setApplicationSid}
+              recordingEnabled={phone.recordingEnabled}
+              setRecordingEnabled={phone.setRecordingEnabled}
+              hasChanges={phone.hasChanges}
+              saving={phone.saving}
+              onSave={phone.handleSave}
+              testing={phone.testing}
+              onTest={phone.handleTest}
+              testResult={phone.testResult}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
