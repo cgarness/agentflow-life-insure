@@ -227,7 +227,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       });
       if (error) throw error;
       if (data?.error) { toast.error(data.error); return; }
-      toast.success("Submitted to Twilio Trust Hub — status is pending review.");
+      toast.success("Submitted to Trust Hub — status is pending review.");
       setTwilioStatus("pending-review");
       await onRefresh();
     } catch (e) {
@@ -264,60 +264,80 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
 
   // ── Registered state ──────────────────────────────────────────────────────
   if (trustHubProfileSid) {
+    const isApproved = twilioStatus === "twilio-approved";
+    const isPending = twilioStatus === "pending-review" || twilioStatus === "in-review";
+    const isRejected = twilioStatus === "twilio-rejected";
+
     return (
       <div className="space-y-6">
-        {/* Status banner */}
-        <div className="rounded-xl border border-border/50 bg-muted/20 p-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-3 justify-between">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Trust Hub Profile</p>
-              <code className="text-xs font-mono text-muted-foreground break-all block mt-1">{trustHubProfileSid}</code>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge status={twilioStatus} />
-              <Button type="button" variant="outline" size="sm" disabled={checking} onClick={() => void runCheckStatus()}>
-                {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                <span className="ml-1.5">Refresh status</span>
-              </Button>
-            </div>
-          </div>
-
-          {twilioStatus && REVIEW_STATUSES.has(twilioStatus) && (
-            <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/40 pt-3">
-              ⏳ Under review — Twilio typically completes verification within 1–5 business days.
-              Check back after hearing from Twilio.
-            </p>
-          )}
-          {twilioStatus === "twilio-rejected" && (
-            <p className="text-xs text-destructive leading-relaxed border-t border-border/40 pt-3">
-              ✗ Twilio rejected this profile. Open a support ticket in your{" "}
-              <a href="https://console.twilio.com" target="_blank" rel="noreferrer" className="underline">Twilio Console</a>{" "}
-              for the exact rejection reason.
-            </p>
-          )}
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Registration Status</h3>
+          <Button type="button" variant="outline" size="sm" disabled={checking} onClick={() => void runCheckStatus()}>
+            {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            <span className="ml-1.5">Refresh status</span>
+          </Button>
         </div>
 
-        {/* Assign numbers (only when approved) */}
-        {twilioStatus === "twilio-approved" && canManageTrustHub && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <p className="text-sm font-semibold text-foreground">Profile Approved</p>
+        <div className="space-y-3">
+          {/* Section 1: Business Profile */}
+          <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">1. Business Profile</p>
+              <p className="text-xs text-muted-foreground">Identity and authorized representative verification</p>
+              {isPending && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  ⏳ Under review — Carrier network verification typically completes within 1–5 business days.
+                </p>
+              )}
+              {isRejected && (
+                <p className="text-[11px] text-destructive mt-1">
+                  ✗ Rejected by the carrier network. Please contact <a href="mailto:support@agentflow.com" className="underline">Support</a>.
+                </p>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Link your purchased phone numbers to this Trust Hub profile so carriers can raise SHAKEN/STIR attestation.
-            </p>
-            <Button type="button" size="sm" disabled={assigning} onClick={() => void handleAssignNumbers()}>
-              {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-              <span className="ml-1.5">Assign active numbers to Trust Hub</span>
-            </Button>
+            <div>
+              <StatusBadge status={twilioStatus} />
+            </div>
           </div>
-        )}
+
+          {/* Section 2: Number Assignment */}
+          <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">2. Number Assignment</p>
+              <p className="text-xs text-muted-foreground">Link your phone numbers to your verified profile</p>
+            </div>
+            <div>
+              {!isApproved ? (
+                <Badge variant="outline" className="text-muted-foreground bg-muted/50 border-border/50">Awaiting Profile</Badge>
+              ) : (
+                <Button type="button" size="sm" disabled={assigning || !canManageTrustHub} onClick={() => void handleAssignNumbers()}>
+                  {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                  <span className="ml-1.5">Assign Numbers</span>
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Section 3: Network Programs */}
+          <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">3. Network Programs</p>
+              <p className="text-xs text-muted-foreground">SHAKEN/STIR, Voice Integrity, and CNAM activation</p>
+            </div>
+            <div>
+              {!isApproved ? (
+                <Badge variant="outline" className="text-muted-foreground bg-muted/50 border-border/50">Awaiting Profile</Badge>
+              ) : (
+                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Active</Badge>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* Numbers status table */}
         {numbers.filter((n) => n.status === "active").length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Numbers</p>
+          <div className="space-y-2 pt-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assigned Numbers</p>
             <div className="rounded-lg border border-border/40 overflow-hidden">
               {numbers.filter((n) => n.status === "active").map((n, i) => (
                 <div key={n.twilio_sid ?? i} className="flex items-center justify-between px-3 py-2 border-b border-border/30 last:border-0">
@@ -340,7 +360,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       <div className="rounded-lg border border-border/50 bg-muted/15 p-4">
         <p className="text-sm font-medium text-foreground">Trust Hub not yet registered</p>
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-          Only an agency Admin can submit your business to Twilio Trust Hub. Ask your administrator to complete this from Phone settings.
+          Only an agency Admin can submit your business to Trust Hub. Ask your administrator to complete this from Phone settings.
         </p>
       </div>
     );
@@ -351,9 +371,9 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       {/* Intro */}
       <div className="rounded-lg border border-border/40 bg-muted/10 p-4">
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Complete this form to register your life insurance agency with Twilio Trust Hub. This creates a verified business identity
+          Complete this form to register your life insurance agency with the telecom Trust Hub. This creates a verified business identity
           that helps carriers recognize your calls as legitimate, improving answer rates and reducing spam flags.
-          Twilio will review your submission within 1–5 business days.
+          The carrier network will review your submission within 1–5 business days.
         </p>
       </div>
 
@@ -520,7 +540,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       <div className="rounded-xl border border-border/60 p-4 space-y-4">
         <div>
           <p className="text-sm font-semibold text-foreground">Authorized Representative</p>
-          <p className="text-xs text-muted-foreground mt-0.5">The person legally authorized to represent your business to Twilio.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">The person legally authorized to represent your business for carrier registration.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -564,9 +584,9 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       {/* Submit */}
       <div className="flex items-center gap-3 pt-1">
         <Button type="button" disabled={registering} onClick={() => void handleRegister()} className="px-6">
-          {registering ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting…</> : "Submit to Twilio Trust Hub"}
+          {registering ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting…</> : "Submit to Trust Hub"}
         </Button>
-        <p className="text-xs text-muted-foreground">Twilio reviews submissions within 1–5 business days.</p>
+        <p className="text-xs text-muted-foreground">The carrier network reviews submissions within 1–5 business days.</p>
       </div>
     </div>
   );
