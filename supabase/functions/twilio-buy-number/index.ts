@@ -207,6 +207,31 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Attempt automatic Trust Hub assignment
+    try {
+      const thUrl = `${base}/twilio-trust-hub`;
+      const thRes = await fetch(thUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "assign-numbers",
+          twilio_sids: [twilioSid],
+        }),
+      });
+
+      if (thRes.ok) {
+        if (inserted) inserted.trust_hub_status = "approved";
+      } else {
+        const thText = await thRes.text();
+        console.error(`${FN} Auto-assign failed:`, thRes.status, thText);
+      }
+    } catch (e) {
+      console.error(`${FN} Auto-assign exception:`, e);
+    }
+
     return new Response(JSON.stringify({ row: inserted }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
