@@ -215,9 +215,11 @@ const LandingPageTest1: React.FC = () => {
                     <p className="text-2xl font-black text-white">1,240+</p>
                   </div>
                 </div>
-              </motion.div>
+            </motion.div>
             </div>
-          </section>
+          </motion.div>
+        </div>
+      </section>
 
       {/* ── LOGO MARQUEE ── */}
       <section className="py-20 border-y border-white/5 bg-white/[0.01]">
