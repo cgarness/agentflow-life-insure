@@ -127,7 +127,7 @@ const LandingPageTest1: React.FC = () => {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-md mb-8"
             >
               <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse" />
-              <span className="text-sm font-medium text-white/80">AgentFlow 2.0 is now live</span>
+              <span className="text-sm font-medium text-white/80">FFL AgentFlow 2.0 is now live</span>
             </motion.div>
 
             <motion.h1
@@ -147,7 +147,7 @@ const LandingPageTest1: React.FC = () => {
               className="text-lg md:text-xl text-white/60 mb-12 max-w-2xl mx-auto leading-relaxed"
             >
               Unleash the power of AI agents, hyper-speed dialing, and real-time intelligence. 
-              AgentFlow is the high-performance engine for modern insurance teams.
+              FFL AgentFlow is the high-performance engine for modern insurance teams.
             </motion.p>
 
             <motion.div
@@ -181,7 +181,7 @@ const LandingPageTest1: React.FC = () => {
               <div className="rounded-[30px] overflow-hidden border border-white/10 bg-black">
                 <img 
                   src="/test1/hero.png" 
-                  alt="AgentFlow Dashboard" 
+                  alt="FFL AgentFlow Dashboard" 
                   className="w-full h-auto object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-700"
                 />
               </div>
@@ -416,7 +416,7 @@ const LandingPageTest1: React.FC = () => {
             <span className="text-primary italic">Start Closing.</span>
           </motion.h2>
           <p className="text-xl text-white/60 mb-12 max-w-2xl mx-auto">
-            Join 500+ high-performance agencies that have moved to AgentFlow. 
+            Join 500+ high-performance agencies that have moved to FFL AgentFlow. 
             No setup fees. No long-term contracts. Just results.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
