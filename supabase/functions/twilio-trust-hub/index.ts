@@ -257,6 +257,9 @@ Deno.serve(async (req) => {
   const accountSid = credsResult.creds.accountSid;
   const authToken = credsResult.creds.authToken;
 
+  const masterAccountSid = Deno.env.get("TWILIO_MASTER_ACCOUNT_SID");
+  const masterAuthToken = Deno.env.get("TWILIO_MASTER_AUTH_TOKEN");
+
   if (action === "check-status") {
     const bundle = parseSecretBundle(settingsRow?.api_secret as string | null | undefined);
     const draft = getDraft(bundle);
@@ -268,7 +271,13 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Twilio credentials not configured in Phone Settings." }, 400);
     }
     const url = `https://trusthub.twilio.com/v1/CustomerProfiles/${encodeURIComponent(profileSid)}`;
-    const r = await twilioTrustHubJson<{ status?: string }>(accountSid, authToken, url, { method: "GET" }, "check-status GET CustomerProfile");
+    let r = await twilioTrustHubJson<{ status?: string }>(accountSid, authToken, url, { method: "GET" }, "check-status GET CustomerProfile");
+    
+    if (!r.ok && r.status === 404 && masterAccountSid && masterAuthToken) {
+      // Fallback to Master Account credentials if Customer Profile is not in the subaccount
+      r = await twilioTrustHubJson<{ status?: string }>(masterAccountSid, masterAuthToken, url, { method: "GET" }, "check-status GET CustomerProfile Master fallback");
+    }
+
     if (!r.ok) {
       return jsonResponse({ error: twilioMessage(r.err), twilio_code: r.err.code }, r.status >= 400 ? r.status : 502);
     }
@@ -293,7 +302,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "No Trust Hub customer profile on file. Register first." }, 400);
     }
     const profUrl = `https://trusthub.twilio.com/v1/CustomerProfiles/${encodeURIComponent(profileSid)}`;
-    const pr = await twilioTrustHubJson<{ status?: string }>(accountSid, authToken, profUrl, { method: "GET" }, "assign-numbers GET CustomerProfile");
+    let pr = await twilioTrustHubJson<{ status?: string }>(accountSid, authToken, profUrl, { method: "GET" }, "assign-numbers GET CustomerProfile");
+    
+    let activeAccountSid = accountSid;
+    let activeAuthToken = authToken;
+
+    if (!pr.ok && pr.status === 404 && masterAccountSid && masterAuthToken) {
+      pr = await twilioTrustHubJson<{ status?: string }>(masterAccountSid, masterAuthToken, profUrl, { method: "GET" }, "assign-numbers GET CustomerProfile Master fallback");
+      if (pr.ok) {
+        activeAccountSid = masterAccountSid;
+        activeAuthToken = masterAuthToken;
+      }
+    }
+
     if (!pr.ok) {
       return jsonResponse({ error: twilioMessage(pr.err) }, 502);
     }
@@ -316,7 +337,7 @@ Deno.serve(async (req) => {
     for (const pnSid of twilioSids) {
       const assignUrl =
         `https://trusthub.twilio.com/v1/CustomerProfiles/${encodeURIComponent(profileSid)}/ChannelEndpointAssignments`;
-      const ar = await postForm(accountSid, authToken, assignUrl, {
+      const ar = await postForm(activeAccountSid, activeAuthToken, assignUrl, {
         ChannelEndpointType: "phone-number",
         ChannelEndpointSid: pnSid,
       }, `assign-numbers attach ${pnSid}`);
