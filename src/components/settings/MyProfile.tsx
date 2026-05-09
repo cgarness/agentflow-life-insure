@@ -416,7 +416,7 @@ const MyProfile: React.FC = () => {
             <div>
               <label className="text-sm font-medium text-foreground block mb-1.5">Role</label>
               <div className="h-10 flex items-center">
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">{user.role}</span>
+                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">{profile?.role || "Agent"}</span>
               </div>
             </div>
             <div>
