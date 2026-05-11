@@ -28,6 +28,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       monthlyCallGoal: row.monthly_call_goal || 0,
       monthlyPoliciesGoal: row.monthly_policies_goal || 0,
       weeklyAppointmentGoal: row.weekly_appointment_goal || 0,
+      monthlyAppointmentGoal: row.monthly_appointment_goal || 0,
       monthlyPremiumGoal: row.monthly_premium_goal || 0,
       npn: row.npn || "",
       timezone: row.timezone || "Eastern Time (US & Canada)",
@@ -49,7 +50,7 @@ export const usersSupabaseApi = {
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
       "resident_state", "commission_level", "upline_id",
-      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
+      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
       "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
       "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
@@ -100,6 +101,7 @@ export const usersSupabaseApi = {
         monthly_sales_goal: 0,
         monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
+        monthly_appointment_goal: 0,
         monthly_premium_goal: 0,
         onboarding_items: [],
         licensed_states: [],
@@ -117,7 +119,7 @@ export const usersSupabaseApi = {
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
       "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
       "resident_state", "commission_level", "upline_id", 
-      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
+      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
       "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
       "push_notifications_enabled", "carriers", "organization_id", "team_id"
@@ -150,6 +152,7 @@ export const usersSupabaseApi = {
         monthly_sales_goal: 0,
         monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
+        monthly_appointment_goal: 0,
         monthly_premium_goal: 0,
         onboarding_items: [],
         licensed_states: [],
@@ -190,6 +193,7 @@ export const usersSupabaseApi = {
     if (data.monthlyCallGoal !== undefined) payload.monthly_call_goal = data.monthlyCallGoal;
     if (data.monthlyPoliciesGoal !== undefined) payload.monthly_policies_goal = data.monthlyPoliciesGoal;
     if (data.weeklyAppointmentGoal !== undefined) payload.weekly_appointment_goal = data.weeklyAppointmentGoal;
+    if (data.monthlyAppointmentGoal !== undefined) payload.monthly_appointment_goal = data.monthlyAppointmentGoal;
     if (data.monthlyPremiumGoal !== undefined) payload.monthly_premium_goal = data.monthlyPremiumGoal;
     if (data.npn !== undefined) payload.npn = data.npn;
     if (data.timezone !== undefined) payload.timezone = data.timezone;
@@ -203,7 +207,7 @@ export const usersSupabaseApi = {
       "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url", 
       "availability_status", "theme_preference", "created_at", "licensed_states", 
       "resident_state", "commission_level", "upline_id", 
-      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal",
+      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
       "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
       "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
@@ -240,6 +244,7 @@ export const usersSupabaseApi = {
         monthly_sales_goal: 0,
         monthly_policies_goal: 0,
         weekly_appointment_goal: 0,
+        monthly_appointment_goal: 0,
         monthly_premium_goal: 0,
         onboarding_items: [],
         licensed_states: [],

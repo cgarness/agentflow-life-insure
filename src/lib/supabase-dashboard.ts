@@ -399,21 +399,21 @@ export const dashboardSupabaseApi = {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("monthly_call_goal, monthly_policies_goal, weekly_appointment_goal, monthly_premium_goal")
+      .select("monthly_call_goal, monthly_policies_goal, monthly_appointment_goal, monthly_premium_goal")
       .eq("id", userId)
       .maybeSingle();
 
     const targets = {
-      dailyCalls: Number(profile?.monthly_call_goal) || 0,
+      monthlyCalls: Number(profile?.monthly_call_goal) || 0,
       monthlyPolicies: Number(profile?.monthly_policies_goal) || 0,
-      weeklyAppointments: Number(profile?.weekly_appointment_goal) || 0,
+      monthlyAppointments: Number(profile?.monthly_appointment_goal) || 0,
       monthlyPremium: Number(profile?.monthly_premium_goal) || 0,
     };
 
     const [
-      { count: dailyCalls },
+      { count: monthlyCalls },
       { count: monthlyPolicies },
-      { count: weeklyAppointments },
+      { count: monthlyAppointments },
       { data: winsData },
     ] = await Promise.all([
       supabase
@@ -421,7 +421,7 @@ export const dashboardSupabaseApi = {
         .select("id", { count: "exact", head: true })
         .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
         .eq("agent_id", userId)
-        .gte("created_at", ranges.todayStart.toISOString()),
+        .gte("created_at", ranges.monthStart.toISOString()),
       supabase
         .from("clients")
         .select("id", { count: "exact", head: true })
@@ -432,7 +432,7 @@ export const dashboardSupabaseApi = {
         .select("id", { count: "exact", head: true })
         .eq("status", "Scheduled")
         .eq("user_id", userId)
-        .gte("start_time", weekMonday.toISOString()),
+        .gte("start_time", ranges.monthStart.toISOString()),
       supabase
         .from("wins")
         .select("premium_amount")
@@ -457,7 +457,7 @@ export const dashboardSupabaseApi = {
       result.push({ metric, label, current, target, period });
     };
 
-    pushIf("daily_calls", "Daily Calls", "day", dailyCalls ?? 0, targets.dailyCalls);
+    pushIf("monthly_calls", "Monthly Calls", "month", monthlyCalls ?? 0, targets.monthlyCalls);
     pushIf(
       "monthly_policies",
       "Monthly Policies",
@@ -466,11 +466,11 @@ export const dashboardSupabaseApi = {
       targets.monthlyPolicies
     );
     pushIf(
-      "weekly_appointments",
-      "Weekly Appointments",
-      "week",
-      weeklyAppointments ?? 0,
-      targets.weeklyAppointments
+      "monthly_appointments",
+      "Monthly Appointments",
+      "month",
+      monthlyAppointments ?? 0,
+      targets.monthlyAppointments
     );
     pushIf(
       "monthly_premium",

@@ -16,8 +16,8 @@ interface GoalData {
   policiesTarget: number;
   premiumSold: number;
   premiumTarget: number;
-  appointmentsWeek: number;
-  appointmentsWeekTarget: number;
+  appointmentsMonth: number;
+  appointmentsMonthTarget: number;
   hasGoals: boolean;
 }
 
@@ -95,7 +95,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
         ] = await Promise.all([
           supabase
             .from("profiles")
-            .select("monthly_call_goal, monthly_policies_goal, weekly_appointment_goal, monthly_premium_goal")
+            .select("monthly_call_goal, monthly_policies_goal, monthly_appointment_goal, monthly_premium_goal")
             .eq("id", userId)
             .maybeSingle(),
           supabase
@@ -103,7 +103,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
             .select("id", { count: "exact", head: true })
             .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
             .eq("agent_id", userId)
-            .gte("created_at", startOfDay),
+            .gte("created_at", startOfMonth),
           supabase
             .from("clients")
             .select("id", { count: "exact", head: true })
@@ -119,17 +119,17 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
             .select("id", { count: "exact", head: true })
             .eq("status", "Scheduled")
             .eq("user_id", userId)
-            .gte("start_time", weekStart),
+            .gte("start_time", startOfMonth),
         ]);
 
         const p = profileRes.data;
         const callsTarget = Number(p?.monthly_call_goal) || 0;
         const policiesTarget = Number(p?.monthly_policies_goal) || 0;
-        const appointmentsWeekTarget = Number(p?.weekly_appointment_goal) || 0;
+        const appointmentsMonthTarget = Number(p?.monthly_appointment_goal) || 0;
         const premiumTarget = Number(p?.monthly_premium_goal) || 0;
 
         const hasGoals =
-          callsTarget > 0 || policiesTarget > 0 || appointmentsWeekTarget > 0 || premiumTarget > 0;
+          callsTarget > 0 || policiesTarget > 0 || appointmentsMonthTarget > 0 || premiumTarget > 0;
 
         const premiumSold = (winsRes.data ?? []).reduce(
           (sum, w) => sum + (Number(w.premium_amount) || 0),
@@ -143,8 +143,8 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
           policiesTarget,
           premiumSold,
           premiumTarget,
-          appointmentsWeek: apptsRes.count ?? 0,
-          appointmentsWeekTarget,
+          appointmentsMonth: apptsRes.count ?? 0,
+          appointmentsMonthTarget,
           hasGoals,
         });
       } catch {
@@ -193,7 +193,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
         <ProgressBar
           current={data.callsToday}
           target={data.callsTarget}
-          label="Daily Calls"
+          label="Monthly Calls"
           icon={PhoneCall}
           gradient="premium-gradient-blue"
         />
@@ -207,11 +207,11 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
           gradient="premium-gradient-emerald"
         />
       )}
-      {data.appointmentsWeekTarget > 0 && (
+      {data.appointmentsMonthTarget > 0 && (
         <ProgressBar
-          current={data.appointmentsWeek}
-          target={data.appointmentsWeekTarget}
-          label="Weekly Appointments"
+          current={data.appointmentsMonth}
+          target={data.appointmentsMonthTarget}
+          label="Monthly Appointments"
           icon={Calendar}
           gradient="premium-gradient-amber"
         />

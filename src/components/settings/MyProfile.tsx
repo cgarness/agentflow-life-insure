@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import {
   Eye, EyeOff, Lock, Loader2, Upload, User, Globe, Trash2, Plus, ChevronDown,
-  KeyRound, SlidersHorizontal, Target,
+  KeyRound, SlidersHorizontal, Target, Phone, Briefcase, FileText, DollarSign,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -128,9 +128,10 @@ const MyProfile: React.FC = () => {
   const [prefSaving, setPrefSaving] = useState(false);
 
   // Goals
-  const [dailyCalls, setDailyCalls] = useState(profile?.monthly_call_goal ?? 50);
-  const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthly_policies_goal ?? 10);
-  const [weeklyAppts, setWeeklyAppts] = useState(profile?.weekly_appointment_goal ?? 15);
+  // Goals
+  const [monthlyCalls, setMonthlyCalls] = useState(profile?.monthly_call_goal ?? 0);
+  const [monthlyPolicies, setMonthlyPolicies] = useState(profile?.monthly_policies_goal ?? 0);
+  const [monthlyAppts, setMonthlyAppts] = useState(profile?.monthly_appointment_goal ?? 0);
   const [monthlyPremium, setMonthlyPremium] = useState(profile?.monthly_premium_goal ?? 0);
   const [goalSaving, setGoalSaving] = useState(false);
   const [goalErrors, setGoalErrors] = useState<Record<string, string>>({});
@@ -147,9 +148,9 @@ const MyProfile: React.FC = () => {
       setAvatar(profile.avatar_url || "");
       setLicensedStates(profile.licensed_states || []);
       setSelectedCarriers(profile.carriers || []);
-      setDailyCalls(profile.monthly_call_goal || 0);
+      setMonthlyCalls(profile.monthly_call_goal || 0);
       setMonthlyPolicies(profile.monthly_policies_goal || 0);
-      setWeeklyAppts(profile.weekly_appointment_goal || 0);
+      setMonthlyAppts(profile.monthly_appointment_goal || 0);
       setMonthlyPremium(profile.monthly_premium_goal || 0);
       setResidentState(profile.resident_state || "");
       setCommissionLevel(profile.commission_level || "0%");
@@ -301,9 +302,9 @@ const MyProfile: React.FC = () => {
   // Goals save
   const handleSaveGoals = async () => {
     const errors: Record<string, string> = {};
-    if (dailyCalls < 0) errors.dailyCalls = "Must be 0 or greater";
+    if (monthlyCalls < 0) errors.monthlyCalls = "Must be 0 or greater";
     if (monthlyPolicies < 0) errors.monthlyPolicies = "Must be 0 or greater";
-    if (weeklyAppts < 0) errors.weeklyAppts = "Must be 0 or greater";
+    if (monthlyAppts < 0) errors.monthlyAppts = "Must be 0 or greater";
     if (monthlyPremium < 0) errors.monthlyPremium = "Must be 0 or greater";
     setGoalErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -311,9 +312,9 @@ const MyProfile: React.FC = () => {
     setGoalSaving(true);
     try {
       await updateProfile({ 
-        monthly_call_goal: dailyCalls,
+        monthly_call_goal: monthlyCalls,
         monthly_policies_goal: monthlyPolicies,
-        weekly_appointment_goal: weeklyAppts,
+        monthly_appointment_goal: monthlyAppts,
         monthly_premium_goal: monthlyPremium
       });
       toast({ title: "Goals updated.", className: "bg-success text-success-foreground" });
@@ -651,17 +652,48 @@ const MyProfile: React.FC = () => {
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <CardContent className="space-y-4 max-w-md border-t border-border/50 pt-6">
-            <GoalField label="Daily Calls Goal" unit="calls per day" value={dailyCalls} onChange={setDailyCalls} error={goalErrors.dailyCalls} />
-            <GoalField label="Monthly Policies Goal" unit="policies per month" value={monthlyPolicies} onChange={setMonthlyPolicies} error={goalErrors.monthlyPolicies} />
-            <GoalField label="Weekly Appointments Goal" unit="appointments per week" value={weeklyAppts} onChange={setWeeklyAppts} error={goalErrors.weeklyAppts} />
-            <GoalField label="Monthly Premium Goal" unit="dollars per month" placeholder="1500" value={monthlyPremium} onChange={setMonthlyPremium} error={goalErrors.monthlyPremium} />
-            <div className="flex justify-start pt-2 border-t border-border/50">
-              <Button onClick={handleSaveGoals} disabled={goalSaving} className="px-6 rounded-lg">
-                {goalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Goals"}
-              </Button>
-            </div>
-              </CardContent>
+            <CardContent className="space-y-4 border-t border-border/50 pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <GoalField 
+                  label="Monthly Calls Goal" 
+                  unit="calls" 
+                  value={monthlyCalls} 
+                  onChange={setMonthlyCalls} 
+                  error={goalErrors.monthlyCalls} 
+                  icon={<Phone className="w-4 h-4" />}
+                />
+                <GoalField 
+                  label="Monthly Policies Goal" 
+                  unit="policies" 
+                  value={monthlyPolicies} 
+                  onChange={setMonthlyPolicies} 
+                  error={goalErrors.monthlyPolicies} 
+                  icon={<FileText className="w-4 h-4" />}
+                />
+                <GoalField 
+                  label="Monthly Appointments Goal" 
+                  unit="appts" 
+                  value={monthlyAppts} 
+                  onChange={setMonthlyAppts} 
+                  error={goalErrors.monthlyAppts} 
+                  icon={<Briefcase className="w-4 h-4" />}
+                />
+                <GoalField 
+                  label="Monthly Premium Goal" 
+                  unit="dollars" 
+                  placeholder="1500" 
+                  value={monthlyPremium} 
+                  onChange={setMonthlyPremium} 
+                  error={goalErrors.monthlyPremium} 
+                  icon={<DollarSign className="w-4 h-4" />}
+                />
+              </div>
+              <div className="flex justify-start pt-4 border-t border-border/50">
+                <Button onClick={handleSaveGoals} disabled={goalSaving} className="px-6 rounded-lg font-medium">
+                  {goalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Saving...</> : "Save Monthly Goals"}
+                </Button>
+              </div>
+            </CardContent>
             </CollapsibleContent>
           </Collapsible>
         </Card>
@@ -756,15 +788,34 @@ function PasswordField({ label, value, onChange, show, onToggle }: { label: stri
   );
 }
 
-function GoalField({ label, unit, placeholder, value, onChange, error }: { label: string; unit: string; placeholder?: string; value: number; onChange: (v: number) => void; error?: string }) {
+function GoalField({ 
+  label, unit, placeholder, value, onChange, error, icon 
+}: { 
+  label: string; unit: string; placeholder?: string; value: number; onChange: (v: number) => void; error?: string; icon: React.ReactNode 
+}) {
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-foreground">{label}</label>
-        <span className="text-xs text-muted-foreground">{unit}</span>
+    <div className="group relative p-4 rounded-xl border border-border bg-card/50 hover:bg-card hover:border-primary/30 hover:shadow-md transition-all duration-300">
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 bg-primary/10 rounded-md text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-300">
+            {icon}
+          </div>
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{label}</label>
+        </div>
+        <span className="text-[10px] font-medium px-2 py-0.5 bg-muted rounded text-muted-foreground">{unit}</span>
       </div>
-      <Input type="number" min={0} step={1} placeholder={placeholder} value={value} onChange={(e) => onChange(parseInt(e.target.value) || 0)} className="mt-1" />
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+      <div className="relative">
+        <Input 
+          type="number" 
+          min={0} 
+          step={1} 
+          placeholder={placeholder} 
+          value={value} 
+          onChange={(e) => onChange(parseInt(e.target.value) || 0)} 
+          className="h-11 pl-4 pr-10 text-base font-semibold bg-background/50 border-border/50 focus-visible:ring-primary/20 focus-visible:border-primary/50 transition-all rounded-lg"
+        />
+      </div>
+      {error && <p className="text-[10px] font-medium text-destructive mt-1.5 ml-1">{error}</p>}
     </div>
   );
 }

@@ -24,6 +24,7 @@ export interface Profile {
   monthly_call_goal: number;
   monthly_policies_goal: number;
   weekly_appointment_goal: number;
+  monthly_appointment_goal: number;
   monthly_premium_goal: number;
   npn: string;
   timezone: string;

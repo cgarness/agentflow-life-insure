@@ -42,6 +42,7 @@ export interface UserProfile {
   monthlyCallGoal: number;
   monthlyPoliciesGoal: number;
   weeklyAppointmentGoal: number;
+  monthlyAppointmentGoal: number;
   monthlyPremiumGoal: number;
   onboardingItems?: any;
   npn: string;
