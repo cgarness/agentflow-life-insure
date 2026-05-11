@@ -227,56 +227,55 @@ async function resolveInboundContact(
 async function loadPhoneSettings(
   supabase: SupabaseClient,
   organizationId: string | null,
-): Promise<{ recording_enabled: boolean; inbound_routing: string }> {
-  // inbound_routing column does not exist yet — request it but tolerate failure.
-  // Fall back to a second query without it on error.
-  const defaults = { recording_enabled: true, inbound_routing: "assigned" };
+): Promise<{ 
+  recording_enabled: boolean; 
+  inbound_routing: string;
+  fallback_action: string;
+  voicemail_greeting_text: string;
+  forwarding_number: string;
+}> {
+  const defaults = { 
+    recording_enabled: true, 
+    inbound_routing: "assigned",
+    fallback_action: "voicemail",
+    voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
+    forwarding_number: ""
+  };
   if (!organizationId) return defaults;
 
+  let recording_enabled = true;
   try {
-    const { data, error } = await supabase
-      .from("phone_settings")
-      .select("recording_enabled, inbound_routing")
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (!error && data) {
-      const row = data as { recording_enabled: boolean | null; inbound_routing: string | null };
-      return {
-        recording_enabled: row.recording_enabled !== false,
-        inbound_routing: row.inbound_routing || "assigned",
-      };
-    }
-    if (error) {
-      console.warn(
-        "[twilio-voice-inbound] phone_settings select (with inbound_routing) failed, retrying without:",
-        error.message,
-      );
-    }
-  } catch (err) {
-    console.warn("[twilio-voice-inbound] phone_settings select threw:", err);
-  }
-
-  try {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("phone_settings")
       .select("recording_enabled")
       .eq("organization_id", organizationId)
       .maybeSingle();
-    if (error) {
-      console.warn(
-        "[twilio-voice-inbound] phone_settings fallback select failed:",
-        error.message,
-      );
-      return defaults;
+    if (data && data.recording_enabled !== null) {
+      recording_enabled = data.recording_enabled;
     }
-    return {
-      recording_enabled: data?.recording_enabled !== false,
-      inbound_routing: "assigned",
-    };
+  } catch (err) {}
+
+  try {
+    const { data, error } = await supabase
+      .from("inbound_routing_settings")
+      .select("routing_mode, fallback_action, voicemail_greeting_text, forwarding_number")
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+      
+    if (!error && data) {
+      return {
+        recording_enabled,
+        inbound_routing: data.routing_mode || "assigned",
+        fallback_action: data.fallback_action || "voicemail",
+        voicemail_greeting_text: data.voicemail_greeting_text || defaults.voicemail_greeting_text,
+        forwarding_number: data.forwarding_number || ""
+      };
+    }
   } catch (err) {
-    console.warn("[twilio-voice-inbound] phone_settings fallback threw:", err);
-    return defaults;
+    console.warn("[twilio-voice-inbound] inbound_routing_settings select threw:", err);
   }
+
+  return { ...defaults, recording_enabled };
 }
 
 async function resolveAssignedIdentity(
@@ -349,15 +348,39 @@ function buildDialTwiml(
 function buildVoicemailTwiml(
   recordingUrl: string,
   hangupActionUrl: string,
+  greetingText: string
 ): string {
   const safeRec = xmlEscape(recordingUrl);
   const safeAction = xmlEscape(hangupActionUrl);
+  const safeGreeting = xmlEscape(greetingText);
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
-    `<Say voice="Polly.Joanna">Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.</Say>` +
+    `<Say voice="Polly.Joanna">${safeGreeting}</Say>` +
     `<Record maxLength="120" playBeep="true" recordingStatusCallback="${safeRec}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed" action="${safeAction}" method="POST"/>` +
     `<Say voice="Polly.Joanna">We did not receive a message. Goodbye.</Say>` +
+    `<Hangup/>` +
+    `</Response>`
+  );
+}
+
+function buildForwardTwiml(forwardingNumber: string, actionUrl: string): string {
+  const safeNumber = xmlEscape(forwardingNumber);
+  const safeAction = xmlEscape(actionUrl);
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<Response>` +
+    `<Dial action="${safeAction}" method="POST">${safeNumber}</Dial>` +
+    `</Response>`
+  );
+}
+
+function buildHangupTwiml(greetingText: string): string {
+  const safeGreeting = xmlEscape(greetingText);
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<Response>` +
+    `<Say voice="Polly.Joanna">${safeGreeting}</Say>` +
     `<Hangup/>` +
     `</Response>`
   );
@@ -380,43 +403,36 @@ async function handleFallback(
     callSid: params["CallSid"] || "(none)",
   });
 
-  // If the agent actually answered, do not roll to voicemail.
-  // twilio-voice-status updates the calls row based on parent CallSid.
+  const settings = await loadPhoneSettings(supabase, orgId);
+
+  // If the fallback action was forward, and this is the return from that forward,
+  // we check if they actually answered.
   if (dialCallStatus === "completed" || dialCallStatus === "answered") {
     return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
   }
 
-  if (callRowId) {
-    const patch: Record<string, unknown> = {
-      is_missed: true,
-      updated_at: new Date().toISOString(),
-    };
-    // If there will be no voicemail recording (call ended without any connected leg),
-    // mark as completed now. twilio-recording-status will overwrite recording_storage_path
-    // later if a voicemail is left.
-    if (dialCallStatus === "no-answer" || dialCallStatus === "busy" || dialCallStatus === "failed" || dialCallStatus === "canceled") {
-      patch.status = "completed";
-      patch.ended_at = new Date().toISOString();
-    }
-    const { error } = await supabase
-      .from("calls")
-      .update(patch)
-      .eq("id", callRowId);
-    if (error) {
-      console.error(
-        `[twilio-voice-inbound] fallback update failed for ${callRowId}:`,
-        error.message,
-      );
-    }
+  // Determine which fallback TwiML to generate based on settings
+  let twiml = "";
+  if (settings.fallback_action === "forward" && settings.forwarding_number && !url.searchParams.has("forwarded")) {
+    const nextActionUrl = selfUrl({
+      fallback: "voicemail",
+      forwarded: "1",
+      ...(callRowId ? { call_row_id: callRowId } : {}),
+      ...(orgId ? { org_id: orgId } : {}),
+    });
+    twiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
+  } else if (settings.fallback_action === "hangup") {
+    twiml = buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye.");
+  } else {
+    // Default to Voicemail
+    const hangupUrl = selfUrl({
+      fallback: "hangup",
+      ...(callRowId ? { call_row_id: callRowId } : {}),
+      ...(orgId ? { org_id: orgId } : {}),
+    });
+    twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
   }
-
-  const hangupUrl = selfUrl({
-    fallback: "hangup",
-    ...(callRowId ? { call_row_id: callRowId } : {}),
-    ...(orgId ? { org_id: orgId } : {}),
-  });
-
-  const twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl);
+  
   return new Response(twiml, { status: 200, headers: twimlHeaders });
 }
 
@@ -536,13 +552,26 @@ async function handleInitialInbound(
         );
       }
     }
-    const hangupUrl = selfUrl({
-      fallback: "hangup",
-      ...(callRowId ? { call_row_id: callRowId } : {}),
-      org_id: organizationId,
-    });
-    const twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl);
-    return new Response(twiml, { status: 200, headers: twimlHeaders });
+    let fallbackTwiml = "";
+    if (settings.fallback_action === "forward" && settings.forwarding_number) {
+      const nextActionUrl = selfUrl({
+        fallback: "voicemail",
+        forwarded: "1",
+        ...(callRowId ? { call_row_id: callRowId } : {}),
+        org_id: organizationId,
+      });
+      fallbackTwiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
+    } else if (settings.fallback_action === "hangup") {
+      fallbackTwiml = buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye.");
+    } else {
+      const hangupUrl = selfUrl({
+        fallback: "hangup",
+        ...(callRowId ? { call_row_id: callRowId } : {}),
+        org_id: organizationId,
+      });
+      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+    }
+    return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
   }
 
   const actionUrl = selfUrl({

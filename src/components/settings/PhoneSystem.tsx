@@ -4,11 +4,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useOrganization } from "@/hooks/useOrganization";
 import PhoneSettings from "./PhoneSettings";
 import { NumberManagementSection } from "./phone/NumberManagementSection";
-import { InboundRoutingSection } from "./phone/InboundRoutingSection";
 import { LocalPresenceSection } from "./phone/LocalPresenceSection";
 import { TwilioCredentialsSection } from "./phone/TwilioCredentialsSection";
 import NumberReputation from "./NumberReputation";
-import InboundCallRouting from "./InboundCallRouting";
+import InboundRoutingManager from "./InboundRoutingManager";
 import CallRecordingSettings from "./CallRecordingSettings";
 import CallRecordingLibrary from "./CallRecordingLibrary";
 import CallMonitoring from "./CallMonitoring";
@@ -127,13 +126,7 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
 
         {/* Inbound Routing */}
         <TabsContent value="inbound-routing" className="mt-4 space-y-6">
-          <InboundRoutingSection
-            inboundRouting={phone.inboundRouting}
-            onInboundRoutingChange={(v) => void phone.handleInboundRoutingChange(v)}
-            voicemailEnabled={phone.secretBundle.voicemail_enabled !== false}
-            onVoicemailEnabledChange={(v) => void phone.handleVoicemailToggle(v)}
-          />
-          <InboundCallRouting />
+          <InboundRoutingManager />
         </TabsContent>
 
         {/* Recording Settings */}
