@@ -22,7 +22,31 @@ type BuyBody = {
   phone_number?: string;
   /** Optional display label (e.g. "Los Angeles, CA"); otherwise Twilio's friendly name / number is used. */
   friendly_name?: string | null;
+  locality?: string | null;
+  region?: string | null;
 };
+
+async function fetchNumberDetails(accountSid: string, authToken: string, phoneNumber: string) {
+  const basic = btoa(`${accountSid}:${authToken}`);
+  // Look for the number in US/Local inventory to get city/state info
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/AvailablePhoneNumbers/US/Local.json?Contains=${encodeURIComponent(phoneNumber)}`;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Basic ${basic}` } });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const match = json.available_phone_numbers?.find((n: any) => n.phone_number === phoneNumber);
+    if (match) {
+      const city = match.locality?.trim();
+      const state = match.region?.trim();
+      if (city && state) return `${city}, ${state}`;
+      if (city) return city;
+      if (state) return state;
+    }
+  } catch (e) {
+    console.error(`${FN} Failed to fetch number details:`, e);
+  }
+  return null;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -115,6 +139,22 @@ Deno.serve(async (req) => {
       });
     }
 
+    let friendlyName = body.friendly_name?.trim();
+    if (!friendlyName) {
+      const city = body.locality?.trim();
+      const state = body.region?.trim();
+      if (city && state) {
+        friendlyName = `${city}, ${state}`;
+      } else if (city) {
+        friendlyName = city;
+      } else if (state) {
+        friendlyName = state;
+      } else {
+        // Fallback: try to look up the number's locality/region from Twilio
+        friendlyName = await fetchNumberDetails(accountSid, authToken, phoneNumber) ?? undefined;
+      }
+    }
+
     const base = FUNCTIONS_BASE;
     const voiceUrl = `${base}/twilio-voice-inbound`;
     const smsUrl = `${base}/twilio-sms-webhook`;
@@ -122,6 +162,9 @@ Deno.serve(async (req) => {
 
     const form = new URLSearchParams();
     form.set("PhoneNumber", phoneNumber);
+    if (friendlyName) {
+      form.set("FriendlyName", friendlyName);
+    }
     form.set("VoiceUrl", voiceUrl);
     form.set("VoiceMethod", "POST");
     form.set("SmsUrl", smsUrl);
@@ -168,9 +211,9 @@ Deno.serve(async (req) => {
     const twilioSid = String(twJson.sid ?? "");
     const twilioFriendly = (twJson.friendly_name as string) || (twJson.phone_number as string) || phoneNumber;
     const e164 = (twJson.phone_number as string) || phoneNumber;
-    const clientFriendly =
-      typeof body.friendly_name === "string" && body.friendly_name.trim().length > 0 ? body.friendly_name.trim() : null;
-    const friendlyName = clientFriendly ?? twilioFriendly;
+    
+    // Use the resolved friendly name from our logic, or fallback to Twilio's returned friendly name
+    const finalFriendlyName = friendlyName || twilioFriendly;
 
     if (!twilioSid.startsWith("PN")) {
       console.error(`${FN} Unexpected Twilio sid:`, twilioSid);
@@ -186,7 +229,7 @@ Deno.serve(async (req) => {
       .insert({
         phone_number: e164,
         twilio_sid: twilioSid,
-        friendly_name: friendlyName,
+        friendly_name: finalFriendlyName,
         status: "active",
         organization_id: orgId,
         trust_hub_status: "pending",

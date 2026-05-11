@@ -193,11 +193,12 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
 
   /** Purchase one number via Edge function; returns whether Twilio + DB succeeded. */
   const purchaseSingleNumber = async (e164: string, listing?: TwilioAvailableNumber): Promise<boolean> => {
-    const friendly_name = listing ? defaultFriendlyFromListing(listing) : undefined;
     const { data, error } = await supabase.functions.invoke("twilio-buy-number", {
       body: {
         phone_number: e164,
-        ...(friendly_name ? { friendly_name } : {}),
+        friendly_name: listing ? defaultFriendlyFromListing(listing) : undefined,
+        locality: listing?.locality,
+        region: listing?.region,
       },
     });
     if (error || (data && typeof data === "object" && "error" in data && (data as { error?: string }).error)) {
