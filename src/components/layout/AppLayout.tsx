@@ -4,7 +4,6 @@ import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { cn } from "@/lib/utils";
 import FloatingDialer from "./FloatingDialer";
-import FloatingChat from "@/components/chat/FloatingChat";
 import WinCelebration from "@/components/WinCelebration";
 import ReminderPopup from "./ReminderPopup";
 import ImpersonationBanner from "./ImpersonationBanner";
@@ -34,7 +33,6 @@ const AppLayout: React.FC = () => {
             </div>
           </main>
           <FloatingDialer />
-          <FloatingChat />
           <WinCelebration />
           <ReminderPopup />
         </div>
