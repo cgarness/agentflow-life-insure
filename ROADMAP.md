@@ -2708,3 +2708,40 @@ The next safest extractions are:
 
 **Files touched:** `src/hooks/useDialerSession.ts` (new), `src/pages/DialerPage.tsx`, `ROADMAP.md`.
 
+---
+
+## Work Log — 2026-05-12
+
+- [DONE] HOTFIX: Fixed critical cross-org RLS leaks on `phone_settings`, `inbound_routing_settings`, `contact_management_settings`
+  - Migration: `20260512130000_fix_settings_rls_cross_org_leak.sql`
+
+---
+
+### Context Snapshot — 2026-05-12 — HOTFIX: Cross-Org RLS Leak on Settings Tables
+
+**What was done:**
+
+A security audit identified three settings tables with overly permissive RLS policies that allowed any authenticated user to read/write data across ALL organizations — a critical multi-tenancy violation.
+
+**Tables affected and changes made:**
+
+**`phone_settings`**
+- Dropped: `"Authenticated users can manage phone settings"` (qual: `auth.role() = 'authenticated'` — wide open)
+- Retained (unchanged): `phone_settings_select`, `phone_settings_insert`, `phone_settings_update` — all scoped via `get_user_org_id()` / `get_user_role()`
+
+**`inbound_routing_settings`**
+- Dropped: `"Allow all for authenticated users"` (wide open)
+- Retained (unchanged): `"Admins can insert routing settings for their org"`, `"Admins can update routing settings for their org"`, `"Users can view their organization's routing settings"` — all scoped via `profiles.organization_id` subquery
+
+**`contact_management_settings`**
+- Dropped: `"Admins can update their organization's settings"` (qual: `true`)
+- Dropped: `"Users can view their organization's settings"` (qual: `true`)
+- Created: `cms_select` — SELECT scoped to `organization_id = get_user_org_id()`
+- Created: `cms_insert` — INSERT scoped to `get_user_org_id()` AND `get_user_role() = 'Admin'`
+- Created: `cms_update` — UPDATE scoped to `get_user_org_id()` AND `get_user_role() = 'Admin'`
+
+**Verification result:**
+- 9 total policies across the 3 tables — all org-scoped. Zero policies with `qual: true` or `auth.role() = 'authenticated'`.
+
+**Files touched:** `supabase/migrations/20260512130000_fix_settings_rls_cross_org_leak.sql` (new), `ROADMAP.md`.
+
