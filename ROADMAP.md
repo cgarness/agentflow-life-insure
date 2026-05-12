@@ -64,6 +64,15 @@
 - **Out of scope (deferred):** Per-subaccount TwiML App provisioning (decided against — master TwiML App pattern stays). `TwilioContext.tsx` UX for `PROVISIONING_PENDING` / `PROVISIONING_FAILED` / `TELEPHONY_SUSPENDED` (still surface as generic init errors). `twilio-sms`, `twilio-reputation-check`, `twilio-recording-status`/`twilio-voice-status` master-credential paths are unchanged — separate cleanup. Webhook handlers (`twilio-voice-webhook` / `_status` / `_inbound` / `_recording-status`) already multi-tenant via `CallSid` lookup.
 - **Architectural note — Voice JWT must use master `accountSid`:** Subaccount SID isolation applies to **number purchase, CNAM, and REST API calls** only. Voice JWTs must use `sub = masterAccountSid` because TwiML Apps are registered on the master account. A JWT with `sub = subaccountSid` cannot reference a TwiML App on the master account and results in **ConnectionError 53000** in the Twilio Voice SDK. Master API keys can mint valid tokens for any owned subaccount — the org-level isolation is achieved through the `identity` claim and the `CallSid → calls` table lookup at webhook time, not through JWT scoping.
 
+### 🔔 Notifications Panel `[DONE — 2026-05-12]`
+- **Refactor:** Extracted all notification panel UI and logic out of `TopBar.tsx` into a new dedicated component `src/components/notifications/NotificationsPanel.tsx`.
+- **Props:** `{ open: boolean; onClose: () => void }` — `TopBar` retains only the bell button, unread badge, and `notifOpen` state.
+- **New tab — Messages:** Added `Messages` tab bucketing `inbound_sms` and `inbound_email` notification types. Tab renders with a `MessageSquare` icon (lucide-react). Unread badge shown when those types have unread items.
+- **TAB_TYPE_MAP update:** `Leads` now includes `lead_assigned`; `Messages` covers `inbound_sms` / `inbound_email`. All unmatched types still appear in `All` only.
+- **Line counts:** `NotificationsPanel.tsx` — 177 lines (under 200 ✅). `TopBar.tsx` — 320 lines (flagged: ~20 lines over 300 target; user-dropdown markup accounts for the excess — not refactored further per scope constraint).
+- **No DB / Edge Function changes.** `NotificationContext` and `notifications-api.ts` untouched.
+- **Context Snapshot:** Files modified: `src/components/layout/TopBar.tsx`, `src/components/notifications/NotificationsPanel.tsx` (new), `ROADMAP.md`. Branch: `claude/refactor-notifications-panel-xZ49u`. Built on top of merged `claude/wire-notifications-system-UpgBZ` (commit `fcf10f7`).
+
 ### 🔍 Global Search `[STABLE]`
 - **State**: Live Supabase RPC `global_search` searching `leads`, `clients`, `recruits`, `campaigns`, and `calls` scoped by `organization_id`. Frontend wired in `GlobalSearch.tsx` with debounce, Zod validation, grouped results, keyboard nav, Escape/click-away dismiss.
 - **Contact detail routing**: ✅ Resolved (2026-05-05) — deep-link routes `/leads/:id`, `/clients/:id`, `/recruits/:id` added. `GlobalSearch.tsx` `buildRoute()` updated to use these routes directly.
