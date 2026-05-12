@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
+import { ReputationAiScanner } from "./number-reputation/ReputationAiScanner";
+import { Globe, ShieldCheck, Zap } from "lucide-react";
 
 type PhoneNumber = {
   id: string;
@@ -32,18 +34,29 @@ type PhoneNumber = {
 const normStatus = (s: string | null) => (s ?? "").toLowerCase().replace(/\s+/g, "_");
 
 const getAttestationBadge = (level: string | null) => {
-  switch (level?.toUpperCase()) {
-    case "A":
-      return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">A</Badge>;
-    case "B":
-      return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">B</Badge>;
-    case "C":
-      return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">C</Badge>;
-    case "U":
-      return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30">U</Badge>;
-    default:
-      return <Badge className="bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30">Unknown</Badge>;
-  }
+  const l = level?.toUpperCase() || "U";
+  const config = {
+    A: { color: "emerald", label: "Full (A)", glow: "shadow-[0_0_12px_rgba(16,185,129,0.3)]" },
+    B: { color: "amber", label: "Partial (B)", glow: "shadow-[0_0_12px_rgba(245,158,11,0.2)]" },
+    C: { color: "red", label: "Gateway (C)", glow: "shadow-[0_0_12px_rgba(239,68,68,0.2)]" },
+    U: { color: "slate", label: "Unknown (U)", glow: "" },
+  }[l as "A" | "B" | "C" | "U"] || { color: "slate", label: "Unknown", glow: "" };
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase border-opacity-30",
+        config.color === "emerald" && "bg-emerald-500/10 text-emerald-600 border-emerald-500 dark:text-emerald-400",
+        config.color === "amber" && "bg-amber-500/10 text-amber-600 border-amber-500 dark:text-amber-400",
+        config.color === "red" && "bg-red-500/10 text-red-600 border-red-500 dark:text-red-400",
+        config.color === "slate" && "bg-slate-500/10 text-slate-600 border-slate-500 dark:text-slate-400",
+        config.glow
+      )}
+    >
+      {config.label}
+    </Badge>
+  );
 };
 
 /** Parse JSON body from FunctionsHttpError.context (non-2xx Edge responses). */
@@ -76,46 +89,44 @@ const getSpamLikelyLabel = (status: string | null): { text: string; variant: "ye
 
 const spamLikelyBadge = (status: string | null) => {
   const { text, variant } = getSpamLikelyLabel(status);
+  const common = "h-7 w-7 justify-center px-0 transition-all duration-300";
+  
   if (variant === "no") {
     return (
       <Badge
-        className="h-6 w-6 justify-center border-emerald-500/30 bg-emerald-500/15 px-0 text-emerald-700 dark:text-emerald-400"
+        className={cn(common, "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.15)]")}
         title={`${text} spam likelihood`}
       >
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        <span className="sr-only">{text}</span>
+        <CheckCircle2 className="h-4 w-4" />
       </Badge>
     );
   }
   if (variant === "maybe") {
     return (
       <Badge
-        className="h-6 w-6 justify-center border-amber-500/30 bg-amber-500/15 px-0 text-amber-800 dark:text-amber-400"
+        className={cn(common, "border-amber-500/30 bg-amber-500/10 text-amber-600 shadow-[0_0_10px_rgba(245,158,11,0.15)]")}
         title={`${text} spam likelihood`}
       >
-        <AlertTriangle className="h-3.5 w-3.5" />
-        <span className="sr-only">{text}</span>
+        <AlertTriangle className="h-4 w-4" />
       </Badge>
     );
   }
   if (variant === "yes") {
     return (
       <Badge
-        className="h-6 w-6 justify-center border-red-500/30 bg-red-500/15 px-0 text-red-700 dark:text-red-400"
+        className={cn(common, "border-red-500/30 bg-red-500/10 text-red-600 shadow-[0_0_10px_rgba(239,68,68,0.2)]")}
         title={`${text} spam likelihood`}
       >
-        <Flag className="h-3.5 w-3.5" />
-        <span className="sr-only">{text}</span>
+        <Flag className="h-4 w-4" />
       </Badge>
     );
   }
   return (
     <Badge
-      className="h-6 w-6 justify-center border-slate-500/30 bg-slate-500/15 px-0 text-slate-600 dark:text-slate-400"
+      className={cn(common, "border-slate-500/30 bg-slate-500/10 text-slate-400")}
       title={`${text} spam likelihood`}
     >
-      <span className="text-xs font-semibold">?</span>
-      <span className="sr-only">{text}</span>
+      <span className="text-xs font-bold font-mono">?</span>
     </Badge>
   );
 };
@@ -184,46 +195,43 @@ function getCarrierSignal(data: unknown, carrierName: "AT&T" | "Verizon" | "T-Mo
 }
 
 function carrierBadge(signal: CarrierSignal) {
+  const common = "h-7 w-7 justify-center px-0 transition-all duration-300";
   if (signal === "good") {
     return (
       <Badge
-        className="h-6 w-6 justify-center border-emerald-500/30 bg-emerald-500/15 px-0 text-emerald-700 dark:text-emerald-400"
+        className={cn(common, "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.15)]")}
         title="Check"
       >
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        <span className="sr-only">Check</span>
+        <CheckCircle2 className="h-4 w-4" />
       </Badge>
     );
   }
   if (signal === "warning") {
     return (
       <Badge
-        className="h-6 w-6 justify-center border-amber-500/30 bg-amber-500/15 px-0 text-amber-800 dark:text-amber-400"
+        className={cn(common, "border-amber-500/30 bg-amber-500/10 text-amber-600 shadow-[0_0_10px_rgba(245,158,11,0.15)]")}
         title="Warning"
       >
-        <AlertTriangle className="h-3.5 w-3.5" />
-        <span className="sr-only">Warning</span>
+        <AlertTriangle className="h-4 w-4" />
       </Badge>
     );
   }
   if (signal === "bad") {
     return (
       <Badge
-        className="h-6 w-6 justify-center border-red-500/30 bg-red-500/15 px-0 text-red-700 dark:text-red-400"
+        className={cn(common, "border-red-500/30 bg-red-500/10 text-red-600 shadow-[0_0_10px_rgba(239,68,68,0.2)]")}
         title="Flag"
       >
-        <Flag className="h-3.5 w-3.5" />
-        <span className="sr-only">Flag</span>
+        <Flag className="h-4 w-4" />
       </Badge>
     );
   }
   return (
     <Badge
-      className="h-6 w-6 justify-center border-slate-500/30 bg-slate-500/15 px-0 text-slate-600 dark:text-slate-400"
+      className={cn(common, "border-slate-500/30 bg-slate-500/10 text-slate-400")}
       title="Unknown"
     >
-      <span className="text-xs font-semibold">?</span>
-      <span className="sr-only">Unknown</span>
+      <span className="text-xs font-bold font-mono">?</span>
     </Badge>
   );
 }
@@ -407,86 +415,124 @@ const NumberReputation: React.FC = () => {
   }
 
   return (
-    <div className="space-y-5">
-      <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
+    <div className="space-y-6">
+      <ReputationAiScanner activeLineCount={phoneNumbers?.length || 0} />
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-border dark:bg-card">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50 text-slate-700 dark:from-accent/60 dark:via-accent/50 dark:to-accent/40 dark:text-muted-foreground">
-              <tr>
-                <th className="px-3 py-3 text-left font-medium">Phone number</th>
-                <th className="px-3 py-3 text-left font-medium">Attestation</th>
-                <th className="px-3 py-3 text-left font-medium">Spam likely</th>
-                <th className="px-3 py-3 text-left font-medium">Calls today</th>
-                <th className="px-3 py-3 text-left font-medium">AT&amp;T</th>
-                <th className="px-3 py-3 text-left font-medium">Verizon</th>
-                <th className="px-3 py-3 text-left font-medium">T-Mobile</th>
-                <th className="px-3 py-3 text-left font-medium">Last check</th>
-                <th className="px-3 py-3 text-left font-medium">Check</th>
+      <div className="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/50 shadow-xl shadow-slate-200/40 backdrop-blur-sm dark:border-white/10 dark:bg-[#0c1220]/80 dark:shadow-none">
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] via-transparent to-cyan-500/[0.03]" />
+        
+        <div className="relative overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200/60 dark:border-white/10">
+                <th className="px-5 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-3.5 w-3.5 text-cyan-500" />
+                    Phone number
+                  </div>
+                </th>
+                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                    Attestation
+                  </div>
+                </th>
+                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                  Spam likely
+                </th>
+                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 text-center">
+                  Calls today
+                </th>
+                <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">AT&amp;T</th>
+                <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Verizon</th>
+                <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">T-Mobile</th>
+                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                  Last check
+                </th>
+                <th className="px-5 py-4 text-right font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                  Actions
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-border">
-              {phoneNumbers?.map((num) => {
+            <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+              {phoneNumbers?.map((num, idx) => {
                 const scanning = scanningIds.includes(num.id);
                 const attestation =
                   normalizeAttestationLetter(num.last_outbound_shaken_stir) ??
                   normalizeAttestationLetter(num.shaken_stir_attestation) ??
                   normalizeAttestationLetter(num.attestation_level) ??
                   getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
+                
                 return (
                   <motion.tr
                     key={num.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05, duration: 0.3 }}
                     className={cn(
-                      "transition-colors hover:bg-sky-50/70 dark:hover:bg-accent/30",
-                      scanning && "bg-cyan-500/[0.07]",
+                      "group/row transition-all duration-300",
+                      scanning ? "bg-cyan-500/[0.03] dark:bg-cyan-500/[0.05]" : "hover:bg-slate-50/50 dark:hover:bg-white/[0.02]"
                     )}
-                    animate={
-                      scanning
-                        ? {
-                            boxShadow: [
-                              "inset 0 0 0 0 rgba(34,211,238,0)",
-                              "inset 0 0 0 1px rgba(34,211,238,0.45)",
-                              "inset 0 0 0 0 rgba(34,211,238,0)",
-                            ],
-                          }
-                        : {}
-                    }
-                    transition={scanning ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" } : {}}
                   >
-                    <td className="relative px-3 py-3 align-middle font-mono text-xs text-foreground">
-                      {num.phone_number}
-                      {scanning && (
-                        <motion.div
-                          className="pointer-events-none absolute left-2 h-9 w-1 rounded-full bg-gradient-to-b from-transparent via-cyan-400 to-transparent opacity-90 motion-reduce:hidden"
-                          animate={{ top: ["10%", "62%", "10%"] }}
-                          transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
-                        />
-                      )}
+                    <td className="px-5 py-5">
+                      <div className="flex flex-col">
+                        <span className="font-mono text-xs font-bold tracking-tight text-slate-900 dark:text-white">
+                          {num.phone_number}
+                        </span>
+                        {num.friendly_name && (
+                          <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                            {num.friendly_name}
+                          </span>
+                        )}
+                        {scanning && (
+                          <div className="mt-2 flex items-center gap-1.5">
+                            <div className="h-1 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                              <motion.div
+                                className="h-full bg-cyan-400"
+                                animate={{ x: ["-100%", "100%"] }}
+                                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-tighter text-cyan-500 animate-pulse">
+                              Scanning...
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-3 py-3">{getAttestationBadge(attestation)}</td>
-                    <td className="px-3 py-3">{spamLikelyBadge(num.spam_status)}</td>
-                    <td className="px-3 py-3 text-xs font-medium text-slate-700 dark:text-slate-300">{num.calls_today}</td>
-                    <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
-                    <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
-                    <td className="px-3 py-3">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">
-                      {num.spam_checked_at
-                        ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
-                        : "Never"}
+                    <td className="px-4 py-5">{getAttestationBadge(attestation)}</td>
+                    <td className="px-4 py-5">{spamLikelyBadge(num.spam_status)}</td>
+                    <td className="px-4 py-5 text-center">
+                      <div className="inline-flex items-center gap-1 rounded-full bg-slate-100/50 px-2.5 py-1 font-mono text-[11px] font-bold text-slate-700 dark:bg-white/5 dark:text-slate-300">
+                        <Zap className={cn("h-3 w-3", num.calls_today > 0 ? "text-amber-500" : "text-slate-400")} />
+                        {num.calls_today}
+                      </div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
+                    <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
+                    <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
+                    <td className="px-4 py-5">
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        {num.spam_checked_at
+                          ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
+                          : "Never"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-5 text-right">
                       <Button
-                        variant="secondary"
+                        variant="outline"
                         size="sm"
-                        className="font-mono text-xs"
                         disabled={busy}
                         onClick={() => handleCheckOne(num.id, num.phone_number)}
+                        className={cn(
+                          "h-8 border-slate-200 bg-white px-3 font-mono text-[10px] font-bold uppercase tracking-widest transition-all hover:border-cyan-500/50 hover:bg-cyan-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-cyan-500/10",
+                          scanning && "border-cyan-400/50 bg-cyan-50 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-400"
+                        )}
                       >
                         {scanning ? (
                           <>
-                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            Scanning
+                            <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                            Busy
                           </>
                         ) : (
                           "Check"
