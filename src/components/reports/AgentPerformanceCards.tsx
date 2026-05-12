@@ -29,7 +29,16 @@ const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selected
       const monthSold = monthCalls.filter(c => isSoldDisposition(c.disposition_name)).length;
 
       // Streak: consecutive days with calls
-      const callDates = new Set(agentCalls.map(c => startOfDay(parseISO(c.started_at)).toISOString()));
+      const callDates = new Set();
+      agentCalls.forEach(c => {
+        if (c.started_at) {
+          try {
+            callDates.add(startOfDay(parseISO(c.started_at)).toISOString());
+          } catch (e) {
+            console.error("Invalid date in AgentPerformanceCards:", c.started_at);
+          }
+        }
+      });
       let streak = 0;
       for (let i = 0; i < 60; i++) {
         const d = startOfDay(subDays(now, i)).toISOString();
