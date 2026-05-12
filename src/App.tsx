@@ -50,6 +50,7 @@ import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
 import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
+import ReportsB from "./pages/ReportsB";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -159,6 +160,7 @@ const App = () => (
                           <Route path="/campaigns/:id" element={<CampaignDetail />} />
                           <Route path="/leaderboard" element={<Leaderboard />} />
                           <Route path="/reports" element={<Reports />} />
+                          <Route path="/reports-b" element={<ReportsB />} />
                           <Route path="/ai-agents" element={<AIAgentsPage />} />
                           <Route path="/ai-agents/new" element={<AIAgentCreate />} />
                           <Route path="/training" element={<Training />} />

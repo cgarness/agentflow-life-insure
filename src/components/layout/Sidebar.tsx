@@ -23,6 +23,7 @@ const MAIN_MENU = [
   { icon: Megaphone, label: "Campaigns", path: "/campaigns" },
   { icon: Trophy, label: "Leaderboard", path: "/leaderboard" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
+  { icon: Sparkles, label: "Reports B", path: "/reports-b" },
   { icon: Bot, label: "AI Agents", path: "/ai-agents" },
   { icon: GraduationCap, label: "Training", path: "/training" },
   { icon: FileText, label: "Resources", path: "/resources" },
