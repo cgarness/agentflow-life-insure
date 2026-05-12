@@ -224,9 +224,108 @@ async function resolveInboundContact(
   return null;
 }
 
+async function checkBusinessHours(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<{ isOpen: boolean; afterHoursSms: string | null }> {
+  try {
+    // 1. Get company timezone
+    const { data: company } = await supabase
+      .from("company_settings")
+      .select("timezone")
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+      
+    const timezone = company?.timezone || "UTC";
+    
+    // 2. Get current time in that timezone
+    const now = new Date();
+    const options: Intl.DateTimeFormatOptions = {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'narrow',
+      hour12: false
+    };
+    
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const parts = formatter.formatToParts(now);
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || "0", 10);
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || "0", 10);
+    const weekdayNarrow = parts.find(p => p.type === 'weekday')?.value; // S, M, T, W, T, F, S
+    
+    // Convert narrow weekday to 0-6 (Sun-Sat)
+    // Note: 'narrow' can be ambiguous (T for Tuesday and Thursday). 
+    // Let's use 'long' and a map.
+    const longFormatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' });
+    const weekdayLong = longFormatter.format(now);
+    const dayMap: Record<string, number> = {
+      "Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5, "Saturday": 6
+    };
+    const dayOfWeek = dayMap[weekdayLong] ?? 0;
+
+    // 3. Get business hours for this day
+    const { data: hours } = await supabase
+      .from("business_hours")
+      .select("is_open, open_time, close_time")
+      .eq("organization_id", organizationId)
+      .eq("day_of_week", dayOfWeek)
+      .maybeSingle();
+
+    if (!hours || !hours.is_open) return { isOpen: false, afterHoursSms: null };
+
+    const currentTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
+    const isOpen = currentTime >= (hours.open_time || "00:00:00") && currentTime <= (hours.close_time || "23:59:59");
+    
+    // 4. Check if we should send after-hours SMS
+    if (!isOpen) {
+       const { data: settings } = await supabase
+        .from("inbound_routing_settings")
+        .select("after_hours_sms_enabled, after_hours_sms")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+        
+       if (settings?.after_hours_sms_enabled && settings.after_hours_sms) {
+         return { isOpen: false, afterHoursSms: settings.after_hours_sms };
+       }
+    }
+
+    return { isOpen, afterHoursSms: null };
+  } catch (err) {
+    console.error("[twilio-voice-inbound] business hours check failed:", err);
+    return { isOpen: true, afterHoursSms: null }; // Default to open on error
+  }
+}
+
+async function sendAfterHoursSms(
+  supabase: SupabaseClient,
+  organizationId: string,
+  fromNumber: string,
+  toNumber: string,
+  message: string
+) {
+  try {
+    // We invoke the twilio-sms function or similar, or just insert into messages table if there's a trigger.
+    // In this system, it's safer to invoke the edge function or use the DB.
+    // Let's assume there's a twilio-sms function we can use.
+    await supabase.functions.invoke("twilio-sms", {
+      body: {
+        to: fromNumber, // Send TO the person who called
+        from: toNumber, // FROM the number they called
+        body: message,
+        organization_id: organizationId
+      }
+    });
+    console.log("[twilio-voice-inbound] After-hours SMS sent to", fromNumber);
+  } catch (err) {
+    console.error("[twilio-voice-inbound] Failed to send after-hours SMS:", err);
+  }
+}
+
 async function loadPhoneSettings(
   supabase: SupabaseClient,
   organizationId: string | null,
+  phoneNumberId?: string | null,
 ): Promise<{ 
   recording_enabled: boolean; 
   inbound_routing: string;
@@ -243,6 +342,20 @@ async function loadPhoneSettings(
   };
   if (!organizationId) return defaults;
 
+  let numberOverrides: any = null;
+  if (phoneNumberId) {
+    try {
+      const { data } = await supabase
+        .from("phone_numbers")
+        .select("inbound_routing_mode, voicemail_enabled, fallback_action, voicemail_greeting_text, forwarding_number")
+        .eq("id", phoneNumberId)
+        .maybeSingle();
+      if (data) numberOverrides = data;
+    } catch (err) {
+      console.warn("[twilio-voice-inbound] phone_numbers override check failed:", err);
+    }
+  }
+
   let recording_enabled = true;
   try {
     const { data } = await supabase
@@ -255,6 +368,7 @@ async function loadPhoneSettings(
     }
   } catch (err) {}
 
+  let orgData: any = null;
   try {
     const { data, error } = await supabase
       .from("inbound_routing_settings")
@@ -263,19 +377,19 @@ async function loadPhoneSettings(
       .maybeSingle();
       
     if (!error && data) {
-      return {
-        recording_enabled,
-        inbound_routing: data.routing_mode || "assigned",
-        fallback_action: data.fallback_action || "voicemail",
-        voicemail_greeting_text: data.voicemail_greeting_text || defaults.voicemail_greeting_text,
-        forwarding_number: data.forwarding_number || ""
-      };
+      orgData = data;
     }
   } catch (err) {
     console.warn("[twilio-voice-inbound] inbound_routing_settings select threw:", err);
   }
 
-  return { ...defaults, recording_enabled };
+  return {
+    recording_enabled: (numberOverrides?.voicemail_enabled ?? true) && recording_enabled,
+    inbound_routing: numberOverrides?.inbound_routing_mode || orgData?.routing_mode || defaults.inbound_routing,
+    fallback_action: numberOverrides?.fallback_action || orgData?.fallback_action || defaults.fallback_action,
+    voicemail_greeting_text: numberOverrides?.voicemail_greeting_text || orgData?.voicemail_greeting_text || defaults.voicemail_greeting_text,
+    forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number
+  };
 }
 
 async function resolveAssignedIdentity(
@@ -467,7 +581,7 @@ async function handleInitialInbound(
   }
 
   const organizationId = phoneRow.organization_id;
-  const settings = await loadPhoneSettings(supabase, organizationId);
+  const settings = await loadPhoneSettings(supabase, organizationId, phoneRow.id);
 
   // Create the calls row first so we have the row id for the Dial action URL.
   const nowIso = new Date().toISOString();
@@ -522,6 +636,41 @@ async function handleInitialInbound(
     }
   } catch (err) {
     console.warn("[twilio-voice-inbound] contact resolution threw:", err);
+  }
+
+  // CHECK BUSINESS HOURS
+  const { isOpen, afterHoursSms } = await checkBusinessHours(supabase, organizationId);
+  if (!isOpen) {
+    console.log("[twilio-voice-inbound] Organization is CLOSED. Routing to fallback.");
+    
+    if (afterHoursSms) {
+      void sendAfterHoursSms(supabase, organizationId, fromNumber, toNumber, afterHoursSms);
+    }
+
+    if (callRowId) {
+      await supabase.from("calls").update({ is_missed: true, updated_at: new Date().toISOString() }).eq("id", callRowId);
+    }
+
+    let fallbackTwiml = "";
+    if (settings.fallback_action === "forward" && settings.forwarding_number) {
+      const nextActionUrl = selfUrl({
+        fallback: "voicemail",
+        forwarded: "1",
+        ...(callRowId ? { call_row_id: callRowId } : {}),
+        org_id: organizationId,
+      });
+      fallbackTwiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
+    } else if (settings.fallback_action === "hangup") {
+      fallbackTwiml = buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye.");
+    } else {
+      const hangupUrl = selfUrl({
+        fallback: "hangup",
+        ...(callRowId ? { call_row_id: callRowId } : {}),
+        org_id: organizationId,
+      });
+      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+    }
+    return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
   }
 
   // Resolve identities based on routing strategy.

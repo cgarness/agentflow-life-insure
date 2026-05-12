@@ -10,7 +10,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X } from "lucide-react";
+import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route } from "lucide-react";
+import { PhoneNumberRoutingModal } from "./PhoneNumberRoutingModal";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 
 const formatPhone = formatPhoneNumber;
@@ -33,6 +34,11 @@ export interface PhoneNumberRow {
   trust_hub_status?: string | null;
   attestation_level?: string | null;
   twilio_sid?: string | null;
+  inbound_routing_mode?: string | null;
+  voicemail_enabled?: boolean | null;
+  fallback_action?: string | null;
+  voicemail_greeting_text?: string | null;
+  forwarding_number?: string | null;
 }
 
 type TwilioAvailableNumber = {
@@ -73,6 +79,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   const [cartDetailOpen, setCartDetailOpen] = useState(false);
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
+  const [routingModalTarget, setRoutingModalTarget] = useState<PhoneNumberRow | null>(null);
 
   const activeNumbers = numbers.filter((n) => n.status === "active");
 
@@ -403,9 +410,14 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               {isActive && (
-                                <DropdownMenuItem onClick={() => setReleaseConfirm(n.id)} className="text-destructive">
-                                  <Radio className="w-4 h-4 mr-2" /> Release number
-                                </DropdownMenuItem>
+                                <>
+                                  <DropdownMenuItem onClick={() => setRoutingModalTarget(n)}>
+                                    <Route className="w-4 h-4 mr-2" /> Inbound routing
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => setReleaseConfirm(n.id)} className="text-destructive">
+                                    <Radio className="w-4 h-4 mr-2" /> Release number
+                                  </DropdownMenuItem>
+                                </>
                               )}
                               {isReleased && (
                                 <DropdownMenuItem onClick={() => setRemoveConfirm(n.id)} className="text-destructive">
@@ -600,6 +612,15 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {routingModalTarget && (
+        <PhoneNumberRoutingModal
+          open={!!routingModalTarget}
+          onOpenChange={(o) => !o && setRoutingModalTarget(null)}
+          phoneNumber={routingModalTarget}
+          onUpdate={onRefresh}
+        />
+      )}
     </>
   );
 };
