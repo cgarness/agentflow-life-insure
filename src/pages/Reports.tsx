@@ -248,24 +248,22 @@ const Reports: React.FC = () => {
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
       {/* Premium Header Banner */}
-      <div className="relative overflow-hidden bg-slate-900 rounded-[2.5rem] p-10 md:p-12 shadow-2xl shadow-slate-200 dark:shadow-none border border-slate-800">
-        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-primary/10 via-primary/5 to-transparent pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[radial-gradient(circle_at_center,rgba(var(--primary-rgb),0.05)_0%,transparent_70%)] pointer-events-none" />
-
+      <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 md:p-10 shadow-2xl shadow-slate-200 dark:shadow-none border border-slate-800">
+        <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-primary/20 to-transparent pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-10">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
           <div>
-            <div className="flex items-center gap-4 mb-4">
-              <div className="p-3 bg-primary/20 rounded-2xl backdrop-blur-xl border border-primary/30 shadow-lg shadow-primary/20">
-                <BarChart3 className="w-8 h-8 text-primary-foreground" />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2.5 bg-primary/20 rounded-2xl backdrop-blur-md border border-primary/30">
+                <BarChart3 className="w-6 h-6 text-primary-foreground" />
               </div>
-              <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white leading-none">Intelligence Hub</h1>
+              <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">Performance Analytics</h1>
             </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <p className="text-slate-400 font-semibold text-xl tracking-tight">Real-time performance metrics & growth analytics</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-slate-400 font-medium text-lg">Comprehensive intelligence and growth metrics</p>
               {stateFilter && (
-                <Badge className="bg-primary/20 text-primary-foreground border-primary/30 px-4 py-1.5 text-[10px] uppercase font-black tracking-[0.2em] hover:bg-primary/30 transition-all cursor-default rounded-full shadow-lg">
+                <Badge className="bg-primary/20 text-primary-foreground border-primary/30 px-3 py-1 text-xs uppercase font-bold tracking-wider hover:bg-primary/30 transition-all cursor-default">
                   Region: {STATE_NAMES[stateFilter] || stateFilter}
                   <button onClick={() => setStateFilter(null)} className="ml-2 hover:text-white transition-colors">
                     <X className="w-3.5 h-3.5" />
@@ -275,36 +273,33 @@ const Reports: React.FC = () => {
             </div>
           </div>
 
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-            <div className="flex items-center gap-1.5 bg-slate-800/40 p-2 rounded-[1.25rem] border border-slate-700/50 backdrop-blur-md shadow-inner">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-1 bg-slate-800/50 p-1.5 rounded-2xl border border-slate-700/50 backdrop-blur-sm">
               {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
                 <button 
                   key={p} 
                   onClick={() => setPreset(p)}
                   className={cn(
-                    "px-5 py-2.5 text-[10px] font-black rounded-xl transition-all duration-300 uppercase tracking-widest",
+                    "px-4 py-2 text-xs font-bold rounded-xl transition-all duration-200 uppercase tracking-tighter",
                     p === preset 
-                      ? "bg-primary text-primary-foreground shadow-xl shadow-primary/30 scale-105" 
-                      : "text-slate-500 hover:text-slate-200 hover:bg-white/5"
+                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
+                      : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
                   )}
                 >
                   {PRESET_LABELS[p]}
                 </button>
               ))}
             </div>
-
             
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <Button 
                 variant="outline" 
-                className="bg-primary text-primary-foreground border-transparent hover:bg-primary/90 rounded-2xl h-14 px-8 font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-primary/20 active:scale-95"
+                className="bg-white/5 border-slate-700 text-slate-200 hover:bg-white/10 hover:text-white rounded-2xl h-12 px-6 font-bold text-sm transition-all border-2 active:scale-95"
                 onClick={handleExportAll}
               >
                 <Download className="w-4 h-4 mr-2" />
                 Export Intelligence
               </Button>
-
               
               <div className="hidden lg:flex items-center gap-2">
                 <Button 
@@ -401,21 +396,19 @@ const Reports: React.FC = () => {
       )}
 
       {!hasData && !loading ? (
-        <div className="flex flex-col items-center justify-center py-40 text-center bg-white dark:bg-slate-900/40 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800 shadow-inner relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.02] to-transparent pointer-events-none" />
-          <div className="p-8 bg-slate-100 dark:bg-slate-800 rounded-full mb-8 shadow-sm group-hover:scale-110 transition-transform duration-500">
-            <BarChart3 className="w-16 h-16 text-slate-300 dark:text-slate-600" />
+        <div className="flex flex-col items-center justify-center py-32 text-center bg-white dark:bg-slate-900/50 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800 shadow-inner">
+          <div className="p-6 bg-slate-100 dark:bg-slate-800 rounded-full mb-6">
+            <BarChart3 className="w-12 h-12 text-slate-300 dark:text-slate-600" />
           </div>
-          <h2 className="text-3xl font-black text-slate-900 dark:text-slate-100 mb-3 tracking-tight">Intelligence Stream Empty</h2>
-          <p className="text-slate-500 max-w-sm mb-10 font-semibold text-lg leading-relaxed">We couldn't find any performance data for the selected parameters. Start your outreach to populate this dashboard.</p>
+          <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-2 tracking-tight">Intelligence Stream Empty</h2>
+          <p className="text-slate-500 max-w-sm mb-8 font-medium">We couldn't find any performance data for the selected parameters. Start your outreach to populate this dashboard.</p>
           <Button 
             onClick={() => navigate("/dialer")}
-            className="h-14 px-10 rounded-[1.25rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95"
+            className="h-12 px-8 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95"
           >
             Launch Dialer Engine
           </Button>
         </div>
-
       ) : (
         <>
           {isAdmin && (

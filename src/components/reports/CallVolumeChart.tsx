@@ -53,64 +53,34 @@ const CallVolumeChart: React.FC<Props> = ({ calls, compCalls, agents, grouping, 
 
   return (
     <ReportSection title="Call Volume by Agent" onExport={handleExport}>
-      <div className="flex items-center gap-2 mb-6">
+      <div className="flex items-center gap-1 mb-3">
         {(["daily", "weekly", "monthly"] as Grouping[]).map(g => (
           <button key={g} onClick={() => onGroupingChange(g)}
-            className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${g === grouping ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700"}`}>
+            className={`px-2.5 py-1 text-xs rounded-md capitalize ${g === grouping ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
             {g}
           </button>
         ))}
       </div>
-
       {data.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">No call data for this period</p>
       ) : (
-        <ResponsiveContainer width="100%" height={320}>
+        <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-slate-200 dark:stroke-slate-800" opacity={0.5} />
-            <XAxis 
-              dataKey="name" 
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10, fontWeight: 600 }} 
-              dy={10}
-            />
-            <YAxis 
-              yAxisId="left" 
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10, fontWeight: 600 }} 
-            />
-            <YAxis 
-              yAxisId="right" 
-              orientation="right" 
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10, fontWeight: 600 }} 
-              unit=" min" 
-            />
-            <Tooltip 
-              cursor={{ fill: 'hsl(var(--primary)/0.05)' }}
-              contentStyle={{ 
-                backgroundColor: "hsl(var(--card))", 
-                border: "1px solid hsl(var(--border))", 
-                borderRadius: "1rem", 
-                boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                padding: "12px"
-              }}
-              itemStyle={{ fontSize: "12px", fontWeight: "700" }}
-              labelStyle={{ fontSize: "14px", fontWeight: "900", marginBottom: "8px", color: "hsl(var(--foreground))" }}
+            <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
+            <XAxis dataKey="name" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
+            <YAxis yAxisId="left" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} unit=" min" />
+            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }}
               formatter={(value: any, name: string) => {
                 if (name === "Avg Duration") return [`${value} min`, name];
                 return [value, name];
               }}
             />
-            <Bar yAxisId="left" dataKey="calls" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} name="Calls" barSize={32} />
-            {comparing && <Bar yAxisId="left" dataKey="compCalls" fill="hsl(var(--primary)/0.2)" radius={[6, 6, 0, 0]} name="Previous" barSize={32} />}
-            <Line yAxisId="right" type="monotone" dataKey="avgDuration" stroke="hsl(var(--warning))" strokeWidth={3} dot={{ r: 4, fill: "hsl(var(--warning))", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6, strokeWidth: 0 }} name="Avg Duration" />
+            <Bar yAxisId="left" dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls" />
+            {comparing && <Bar yAxisId="left" dataKey="compCalls" fill="hsl(var(--primary)/0.3)" radius={[4, 4, 0, 0]} name="Previous" />}
+            <Line yAxisId="right" type="monotone" dataKey="avgDuration" stroke="hsl(var(--warning))" strokeWidth={2} dot={{ r: 3 }} name="Avg Duration" />
           </ComposedChart>
         </ResponsiveContainer>
-
       )}
     </ReportSection>
   );
