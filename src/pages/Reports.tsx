@@ -35,7 +35,7 @@ import DispositionDeepDive from "@/components/reports/DispositionDeepDive";
 import GoalTracking from "@/components/reports/GoalTracking";
 import CustomReportBuilder from "@/components/reports/CustomReportBuilder";
 import ScheduledReportsModal from "@/components/reports/ScheduledReportsModal";
-import GeographicHeatmap from "@/components/reports/GeographicHeatmap";
+
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
 
@@ -476,15 +476,7 @@ const Reports: React.FC = () => {
 
           <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
 
-          <GeographicHeatmap
-            calls={calls}
-            leads={leads}
-            campaignLeads={campaignLeads}
-            dispositions={dispositions}
-            loading={loading}
-            onStateFilter={setStateFilter}
-            activeStateFilter={stateFilter}
-          />
+
         </>
       )}
 

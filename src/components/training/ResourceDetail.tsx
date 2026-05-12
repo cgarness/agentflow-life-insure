@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Download, ExternalLink, Play, ScrollText, FileText } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ResourceDetailProps {
   resource: TrainingResource | null;
