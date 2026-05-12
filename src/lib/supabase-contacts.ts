@@ -238,6 +238,7 @@ export const leadsSupabaseApi = {
   },
 
   async delete(id: string): Promise<void> {
+    await supabase.from("campaign_leads").delete().eq("lead_id", id);
     const { error } = await supabase.from("leads").delete().eq("id", id);
     if (error) throw new Error(error.message);
   },
@@ -251,26 +252,16 @@ export const leadsSupabaseApi = {
     endDate?: string;
     assignedAgentIds?: string[];
   }): Promise<number> {
-    // PostgREST rejects DELETE with zero filters ("Delete requires a where clause").
-    // RLS still restricts which rows are visible; `id IS NOT NULL` is always true for real rows.
-    let q = supabase.from("leads").delete().select("id").not("id", "is", null);
-    if (filters?.status) q = q.eq("status", filters.status) as typeof q;
-    if (filters?.source) q = q.eq("lead_source", filters.source) as typeof q;
-    if (filters?.state) q = q.eq("state", filters.state) as typeof q;
-    if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-      q = (filters.assignedAgentIds.length === 1
-        ? q.eq("user_id", filters.assignedAgentIds[0])
-        : q.in("user_id", filters.assignedAgentIds)) as typeof q;
+    const ids = await this.getAllLeadIdsMatching(filters);
+    if (ids.length === 0) return 0;
+
+    const chunkSize = 1000;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      await supabase.from("campaign_leads").delete().in("lead_id", chunk);
+      await supabase.from("leads").delete().in("id", chunk);
     }
-    if (filters?.startDate) q = q.gte("created_at", filters.startDate) as typeof q;
-    if (filters?.endDate) q = q.lte("created_at", filters.endDate) as typeof q;
-    if (filters?.search) {
-      const s = filters.search;
-      q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`) as typeof q;
-    }
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-    return data?.length ?? 0;
+    return ids.length;
   },
 
   async updateStatusAllMatching(status: string, filters?: {
