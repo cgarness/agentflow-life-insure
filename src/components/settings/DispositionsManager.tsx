@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { dispositionsSupabaseApi as dispositionsApi } from "@/lib/supabase-dispositions";
-import { Disposition } from "@/lib/types";
+import { pipelineSupabaseApi } from "@/lib/supabase-settings";
+import { Disposition, PipelineStage } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, Info, Calendar, FileText, Zap,
-  AlertTriangle, Users, ShieldBan, Lock,
+  AlertTriangle, Users, ShieldBan, Lock, GitBranch,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { CampaignAction } from "@/lib/types";
@@ -47,6 +48,7 @@ interface FormState {
   automationName: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
+  pipelineStageId: string;
 }
 
 const emptyForm: FormState = {
@@ -61,6 +63,7 @@ const emptyForm: FormState = {
   automationName: "",
   campaignAction: "none",
   dncAutoAdd: false,
+  pipelineStageId: "",
 };
 
 function normalizeDispositionName(name: string) {
@@ -81,6 +84,7 @@ function isAppointmentSetDisposition(d: Pick<Disposition, "name">): boolean {
 const DispositionsManager: React.FC = () => {
   const { organizationId } = useOrganization();
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
+  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -95,8 +99,12 @@ const DispositionsManager: React.FC = () => {
 
   const load = useCallback(async () => {
     try {
-      const data = await dispositionsApi.getAll();
-      setDispositions(data);
+      const [dispData, stages] = await Promise.all([
+        dispositionsApi.getAll(),
+        pipelineSupabaseApi.getLeadStages(),
+      ]);
+      setDispositions(dispData);
+      setPipelineStages(stages);
     } catch {
       toast({ title: "Error loading dispositions", variant: "destructive" });
     } finally {
@@ -126,6 +134,7 @@ const DispositionsManager: React.FC = () => {
       automationName: d.automationName || "",
       campaignAction: d.campaignAction || "none",
       dncAutoAdd: d.dncAutoAdd || false,
+      pipelineStageId: d.pipelineStageId || "",
     });
     setShowModal(true);
   };
@@ -159,6 +168,7 @@ const DispositionsManager: React.FC = () => {
           automationName: form.automationTrigger ? form.automationName : undefined,
           campaignAction: form.campaignAction,
           dncAutoAdd: form.dncAutoAdd,
+          pipelineStageId: form.pipelineStageId || null,
         });
         toast({ title: "Disposition updated" });
       } else {
@@ -175,6 +185,7 @@ const DispositionsManager: React.FC = () => {
           automationName: form.automationTrigger ? form.automationName : undefined,
           campaignAction: form.campaignAction,
           dncAutoAdd: form.dncAutoAdd,
+          pipelineStageId: form.pipelineStageId || null,
           order: dispositions.length + 1,
         }, organizationId);
         toast({ title: "Disposition created" });
@@ -321,6 +332,14 @@ const DispositionsManager: React.FC = () => {
                     <ShieldBan className="w-2.5 h-2.5" /> Auto-DNC
                   </span>
                 )}
+                {d.pipelineStageId && (() => {
+                  const stage = pipelineStages.find(s => s.id === d.pipelineStageId);
+                  return stage ? (
+                    <span className="text-[10px] bg-violet-500/10 text-violet-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                      <GitBranch className="w-2.5 h-2.5" /> {stage.name}
+                    </span>
+                  ) : null;
+                })()}
               </div>
 
               <TooltipProvider>
@@ -541,6 +560,32 @@ const DispositionsManager: React.FC = () => {
                 )}
               </div>
             )}
+
+            {/* Pipeline Stage Link */}
+            <div className="rounded-lg border p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                  <GitBranch className="w-3.5 h-3.5" /> Pipeline Stage
+                </p>
+                <p className="text-xs text-muted-foreground">Automatically move leads to this pipeline stage when this disposition is selected.</p>
+              </div>
+              <select
+                value={form.pipelineStageId}
+                onChange={e => setForm(f => ({ ...f, pipelineStageId: e.target.value }))}
+                className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="">No Pipeline Stage</option>
+                {pipelineStages.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}{s.convertToClient ? " ✦ Converts" : ""}</option>
+                ))}
+              </select>
+              {form.pipelineStageId && (() => {
+                const selected = pipelineStages.find(s => s.id === form.pipelineStageId);
+                return selected?.convertToClient ? (
+                  <p className="text-[11px] text-emerald-600 font-medium">⚡ This stage triggers lead-to-client conversion.</p>
+                ) : null;
+              })()}
+            </div>
 
             {/* Campaign Action */}
             <div className="rounded-lg border p-3 space-y-3">

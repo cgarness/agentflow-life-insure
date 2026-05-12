@@ -420,6 +420,52 @@ export async function saveCall(data: {
       .eq("id", data.campaign_lead_id);
   }
 
+  // 3. Pipeline stage transition: if the disposition is linked to a pipeline stage,
+  // update the lead's status to the stage name.
+  if (data.disposition) {
+    try {
+      const dispQuery = supabase
+        .from("dispositions")
+        .select("pipeline_stage_id")
+        .ilike("name", data.disposition);
+
+      if (organizationId) {
+        dispQuery.eq("organization_id", organizationId);
+      }
+
+      const { data: dispRow } = await dispQuery.maybeSingle();
+
+      if (dispRow?.pipeline_stage_id) {
+        // Fetch the linked pipeline stage name
+        const { data: stage } = await supabase
+          .from("pipeline_stages")
+          .select("name")
+          .eq("id", dispRow.pipeline_stage_id)
+          .maybeSingle();
+
+        if (stage?.name) {
+          // Update the master lead's status to the pipeline stage name
+          await (supabase as any)
+            .from("leads")
+            .update({ status: stage.name, updated_at: new Date().toISOString() })
+            .eq("id", data.master_lead_id);
+
+          // Log pipeline stage transition activity
+          await supabase.from("contact_activities").insert({
+            contact_id: data.master_lead_id,
+            agent_id: data.agent_id,
+            activity_type: "pipeline",
+            description: `Pipeline stage → ${stage.name}`,
+            organization_id: organizationId,
+          } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+        }
+      }
+    } catch (pipelineErr) {
+      // Non-fatal: pipeline transition failure should not break call save
+      console.warn("[saveCall] Pipeline stage transition failed:", pipelineErr);
+    }
+  }
+
   const { error: actError } = await supabase.from("contact_activities").insert({
     contact_id: data.master_lead_id,
     agent_id: data.agent_id,

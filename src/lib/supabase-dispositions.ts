@@ -15,6 +15,7 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     automationName: row.automation_name ?? undefined,
     campaignAction: row.campaign_action ?? 'none',
     dncAutoAdd: row.dnc_auto_add ?? false,
+    pipelineStageId: row.pipeline_stage_id ?? null,
     order: row.sort_order,
     usageCount: row.usage_count,
     createdAt: row.created_at,
@@ -62,6 +63,7 @@ export const dispositionsSupabaseApi = {
         automation_name: input.automationName ?? null,
         campaign_action: input.campaignAction ?? 'none',
         dnc_auto_add: input.dncAutoAdd ?? false,
+        pipeline_stage_id: input.pipelineStageId ?? null,
         sort_order: (count ?? 0) + 1,
         usage_count: 0,
         organization_id: organizationId,
@@ -109,6 +111,7 @@ export const dispositionsSupabaseApi = {
         ...(input.campaignAction !== undefined && { campaign_action: input.campaignAction }),
         ...(input.dncAutoAdd !== undefined && { dnc_auto_add: input.dncAutoAdd }),
         ...(input.isLocked !== undefined && { is_locked: input.isLocked }),
+        ...(input.pipelineStageId !== undefined && { pipeline_stage_id: input.pipelineStageId || null }),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)

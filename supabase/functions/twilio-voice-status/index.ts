@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { insertMissedCallNotifications } from "../_shared/notifications.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -140,72 +141,7 @@ type CallRow = {
   agent_id: string | null;
 };
 
-async function insertMissedCallNotifications(
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
-  call: CallRow,
-): Promise<void> {
-  const orgId = call.organization_id!;
-  let recipientIds: string[] = [];
-
-  // 1) Prefer the lead's assigned agent
-  if (call.contact_id && (call.contact_type === "lead" || !call.contact_type)) {
-    const { data: lead } = await supabase
-      .from("leads")
-      .select("assigned_agent_id")
-      .eq("id", call.contact_id)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    if (lead?.assigned_agent_id) recipientIds.push(lead.assigned_agent_id);
-  }
-
-  // 2) Fall back to whatever agent owned the call row, if any
-  if (recipientIds.length === 0 && call.agent_id) {
-    recipientIds.push(call.agent_id);
-  }
-
-  // 3) Final fallback: org Admins + Team Leaders
-  if (recipientIds.length === 0) {
-    const { data: admins } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("organization_id", orgId)
-      .in("role", ["Admin", "Team Leader"]);
-    if (admins) recipientIds = admins.map((a: { id: string }) => a.id);
-  }
-
-  if (recipientIds.length === 0) return;
-
-  const name =
-    (call.contact_name && call.contact_name.trim()) ||
-    (call.contact_phone && call.contact_phone.trim()) ||
-    "Unknown caller";
-  const phone = call.contact_phone || "";
-  const body = phone
-    ? `Missed call from ${name} (${phone})`
-    : `Missed call from ${name}`;
-  const actionUrl = call.contact_id ? `/contacts?id=${call.contact_id}` : null;
-
-  const rows = recipientIds.map((uid) => ({
-    user_id: uid,
-    type: "missed_call",
-    title: "Missed Call",
-    body,
-    action_url: actionUrl,
-    action_label: actionUrl ? "View Contact" : null,
-    organization_id: orgId,
-    metadata: { contact_id: call.contact_id, phone, call_id: call.id },
-    read: false,
-  }));
-
-  const { error } = await supabase.from("notifications").insert(rows);
-  if (error) {
-    console.error(
-      "[twilio-voice-status] notifications insert failed:",
-      error.message,
-    );
-  }
-}
+// insertMissedCallNotifications is now imported from "../_shared/notifications.ts"
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -296,7 +232,7 @@ Deno.serve(async (req) => {
       const { data, error: selectError } = await supabase
         .from("calls")
         .select(
-          "id, started_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id",
+          "id, started_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction",
         )
         .eq("twilio_call_sid", sid)
         .maybeSingle();
@@ -308,7 +244,7 @@ Deno.serve(async (req) => {
         return;
       }
       if (data) {
-        existing = data;
+        existing = data as any;
         matchTwilioSid = sid;
       }
     };
@@ -375,6 +311,9 @@ Deno.serve(async (req) => {
       case "canceled": {
         patch.status = "failed";
         patch.ended_at = nowIso;
+        if (callStatus === "canceled") {
+          patch.is_missed = true;
+        }
         if (sipResponseCode) patch.provider_error_code = sipResponseCode;
         break;
       }
@@ -398,14 +337,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── Missed-call notification (no-answer or busy) ──
-    if (
-      (callStatus === "no-answer" || callStatus === "busy") &&
-      existing &&
-      existing.organization_id
-    ) {
+    // ── Missed-call notification (no-answer, busy, canceled, or explicitly marked) ──
+    const isTerminalMissed = ["no-answer", "busy", "canceled"].includes(callStatus);
+    const shouldNotify = (isTerminalMissed || existing?.is_missed || patch.is_missed) && 
+                         existing?.direction === "inbound" &&
+                         existing?.organization_id;
+
+    if (shouldNotify) {
       try {
-        await insertMissedCallNotifications(supabase, existing);
+        // Merge existing with patch for the helper
+        const callData = { ...existing, ...patch };
+        await insertMissedCallNotifications(supabase, callData as any);
       } catch (notifyErr) {
         console.error(
           "[twilio-voice-status] missed-call notification failed:",

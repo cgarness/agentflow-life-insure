@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { insertMissedCallNotifications } from "../_shared/notifications.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -519,6 +520,24 @@ async function handleFallback(
     callSid: params["CallSid"] || "(none)",
   });
 
+  // If the human didn't answer, mark as missed and notify
+  if (dialCallStatus !== "completed" && dialCallStatus !== "answered" && callRowId) {
+    try {
+      const { data: callRow } = await supabase
+        .from("calls")
+        .update({ is_missed: true, updated_at: new Date().toISOString() })
+        .eq("id", callRowId)
+        .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id")
+        .maybeSingle();
+      
+      if (callRow) {
+        await insertMissedCallNotifications(supabase, callRow);
+      }
+    } catch (err) {
+      console.warn("[twilio-voice-inbound] Failed to mark as missed / notify in fallback:", err);
+    }
+  }
+
   // Load settings WITH the phone number override so per-number forwarding config is respected
   const settings = await loadPhoneSettings(supabase, orgId || null, phoneNumberId || null);
 
@@ -653,7 +672,16 @@ async function handleInitialInbound(
     }
 
     if (callRowId) {
-      await supabase.from("calls").update({ is_missed: true, updated_at: new Date().toISOString() }).eq("id", callRowId);
+      const { data: callRow } = await supabase
+        .from("calls")
+        .update({ is_missed: true, updated_at: new Date().toISOString() })
+        .eq("id", callRowId)
+        .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id")
+        .maybeSingle();
+        
+      if (callRow) {
+        await insertMissedCallNotifications(supabase, callRow);
+      }
     }
 
     let fallbackTwiml = "";
@@ -697,15 +725,20 @@ async function handleInitialInbound(
       `[twilio-voice-inbound] No identities resolvable (routing=${routing}, assigned_to=${phoneRow.assigned_to}) — going straight to voicemail`,
     );
     if (callRowId) {
-      const { error } = await supabase
+      const { data: callRow, error } = await supabase
         .from("calls")
         .update({ is_missed: true, updated_at: new Date().toISOString() })
-        .eq("id", callRowId);
+        .eq("id", callRowId)
+        .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id")
+        .maybeSingle();
+
       if (error) {
         console.error(
           "[twilio-voice-inbound] calls is_missed update failed:",
           error.message,
         );
+      } else if (callRow) {
+        await insertMissedCallNotifications(supabase, callRow);
       }
     }
     let fallbackTwiml = "";
