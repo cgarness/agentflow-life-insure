@@ -90,27 +90,32 @@ const DispositionsPieChart: React.FC<Props> = ({ calls, dispositions, grouping, 
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center"><p className="text-2xl font-bold text-foreground">{totalCalls}</p><p className="text-xs text-muted-foreground">calls</p></div>
               </div>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="flex flex-wrap gap-2.5 mt-4">
                 {pieData.slice(0, 6).map(d => (
-                  <div key={d.name} className="flex items-center gap-1.5 text-xs">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                    <span className="text-muted-foreground">{d.name}</span>
-                    <span className="font-medium text-foreground">{d.value}</span>
+                   <div key={d.name} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider bg-slate-50 dark:bg-slate-900/50 px-2 py-1 rounded-lg border border-slate-200/50 dark:border-slate-800/50">
+                    <span className="w-2 h-2 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: d.color }} />
+                    <span className="text-slate-500 dark:text-slate-400">{d.name}</span>
+                    <span className="text-slate-900 dark:text-slate-100">{d.value}</span>
                   </div>
                 ))}
               </div>
+
             </div>
             {/* Funnel */}
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground mb-2">Conversion Funnel</p>
+            <div className="space-y-2">
+              <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-4">Conversion Funnel</p>
               {funnel.map((f, i) => (
-                <div key={f.stage} className="rounded-md bg-primary/5 py-2.5 px-3 flex items-center justify-between"
-                  style={{ width: `${Math.max(30, 100 - i * 18)}%`, marginLeft: `${i * 4}%` }}>
-                  <span className="text-xs font-medium text-foreground">{f.stage}</span>
-                  <span className="text-xs"><span className="font-bold text-foreground">{f.value}</span>{i > 0 && <span className="text-primary ml-1">({f.pct})</span>}</span>
+                <div key={f.stage} className="rounded-2xl bg-gradient-to-r from-primary/10 to-transparent py-3.5 px-5 flex items-center justify-between border border-primary/5 shadow-sm transition-all hover:scale-[1.02] duration-300"
+                  style={{ width: `${Math.max(40, 100 - i * 15)}%`, marginLeft: `${i * 3}%` }}>
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-tight">{f.stage}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100">{f.value}</span>
+                    {i > 0 && <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">{f.pct}</span>}
+                  </div>
                 </div>
               ))}
             </div>
+
           </div>
 
           {/* Disposition Trends */}

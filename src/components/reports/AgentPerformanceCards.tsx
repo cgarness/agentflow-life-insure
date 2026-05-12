@@ -55,59 +55,93 @@ const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selected
   }, [nonAdmin, calls, goals]);
 
   if (loading) return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 w-48 shrink-0 rounded-xl" />)}
+    <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
+      {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-56 shrink-0 rounded-[2rem]" />)}
     </div>
   );
+
 
   if (agentStats.length === 0) return null;
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+  return (
+    <div className="flex gap-5 overflow-x-auto pb-6 scrollbar-hide -mx-2 px-2">
       {agentStats.map(a => (
         <button key={a.id}
           onClick={() => onSelectAgent(selectedAgent === a.id ? "" : a.id)}
           className={cn(
-            "shrink-0 w-48 rounded-2xl border p-4 text-left transition-all duration-200 group",
+            "shrink-0 w-60 rounded-[2rem] border p-6 text-left transition-all duration-500 group relative overflow-hidden",
             selectedAgent === a.id 
-              ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20" 
-              : "bg-card border-slate-200/60 dark:border-slate-800/60 hover:border-primary/40 hover:shadow-md"
+              ? "border-primary bg-primary/[0.03] shadow-2xl shadow-primary/10 ring-1 ring-primary/20 scale-[1.02] z-10" 
+              : "bg-white dark:bg-slate-950 border-slate-200/50 dark:border-slate-800/50 hover:border-primary/30 hover:shadow-xl hover:shadow-slate-200/50 dark:hover:shadow-none hover:-translate-y-1"
           )}>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-sm font-bold text-primary transition-transform group-hover:scale-105">
+          {selectedAgent === a.id && (
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-primary/10 to-transparent pointer-events-none" />
+          )}
+          
+          <div className="flex items-center gap-4 mb-5 relative z-10">
+            <div className={cn(
+              "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black transition-all duration-500 group-hover:scale-110 shadow-sm",
+              selectedAgent === a.id 
+                ? "bg-primary text-primary-foreground shadow-primary/20" 
+                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-primary/10 group-hover:text-primary"
+            )}>
               {a.initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-foreground truncate">{a.name}</p>
+              <p className={cn(
+                "text-base font-extrabold truncate transition-colors",
+                selectedAgent === a.id ? "text-primary" : "text-slate-900 dark:text-slate-100"
+              )}>{a.name}</p>
               {a.streak > 0 && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-orange-500">🔥 {a.streak}d streak</span>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-orange-600 dark:text-orange-400">{a.streak}d streak</span>
                 </div>
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <div>
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Today</p>
-              <p className="text-base font-black text-foreground leading-none mt-1">{a.callsToday}</p>
+
+          <div className="grid grid-cols-2 gap-4 mb-5 relative z-10">
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Today</p>
+              <div className="flex items-baseline gap-1">
+                <p className="text-xl font-black text-slate-900 dark:text-slate-100 leading-none">{a.callsToday}</p>
+                <span className="text-[10px] font-bold text-slate-400">calls</span>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Sold/mo</p>
-              <p className="text-base font-black text-foreground leading-none mt-1">{a.policiesMonth}</p>
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Monthly</p>
+              <div className="flex items-baseline gap-1">
+                <p className="text-xl font-black text-slate-900 dark:text-slate-100 leading-none">{a.policiesMonth}</p>
+                <span className="text-[10px] font-bold text-slate-400">sold</span>
+              </div>
             </div>
           </div>
-          <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-            <div 
-              className={cn(
-                "h-full rounded-full transition-all duration-1000 ease-out", 
-                a.goalPct >= 80 ? "bg-emerald-500" : a.goalPct >= 50 ? "bg-amber-500" : "bg-rose-500"
-              )} 
-              style={{ width: `${a.goalPct}%` }} 
-            />
+
+          <div className="space-y-2 relative z-10">
+            <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+              <span className={selectedAgent === a.id ? "text-primary/70" : "text-slate-400"}>Daily Goal</span>
+              <span className={cn(
+                selectedAgent === a.id ? "text-primary" : "text-slate-600 dark:text-slate-400"
+              )}>{a.goalPct}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-900 overflow-hidden border border-slate-200/20 dark:border-slate-800/20 shadow-inner">
+              <div 
+                className={cn(
+                  "h-full rounded-full transition-all duration-1000 ease-out relative", 
+                  a.goalPct >= 100 ? "bg-emerald-500" : a.goalPct >= 80 ? "bg-primary" : a.goalPct >= 50 ? "bg-amber-500" : "bg-rose-500"
+                )} 
+                style={{ width: `${a.goalPct}%` }} 
+              >
+                <div className="absolute inset-0 bg-white/20 blur-[2px] opacity-50" />
+              </div>
+            </div>
           </div>
         </button>
       ))}
     </div>
+
   );
 };
 
