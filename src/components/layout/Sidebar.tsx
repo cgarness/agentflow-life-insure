@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
-  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, FileText
+  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, FileText, Sparkles
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
