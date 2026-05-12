@@ -41,6 +41,9 @@ serve(async (req: Request) => {
       );
     }
 
+    // Seed default data (Dispositions + Pipeline Stages) - Non-fatal
+    await seedOrganizationData(adminClient, org.id);
+
     return new Response(
       JSON.stringify({ success: true, organization_id: org.id }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -53,3 +56,55 @@ serve(async (req: Request) => {
     );
   }
 });
+
+/**
+ * Seeds default configuration data for a new organization.
+ * Failures are logged but handled non-fatally to ensure org creation completes.
+ */
+async function seedOrganizationData(supabase: any, organizationId: string) {
+  try {
+    console.log(`[SEED] Starting default configuration for org: ${organizationId}`);
+
+    // 1. Seed Dispositions (FFL Standard)
+    const dispositions = [
+      { name: "Appointment Set", color: "#10B981", is_locked: true, remove_from_queue: true, appointment_scheduler: true, organization_id: organizationId, sort_order: 0 },
+      { name: "Follow-Up", color: "#F59E0B", is_locked: false, remove_from_queue: true, callback_scheduler: true, organization_id: organizationId, sort_order: 1 },
+      { name: "Not Interested", color: "#EF4444", is_locked: false, remove_from_queue: true, organization_id: organizationId, sort_order: 2 },
+      { name: "Wrong Number", color: "#6B7280", is_locked: false, remove_from_queue: true, organization_id: organizationId, sort_order: 3 },
+      { name: "DNC", color: "#000000", is_locked: true, remove_from_queue: true, auto_add_to_dnc: true, organization_id: organizationId, sort_order: 4 },
+      { name: "No Answer", color: "#3B82F6", is_locked: true, remove_from_queue: false, organization_id: organizationId, sort_order: 5 },
+    ];
+
+    const { error: dispError } = await supabase.from("dispositions").insert(dispositions);
+    if (dispError) console.error(`[SEED] Error inserting dispositions:`, dispError);
+
+    // 2. Seed Lead Pipeline Stages
+    const leadStages = [
+      { name: "New", color: "#3B82F6", pipeline_type: "lead", is_default: true, sort_order: 0, organization_id: organizationId },
+      { name: "Attempting Contact", color: "#6366F1", pipeline_type: "lead", sort_order: 1, organization_id: organizationId },
+      { name: "Appointment Set", color: "#10B981", pipeline_type: "lead", sort_order: 2, organization_id: organizationId },
+      { name: "Quoted", color: "#F59E0B", pipeline_type: "lead", sort_order: 3, organization_id: organizationId },
+      { name: "Sold", color: "#059669", pipeline_type: "lead", is_positive: true, convert_to_client: true, sort_order: 4, organization_id: organizationId },
+      { name: "Dead", color: "#EF4444", pipeline_type: "lead", sort_order: 5, organization_id: organizationId },
+    ];
+
+    const { error: leadError } = await supabase.from("pipeline_stages").insert(leadStages);
+    if (leadError) console.error(`[SEED] Error inserting lead pipeline stages:`, leadError);
+
+    // 3. Seed Recruit Pipeline Stages
+    const recruitStages = [
+      { name: "New", color: "#3B82F6", pipeline_type: "recruit", is_default: true, sort_order: 0, organization_id: organizationId },
+      { name: "Interview Scheduled", color: "#6366F1", pipeline_type: "recruit", sort_order: 1, organization_id: organizationId },
+      { name: "Offer Made", color: "#F59E0B", pipeline_type: "recruit", sort_order: 2, organization_id: organizationId },
+      { name: "Hired", color: "#10B981", pipeline_type: "recruit", is_positive: true, sort_order: 3, organization_id: organizationId },
+      { name: "Not a Fit", color: "#EF4444", pipeline_type: "recruit", sort_order: 4, organization_id: organizationId },
+    ];
+
+    const { error: recruitError } = await supabase.from("pipeline_stages").insert(recruitStages);
+    if (recruitError) console.error(`[SEED] Error inserting recruit pipeline stages:`, recruitError);
+
+    console.log(`[SEED] Completed default configuration for org: ${organizationId}`);
+  } catch (err) {
+    console.error(`[SEED] Critical failure in seedOrganizationData:`, err);
+  }
+}

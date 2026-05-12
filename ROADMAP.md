@@ -116,6 +116,15 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-12 | [DONE] | Seed Default Org Configuration — Automated CRM Shell Initialization**
+  *What:* Extended the `create-organization` Edge Function to automatically seed essential CRM data whenever a new organization is created. This ensures every new agency starts with a production-ready shell matching FFL standards. Seeding is implemented as a **non-fatal** process using the Supabase **`adminClient`** (service role) to bypass RLS. 
+  *Seeded Data:*
+  - **Dispositions:** Appointment Set (locked), Follow-Up, Not Interested, Wrong Number, DNC (locked), No Answer (locked) with FFL-standard colors and logic flags (scheduler triggers, queue removal, auto-DNC).
+  - **Lead Pipeline Stages:** New (default), Attempting Contact, Appointment Set, Quoted, Sold (positive, convert-to-client), Dead.
+  - **Recruit Pipeline Stages:** New (default), Interview Scheduled, Offer Made, Hired (positive), Not a Fit.
+  *Files:* **`supabase/functions/create-organization/index.ts`** (implementation + seeding helper), **`ROADMAP.md`**.
+  *Ops:* Redeployed **`create-organization`** v34 to production (`jncvvsvckxhqgqvkppmj`) with `verify_jwt: false`. Verified seeding logic includes `sort_order` and non-fatal error logging.
+
 - **2026-05-05 | [DONE] | Inbound SMS Support — twilio-sms-webhook + update-sms-urls + messages schema**
   *What:* Built complete inbound SMS pipeline so agents can receive and read replies from contacts in the unified conversation timeline. **New Edge Function `twilio-sms-webhook`** validates Twilio `X-Twilio-Signature` HMAC-SHA1, resolves the org from the `To` number via `phone_numbers`, looks up the sender (`From`) across `leads` → `clients` → `recruits`, and inserts into `messages` with `direction = 'inbound'`. Returns empty `<Response/>` (no auto-reply). **New Edge Function `update-sms-urls`** (Super Admin only) batch-patches all existing purchased numbers' `SmsUrl` in Twilio from the old outbound sender (`twilio-sms`) to the new webhook. **Migration** adds `contact_id` (no FK, same pattern as `contact_emails`) and `contact_type` columns to `messages`, with backfill of existing `lead_id` rows. Fixed **`twilio-buy-number`** `SmsUrl` from `twilio-sms` (outbound sender, was rejecting Twilio's POST with 401) to `twilio-sms-webhook`. Frontend queries in `FullScreenContactView` and `supabase-messages.ts` updated to `.or(lead_id,contact_id)` — no rendering changes needed, SMS bubble direction was already handled.
   *Files:* **`supabase/functions/twilio-sms-webhook/index.ts`** (new, ~260 lines), **`supabase/functions/update-sms-urls/index.ts`** (new, ~180 lines), **`supabase/migrations/20260505200000_messages_contact_id_and_type.sql`** (new), **`supabase/functions/twilio-buy-number/index.ts`** (SmsUrl fix), **`supabase/config.toml`** (+2 entries), **`src/components/contacts/FullScreenContactView.tsx`** (1-line query), **`src/lib/supabase-messages.ts`** (3 query updates), **`AGENT_RULES.md`** (+2 table rows), **`ROADMAP.md`**.
