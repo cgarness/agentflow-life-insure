@@ -79,39 +79,41 @@ const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
   const grid = tab === "volume" ? volumeGrid : answerGrid;
 
   return (
-    <ReportSection title="Calling Times Heatmap" onExport={handleExport}>
-      <div className="flex items-center gap-1 mb-3">
+    <ReportSection title="Calling Times Heatmap" badge="Activity" onExport={handleExport}>
+      <div className="flex items-center gap-1.5 mb-5 p-1 bg-slate-100/50 dark:bg-slate-800/50 rounded-xl w-fit">
         {(["volume", "answer"] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-2.5 py-1 text-xs rounded-md ${t === tab ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${t === tab ? "bg-white dark:bg-slate-950 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-800" : "text-muted-foreground hover:text-foreground"}`}>
             {t === "volume" ? "Call Volume" : "Answer Rate"}
           </button>
         ))}
       </div>
       <TooltipProvider>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto pb-2">
           <div className="min-w-[500px]">
-            <div className="flex mb-1 ml-10">
-              {HOURS.map(h => <div key={h} className="flex-1 text-center text-[10px] text-muted-foreground">{h > 12 ? h - 12 : h}{h >= 12 ? "p" : "a"}</div>)}
+            <div className="flex mb-2 ml-10">
+              {HOURS.map(h => <div key={h} className="flex-1 text-center text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">{h > 12 ? h - 12 : h}{h >= 12 ? "pm" : "am"}</div>)}
             </div>
             {DAYS.map((day, di) => (
-              <div key={day} className="flex items-center mb-0.5">
-                <span className="w-10 text-xs text-muted-foreground shrink-0">{day}</span>
-                <div className="flex flex-1 gap-0.5">
+              <div key={day} className="flex items-center mb-1">
+                <span className="w-10 text-[11px] font-bold text-muted-foreground uppercase shrink-0">{day}</span>
+                <div className="flex flex-1 gap-1">
                   {HOURS.map((h, hi) => {
                     const val = grid[di][hi];
                     const colorClass = tab === "volume" ? getVolumeColor(val) : getAnswerColor(val);
                     return (
                       <Tooltip key={hi}>
                         <TooltipTrigger asChild>
-                          <div className={`flex-1 aspect-square rounded-sm ${colorClass} flex items-center justify-center cursor-default`}>
-                            {volumeGrid[di][hi] > 0 && <span className="text-[9px] font-medium text-foreground/70">{tab === "volume" ? val : `${val}%`}</span>}
+                          <div className={`flex-1 aspect-square rounded-[3px] ${colorClass} flex items-center justify-center cursor-default transition-transform hover:scale-110 hover:z-10`}>
+                            {volumeGrid[di][hi] > 0 && <span className="text-[9px] font-black text-foreground/50">{tab === "volume" ? val : `${val}%`}</span>}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
+                        <TooltipContent side="top" className="text-xs font-bold border-primary/20 bg-background/95 backdrop-blur-sm">
                           <p>{day} {fmtHour(h)}</p>
-                          <p>Calls: {volumeGrid[di][hi]}</p>
-                          <p>Answer rate: {answerGrid[di][hi] >= 0 ? `${answerGrid[di][hi]}%` : "N/A"}</p>
+                          <div className="mt-1 space-y-0.5">
+                            <p className="text-primary">Calls: {volumeGrid[di][hi]}</p>
+                            <p className="text-emerald-500">Answer rate: {answerGrid[di][hi] >= 0 ? `${answerGrid[di][hi]}%` : "N/A"}</p>
+                          </div>
                         </TooltipContent>
                       </Tooltip>
                     );
@@ -124,14 +126,24 @@ const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
       </TooltipProvider>
 
       {bestSlots.length > 0 && (
-        <div className="mt-3 bg-primary/5 rounded-lg p-3 flex items-start gap-2">
-          <Lightbulb className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-          <p className="text-xs text-foreground">
-            <span className="font-medium">Best calling windows: </span>
-            {bestSlots.map((s, i) => (
-              <span key={i}>{DAYS[s.day]} {fmtHour(s.hour)} ({s.rate}% answer rate){i < bestSlots.length - 1 ? ", " : ""}</span>
-            ))}
-          </p>
+        <div className="mt-5 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 rounded-2xl p-4 flex items-start gap-3">
+          <div className="p-2 bg-emerald-500/10 rounded-xl">
+            <Lightbulb className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">Peak Performance Windows</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Based on historical data, your agents should prioritize dialing during:
+              <span className="block mt-1 font-bold text-foreground">
+                {bestSlots.map((s, i) => (
+                  <span key={i} className="inline-flex items-center">
+                    {DAYS[s.day]}s @ {fmtHour(s.hour)}
+                    <span className="mx-1.5 opacity-30">•</span>
+                  </span>
+                ))}
+              </span>
+            </p>
+          </div>
         </div>
       )}
     </ReportSection>

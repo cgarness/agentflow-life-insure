@@ -63,27 +63,47 @@ const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selected
   if (agentStats.length === 0) return null;
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+    <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
       {agentStats.map(a => (
         <button key={a.id}
           onClick={() => onSelectAgent(selectedAgent === a.id ? "" : a.id)}
           className={cn(
-            "shrink-0 w-44 rounded-xl border p-3 text-left transition-all hover:shadow-md",
-            selectedAgent === a.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-card hover:border-primary/40"
+            "shrink-0 w-48 rounded-2xl border p-4 text-left transition-all duration-200 group",
+            selectedAgent === a.id 
+              ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20" 
+              : "bg-card border-slate-200/60 dark:border-slate-800/60 hover:border-primary/40 hover:shadow-md"
           )}>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">{a.initials}</div>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-sm font-bold text-primary transition-transform group-hover:scale-105">
+              {a.initials}
+            </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-foreground truncate">{a.name}</p>
-              {a.streak > 0 && <span className="text-[10px] text-warning">🔥 {a.streak}d streak</span>}
+              <p className="text-sm font-bold text-foreground truncate">{a.name}</p>
+              {a.streak > 0 && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-orange-500">🔥 {a.streak}d streak</span>
+                </div>
+              )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            <div><p className="text-[10px] text-muted-foreground">Today</p><p className="text-sm font-bold text-foreground">{a.callsToday}</p></div>
-            <div><p className="text-[10px] text-muted-foreground">Sold/mo</p><p className="text-sm font-bold text-foreground">{a.policiesMonth}</p></div>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <div>
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Today</p>
+              <p className="text-base font-black text-foreground leading-none mt-1">{a.callsToday}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Sold/mo</p>
+              <p className="text-base font-black text-foreground leading-none mt-1">{a.policiesMonth}</p>
+            </div>
           </div>
-          <div className="mt-1.5 h-1.5 rounded-full bg-accent overflow-hidden">
-            <div className={cn("h-full rounded-full transition-all", a.goalPct >= 80 ? "bg-success" : a.goalPct >= 50 ? "bg-warning" : "bg-destructive")} style={{ width: `${a.goalPct}%` }} />
+          <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+            <div 
+              className={cn(
+                "h-full rounded-full transition-all duration-1000 ease-out", 
+                a.goalPct >= 80 ? "bg-emerald-500" : a.goalPct >= 50 ? "bg-amber-500" : "bg-rose-500"
+              )} 
+              style={{ width: `${a.goalPct}%` }} 
+            />
           </div>
         </button>
       ))}

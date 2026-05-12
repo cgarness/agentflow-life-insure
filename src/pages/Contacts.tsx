@@ -48,6 +48,7 @@ import { format as formatBtnDate } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import ContactsFilterModal, { type ContactsFilterValues, type ContactsTab, type DownlineAgent } from "@/components/contacts/ContactsFilterModal";
+import { ContactKanbanBoard } from "@/components/contacts/ContactKanbanBoard";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -1133,6 +1134,21 @@ const Contacts: React.FC = () => {
     }
   };
 
+  const handleKanbanStatusChange = async (id: string, newStatus: string) => {
+    if (tab === "Leads") {
+      await handleUpdateLead(id, { status: newStatus as LeadStatus });
+    } else if (tab === "Recruits") {
+      try {
+        const updated = await recruitsSupabaseApi.update(id, { status: newStatus });
+        setRecruits(prev => prev.map(r => (r.id === id ? updated : r)));
+        setSelectedRecruit(prev => (prev?.id === id ? updated : prev));
+        toast.success(`Recruit moved to ${newStatus}`);
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Update failed");
+      }
+    }
+  };
+
   const handleDeleteLead = async (id: string) => {
     try {
       await leadsSupabaseApi.delete(id);
@@ -1940,33 +1956,22 @@ const Contacts: React.FC = () => {
 
       {/* LEADS Kanban */}
       {!loading && tab === "Leads" && view === "kanban" && (
-        <div className="flex gap-3 overflow-x-auto pb-4">
-          {Object.keys(leadStageColors).map(status => {
-            const items = leads.filter(l => l.status === status);
-            return (
-              <div key={status} className="min-w-[250px] bg-accent/50 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={getStatusColorStyle(getLeadStatusColor(status))}>{status}</span>
-                  <span className="text-xs text-muted-foreground">{items.length}</span>
-                </div>
-                {items.map(l => (
-                  <div key={l.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => openContact("lead", l)}>
-                    <p className="text-sm font-medium text-foreground">{l.firstName} {l.lastName}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-muted-foreground">{l.state}</span>
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${l.leadScore >= 8 ? "bg-success/10 text-success" : "bg-warning/10 text-warning"} `}>{l.leadScore}</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-2 gap-2 min-w-0">
-                      <span className="min-w-0 flex-1">{renderLeadSourceBadge(l.leadSource)}</span>
-                      <div className="w-6 h-6 shrink-0 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">{getAgentInitials(l.assignedAgentId, agentProfiles)}</div>
-                    </div>
-                  </div>
-                ))}
-                <button onClick={() => setAddModalOpen(true)} className="w-full py-2 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent sidebar-transition">+ Add</button>
-              </div>
-            );
-          })}
-        </div>
+        <ContactKanbanBoard
+          tab="Leads"
+          contacts={leads}
+          statusColors={leadStageColors}
+          agentProfiles={agentProfiles}
+          onStatusChange={handleKanbanStatusChange}
+          onEdit={(c) => setEditLead(c as Lead)}
+          onClick={(c) => openContact("lead", c as Lead)}
+          onCall={(c) => {
+            window.dispatchEvent(new CustomEvent("quick-call", {
+              detail: { name: `${c.firstName} ${c.lastName}`.trim(), phone: c.phone, contactId: c.id }
+            }));
+          }}
+          onAddContact={() => setAddModalOpen(true)}
+          renderLeadSourceBadge={renderLeadSourceBadge}
+        />
       )}
 
       {/* ===== CLIENTS TAB ===== */}
@@ -2079,27 +2084,21 @@ const Contacts: React.FC = () => {
               </div>
               </>
             ) : (
-              <div className="flex gap-3 overflow-x-auto pb-4 p-3">
-                {Object.keys(recruitStageColors).map(s => {
-                  const items = recruits.filter(r => r.status === s);
-                  return (
-                    <div key={s} className="min-w-[220px] bg-accent/50 rounded-xl p-3 space-y-2">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={getStatusColorStyle(getRecruitStatusColor(s))}>{s}</span>
-                        <span className="text-xs text-muted-foreground">{items.length}</span>
-                      </div>
-                      {items.map(r => (
-                        <div key={r.id} className="bg-card rounded-lg border p-3 cursor-pointer hover:shadow-md sidebar-transition" onClick={() => openContact("recruit", r)}>
-                          <p className="text-sm font-medium text-foreground">{r.firstName} {r.lastName}</p>
-                          <p className="text-xs text-muted-foreground">{r.email}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{getAgentName(r.assignedAgentId, agentProfiles)}</p>
-                        </div>
-                      ))}
-                      <button onClick={() => setAddModalOpen(true)} className="w-full py-2 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent sidebar-transition">+ Add</button>
-                    </div>
-                  );
-                })}
-              </div>
+              <ContactKanbanBoard
+                tab="Recruits"
+                contacts={recruits}
+                statusColors={recruitStageColors}
+                agentProfiles={agentProfiles}
+                onStatusChange={handleKanbanStatusChange}
+                onEdit={(c) => setEditRecruit(c as Recruit)}
+                onClick={(c) => openContact("recruit", c as Recruit)}
+                onCall={(c) => {
+                  window.dispatchEvent(new CustomEvent("quick-call", {
+                    detail: { name: `${c.firstName} ${c.lastName}`.trim(), phone: c.phone, contactId: c.id }
+                  }));
+                }}
+                onAddContact={() => setAddModalOpen(true)}
+              />
             )}
           </div>
         </>

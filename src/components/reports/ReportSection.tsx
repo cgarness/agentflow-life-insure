@@ -15,24 +15,32 @@ const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, c
   const [open, setOpen] = React.useState(defaultOpen);
 
   return (
-    <div className="bg-card rounded-xl border overflow-hidden">
-      <button
-        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-accent/30 transition-colors"
+    <div className="bg-white dark:bg-slate-950 rounded-3xl border border-slate-200/70 dark:border-slate-800/80 overflow-hidden shadow-sm hover:shadow-xl hover:shadow-slate-200/40 dark:hover:shadow-none transition-all duration-300">
+      <div
+        className="w-full flex items-center justify-between px-6 py-4 cursor-pointer select-none"
         onClick={() => setOpen(o => !o)}
       >
-        <div className="flex items-center gap-2">
-          {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
-          <h3 className="font-semibold text-foreground text-sm">{title}</h3>
-          {badge && <span className="text-xs bg-accent text-muted-foreground px-2 py-0.5 rounded-full">{badge}</span>}
+        <div className="flex items-center gap-3">
+          <div className={cn("p-1.5 rounded-lg transition-colors", open ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-400")}>
+            {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </div>
+          <h3 className="font-bold text-slate-800 dark:text-slate-200 text-base tracking-tight">{title}</h3>
+          {badge && <span className="text-[10px] uppercase font-black tracking-widest bg-primary/5 text-primary px-2.5 py-1 rounded-lg border border-primary/10">{badge}</span>}
         </div>
-        {onExport && open && (
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={e => { e.stopPropagation(); onExport(); }}>
-            <Download className="w-3.5 h-3.5" />
+        {onExport && (
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-9 px-3 rounded-xl hover:bg-primary/5 hover:text-primary text-slate-400 font-bold text-xs" 
+            onClick={e => { e.stopPropagation(); onExport(); }}
+          >
+            <Download className="w-3.5 h-3.5 mr-2" />
+            CSV
           </Button>
         )}
-      </button>
-      <div className={cn("transition-all duration-200 overflow-hidden", open ? "max-h-[5000px] opacity-100" : "max-h-0 opacity-0")}>
-        <div className="px-5 pb-5">
+      </div>
+      <div className={cn("transition-all duration-300 ease-in-out overflow-hidden", open ? "max-h-[5000px] opacity-100" : "max-h-0 opacity-0")}>
+        <div className="px-6 pb-6">
           {children}
         </div>
       </div>

@@ -246,99 +246,144 @@ const Reports: React.FC = () => {
   const hasData = activeCalls.length > 0 || activeLeads.length > 0;
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold text-foreground">Reports</h1>
-          {stateFilter && (
-            <Badge variant="secondary" className="flex items-center gap-1 text-xs">
-              Filtering by: {STATE_NAMES[stateFilter] || stateFilter}
-              <button onClick={() => setStateFilter(null)} className="ml-0.5 hover:text-destructive">
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Date preset pills */}
-          <div className="flex items-center gap-0.5 bg-accent rounded-lg p-0.5">
-            {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
-              <button key={p} onClick={() => setPreset(p)}
-                className={cn("px-2 py-1.5 text-[11px] rounded-md transition-colors", p === preset ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
-                {PRESET_LABELS[p]}
-              </button>
-            ))}
+    <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
+      {/* Premium Header Banner */}
+      <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 md:p-10 shadow-2xl shadow-slate-200 dark:shadow-none border border-slate-800">
+        <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-primary/20 to-transparent pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
+          <div>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2.5 bg-primary/20 rounded-2xl backdrop-blur-md border border-primary/30">
+                <BarChart3 className="w-6 h-6 text-primary-foreground" />
+              </div>
+              <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">Performance Analytics</h1>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-slate-400 font-medium text-lg">Comprehensive intelligence and growth metrics</p>
+              {stateFilter && (
+                <Badge className="bg-primary/20 text-primary-foreground border-primary/30 px-3 py-1 text-xs uppercase font-bold tracking-wider hover:bg-primary/30 transition-all cursor-default">
+                  Region: {STATE_NAMES[stateFilter] || stateFilter}
+                  <button onClick={() => setStateFilter(null)} className="ml-2 hover:text-white transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </Badge>
+              )}
+            </div>
           </div>
 
-          {preset === "custom" && (
-            <div className="flex items-center gap-1.5">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="text-xs h-8">
-                    <CalendarIcon className="w-3.5 h-3.5 mr-1" />
-                    {customStart ? formatDate(customStart) : "Start"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={customStart} onSelect={setCustomStart} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
-              <span className="text-xs text-muted-foreground">to</span>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="text-xs h-8">
-                    <CalendarIcon className="w-3.5 h-3.5 mr-1" />
-                    {customEnd ? formatDate(customEnd) : "End"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={customEnd} onSelect={setCustomEnd} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-1 bg-slate-800/50 p-1.5 rounded-2xl border border-slate-700/50 backdrop-blur-sm">
+              {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
+                <button 
+                  key={p} 
+                  onClick={() => setPreset(p)}
+                  className={cn(
+                    "px-4 py-2 text-xs font-bold rounded-xl transition-all duration-200 uppercase tracking-tighter",
+                    p === preset 
+                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
+                      : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                  )}
+                >
+                  {PRESET_LABELS[p]}
+                </button>
+              ))}
             </div>
-          )}
+            
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                className="bg-white/5 border-slate-700 text-slate-200 hover:bg-white/10 hover:text-white rounded-2xl h-12 px-6 font-bold text-sm transition-all border-2 active:scale-95"
+                onClick={handleExportAll}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export Intelligence
+              </Button>
+              
+              <div className="hidden lg:flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-12 h-12 rounded-2xl bg-white/5 border-slate-700 hover:bg-white/10 text-slate-400 border"
+                  onClick={() => setShowSchedule(true)}
+                >
+                  <Clock className="w-5 h-5" />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="w-12 h-12 rounded-2xl bg-white/5 border-slate-700 hover:bg-white/10 text-slate-400 border"
+                  onClick={() => setShowMyReports(true)}
+                >
+                  <Bookmark className="w-5 h-5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {preset === "custom" && (
+          <div className="relative z-10 mt-6 flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/10 inline-flex">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="text-white hover:bg-white/10 h-10 px-4 rounded-xl font-bold">
+                  <CalendarIcon className="w-4 h-4 mr-2 text-primary" />
+                  {customStart ? formatDate(customStart) : "Start Date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={customStart} onSelect={setCustomStart} className="p-3" />
+              </PopoverContent>
+            </Popover>
+            <span className="text-slate-500 font-black">/</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="text-white hover:bg-white/10 h-10 px-4 rounded-xl font-bold">
+                  <CalendarIcon className="w-4 h-4 mr-2 text-primary" />
+                  {customEnd ? formatDate(customEnd) : "End Date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={customEnd} onSelect={setCustomEnd} className="p-3" />
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
 
-          <Button variant={comparing ? "default" : "outline"} size="sm" className="h-8 text-xs" onClick={() => setComparing(c => !c)}>
-            {comparing ? <ToggleRight className="w-3.5 h-3.5 mr-1" /> : <ToggleLeft className="w-3.5 h-3.5 mr-1" />}
-            Compare
-          </Button>
+        <div className="relative z-10 mt-6 flex items-center gap-6 pt-6 border-t border-slate-800">
+          <div className="flex items-center gap-3">
+            <span className="text-slate-500 text-xs font-black uppercase tracking-widest">Compare Mode</span>
+            <button 
+              onClick={() => setComparing(c => !c)}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
+                comparing ? "bg-primary" : "bg-slate-700"
+              )}
+            >
+              <span className={cn(
+                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                comparing ? "translate-x-6" : "translate-x-1"
+              )} />
+            </button>
+          </div>
 
           {isAdmin && (
-            <Select value={selectedAgent || "all"} onValueChange={v => setSelectedAgent(v === "all" ? "" : v)}>
-              <SelectTrigger className="w-[150px] h-8 text-xs"><SelectValue placeholder="All Agents" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Agents</SelectItem>
-                {nonAdminAgents.map(a => (
-                  <SelectItem key={a.id} value={a.id}>{a.first_name} {a.last_name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowMyReports(true)}>
-            <Bookmark className="w-3.5 h-3.5 mr-1" /> My Reports
-          </Button>
-
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowSchedule(true)}>
-            <Clock className="w-3.5 h-3.5 mr-1" /> Schedule
-          </Button>
-
-          <TooltipProvider>
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExportAll}>
-                <Download className="w-3.5 h-3.5 mr-1" /> Export All
-              </Button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
-                    <FileText className="w-3.5 h-3.5 text-muted-foreground" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>PDF export coming soon</TooltipContent>
-              </Tooltip>
+            <div className="flex items-center gap-3">
+              <span className="text-slate-500 text-xs font-black uppercase tracking-widest">Analysis View</span>
+              <Select value={selectedAgent || "all"} onValueChange={v => setSelectedAgent(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-[180px] h-9 bg-white/5 border-slate-700 text-white rounded-xl text-xs font-bold ring-offset-slate-900">
+                  <SelectValue placeholder="Unified View" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                  <SelectItem value="all">Unified View (All)</SelectItem>
+                  {nonAdminAgents.map(a => (
+                    <SelectItem key={a.id} value={a.id} className="focus:bg-primary focus:text-white">{a.first_name} {a.last_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          </TooltipProvider>
+          )}
         </div>
       </div>
 
@@ -351,11 +396,18 @@ const Reports: React.FC = () => {
       )}
 
       {!hasData && !loading ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <BarChart3 className="w-16 h-16 text-muted-foreground/40 mb-4" />
-          <h2 className="text-lg font-semibold text-foreground mb-1">No data available for this period</h2>
-          <p className="text-sm text-muted-foreground max-w-md mb-6">Try selecting a different date range or start making calls to see your analytics</p>
-          <Button onClick={() => navigate("/dialer")}>Go to Dialer</Button>
+        <div className="flex flex-col items-center justify-center py-32 text-center bg-white dark:bg-slate-900/50 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800 shadow-inner">
+          <div className="p-6 bg-slate-100 dark:bg-slate-800 rounded-full mb-6">
+            <BarChart3 className="w-12 h-12 text-slate-300 dark:text-slate-600" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-2 tracking-tight">Intelligence Stream Empty</h2>
+          <p className="text-slate-500 max-w-sm mb-8 font-medium">We couldn't find any performance data for the selected parameters. Start your outreach to populate this dashboard.</p>
+          <Button 
+            onClick={() => navigate("/dialer")}
+            className="h-12 px-8 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95"
+          >
+            Launch Dialer Engine
+          </Button>
         </div>
       ) : (
         <>
@@ -365,14 +417,14 @@ const Reports: React.FC = () => {
 
           <CallVolumeChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {outcomesLoading ? (
-              <div className="bg-card rounded-xl border p-5">
+              <div className="bg-card rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6 shadow-sm">
                 <div className="h-6 w-48 bg-muted animate-pulse rounded mb-4" />
                 <div className="h-[350px] bg-muted animate-pulse rounded" />
               </div>
             ) : outcomesData.length === 0 ? (
-              <div className="bg-card rounded-xl border p-5 flex items-center justify-center h-[200px]">
+              <div className="bg-card rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6 shadow-sm flex items-center justify-center h-[200px]">
                 <p className="text-sm text-muted-foreground text-center">No call data available for this period</p>
               </div>
             ) : (
@@ -381,11 +433,12 @@ const Reports: React.FC = () => {
             <PoliciesSoldChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
           </div>
 
-          <CampaignPerformance campaigns={campaigns} loading={loading} />
+          <div className="space-y-6">
+            <CampaignPerformance campaigns={campaigns} loading={loading} />
+            <LeadSourceTable leads={activeLeads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts().then(setLeadCosts)} />
+          </div>
 
-          <LeadSourceTable leads={activeLeads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts().then(setLeadCosts)} />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <CommunicationsStats calls={activeCalls} compCalls={comparing ? compCalls : undefined} range={range} loading={loading} comparing={comparing} />
             <CallingHeatmap calls={activeCalls} loading={loading} />
           </div>
@@ -402,7 +455,6 @@ const Reports: React.FC = () => {
 
           <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
 
-          {/* Report 13 — Geographic Heatmap */}
           <GeographicHeatmap
             calls={calls}
             leads={leads}

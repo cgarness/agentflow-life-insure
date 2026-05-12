@@ -111,44 +111,55 @@ const LeadSourceTable: React.FC<Props> = ({ leads, costs, loading, isAdmin, onCo
       {sorted.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">No lead data for this period</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-800">
           <table className="w-full text-sm">
-            <thead><tr className="border-b">
-              {[{ l: "Source", k: "source" as SortKey }, { l: "Total", k: "total" as SortKey }, { l: "Contacted", k: "contacted" as SortKey }, { l: "Converted", k: "converted" as SortKey }, { l: "Conv Rate", k: "rate" as SortKey }].map(h => (
-                <th key={h.l} className={`py-2 px-2 text-muted-foreground font-medium cursor-pointer hover:text-foreground ${h.l === "Source" ? "text-left" : "text-right"}`} onClick={() => toggleSort(h.k)}>
-                  {h.l} {sortKey === h.k && (sortAsc ? "↑" : "↓")}
-                </th>
-              ))}
-              <th className="py-2 px-2 text-right text-muted-foreground font-medium">Cost</th>
-              <th className="py-2 px-2 text-right text-muted-foreground font-medium">CPL</th>
-              <th className="py-2 px-2 text-right text-muted-foreground font-medium">CPC</th>
-              <th className="py-2 px-2 text-right text-muted-foreground font-medium">ROI</th>
-            </tr></thead>
-            <tbody>
+            <thead className="bg-slate-50/50 dark:bg-white/5">
+              <tr className="border-b border-slate-100 dark:border-slate-800">
+                {[{ l: "Source", k: "source" as SortKey }, { l: "Total", k: "total" as SortKey }, { l: "Contacted", k: "contacted" as SortKey }, { l: "Converted", k: "converted" as SortKey }, { l: "Conv Rate", k: "rate" as SortKey }].map(h => (
+                  <th key={h.l} className={`py-4 px-4 text-slate-500 font-bold uppercase tracking-tighter text-[11px] cursor-pointer hover:text-primary transition-colors ${h.l === "Source" ? "text-left" : "text-right"}`} onClick={() => toggleSort(h.k)}>
+                    <div className={cn("flex items-center gap-1", h.l === "Source" ? "justify-start" : "justify-end")}>
+                      {h.l} {sortKey === h.k && (sortAsc ? "↑" : "↓")}
+                    </div>
+                  </th>
+                ))}
+                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">Cost</th>
+                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">CPL</th>
+                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">CPC</th>
+                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">ROI</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
               {sorted.map(d => (
-                <tr key={d.source} className={`border-b last:border-0 ${d.rate === topRate && d.rate > 0 ? "bg-warning/5" : ""}`}>
-                  <td className="py-2 px-2 font-medium text-foreground flex items-center gap-1.5">
-                    {d.rate === topRate && d.rate > 0 && <Trophy className="w-3.5 h-3.5 text-warning" />}{d.source}
+                <tr key={d.source} className={cn("group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-colors", d.rate === topRate && d.rate > 0 ? "bg-amber-50/30 dark:bg-amber-500/5" : "")}>
+                  <td className="py-4 px-4 font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    {d.rate === topRate && d.rate > 0 && (
+                      <div className="p-1 bg-amber-100 dark:bg-amber-500/20 rounded-lg">
+                        <Trophy className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      </div>
+                    )}
+                    {d.source}
                   </td>
-                  <td className="py-2 px-2 text-right text-foreground">{d.total}</td>
-                  <td className="py-2 px-2 text-right text-foreground">{d.contacted}</td>
-                  <td className="py-2 px-2 text-right text-foreground">{d.converted}</td>
-                  <td className="py-2 px-2 text-right">
+                  <td className="py-4 px-4 text-right text-slate-600 dark:text-slate-400 font-medium">{d.total}</td>
+                  <td className="py-4 px-4 text-right text-slate-600 dark:text-slate-400 font-medium">{d.contacted}</td>
+                  <td className="py-4 px-4 text-right text-slate-600 dark:text-slate-400 font-medium">{d.converted}</td>
+                  <td className="py-4 px-4 text-right">
                     <div className="flex items-center gap-2 justify-end">
-                      <div className="w-16 h-1.5 rounded-full bg-accent overflow-hidden"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(d.rate, 100)}%` }} /></div>
-                      <span className="font-medium text-foreground w-10 text-right">{d.rate}%</span>
+                      <div className="w-16 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden hidden sm:block">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(d.rate, 100)}%` }} />
+                      </div>
+                      <span className="font-black text-slate-900 dark:text-slate-100 w-10 text-right">{d.rate}%</span>
                     </div>
                   </td>
-                  <td className="py-2 px-2 text-right">
+                  <td className="py-4 px-4 text-right">
                     {editingCosts ? (
-                      <Input className="h-7 w-20 text-xs ml-auto" type="number" value={costInputs[d.source] ?? ""} onChange={e => setCostInputs(p => ({ ...p, [d.source]: e.target.value }))} />
+                      <Input className="h-8 w-24 text-xs ml-auto rounded-lg border-slate-200" type="number" value={costInputs[d.source] ?? ""} onChange={e => setCostInputs(p => ({ ...p, [d.source]: e.target.value }))} />
                     ) : (
-                      <span className="text-foreground">{d.cost > 0 ? `$${d.cost}` : <span className="text-muted-foreground text-xs">Add cost</span>}</span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{d.cost > 0 ? `$${d.cost.toLocaleString()}` : <span className="text-slate-300 dark:text-slate-700 font-medium text-[10px] uppercase tracking-widest">—</span>}</span>
                     )}
                   </td>
-                  <td className="py-2 px-2 text-right text-muted-foreground">{d.cost > 0 ? `$${d.cpl}` : "—"}</td>
-                  <td className="py-2 px-2 text-right text-muted-foreground">{d.cost > 0 ? `$${d.cpc}` : "—"}</td>
-                  <td className="py-2 px-2 text-right">{roiLabel(d.cpc)}</td>
+                  <td className="py-4 px-4 text-right text-slate-500 dark:text-slate-500 font-medium">{d.cost > 0 ? `$${d.cpl}` : "—"}</td>
+                  <td className="py-4 px-4 text-right text-slate-500 dark:text-slate-500 font-medium">{d.cost > 0 ? `$${d.cpc}` : "—"}</td>
+                  <td className="py-4 px-4 text-right">{roiLabel(d.cpc)}</td>
                 </tr>
               ))}
             </tbody>
