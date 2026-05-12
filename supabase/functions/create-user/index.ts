@@ -103,7 +103,7 @@ serve(async (req: Request) => {
     if (!email || !password) {
       return new Response(
         JSON.stringify({ success: false, error: "Email and password are required" }),
-        { status: 400, headers }
+        { status: 200, headers }
       );
     }
 
@@ -127,7 +127,7 @@ serve(async (req: Request) => {
     if (error) {
       return new Response(
         JSON.stringify({ success: false, error: error.message }),
-        { status: 400, headers }
+        { status: 200, headers }
       );
     }
 
@@ -177,7 +177,7 @@ serve(async (req: Request) => {
     const message = err instanceof Error ? err.message : "Unknown error";
     return new Response(
       JSON.stringify({ success: false, error: message }),
-      { status: 500, headers }
+      { status: 200, headers }
     );
   }
 });
