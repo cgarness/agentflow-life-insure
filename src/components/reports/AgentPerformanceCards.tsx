@@ -64,7 +64,6 @@ const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selected
   if (agentStats.length === 0) return null;
 
   return (
-  return (
     <div className="flex gap-5 overflow-x-auto pb-6 scrollbar-hide -mx-2 px-2">
       {agentStats.map(a => (
         <button key={a.id}
