@@ -86,6 +86,40 @@ export const notificationBuilders = {
         });
     },
 
+    inboundSms(userId: string, contactName: string, messagePreview: string, contactId: string, orgId: string) {
+        const trimmed = (messagePreview || "").trim();
+        const preview = trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed;
+        return createNotification(
+            {
+                user_id: userId,
+                type: "inbound_sms",
+                title: "New Text Message",
+                body: `${contactName}: ${preview}`,
+                action_url: `/contacts?id=${contactId}`,
+                action_label: "View Contact",
+                metadata: { contact_id: contactId },
+            },
+            orgId,
+        );
+    },
+
+    inboundEmail(userId: string, contactName: string, subject: string, contactId: string, orgId: string) {
+        const trimmedSubject = (subject || "").trim();
+        const suffix = trimmedSubject.length > 80 ? `${trimmedSubject.slice(0, 80)}…` : trimmedSubject || "(no subject)";
+        return createNotification(
+            {
+                user_id: userId,
+                type: "inbound_email",
+                title: "New Email",
+                body: `${contactName}: ${suffix}`,
+                action_url: `/contacts?id=${contactId}`,
+                action_label: "View Contact",
+                metadata: { contact_id: contactId },
+            },
+            orgId,
+        );
+    },
+
     system(userId: string, title: string, body: string, actionUrl?: string) {
         return createNotification({
             user_id: userId,

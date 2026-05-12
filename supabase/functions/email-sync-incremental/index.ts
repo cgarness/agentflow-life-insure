@@ -158,6 +158,96 @@ const gmailFetch = async (path: string, accessToken: string): Promise<Response> 
   });
 };
 
+const resolveContactNameAndAgent = async (
+  admin: ReturnType<typeof createClient>,
+  organizationId: string,
+  contactId: string,
+): Promise<{ name: string | null; assignedAgentId: string | null }> => {
+  const tables: Array<"leads" | "clients" | "recruits"> = ["leads", "clients", "recruits"];
+  for (const table of tables) {
+    const { data } = await admin
+      .from(table)
+      .select("first_name, last_name, assigned_agent_id")
+      .eq("organization_id", organizationId)
+      .eq("id", contactId)
+      .maybeSingle();
+    if (data) {
+      const name =
+        `${(data.first_name as string | null) || ""} ${(data.last_name as string | null) || ""}`.trim() || null;
+      return {
+        name,
+        assignedAgentId: (data.assigned_agent_id as string | null) ?? null,
+      };
+    }
+  }
+  return { name: null, assignedAgentId: null };
+};
+
+const resolveOrgAdminRecipients = async (
+  admin: ReturnType<typeof createClient>,
+  organizationId: string,
+): Promise<string[]> => {
+  const { data } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("role", ["Admin", "Team Leader"]);
+  return (data ?? []).map((r: { id: string }) => r.id as string);
+};
+
+const insertInboundEmailNotifications = async (
+  admin: ReturnType<typeof createClient>,
+  args: {
+    organizationId: string;
+    contactId: string;
+    fromEmail: string;
+    subject: string | null;
+    bodyText: string | null;
+  },
+): Promise<void> => {
+  const { organizationId, contactId, fromEmail, subject, bodyText } = args;
+  const { name, assignedAgentId } = await resolveContactNameAndAgent(
+    admin,
+    organizationId,
+    contactId,
+  );
+
+  let recipients: string[] = [];
+  if (assignedAgentId) recipients = [assignedAgentId];
+  else recipients = await resolveOrgAdminRecipients(admin, organizationId);
+  if (recipients.length === 0) return;
+
+  const contactLabel = name || fromEmail;
+  const trimmedSubject = (subject || "").trim();
+  const trimmedBody = (bodyText || "").trim();
+  let suffix: string;
+  if (trimmedSubject) {
+    suffix = trimmedSubject;
+  } else if (trimmedBody) {
+    suffix = trimmedBody.length > 80 ? `${trimmedBody.slice(0, 80)}…` : trimmedBody;
+  } else {
+    suffix = "(no subject)";
+  }
+  const notifBody = `${contactLabel}: ${suffix}`;
+
+  const rows = recipients.map((uid) => ({
+    user_id: uid,
+    type: "inbound_email",
+    title: "New Email",
+    body: notifBody,
+    action_url: `/contacts?id=${contactId}`,
+    action_label: "View Contact",
+    organization_id: organizationId,
+    metadata: { contact_id: contactId, from_email: fromEmail },
+    read: false,
+  }));
+
+  const { error } = await admin.from("notifications").insert(rows);
+  if (error) {
+    console.error("[email-sync-incremental] notifications insert failed:", error.message);
+  }
+};
+
 const matchContactId = async (
   admin: ReturnType<typeof createClient>,
   organizationId: string,
@@ -383,7 +473,7 @@ const processConnection = async (
     const { text: bodyText, html: bodyHtml } = extractBodies(message.payload);
     const contactId = await matchContactId(admin, connection.organization_id, from);
 
-    const { error: insertError } = await admin
+    const { data: upserted, error: insertError } = await admin
       .from("contact_emails")
       .upsert(
         {
@@ -415,7 +505,26 @@ const processConnection = async (
       summary.errors.push(`insert ${message.id}: ${insertError.message}`);
       continue;
     }
-    summary.inserted += 1;
+
+    const wasNewInsert = Array.isArray(upserted) && upserted.length > 0;
+    if (wasNewInsert) {
+      summary.inserted += 1;
+      if (contactId) {
+        try {
+          await insertInboundEmailNotifications(admin, {
+            organizationId: connection.organization_id,
+            contactId,
+            fromEmail: from,
+            subject,
+            bodyText,
+          });
+        } catch (err) {
+          summary.errors.push(
+            `notify ${message.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
   }
 
   if (latestHistoryId) {

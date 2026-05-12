@@ -16,7 +16,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { useOrganization } from "@/hooks/useOrganization";
-import { supabase } from "@/integrations/supabase/client";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const pageTitles: Record<string, string> = {
@@ -96,22 +95,15 @@ const TopBar: React.FC = () => {
   // Detect if current user is super admin using the hook
   const { isSuperAdmin } = useOrganization();
   const { dialerOverride } = useAgentStatus();
-  const { markRead, markAllRead, deleteNotification } = useNotifications();
-  const [notifications, setNotifications] = useState<any[]>([]);
-
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('id, type, title, body, created_at, read, action_label, action_url')
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (!error && data) setNotifications(data);
-    };
-    fetchNotifications();
-  }, []);
-
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const {
+    notifications,
+    unreadCount,
+    markRead,
+    markAllRead,
+    deleteNotification,
+    requestPushPermission,
+    setPanelOpen,
+  } = useNotifications();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -124,6 +116,15 @@ const TopBar: React.FC = () => {
   }, [userDropdown]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NotifTab>("All");
+
+  // Mirror panel state into context (for browser-push gating) + ask for
+  // notification permission the first time the agent opens the panel.
+  useEffect(() => {
+    setPanelOpen(notifOpen);
+    if (notifOpen) {
+      requestPushPermission();
+    }
+  }, [notifOpen, setPanelOpen, requestPushPermission]);
 
   const currentPage = pageTitles[location.pathname] || "Page";
 
@@ -166,11 +167,10 @@ const TopBar: React.FC = () => {
   const handleNotifClick = async (n: any) => {
     if (!n.read) {
       await markRead(n.id);
-      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
     }
     if (n.action_url) {
-      navigate(n.action_url);
       setNotifOpen(false);
+      navigate(n.action_url);
     }
   };
 
@@ -234,7 +234,7 @@ const TopBar: React.FC = () => {
             <button onClick={() => setNotifOpen(!notifOpen)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition">
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold animate-pulse">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
@@ -395,7 +395,7 @@ const TopBar: React.FC = () => {
               <div className="flex items-center gap-3">
                 {unreadCount > 0 && (
                   <button
-                    onClick={async () => { await markAllRead(); setNotifications(prev => prev.map(x => ({ ...x, read: true }))); }}
+                    onClick={() => { markAllRead(); }}
                     className="text-xs text-primary hover:underline"
                   >
                     Mark All Read
@@ -435,7 +435,7 @@ const TopBar: React.FC = () => {
                 filteredNotifications.map((n) => (
                   <div
                     key={n.id}
-                    className={`w-full flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition text-left ${!n.read ? "bg-primary/5" : ""
+                    className={`group w-full flex items-start gap-3 px-4 py-3 border-b hover:bg-accent/50 sidebar-transition text-left ${!n.read ? "bg-primary/5" : ""
                       }`}
                   >
                     <button onClick={() => handleNotifClick(n)} className="flex items-start gap-3 flex-1 min-w-0 text-left">
@@ -455,8 +455,8 @@ const TopBar: React.FC = () => {
                       </div>
                     </button>
                     <button
-                      onClick={async () => { await deleteNotification(n.id); setNotifications(prev => prev.filter(x => x.id !== n.id)); }}
-                      className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                       aria-label="Delete notification"
                     >
                       <X className="w-4 h-4" />

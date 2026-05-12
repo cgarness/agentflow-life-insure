@@ -12,6 +12,8 @@ interface NotificationContextType {
     markRead: (id: string) => Promise<void>;
     markAllRead: () => Promise<void>;
     deleteNotification: (id: string) => Promise<void>;
+    requestPushPermission: () => Promise<void>;
+    setPanelOpen: (open: boolean) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -21,6 +23,8 @@ const NotificationContext = createContext<NotificationContextType>({
     markRead: async () => { },
     markAllRead: async () => { },
     deleteNotification: async () => { },
+    requestPushPermission: async () => { },
+    setPanelOpen: () => { },
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -30,6 +34,38 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const [notifications, setNotifications] = useState<DbNotification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+    const panelOpenRef = useRef(false);
+
+    const setPanelOpen = useCallback((open: boolean) => {
+        panelOpenRef.current = open;
+    }, []);
+
+    const requestPushPermission = useCallback(async () => {
+        if (typeof window === "undefined" || !("Notification" in window)) return;
+        if (Notification.permission === "default") {
+            try {
+                await Notification.requestPermission();
+            } catch (err) {
+                console.warn("Notification permission request failed:", err);
+            }
+        }
+    }, []);
+
+    const maybeFireBrowserPush = useCallback((n: DbNotification) => {
+        if (typeof window === "undefined" || !("Notification" in window)) return;
+        if (Notification.permission !== "granted") return;
+        const tabHidden = document.visibilityState !== "visible";
+        if (tabHidden || !panelOpenRef.current) {
+            try {
+                new Notification(n.title, {
+                    body: n.body ?? undefined,
+                    icon: "/favicon.ico",
+                });
+            } catch (err) {
+                console.warn("Browser push failed:", err);
+            }
+        }
+    }, []);
 
     // Fetch all notifications for the current user
     const fetchNotifications = useCallback(async () => {
@@ -77,6 +113,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                     console.log("Realtime INSERT received:", payload.new);
                     const newNotification = payload.new as DbNotification;
                     setNotifications((prev) => [newNotification, ...prev]);
+                    maybeFireBrowserPush(newNotification);
                 }
             )
             .on(
@@ -121,7 +158,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 channelRef.current = null;
             }
         };
-    }, [user, fetchNotifications]);
+    }, [user, fetchNotifications, maybeFireBrowserPush]);
 
     // Clear state on logout
     useEffect(() => {
@@ -189,7 +226,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     return (
         <NotificationContext.Provider
-            value={{ notifications, unreadCount, isLoading, markRead, markAllRead, deleteNotification }}
+            value={{ notifications, unreadCount, isLoading, markRead, markAllRead, deleteNotification, requestPushPermission, setPanelOpen }}
         >
             {children}
         </NotificationContext.Provider>

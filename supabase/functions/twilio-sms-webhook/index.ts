@@ -196,6 +196,91 @@ async function resolveContactByPhone(
 }
 
 // ---------------------------------------------------------------------------
+// Inbound SMS notification fan-out
+// ---------------------------------------------------------------------------
+
+async function resolveAssignedAgent(
+  supabase: SupabaseClient,
+  contactId: string,
+  contactType: string,
+  organizationId: string,
+): Promise<string | null> {
+  const table =
+    contactType === "lead"
+      ? "leads"
+      : contactType === "client"
+      ? "clients"
+      : contactType === "recruit"
+      ? "recruits"
+      : null;
+  if (!table) return null;
+  const { data } = await supabase
+    .from(table)
+    .select("assigned_agent_id")
+    .eq("id", contactId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  return (data?.assigned_agent_id as string | undefined) ?? null;
+}
+
+async function resolveOrgAdmins(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("role", ["Admin", "Team Leader"]);
+  return (data ?? []).map((r: { id: string }) => r.id);
+}
+
+async function insertInboundSmsNotifications(
+  supabase: SupabaseClient,
+  args: {
+    organizationId: string;
+    contactId: string;
+    contactType: string;
+    contactName: string;
+    body: string;
+  },
+): Promise<void> {
+  const { organizationId, contactId, contactType, contactName, body } = args;
+  let recipients: string[] = [];
+  const assigned = await resolveAssignedAgent(
+    supabase,
+    contactId,
+    contactType,
+    organizationId,
+  );
+  if (assigned) recipients = [assigned];
+  else recipients = await resolveOrgAdmins(supabase, organizationId);
+  if (recipients.length === 0) return;
+
+  const trimmed = (body || "").trim();
+  const preview =
+    trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed || "(empty)";
+  const notifBody = `${contactName}: ${preview}`;
+
+  const rows = recipients.map((uid) => ({
+    user_id: uid,
+    type: "inbound_sms",
+    title: "New Text Message",
+    body: notifBody,
+    action_url: `/contacts?id=${contactId}`,
+    action_label: "View Contact",
+    organization_id: organizationId,
+    metadata: { contact_id: contactId, contact_type: contactType },
+    read: false,
+  }));
+
+  const { error } = await supabase.from("notifications").insert(rows);
+  if (error) {
+    console.error(`${FN} notifications insert failed:`, error.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
@@ -307,6 +392,21 @@ Deno.serve(async (req) => {
         contact: contactId || "(unmatched)",
         contactType: contactType || "unknown",
       });
+    }
+
+    // ── Inbound SMS notification (only when contact matched) ──
+    if (!insertError && contactId && contactType && contactName) {
+      try {
+        await insertInboundSmsNotifications(supabase, {
+          organizationId,
+          contactId,
+          contactType,
+          contactName,
+          body,
+        });
+      } catch (notifyErr) {
+        console.error(`${FN} inbound_sms notification failed:`, notifyErr);
+      }
     }
 
     // ── Activity log (only when contact is matched) ──

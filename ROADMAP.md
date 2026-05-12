@@ -116,6 +116,22 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-12 | [DONE] | Wire Notifications System End-to-End — panel, push, auto-triggers, cleanup**
+  *What:* Reconnected the unified notifications system from DB → Realtime → context → panel UI → browser push. Five threads in one cut:
+  1. **TopBar.tsx** no longer maintains a private `notifications` `useState` + one-shot fetch; it consumes `notifications`, `unreadCount`, `markRead`, `markAllRead`, `deleteNotification` directly from `NotificationContext`. Mark-all-read and per-row delete now flow through context (Realtime UPDATE/DELETE keeps state in sync). Action-URL click now `markRead → setNotifOpen(false) → navigate` so the panel closes on navigate. Bell badge now pulses (`animate-pulse`) and caps at `99+`. Per-row `×` button uses `opacity-0 group-hover:opacity-100` reveal with `stopPropagation`.
+  2. **NotificationContext.tsx** Realtime INSERT handler now fires `new Notification(title, { body, icon: '/favicon.ico' })` when `Notification.permission === 'granted'` AND (tab hidden OR panel closed). New `requestPushPermission()` + `setPanelOpen()` exposed via context; TopBar calls `requestPushPermission()` on first panel-open and mirrors the panel-open state into a ref the realtime handler reads for push gating.
+  3. **Auto-triggers (Edge Functions):**
+     - **`twilio-voice-status`** v17: on `CallStatus` ∈ {`no-answer`,`busy`} after the `calls` update, fans out `missed_call` notification to the lead's `assigned_agent_id` → falls back to the call's `agent_id` → falls back to org Admins/Team Leaders.
+     - **`twilio-sms-webhook`** v2: on inbound SMS with matched contact, fans out `inbound_sms` notification to `assigned_agent_id` (lead/client/recruit) → fallback to org admins. Body `{name}: {first 80 chars}…`. Unmatched numbers are silently skipped.
+     - **`email-sync-incremental`** v10: on actual new `contact_emails` insert (upsert with `ignoreDuplicates: true` + `.select('id')` → only fire when a row was returned) with a matched `contact_id`, fans out `inbound_email` to assigned agent → fallback admins. Body `{name}: {subject or first 80 chars of body}`. Outbound + duplicates never fire.
+  4. **Lead-assigned DB trigger:** `notify_lead_assigned()` (SECURITY DEFINER) + `trg_notify_lead_assigned` on `leads AFTER UPDATE OF assigned_agent_id` inserts a `lead_claimed` notification to the newly-assigned agent. Replaces ad-hoc client-side `notificationBuilders.leadAssigned()` calls (existing helper preserved for direct UI-driven inserts).
+  5. **Daily 30-day cleanup:** `pg_cron` job `cleanup-old-notifications` runs `0 3 * * *` deleting notifications older than 30 days.
+  *Schema:* `notifications.type` CHECK constraint extended to allow `inbound_sms` + `inbound_email`. `src/lib/notifications-api.ts` gains `inboundSms` / `inboundEmail` builders (both pass `orgId` through to `createNotification` for explicit organization scoping). `src/integrations/supabase/types.ts` regenerated.
+  *Migration:* **`20260512120000_notifications_wire_triggers_and_cleanup.sql`** (applied to `jncvvsvckxhqgqvkppmj`). Edge Function deploys: `twilio-voice-status` v17, `twilio-sms-webhook` v2, `email-sync-incremental` v10.
+  *Files:* `supabase/migrations/20260512120000_notifications_wire_triggers_and_cleanup.sql`, `src/contexts/NotificationContext.tsx`, `src/components/layout/TopBar.tsx`, `src/lib/notifications-api.ts`, `supabase/functions/twilio-voice-status/index.ts`, `supabase/functions/twilio-sms-webhook/index.ts`, `supabase/functions/email-sync-incremental/index.ts`, `src/integrations/supabase/types.ts`, `ROADMAP.md`.
+  *Tech debt flagged:* `TopBar.tsx` is 482 lines — pre-existing breach of the <200-line component standard; not refactored in scope. Future split should extract the notification panel into `src/components/layout/NotificationsPanel.tsx`.
+  *Verification:* CHECK constraint includes both new types (`pg_constraint` query); `trg_notify_lead_assigned` present on `leads`; `cron.job` row exists with schedule `0 3 * * *`.
+
 - **2026-05-12 | [DONE] | Seed Default Org Configuration — Automated CRM Shell Initialization**
   *What:* Extended the `create-organization` Edge Function to automatically seed essential CRM data whenever a new organization is created. This ensures every new agency starts with a production-ready shell matching FFL standards. Seeding is implemented as a **non-fatal** process using the Supabase **`adminClient`** (service role) to bypass RLS. 
   *Seeded Data:*
