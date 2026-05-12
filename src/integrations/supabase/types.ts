@@ -49,6 +49,77 @@ export type Database = {
           },
         ]
       }
+      agency_resource_categories: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          organization_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name: string
+          organization_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_resource_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agency_resources: {
+        Row: {
+          category_id: string | null
+          content_url: string | null
+          created_at: string | null
+          id: string
+          organization_id: string
+          title: string
+        }
+        Insert: {
+          category_id?: string | null
+          content_url?: string | null
+          created_at?: string | null
+          id?: string
+          organization_id: string
+          title: string
+        }
+        Update: {
+          category_id?: string | null
+          content_url?: string | null
+          created_at?: string | null
+          id?: string
+          organization_id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_resources_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "agency_resource_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agency_resources_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_scorecards: {
         Row: {
           agent_id: string | null
@@ -429,6 +500,8 @@ export type Database = {
           organization_id: string | null
           outcome: string | null
           pdd_seconds: number | null
+          provider_error_code: string | null
+          provider_session_id: string | null
           quality_percentage: number | null
           recording_duration: number | null
           recording_storage_path: string | null
@@ -437,8 +510,6 @@ export type Database = {
           sip_response_code: number | null
           started_at: string | null
           status: string | null
-          provider_error_code: string | null
-          provider_session_id: string | null
           transcript: Json | null
           twilio_call_sid: string | null
           updated_at: string | null
@@ -469,6 +540,8 @@ export type Database = {
           organization_id?: string | null
           outcome?: string | null
           pdd_seconds?: number | null
+          provider_error_code?: string | null
+          provider_session_id?: string | null
           quality_percentage?: number | null
           recording_duration?: number | null
           recording_storage_path?: string | null
@@ -477,8 +550,6 @@ export type Database = {
           sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
-          provider_error_code?: string | null
-          provider_session_id?: string | null
           transcript?: Json | null
           twilio_call_sid?: string | null
           updated_at?: string | null
@@ -509,6 +580,8 @@ export type Database = {
           organization_id?: string | null
           outcome?: string | null
           pdd_seconds?: number | null
+          provider_error_code?: string | null
+          provider_session_id?: string | null
           quality_percentage?: number | null
           recording_duration?: number | null
           recording_storage_path?: string | null
@@ -517,8 +590,6 @@ export type Database = {
           sip_response_code?: number | null
           started_at?: string | null
           status?: string | null
-          provider_error_code?: string | null
-          provider_session_id?: string | null
           transcript?: Json | null
           twilio_call_sid?: string | null
           updated_at?: string | null
@@ -1108,6 +1179,112 @@ export type Database = {
           },
         ]
       }
+      contact_emails: {
+        Row: {
+          bcc_emails: Json
+          body_html: string | null
+          body_text: string | null
+          cc_emails: Json
+          connection_id: string | null
+          contact_id: string | null
+          created_at: string
+          delivery_status: string
+          direction: string
+          external_message_id: string
+          from_email: string
+          id: string
+          in_reply_to: string | null
+          internet_message_id: string | null
+          organization_id: string
+          owner_user_id: string
+          provider: string
+          provider_error: string | null
+          received_at: string | null
+          reference_ids: string | null
+          sent_at: string | null
+          subject: string | null
+          thread_id: string | null
+          to_emails: Json
+          updated_at: string
+        }
+        Insert: {
+          bcc_emails?: Json
+          body_html?: string | null
+          body_text?: string | null
+          cc_emails?: Json
+          connection_id?: string | null
+          contact_id?: string | null
+          created_at?: string
+          delivery_status?: string
+          direction: string
+          external_message_id: string
+          from_email: string
+          id?: string
+          in_reply_to?: string | null
+          internet_message_id?: string | null
+          organization_id: string
+          owner_user_id: string
+          provider: string
+          provider_error?: string | null
+          received_at?: string | null
+          reference_ids?: string | null
+          sent_at?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          to_emails?: Json
+          updated_at?: string
+        }
+        Update: {
+          bcc_emails?: Json
+          body_html?: string | null
+          body_text?: string | null
+          cc_emails?: Json
+          connection_id?: string | null
+          contact_id?: string | null
+          created_at?: string
+          delivery_status?: string
+          direction?: string
+          external_message_id?: string
+          from_email?: string
+          id?: string
+          in_reply_to?: string | null
+          internet_message_id?: string | null
+          organization_id?: string
+          owner_user_id?: string
+          provider?: string
+          provider_error?: string | null
+          received_at?: string | null
+          reference_ids?: string | null
+          sent_at?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          to_emails?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_emails_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "user_email_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_emails_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_emails_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_management_settings: {
         Row: {
           assignment_method: string
@@ -1278,6 +1455,13 @@ export type Database = {
           usage_count?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "custom_fields_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "custom_fields_organization_id_fkey"
             columns: ["organization_id"]
@@ -1623,6 +1807,102 @@ export type Database = {
           },
         ]
       }
+      email_oauth_states: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          organization_id: string
+          provider: string
+          redirect_to: string | null
+          state: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          organization_id: string
+          provider: string
+          redirect_to?: string | null
+          state: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          organization_id?: string
+          provider?: string
+          redirect_to?: string | null
+          state?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_oauth_states_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_oauth_states_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_sync_cursors: {
+        Row: {
+          connection_id: string
+          created_at: string
+          cursor_updated_at: string
+          cursor_value: string
+          id: string
+          organization_id: string
+          provider: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          cursor_updated_at?: string
+          cursor_value: string
+          id?: string
+          organization_id: string
+          provider: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          cursor_updated_at?: string
+          cursor_value?: string
+          id?: string
+          organization_id?: string
+          provider?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_sync_cursors_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: true
+            referencedRelation: "user_email_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_sync_cursors_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       goals: {
         Row: {
           created_at: string
@@ -1724,29 +2004,55 @@ export type Database = {
           after_hours_sms_enabled: boolean
           auto_create_lead: boolean
           created_at: string | null
+          fallback_action: string | null
+          forwarding_number: string | null
           id: string
+          organization_id: string | null
           routing_mode: string
           updated_at: string | null
+          voicemail_enabled: boolean | null
+          voicemail_greeting_text: string | null
+          voicemail_greeting_url: string | null
         }
         Insert: {
           after_hours_sms?: string | null
           after_hours_sms_enabled?: boolean
           auto_create_lead?: boolean
           created_at?: string | null
+          fallback_action?: string | null
+          forwarding_number?: string | null
           id?: string
+          organization_id?: string | null
           routing_mode?: string
           updated_at?: string | null
+          voicemail_enabled?: boolean | null
+          voicemail_greeting_text?: string | null
+          voicemail_greeting_url?: string | null
         }
         Update: {
           after_hours_sms?: string | null
           after_hours_sms_enabled?: boolean
           auto_create_lead?: boolean
           created_at?: string | null
+          fallback_action?: string | null
+          forwarding_number?: string | null
           id?: string
+          organization_id?: string | null
           routing_mode?: string
           updated_at?: string | null
+          voicemail_enabled?: boolean | null
+          voicemail_greeting_text?: string | null
+          voicemail_greeting_url?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "inbound_routing_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invitations: {
         Row: {
@@ -2042,6 +2348,8 @@ export type Database = {
       messages: {
         Row: {
           body: string
+          contact_id: string | null
+          contact_type: string | null
           created_at: string | null
           created_by: string | null
           direction: string
@@ -2049,13 +2357,15 @@ export type Database = {
           id: string
           lead_id: string | null
           organization_id: string | null
+          provider_message_id: string | null
           sent_at: string | null
           status: string
-          provider_message_id: string | null
           to_number: string
         }
         Insert: {
           body: string
+          contact_id?: string | null
+          contact_type?: string | null
           created_at?: string | null
           created_by?: string | null
           direction: string
@@ -2063,13 +2373,15 @@ export type Database = {
           id?: string
           lead_id?: string | null
           organization_id?: string | null
+          provider_message_id?: string | null
           sent_at?: string | null
           status?: string
-          provider_message_id?: string | null
           to_number: string
         }
         Update: {
           body?: string
+          contact_id?: string | null
+          contact_type?: string | null
           created_at?: string | null
           created_by?: string | null
           direction?: string
@@ -2077,9 +2389,9 @@ export type Database = {
           id?: string
           lead_id?: string | null
           organization_id?: string | null
+          provider_message_id?: string | null
           sent_at?: string | null
           status?: string
-          provider_message_id?: string | null
           to_number?: string
         }
         Relationships: [
@@ -2155,8 +2467,12 @@ export type Database = {
           id: string
           logo_url: string | null
           name: string
-          status: string
           slug: string | null
+          status: string | null
+          twilio_provisioned_at: string | null
+          twilio_subaccount_auth_token_vault_key: string | null
+          twilio_subaccount_sid: string | null
+          twilio_subaccount_status: string
           updated_at: string | null
         }
         Insert: {
@@ -2164,8 +2480,12 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name: string
-          status?: string
           slug?: string | null
+          status?: string | null
+          twilio_provisioned_at?: string | null
+          twilio_subaccount_auth_token_vault_key?: string | null
+          twilio_subaccount_sid?: string | null
+          twilio_subaccount_status?: string
           updated_at?: string | null
         }
         Update: {
@@ -2173,11 +2493,54 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name?: string
-          status?: string
           slug?: string | null
+          status?: string | null
+          twilio_provisioned_at?: string | null
+          twilio_subaccount_auth_token_vault_key?: string | null
+          twilio_subaccount_sid?: string | null
+          twilio_subaccount_status?: string
           updated_at?: string | null
         }
         Relationships: []
+      }
+      phone_number_reputation_checks: {
+        Row: {
+          checked_by: string | null
+          created_at: string
+          id: string
+          organization_id: string
+          phone_number_id: string
+        }
+        Insert: {
+          checked_by?: string | null
+          created_at?: string
+          id?: string
+          organization_id: string
+          phone_number_id: string
+        }
+        Update: {
+          checked_by?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string
+          phone_number_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "phone_number_reputation_checks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "phone_number_reputation_checks_phone_number_id_fkey"
+            columns: ["phone_number_id"]
+            isOneToOne: false
+            referencedRelation: "phone_numbers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       phone_numbers: {
         Row: {
@@ -2191,8 +2554,11 @@ export type Database = {
           d51_count: number
           daily_call_count: number | null
           daily_call_limit: number | null
+          fallback_action: string | null
+          forwarding_number: string | null
           friendly_name: string | null
           id: string
+          inbound_routing_mode: string | null
           is_default: boolean | null
           last_rejection_at: string | null
           limit_reset_at: string | null
@@ -2203,6 +2569,7 @@ export type Database = {
           rejection_rate_30d: number
           rejection_rate_7d: number
           shaken_stir_a_count: number
+          shaken_stir_attestation: string | null
           shaken_stir_rate: number
           shaken_stir_unavailable_count: number
           spam_checked_at: string | null
@@ -2211,7 +2578,11 @@ export type Database = {
           status: string | null
           total_calls_30d: number
           total_calls_7d: number
+          trust_hub_status: string | null
+          twilio_sid: string | null
           updated_at: string | null
+          voicemail_enabled: boolean | null
+          voicemail_greeting_text: string | null
         }
         Insert: {
           area_code?: string | null
@@ -2224,8 +2595,11 @@ export type Database = {
           d51_count?: number
           daily_call_count?: number | null
           daily_call_limit?: number | null
+          fallback_action?: string | null
+          forwarding_number?: string | null
           friendly_name?: string | null
           id?: string
+          inbound_routing_mode?: string | null
           is_default?: boolean | null
           last_rejection_at?: string | null
           limit_reset_at?: string | null
@@ -2236,6 +2610,7 @@ export type Database = {
           rejection_rate_30d?: number
           rejection_rate_7d?: number
           shaken_stir_a_count?: number
+          shaken_stir_attestation?: string | null
           shaken_stir_rate?: number
           shaken_stir_unavailable_count?: number
           spam_checked_at?: string | null
@@ -2244,7 +2619,11 @@ export type Database = {
           status?: string | null
           total_calls_30d?: number
           total_calls_7d?: number
+          trust_hub_status?: string | null
+          twilio_sid?: string | null
           updated_at?: string | null
+          voicemail_enabled?: boolean | null
+          voicemail_greeting_text?: string | null
         }
         Update: {
           area_code?: string | null
@@ -2257,8 +2636,11 @@ export type Database = {
           d51_count?: number
           daily_call_count?: number | null
           daily_call_limit?: number | null
+          fallback_action?: string | null
+          forwarding_number?: string | null
           friendly_name?: string | null
           id?: string
+          inbound_routing_mode?: string | null
           is_default?: boolean | null
           last_rejection_at?: string | null
           limit_reset_at?: string | null
@@ -2269,6 +2651,7 @@ export type Database = {
           rejection_rate_30d?: number
           rejection_rate_7d?: number
           shaken_stir_a_count?: number
+          shaken_stir_attestation?: string | null
           shaken_stir_rate?: number
           shaken_stir_unavailable_count?: number
           spam_checked_at?: string | null
@@ -2277,7 +2660,11 @@ export type Database = {
           status?: string | null
           total_calls_30d?: number
           total_calls_7d?: number
+          trust_hub_status?: string | null
+          twilio_sid?: string | null
           updated_at?: string | null
+          voicemail_enabled?: boolean | null
+          voicemail_greeting_text?: string | null
         }
         Relationships: [
           {
@@ -2304,7 +2691,9 @@ export type Database = {
           recording_enabled: boolean | null
           recording_retention_days: number | null
           ring_timeout: number | null
+          shaken_stir_enabled: boolean | null
           transcription_enabled: boolean | null
+          trust_hub_profile_sid: string | null
           updated_at: string | null
         }
         Insert: {
@@ -2321,7 +2710,9 @@ export type Database = {
           recording_enabled?: boolean | null
           recording_retention_days?: number | null
           ring_timeout?: number | null
+          shaken_stir_enabled?: boolean | null
           transcription_enabled?: boolean | null
+          trust_hub_profile_sid?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -2338,7 +2729,9 @@ export type Database = {
           recording_enabled?: boolean | null
           recording_retention_days?: number | null
           ring_timeout?: number | null
+          shaken_stir_enabled?: boolean | null
           transcription_enabled?: boolean | null
+          trust_hub_profile_sid?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -2419,22 +2812,24 @@ export type Database = {
           last_name: string
           licensed_states: Json | null
           local_presence_enabled: boolean | null
+          monthly_appointment_goal: number | null
           monthly_call_goal: number | null
           monthly_policies_goal: number | null
-          monthly_talk_time_goal: number | null
           monthly_premium_goal: number | null
+          monthly_talk_time_goal: number | null
           npn: string | null
+          onboarding_complete: boolean
           organization_id: string | null
           phone: string | null
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
-          sip_username: string | null
           sms_notifications_enabled: boolean | null
           status: string
           team_id: string | null
           theme_preference: string
           timezone: string | null
+          twilio_client_identity: string | null
           updated_at: string
           upline_id: string | null
           weekly_appointment_goal: number | null
@@ -2458,22 +2853,24 @@ export type Database = {
           last_name?: string
           licensed_states?: Json | null
           local_presence_enabled?: boolean | null
+          monthly_appointment_goal?: number | null
           monthly_call_goal?: number | null
           monthly_policies_goal?: number | null
-          monthly_talk_time_goal?: number | null
           monthly_premium_goal?: number | null
+          monthly_talk_time_goal?: number | null
           npn?: string | null
+          onboarding_complete?: boolean
           organization_id?: string | null
           phone?: string | null
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
-          sip_username?: string | null
           sms_notifications_enabled?: boolean | null
           status?: string
           team_id?: string | null
           theme_preference?: string
           timezone?: string | null
+          twilio_client_identity?: string | null
           updated_at?: string
           upline_id?: string | null
           weekly_appointment_goal?: number | null
@@ -2497,22 +2894,24 @@ export type Database = {
           last_name?: string
           licensed_states?: Json | null
           local_presence_enabled?: boolean | null
+          monthly_appointment_goal?: number | null
           monthly_call_goal?: number | null
           monthly_policies_goal?: number | null
-          monthly_talk_time_goal?: number | null
           monthly_premium_goal?: number | null
+          monthly_talk_time_goal?: number | null
           npn?: string | null
+          onboarding_complete?: boolean
           organization_id?: string | null
           phone?: string | null
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
-          sip_username?: string | null
           sms_notifications_enabled?: boolean | null
           status?: string
           team_id?: string | null
           theme_preference?: string
           timezone?: string | null
+          twilio_client_identity?: string | null
           updated_at?: string
           upline_id?: string | null
           weekly_appointment_goal?: number | null
@@ -2539,6 +2938,44 @@ export type Database = {
             columns: ["upline_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provisioning_errors: {
+        Row: {
+          attempt_number: number
+          created_at: string
+          error_code: string | null
+          error_message: string
+          id: string
+          organization_id: string
+          twilio_response: Json | null
+        }
+        Insert: {
+          attempt_number: number
+          created_at?: string
+          error_code?: string | null
+          error_message: string
+          id?: string
+          organization_id: string
+          twilio_response?: Json | null
+        }
+        Update: {
+          attempt_number?: number
+          created_at?: string
+          error_code?: string | null
+          error_message?: string
+          id?: string
+          organization_id?: string
+          twilio_response?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provisioning_errors_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -2745,6 +3182,213 @@ export type Database = {
           },
         ]
       }
+      training_categories: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          organization_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name: string
+          organization_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      training_progress: {
+        Row: {
+          completed: boolean | null
+          completed_at: string | null
+          id: string
+          organization_id: string
+          resource_id: string
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean | null
+          completed_at?: string | null
+          id?: string
+          organization_id: string
+          resource_id: string
+          user_id: string
+        }
+        Update: {
+          completed?: boolean | null
+          completed_at?: string | null
+          id?: string
+          organization_id?: string
+          resource_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_progress_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_progress_resource_id_fkey"
+            columns: ["resource_id"]
+            isOneToOne: false
+            referencedRelation: "training_resources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      training_resources: {
+        Row: {
+          category_id: string | null
+          content: string | null
+          content_url: string | null
+          created_at: string | null
+          description: string | null
+          duration: string | null
+          file_size: string | null
+          id: string
+          organization_id: string
+          thumbnail_url: string | null
+          title: string
+          type: string
+        }
+        Insert: {
+          category_id?: string | null
+          content?: string | null
+          content_url?: string | null
+          created_at?: string | null
+          description?: string | null
+          duration?: string | null
+          file_size?: string | null
+          id?: string
+          organization_id: string
+          thumbnail_url?: string | null
+          title: string
+          type: string
+        }
+        Update: {
+          category_id?: string | null
+          content?: string | null
+          content_url?: string | null
+          created_at?: string | null
+          description?: string | null
+          duration?: string | null
+          file_size?: string | null
+          id?: string
+          organization_id?: string
+          thumbnail_url?: string | null
+          title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_resources_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "training_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_resources_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_email_connections: {
+        Row: {
+          access_token_encrypted: string
+          access_token_expires_at: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_sync_at: string | null
+          organization_id: string
+          provider: string
+          provider_account_email: string
+          provider_account_name: string | null
+          refresh_token_encrypted: string | null
+          scope: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_encrypted: string
+          access_token_expires_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          organization_id: string
+          provider: string
+          provider_account_email: string
+          provider_account_name?: string | null
+          refresh_token_encrypted?: string | null
+          scope?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_encrypted?: string
+          access_token_expires_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          organization_id?: string
+          provider?: string
+          provider_account_email?: string
+          provider_account_name?: string | null
+          refresh_token_encrypted?: string | null
+          scope?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_email_connections_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_email_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_preferences: {
         Row: {
           created_at: string | null
@@ -2881,13 +3525,16 @@ export type Database = {
         Args: { p_campaign_id: string; p_lead_ids: string[] }
         Returns: Json
       }
+      calls_expired_recording_batch: {
+        Args: { p_cutoff: string; p_limit?: number; p_organization_id: string }
+        Returns: {
+          id: string
+          recording_storage_path: string
+        }[]
+      }
       compute_hierarchy_path: {
         Args: { target_user_id: string }
         Returns: unknown
-      }
-      calls_expired_recording_batch: {
-        Args: { p_cutoff: string; p_limit?: number; p_organization_id: string }
-        Returns: { id: string; recording_storage_path: string }[]
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       fetch_and_lock_next_lead: {
@@ -2972,7 +3619,6 @@ export type Database = {
       get_invitation_by_token_rpc: {
         Args: { invite_token: string }
         Returns: {
-          accepted_at: string
           commission_level: string
           created_at: string
           email: string
@@ -2989,11 +3635,63 @@ export type Database = {
           upline_id: string
         }[]
       }
+      get_next_queue_lead: {
+        Args: { p_campaign_id: string; p_filters?: Json }
+        Returns: {
+          age: number | null
+          call_attempts: number | null
+          callback_due_at: string | null
+          campaign_id: string
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string | null
+          disposition: string | null
+          email: string | null
+          first_name: string | null
+          id: string
+          last_called_at: string | null
+          last_name: string | null
+          lead_id: string | null
+          locked_at: string | null
+          locked_by: string | null
+          organization_id: string | null
+          phone: string | null
+          retry_eligible_at: string | null
+          scheduled_callback_at: string | null
+          sort_order: number | null
+          source: string | null
+          state: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "campaign_leads"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_org_id: { Args: never; Returns: string }
+      get_twilio_subaccount_token: {
+        Args: { p_org_id: string }
+        Returns: string
+      }
       get_user_org: { Args: never; Returns: string }
       get_user_org_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_team_id: { Args: never; Returns: string }
+      global_search: {
+        Args: { search_query: string }
+        Returns: {
+          id: string
+          match_field: string
+          relevance: number
+          result_type: string
+          subtitle: string
+          title: string
+        }[]
+      }
       increment_dialer_stats:
         | {
             Args: {
@@ -3050,22 +3748,24 @@ export type Database = {
           last_name: string
           licensed_states: Json | null
           local_presence_enabled: boolean | null
+          monthly_appointment_goal: number | null
           monthly_call_goal: number | null
           monthly_policies_goal: number | null
-          monthly_talk_time_goal: number | null
           monthly_premium_goal: number | null
+          monthly_talk_time_goal: number | null
           npn: string | null
+          onboarding_complete: boolean
           organization_id: string | null
           phone: string | null
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
-          sip_username: string | null
           sms_notifications_enabled: boolean | null
           status: string
           team_id: string | null
           theme_preference: string
           timezone: string | null
+          twilio_client_identity: string | null
           updated_at: string
           upline_id: string | null
           weekly_appointment_goal: number | null
@@ -3080,7 +3780,7 @@ export type Database = {
         }
       }
       peek_inbound_call_identity: {
-        Args: { p_twilio_call_sid?: string; p_provider_session_id?: string }
+        Args: { p_provider_session_id?: string; p_twilio_call_sid?: string }
         Returns: Json
       }
       release_all_agent_locks: {
@@ -3099,16 +3799,25 @@ export type Database = {
         Args: { claim: string; uid: string; value: Json }
         Returns: string
       }
-      super_admin_dashboard_snapshot: {
-        Args: Record<string, never>
-        Returns: Json
+      set_twilio_subaccount_token: {
+        Args: { p_org_id: string; p_token: string }
+        Returns: string
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
+      super_admin_all_users: { Args: never; Returns: Json }
+      super_admin_dashboard_snapshot: { Args: never; Returns: Json }
       super_admin_organization_detail: {
         Args: { p_organization_id: string }
         Returns: Json
       }
+      super_admin_own_org: { Args: { row_org: string }; Returns: boolean }
       super_admin_update_organization_status: {
         Args: { p_organization_id: string; p_status: string }
+        Returns: undefined
+      }
+      super_admin_update_user: {
+        Args: { p_role?: string; p_status?: string; p_user_id: string }
         Returns: undefined
       }
       text2ltree: { Args: { "": string }; Returns: unknown }
