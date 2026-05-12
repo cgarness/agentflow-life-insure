@@ -663,6 +663,7 @@ async function handleInitialInbound(
         forwarded: "1",
         ...(callRowId ? { call_row_id: callRowId } : {}),
         org_id: organizationId,
+        phone_number_id: phoneRow.id,
       });
       fallbackTwiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
     } else if (settings.fallback_action === "hangup") {
@@ -672,6 +673,7 @@ async function handleInitialInbound(
         fallback: "hangup",
         ...(callRowId ? { call_row_id: callRowId } : {}),
         org_id: organizationId,
+        phone_number_id: phoneRow.id,
       });
       fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
     }
