@@ -508,16 +508,19 @@ async function handleFallback(
 ): Promise<Response> {
   const callRowId = url.searchParams.get("call_row_id") || "";
   const orgId = url.searchParams.get("org_id") || "";
+  const phoneNumberId = url.searchParams.get("phone_number_id") || "";
   const dialCallStatus = params["DialCallStatus"] || "";
 
   console.log("[twilio-voice-inbound] fallback=voicemail", {
     callRowId: callRowId || "(none)",
     orgId: orgId || "(none)",
+    phoneNumberId: phoneNumberId || "(none)",
     dialCallStatus,
     callSid: params["CallSid"] || "(none)",
   });
 
-  const settings = await loadPhoneSettings(supabase, orgId);
+  // Load settings WITH the phone number override so per-number forwarding config is respected
+  const settings = await loadPhoneSettings(supabase, orgId || null, phoneNumberId || null);
 
   // If the fallback action was forward, and this is the return from that forward,
   // we check if they actually answered.
@@ -533,6 +536,7 @@ async function handleFallback(
       forwarded: "1",
       ...(callRowId ? { call_row_id: callRowId } : {}),
       ...(orgId ? { org_id: orgId } : {}),
+      ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
     });
     twiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
   } else if (settings.fallback_action === "hangup") {
@@ -543,6 +547,7 @@ async function handleFallback(
       fallback: "hangup",
       ...(callRowId ? { call_row_id: callRowId } : {}),
       ...(orgId ? { org_id: orgId } : {}),
+      ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
     });
     twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
   }
@@ -708,6 +713,7 @@ async function handleInitialInbound(
         forwarded: "1",
         ...(callRowId ? { call_row_id: callRowId } : {}),
         org_id: organizationId,
+        phone_number_id: phoneRow.id,
       });
       fallbackTwiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
     } else if (settings.fallback_action === "hangup") {
@@ -717,6 +723,7 @@ async function handleInitialInbound(
         fallback: "hangup",
         ...(callRowId ? { call_row_id: callRowId } : {}),
         org_id: organizationId,
+        phone_number_id: phoneRow.id,
       });
       fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
     }
@@ -727,6 +734,7 @@ async function handleInitialInbound(
     fallback: "voicemail",
     ...(callRowId ? { call_row_id: callRowId } : {}),
     org_id: organizationId,
+    phone_number_id: phoneRow.id,
   });
 
   const twiml = buildDialTwiml(
