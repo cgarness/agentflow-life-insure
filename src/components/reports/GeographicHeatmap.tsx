@@ -27,8 +27,8 @@ Object.entries(STATE_ABBR_TO_NAME).forEach(([abbr, name]) => {
   STATE_NAME_TO_ABBR[name.toLowerCase()] = abbr;
 });
 
-function normalizeState(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+function normalizeState(raw: any): string | null {
+  if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const upper = trimmed.toUpperCase();

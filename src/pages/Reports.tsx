@@ -159,10 +159,18 @@ const Reports: React.FC = () => {
       setLeads(l); setSessions(sess); setGoals(g); setCampaignLeads(cl);
       setLeadCosts(lc); setScorecards(sc || []);
 
-      const { data: outcomeRows, error: outcomesError } = await supabase
+      let outcomesQuery = supabase
         .from('calls')
         .select('disposition_name')
+        .gte("started_at", startOfDay(range.start).toISOString())
+        .lte("started_at", endOfDay(range.end).toISOString())
         .not('disposition_name', 'is', null);
+        
+      if (effectiveAgent) {
+        outcomesQuery = outcomesQuery.eq("agent_id", effectiveAgent);
+      }
+
+      const { data: outcomeRows, error: outcomesError } = await outcomesQuery;
       if (!outcomesError && outcomeRows) {
         const counts: Record<string, number> = {};
         outcomeRows.forEach(row => {
@@ -200,31 +208,44 @@ const Reports: React.FC = () => {
 
   // State-filtered data: when a state is selected on the map, filter calls and leads
   const filteredCalls = useMemo(() => {
-    if (!stateFilter) return calls;
-    // Build contact_id → state and campaign_lead_id → state maps
-    const contactState = new Map<string, string>();
-    for (const l of leads) {
-      const st = l.state?.trim().toUpperCase();
-      if (st && l.id) contactState.set(l.id, st.length === 2 ? st : "");
+    try {
+      if (!stateFilter) return calls;
+      const contactState = new Map<string, string>();
+      for (const l of leads) {
+        if (typeof l.state === 'string') {
+          const st = l.state.trim().toUpperCase();
+          if (st && l.id) contactState.set(l.id, st.length === 2 ? st : "");
+        }
+      }
+      const clState = new Map<string, string>();
+      for (const cl of campaignLeads) {
+        if (typeof cl.state === 'string') {
+          const st = cl.state.trim().toUpperCase();
+          if (st && cl.id) clState.set(cl.id, st.length === 2 ? st : "");
+        }
+      }
+      return calls.filter(c => {
+        const s1 = c.contact_id ? contactState.get(c.contact_id) : undefined;
+        const s2 = c.campaign_lead_id ? clState.get(c.campaign_lead_id) : undefined;
+        return s1 === stateFilter || s2 === stateFilter;
+      });
+    } catch (e) {
+      console.error("Error in filteredCalls:", e);
+      return calls;
     }
-    const clState = new Map<string, string>();
-    for (const cl of campaignLeads) {
-      const st = cl.state?.trim().toUpperCase();
-      if (st && cl.id) clState.set(cl.id, st.length === 2 ? st : "");
-    }
-    return calls.filter(c => {
-      const s1 = contactState.get(c.contact_id);
-      const s2 = c.campaign_lead_id ? clState.get(c.campaign_lead_id) : undefined;
-      return s1 === stateFilter || s2 === stateFilter;
-    });
   }, [calls, leads, campaignLeads, stateFilter]);
 
   const filteredLeads = useMemo(() => {
-    if (!stateFilter) return leads;
-    return leads.filter(l => {
-      const st = l.state?.trim().toUpperCase();
-      return st === stateFilter;
-    });
+    try {
+      if (!stateFilter) return leads;
+      return leads.filter(l => {
+        if (typeof l.state !== 'string') return false;
+        return l.state.trim().toUpperCase() === stateFilter;
+      });
+    } catch (e) {
+      console.error("Error in filteredLeads:", e);
+      return leads;
+    }
   }, [leads, stateFilter]);
 
   const handleExportAll = () => {
