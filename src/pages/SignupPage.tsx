@@ -47,7 +47,7 @@ const SignupPage: React.FC = () => {
           if (inv.last_name) setLastName(inv.last_name);
           if (inv.email) setEmail(inv.email);
           if (inv.organization_id) setOrganizationId(inv.organization_id);
-          if (inv.organizations?.name) setOrganizationName(inv.organizations.name);
+          if (inv.org_name || inv.organizations?.name) setOrganizationName(inv.org_name || inv.organizations?.name);
           if (inv.upline_id) setUplineId(inv.upline_id);
           if (inv.role) setRole(inv.role);
           if (inv.licensed_states) setLicensedStates(inv.licensed_states);

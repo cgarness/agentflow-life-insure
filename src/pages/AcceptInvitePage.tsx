@@ -78,7 +78,7 @@ const AcceptInvitePage: React.FC = () => {
           console.error("Failed to fetch invitation:", e);
           setError({
             title: "Verification Failed",
-            message: "Could not verify invitation. Our security servers may be temporarily reachable.",
+            message: "Could not verify invitation. Our security servers may be temporarily unreachable.",
             icon: <XCircle size={40} color="#EF4444" />
           });
         })
