@@ -36,7 +36,6 @@ import GoalTracking from "@/components/reports/GoalTracking";
 import CustomReportBuilder from "@/components/reports/CustomReportBuilder";
 import ScheduledReportsModal from "@/components/reports/ScheduledReportsModal";
 import GeographicHeatmap from "@/components/reports/GeographicHeatmap";
-import ErrorBoundary from "@/components/ErrorBoundary";
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
 
@@ -201,41 +200,31 @@ const Reports: React.FC = () => {
 
   // State-filtered data: when a state is selected on the map, filter calls and leads
   const filteredCalls = useMemo(() => {
-    try {
-      if (!stateFilter) return calls;
-      // Build contact_id → state and campaign_lead_id → state maps
-      const contactState = new Map<string, string>();
-      for (const l of leads) {
-        const st = l.state?.trim().toUpperCase();
-        if (st && l.id) contactState.set(l.id, st.length === 2 ? st : "");
-      }
-      const clState = new Map<string, string>();
-      for (const cl of campaignLeads) {
-        const st = cl.state?.trim().toUpperCase();
-        if (st && cl.id) clState.set(cl.id, st.length === 2 ? st : "");
-      }
-      return calls.filter(c => {
-        const s1 = contactState.get(c.contact_id);
-        const s2 = c.campaign_lead_id ? clState.get(c.campaign_lead_id) : undefined;
-        return s1 === stateFilter || s2 === stateFilter;
-      });
-    } catch (e) {
-      console.error("Error in filteredCalls useMemo:", e);
-      return calls;
+    if (!stateFilter) return calls;
+    // Build contact_id → state and campaign_lead_id → state maps
+    const contactState = new Map<string, string>();
+    for (const l of leads) {
+      const st = l.state?.trim().toUpperCase();
+      if (st && l.id) contactState.set(l.id, st.length === 2 ? st : "");
     }
+    const clState = new Map<string, string>();
+    for (const cl of campaignLeads) {
+      const st = cl.state?.trim().toUpperCase();
+      if (st && cl.id) clState.set(cl.id, st.length === 2 ? st : "");
+    }
+    return calls.filter(c => {
+      const s1 = contactState.get(c.contact_id);
+      const s2 = c.campaign_lead_id ? clState.get(c.campaign_lead_id) : undefined;
+      return s1 === stateFilter || s2 === stateFilter;
+    });
   }, [calls, leads, campaignLeads, stateFilter]);
 
   const filteredLeads = useMemo(() => {
-    try {
-      if (!stateFilter) return leads;
-      return leads.filter(l => {
-        const st = l.state?.trim().toUpperCase();
-        return st === stateFilter;
-      });
-    } catch (e) {
-      console.error("Error in filteredLeads useMemo:", e);
-      return leads;
-    }
+    if (!stateFilter) return leads;
+    return leads.filter(l => {
+      const st = l.state?.trim().toUpperCase();
+      return st === stateFilter;
+    });
   }, [leads, stateFilter]);
 
   const handleExportAll = () => {
@@ -430,9 +419,7 @@ const Reports: React.FC = () => {
       ) : (
         <>
           {isAdmin && (
-            <ErrorBoundary name="AgentPerformanceCards">
-              <AgentPerformanceCards calls={activeCalls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
-            </ErrorBoundary>
+            <AgentPerformanceCards calls={activeCalls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
           )}
 
           <CallVolumeChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
