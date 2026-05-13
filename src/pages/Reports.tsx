@@ -241,35 +241,30 @@ const Reports: React.FC = () => {
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
-      {/* Premium Header Banner */}
-      <div className="relative overflow-hidden bg-slate-900 rounded-[2rem] p-8 md:p-10 shadow-2xl shadow-slate-200 dark:shadow-none border border-slate-800">
-        <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-primary/20 to-transparent pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2.5 bg-primary/20 rounded-2xl backdrop-blur-md border border-primary/30">
-                <BarChart3 className="w-6 h-6 text-primary-foreground" />
-              </div>
-              <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">Performance Analytics</h1>
+      {/* Slim & Premium Header */}
+      <div className="bg-card border rounded-[2rem] p-6 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary border border-primary/20">
+              <BarChart3 className="w-6 h-6" />
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <p className="text-slate-400 font-medium text-lg">Comprehensive intelligence and growth metrics</p>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">Performance Analytics</h1>
+              <p className="text-sm text-muted-foreground font-medium">Comprehensive intelligence and growth metrics</p>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex items-center gap-1 bg-slate-800/50 p-1.5 rounded-2xl border border-slate-700/50 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border/50">
               {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
                 <button 
                   key={p} 
                   onClick={() => setPreset(p)}
                   className={cn(
-                    "px-4 py-2 text-xs font-bold rounded-xl transition-all duration-200 uppercase tracking-tighter",
+                    "px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200",
                     p === preset 
-                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
-                      : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                      ? "bg-background text-foreground shadow-sm border border-border/50" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                   )}
                 >
                   {PRESET_LABELS[p]}
@@ -280,38 +275,39 @@ const Reports: React.FC = () => {
             <div className="flex items-center gap-2">
               <Button 
                 variant="outline" 
-                className="bg-white/5 border-slate-700 text-slate-200 hover:bg-white/10 hover:text-white rounded-2xl h-12 px-6 font-bold text-sm transition-all border-2 active:scale-95"
+                size="sm"
+                className="rounded-xl h-10 px-4 font-semibold active:scale-95 border-border/50"
                 onClick={handleExportAll}
               >
                 <Download className="w-4 h-4 mr-2" />
-                Export Intelligence
+                Export
               </Button>
               
-              <div className="hidden lg:flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className={cn("w-12 h-12 rounded-2xl bg-white/5 border border-slate-700 hover:bg-white/10 transition-colors", editMode ? "text-primary border-primary bg-primary/10" : "text-slate-400")}
+                  className={cn("w-10 h-10 rounded-xl border border-border/50 hover:bg-accent transition-colors", editMode ? "text-primary border-primary bg-primary/5" : "text-muted-foreground")}
                   onClick={() => setEditMode(!editMode)}
                   title="Customize Layout"
                 >
-                  <Settings2 className="w-5 h-5" />
+                  <Settings2 className="w-4 h-4" />
                 </Button>
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="w-12 h-12 rounded-2xl bg-white/5 border-slate-700 hover:bg-white/10 text-slate-400 border"
+                  className="w-10 h-10 rounded-xl border border-border/50 hover:bg-accent text-muted-foreground"
                   onClick={() => setShowSchedule(true)}
                 >
-                  <Clock className="w-5 h-5" />
+                  <Clock className="w-4 h-4" />
                 </Button>
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="w-12 h-12 rounded-2xl bg-white/5 border-slate-700 hover:bg-white/10 text-slate-400 border"
+                  className="w-10 h-10 rounded-xl border border-border/50 hover:bg-accent text-muted-foreground"
                   onClick={() => setShowMyReports(true)}
                 >
-                  <Bookmark className="w-5 h-5" />
+                  <Bookmark className="w-4 h-4" />
                 </Button>
               </div>
             </div>
@@ -319,11 +315,11 @@ const Reports: React.FC = () => {
         </div>
         
         {preset === "custom" && (
-          <div className="relative z-10 mt-6 flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/10 inline-flex">
+          <div className="mt-4 flex items-center gap-2 bg-muted/30 p-2 rounded-xl border border-border/50 w-fit">
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" className="text-white hover:bg-white/10 h-10 px-4 rounded-xl font-bold">
-                  <CalendarIcon className="w-4 h-4 mr-2 text-primary" />
+                <Button variant="ghost" size="sm" className="hover:bg-background/50 h-8 px-3 rounded-lg font-semibold text-xs">
+                  <CalendarIcon className="w-3.5 h-3.5 mr-2 text-primary" />
                   {customStart ? formatDate(customStart) : "Start Date"}
                 </Button>
               </PopoverTrigger>
@@ -331,11 +327,11 @@ const Reports: React.FC = () => {
                 <Calendar mode="single" selected={customStart} onSelect={setCustomStart} className="p-3" />
               </PopoverContent>
             </Popover>
-            <span className="text-slate-500 font-black">/</span>
+            <span className="text-muted-foreground/30 font-medium">/</span>
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" className="text-white hover:bg-white/10 h-10 px-4 rounded-xl font-bold">
-                  <CalendarIcon className="w-4 h-4 mr-2 text-primary" />
+                <Button variant="ghost" size="sm" className="hover:bg-background/50 h-8 px-3 rounded-lg font-semibold text-xs">
+                  <CalendarIcon className="w-3.5 h-3.5 mr-2 text-primary" />
                   {customEnd ? formatDate(customEnd) : "End Date"}
                 </Button>
               </PopoverTrigger>
@@ -346,34 +342,34 @@ const Reports: React.FC = () => {
           </div>
         )}
 
-        <div className="relative z-10 mt-6 flex items-center gap-6 pt-6 border-t border-slate-800">
+        <div className="mt-6 flex flex-wrap items-center gap-6 pt-5 border-t border-border/50">
           <div className="flex items-center gap-3">
-            <span className="text-slate-500 text-xs font-black uppercase tracking-widest">Compare Mode</span>
+            <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Compare Mode</span>
             <button 
               onClick={() => setComparing(c => !c)}
               className={cn(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
-                comparing ? "bg-primary" : "bg-slate-700"
+                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
+                comparing ? "bg-primary" : "bg-muted-foreground/20"
               )}
             >
               <span className={cn(
-                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                comparing ? "translate-x-6" : "translate-x-1"
+                "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
+                comparing ? "translate-x-5" : "translate-x-1"
               )} />
             </button>
           </div>
 
           {isAdmin && (
             <div className="flex items-center gap-3">
-              <span className="text-slate-500 text-xs font-black uppercase tracking-widest">Analysis View</span>
+              <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Analysis View</span>
               <Select value={selectedAgent || "all"} onValueChange={v => setSelectedAgent(v === "all" ? "" : v)}>
-                <SelectTrigger className="w-[180px] h-9 bg-white/5 border-slate-700 text-white rounded-xl text-xs font-bold ring-offset-slate-900">
+                <SelectTrigger className="w-[160px] h-8 bg-muted/30 border-border/50 text-foreground rounded-lg text-xs font-semibold ring-offset-background">
                   <SelectValue placeholder="Unified View" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                <SelectContent>
                   <SelectItem value="all">Unified View (All)</SelectItem>
                   {nonAdminAgents.map(a => (
-                    <SelectItem key={a.id} value={a.id} className="focus:bg-primary focus:text-white">{a.first_name} {a.last_name}</SelectItem>
+                    <SelectItem key={a.id} value={a.id}>{a.first_name} {a.last_name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
