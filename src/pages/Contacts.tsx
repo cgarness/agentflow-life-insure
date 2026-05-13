@@ -527,6 +527,7 @@ const Contacts: React.FC = () => {
       const p = new URLSearchParams(prev);
       p.delete("contact");
       p.delete("contactType");
+      p.delete("id"); // Ensure legacy id param is also cleared
       return p;
     });
   }, [setSearchParams]);
