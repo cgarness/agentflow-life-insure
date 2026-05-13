@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { Upload, Image as ImageIcon } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { toast, useToast } from "@/hooks/use-toast";
+import { useOrganization } from "@/hooks/useOrganization";
 
 type UploadKind = "logo" | "favicon";
 
@@ -85,6 +86,19 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
     ? "JPG, PNG, SVG — max 5MB"
     : "ICO, PNG — max 1MB — recommended 64×64px";
 
+  const { toast } = useToast();
+  const { role } = useOrganization();
+
+  const handleDisabledClick = () => {
+    if (disabled) {
+      toast({
+        title: "Permissions restricted",
+        description: `Your current role (${role}) does not have permission to edit branding. Admin or Super Admin access is required.`,
+        variant: "destructive",
+      });
+    }
+  };
+
   const commonClasses = `transition-colors ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:opacity-80"}`;
 
   return (
@@ -96,8 +110,9 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
         {url ? (
           <div className="flex items-center gap-4">
             <div 
+              onClick={handleDisabledClick}
               className={`relative ${previewSize} overflow-hidden flex items-center justify-center bg-accent border border-border ${commonClasses}`}
-              title="Click to change"
+              title={disabled ? "Editing restricted" : "Click to change"}
             >
               <img src={url} alt={label} className="w-full h-full object-cover" />
               {!disabled && (
@@ -114,6 +129,10 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
               <button
                 type="button"
                 onClick={(e) => {
+                  if (disabled) {
+                    handleDisabledClick();
+                    return;
+                  }
                   e.stopPropagation();
                   onChange(null, null);
                 }}
@@ -126,6 +145,7 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
           </div>
         ) : (
           <div
+            onClick={handleDisabledClick}
             onDragOver={e => e.preventDefault()}
             onDrop={handleDrop}
             className={`relative block rounded-md ${dropPadding} text-center border-2 border-dashed border-border bg-transparent ${commonClasses}`}
