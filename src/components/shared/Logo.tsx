@@ -1,5 +1,6 @@
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
+import { useBranding } from "@/contexts/BrandingContext";
 
 interface LogoProps {
   variant?: "full" | "icon" | "text";
@@ -17,14 +18,34 @@ const Logo: React.FC<LogoProps> = ({
   themeOverride,
 }) => {
   const { theme } = useTheme();
+  const { branding } = useBranding();
   const currentTheme = themeOverride || theme || "light";
   const isDark = currentTheme === "dark";
 
   const showIcon = variant === "full" || variant === "icon";
   const showText = variant === "full" || variant === "text";
 
-  // Use white-on-black images with screen blending for dark mode (makes it look white/transparent)
-  // Use original-on-white images with multiply blending for light mode (makes it look colored/transparent)
+  // If we have a custom logo, we use it. Otherwise fallback to AgentFlow defaults.
+  if (branding.logoUrl) {
+    return (
+      <div className={cn("flex items-center gap-2", className)}>
+        {showIcon && (
+          <img
+            src={branding.logoUrl}
+            alt={branding.companyName}
+            className={cn("h-8 w-8 object-contain", iconClassName)}
+          />
+        )}
+        {showText && (
+          <span className={cn("font-bold text-lg tracking-tight text-foreground whitespace-nowrap", textClassName)}>
+            {branding.companyName}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback to original AgentFlow branding
   const iconSrc = isDark ? "/icon-dark.png" : "/icon-white.png";
   const textSrc = isDark ? "/logo-text-dark.png" : "/logo-text-white.png";
   const blendMode = isDark ? "screen" : "multiply";

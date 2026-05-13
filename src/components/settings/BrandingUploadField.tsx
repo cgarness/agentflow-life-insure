@@ -85,47 +85,59 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
     ? "JPG, PNG, SVG — max 5MB"
     : "ICO, PNG — max 1MB — recommended 64×64px";
 
+  const uploadId = `upload-${kind}`;
+  const commonClasses = `transition-colors ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:opacity-80"}`;
+
   return (
     <div>
       <label className="block text-sm font-medium mb-0.5 text-muted-foreground">{label}</label>
       {subtitle && <p className="text-xs mb-2 text-muted-foreground">{subtitle}</p>}
-      {url ? (
-        <div className="flex items-center gap-4">
-          <div className={`${previewSize} overflow-hidden flex items-center justify-center bg-accent`}>
-            <img src={url} alt={label} className="w-full h-full object-cover" />
-          </div>
-          <div>
-            <p className="text-sm text-foreground">{name}</p>
-            <button
-              type="button"
-              onClick={() => onChange(null, null)}
-              disabled={disabled}
-              className="text-xs mt-1 font-medium text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+      
+      <div className="relative">
+        {url ? (
+          <div className="flex items-center gap-4">
+            <label 
+              htmlFor={uploadId}
+              className={`${previewSize} overflow-hidden flex items-center justify-center bg-accent border border-border ${commonClasses}`}
+              title="Click to change"
             >
-              Remove
-            </button>
+              <img src={url} alt={label} className="w-full h-full object-cover" />
+            </label>
+            <div>
+              <p className="text-sm text-foreground">{name}</p>
+              <button
+                type="button"
+                onClick={() => onChange(null, null)}
+                disabled={disabled}
+                className="text-xs mt-1 font-medium text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div
-          onClick={() => !disabled && inputRef.current?.click()}
-          onDragOver={e => e.preventDefault()}
-          onDrop={handleDrop}
-          className={`rounded-md ${dropPadding} text-center transition-colors border-2 border-dashed border-border bg-transparent ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:opacity-80"}`}
-        >
-          <Icon className={`${iconSize} mx-auto text-muted-foreground`} />
-          <p className="text-sm text-muted-foreground">{dropText}</p>
-          <p className="text-xs mt-1 text-muted-foreground">{hint}</p>
-        </div>
-      )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        className="hidden"
-        disabled={disabled}
-        onChange={handleFileChange}
-      />
+        ) : (
+          <label
+            htmlFor={uploadId}
+            onDragOver={e => e.preventDefault()}
+            onDrop={handleDrop}
+            className={`block rounded-md ${dropPadding} text-center border-2 border-dashed border-border bg-transparent ${commonClasses}`}
+          >
+            <Icon className={`${iconSize} mx-auto text-muted-foreground`} />
+            <p className="text-sm text-muted-foreground">{dropText}</p>
+            <p className="text-xs mt-1 text-muted-foreground">{hint}</p>
+          </label>
+        )}
+        
+        <input
+          id={uploadId}
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          className="hidden"
+          disabled={disabled}
+          onChange={handleFileChange}
+        />
+      </div>
     </div>
   );
 };

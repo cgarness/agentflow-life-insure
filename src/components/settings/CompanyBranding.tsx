@@ -16,7 +16,7 @@ const CompanyBranding: React.FC = () => {
   const [nameError, setNameError] = useState(false);
   const { registerDirty } = useUnsavedChanges();
 
-  const canEdit = Boolean(profile?.is_super_admin || profile?.role === "Admin");
+  const canEdit = Boolean(profile?.is_super_admin || profile?.role === "Admin" || profile?.role === "Super Admin");
   const canEditFavicon = profile?.email === SUPER_ADMIN_EMAIL;
   const orgId = profile?.organization_id ?? null;
   const isDirty = JSON.stringify(state) !== JSON.stringify(saved);
