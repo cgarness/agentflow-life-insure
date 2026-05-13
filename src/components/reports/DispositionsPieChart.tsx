@@ -5,21 +5,18 @@ import { downloadCSV, ReportCallSummary, ReportDispositionBreakdown } from "@/li
 import ReportSection from "./ReportSection";
 
 interface Props {
-  breakdown?: ReportDispositionBreakdown[];
+  breakdown?: ReportDispositionBreakdown;
   summary?: ReportCallSummary;
-  dispositions: any[];
   loading: boolean;
 }
 
-const DispositionsPieChart: React.FC<Props> = ({ breakdown, summary, dispositions, loading }) => {
+const DispositionsPieChart: React.FC<Props> = ({ breakdown, summary, loading }) => {
   const { pieData, funnel, totalCalls } = useMemo(() => {
-    const dispMap = new Map(dispositions.map(d => [d.name, d.color || "#3B82F6"]));
-    
-    const pieData = (breakdown || [])
+    const pieData = (breakdown?.by_disposition || [])
       .map(d => ({
         name: d.disposition_name,
         value: d.count,
-        color: dispMap.get(d.disposition_name) || "hsl(var(--primary))",
+        color: d.color || "hsl(var(--primary))",
       }))
       .sort((a, b) => b.value - a.value);
 
@@ -34,7 +31,7 @@ const DispositionsPieChart: React.FC<Props> = ({ breakdown, summary, disposition
     ];
 
     return { pieData, funnel, totalCalls: total };
-  }, [breakdown, summary, dispositions]);
+  }, [breakdown, summary]);
 
   const handleExport = () => {
     downloadCSV("disposition-breakdown", ["Disposition", "Count", "%"],
