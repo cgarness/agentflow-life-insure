@@ -1074,7 +1074,37 @@ const Contacts: React.FC = () => {
       const match = agents.find(u => u.id === contactId);
       if (match) { setSelectedAgent(match); pendingContactId.current = null; return; }
     }
-  }, [leads, clients, recruits, agents]);
+
+    if (loading) return;
+
+    let isCancelled = false;
+    leadsSupabaseApi.getById(contactId).then(res => {
+      if (isCancelled) return;
+      setSelectedLead(res.lead);
+      pendingContactId.current = null;
+    }).catch(() => {
+      if (isCancelled) return;
+      clientsSupabaseApi.getById(contactId).then(client => {
+        if (isCancelled) return;
+        setSelectedClient(client);
+        pendingContactId.current = null;
+      }).catch(() => {
+        if (isCancelled) return;
+        recruitsSupabaseApi.getById(contactId).then(recruit => {
+          if (isCancelled) return;
+          setSelectedRecruit(recruit);
+          pendingContactId.current = null;
+        }).catch(() => {
+          if (!isCancelled) {
+            console.warn("Deep-link contact not found:", contactId);
+            pendingContactId.current = null;
+          }
+        });
+      });
+    });
+
+    return () => { isCancelled = true; };
+  }, [leads, clients, recruits, agents, loading]);
 
   // ===== Lead CRUD =====
   const handleAddLead = async (data: Partial<Lead>, meta?: AddLeadSaveMeta) => {
