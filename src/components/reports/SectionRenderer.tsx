@@ -6,11 +6,14 @@ interface Props {
   sections: SectionConfig[];
   components: Record<string, React.ReactNode>;
   editMode: boolean;
+  isAdmin: boolean;
   onSectionsChange: (sections: SectionConfig[]) => void;
 }
 
-const TabContentRenderer: React.FC<Props> = ({
-  sections, components, editMode, onSectionsChange
+const TEAM_SECTIONS = ["agent_performance_cards", "agent_efficiency", "goal_tracking"];
+
+const SectionRenderer: React.FC<Props> = ({
+  sections, components, editMode, isAdmin, onSectionsChange
 }) => {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -55,20 +58,35 @@ const TabContentRenderer: React.FC<Props> = ({
 
   const renderSections = () => {
     const rendered: React.ReactNode[] = [];
-    let currentGrid: React.ReactNode[] = [];
+    let currentStatGrid: React.ReactNode[] = [];
+    let currentMainGrid: React.ReactNode[] = [];
 
-    const flushGrid = () => {
-      if (currentGrid.length > 0) {
+    const flushStatGrid = () => {
+      if (currentStatGrid.length > 0) {
         rendered.push(
-          <div key={`grid-${rendered.length}`} className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            {currentGrid}
+          <div key={`stat-grid-${rendered.length}`} className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            {currentStatGrid}
           </div>
         );
-        currentGrid = [];
+        currentStatGrid = [];
+      }
+    };
+
+    const flushMainGrid = () => {
+      if (currentMainGrid.length > 0) {
+        rendered.push(
+          <div key={`main-grid-${rendered.length}`} className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            {currentMainGrid}
+          </div>
+        );
+        currentMainGrid = [];
       }
     };
 
     sections.forEach((section) => {
+      // Role-based filtering: hide Team sections for agents completely
+      if (!isAdmin && TEAM_SECTIONS.includes(section.id)) return;
+
       const content = components[section.id];
       if (!content && !section.id.startsWith("stat_")) return null;
 
@@ -90,14 +108,19 @@ const TabContentRenderer: React.FC<Props> = ({
       );
 
       if (section.id.startsWith("stat_")) {
-        currentGrid.push(element);
+        // Flush any pending main grid items before rendering stat cards
+        flushMainGrid();
+        currentStatGrid.push(element);
       } else {
-        flushGrid();
-        rendered.push(element);
+        // Flush any pending stat cards before rendering main sections
+        flushStatGrid();
+        currentMainGrid.push(element);
       }
     });
 
-    flushGrid();
+    flushStatGrid();
+    flushMainGrid();
+    
     return rendered;
   };
 
@@ -108,4 +131,4 @@ const TabContentRenderer: React.FC<Props> = ({
   );
 };
 
-export default TabContentRenderer;
+export default SectionRenderer;

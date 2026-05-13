@@ -125,6 +125,12 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-13 | [DONE] | Reports Dashboard Single-Scroll Layout Refactor**
+  *What:* Removed the tabbed layout structure from the Reports dashboard, reverting back to a seamless single-scroll view with a responsive 2-column grid for non-stat sections.
+  *Architecture:* Migrated the layout engine configuration (`report_layouts` schema) from `version: 1` (which used a nested `tabs` structure) to `version: 2` (which uses a single flat `sections` array). Authored automatic backwards-compatibility migration logic inside `report-layout.ts` so existing user layouts seamlessly flatten and preserve visibility preferences on fetch.
+  *UI Flow:* Transformed `TabContentRenderer.tsx` into `SectionRenderer.tsx`. Enhanced grid grouping rules to allow `stat_*` components to retain their tight 4-column structure, while larger analytical charts and tables render inside a responsive 2-column grid. Role-based visibility controls now hide Admin-specific modules directly at the render level.
+  *Files:* `src/lib/report-layout-constants.ts`, `src/lib/report-layout.ts`, `src/components/reports/SectionRenderer.tsx` [RENAMED], `src/pages/Reports.tsx`.
+
 - **2026-05-13 | [DONE] | Expanded KPI Stats Cards — 20 Metrics with Customization Support**
   *What:* Expanded the Reports Overview dashboard from a fixed 4-card KPI grid to a flexible 20-metric grid integrated fully into the Phase 4B customization engine. All 20 metrics can now be reordered or toggled via drag-and-drop.
   *Metrics Supported:* Total Leads, Active Leads, Total Calls, Calls Per Day, Leads Called, DNC Added, Follow-Ups Set, Call Duration, Average Talk Time, Talk Time Per Call, Appointments Set, Appointments Per Day, Calls Per Appointment, Show Rate, Converted to Client, Policies Sold, Close Rate, Talk Time Per Sale, Dials Per Sale, Appointments Per Sale.

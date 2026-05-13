@@ -1,38 +1,63 @@
 import { supabase } from "@/integrations/supabase/client";
-import { ReportLayoutConfig, DEFAULT_LAYOUT, TabName } from "./report-layout-constants";
+import { ReportLayoutConfig, DEFAULT_LAYOUT, SectionConfig } from "./report-layout-constants";
 
 export function getDefaultLayout(): ReportLayoutConfig {
   return JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
 }
 
 function mergeWithDefault(fetched: any): ReportLayoutConfig {
-  if (!fetched || fetched.version !== 1 || !fetched.tabs) return getDefaultLayout();
+  if (!fetched) return getDefaultLayout();
+
+  let fetchedSections: SectionConfig[] = [];
+
+  // Migration logic: v1 (tabs) -> v2 (flat sections)
+  if (fetched.version === 1 && fetched.tabs) {
+    const tabs = fetched.tabs;
+    // Flatten in a reasonable order
+    if (Array.isArray(tabs.overview)) fetchedSections.push(...tabs.overview);
+    if (Array.isArray(tabs.calls)) fetchedSections.push(...tabs.calls);
+    if (Array.isArray(tabs.pipeline)) fetchedSections.push(...tabs.pipeline);
+    if (Array.isArray(tabs.team)) fetchedSections.push(...tabs.team);
+    
+    // Deduplicate just in case
+    const seen = new Set<string>();
+    fetchedSections = fetchedSections.filter(s => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+  } else if (fetched.version === 2 && Array.isArray(fetched.sections)) {
+    fetchedSections = fetched.sections;
+  } else {
+    // Unknown format or missing sections
+    return getDefaultLayout();
+  }
 
   const merged = getDefaultLayout();
   
-  (Object.keys(merged.tabs) as TabName[]).forEach(tab => {
-    const fetchedTab = fetched.tabs[tab];
-    if (Array.isArray(fetchedTab)) {
-      const validFetchedSections = fetchedTab.filter((fs: any) => 
-        merged.tabs[tab].some(ds => ds.id === fs.id)
-      );
-      
-      const missingSections = merged.tabs[tab].filter(ds => 
-        !fetchedTab.some((fs: any) => fs.id === ds.id)
-      );
-      
-      merged.tabs[tab] = [...validFetchedSections, ...missingSections];
-    }
-  });
+  const validFetchedSections = fetchedSections.filter(fs => 
+    merged.sections.some(ds => ds.id === fs.id)
+  );
+  
+  const missingSections = merged.sections.filter(ds => 
+    !fetchedSections.some(fs => fs.id === ds.id)
+  );
+  
+  merged.sections = [...validFetchedSections, ...missingSections];
 
   return merged;
 }
 
 export async function fetchUserLayout(orgId: string): Promise<ReportLayoutConfig> {
+  let needsMigrationSave = false;
+  let layoutToSave: ReportLayoutConfig | null = null;
+  let userId: string | null = null;
+
   try {
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
+      userId = user.id;
       const { data: userLayout } = await supabase
         .from("report_layouts")
         .select("layout")
@@ -41,7 +66,19 @@ export async function fetchUserLayout(orgId: string): Promise<ReportLayoutConfig
         .maybeSingle();
         
       if (userLayout?.layout) {
-        return mergeWithDefault(userLayout.layout);
+        const parsed = userLayout.layout as any;
+        const merged = mergeWithDefault(parsed);
+        if (parsed.version === 1) {
+          needsMigrationSave = true;
+          layoutToSave = merged;
+        }
+        
+        // Background async save for migration
+        if (needsMigrationSave && layoutToSave && userId) {
+          saveUserLayout(orgId, layoutToSave).catch(e => console.error("Auto-migration save failed:", e));
+        }
+        
+        return merged;
       }
     }
 
@@ -53,7 +90,12 @@ export async function fetchUserLayout(orgId: string): Promise<ReportLayoutConfig
       .maybeSingle();
 
     if (orgLayout?.layout) {
-      return mergeWithDefault(orgLayout.layout);
+      const parsed = orgLayout.layout as any;
+      const merged = mergeWithDefault(parsed);
+      
+      // If we are relying on an org layout that is v1, we just return the v2 merged version.
+      // We don't automatically upgrade the org layout here (let an admin do it by saving).
+      return merged;
     }
   } catch (err) {
     console.error("Error fetching report layout:", err);

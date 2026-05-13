@@ -38,9 +38,9 @@ import GoalTracking from "@/components/reports/GoalTracking";
 import CustomReportBuilder from "@/components/reports/CustomReportBuilder";
 import ScheduledReportsModal from "@/components/reports/ScheduledReportsModal";
 import ReportCustomizer from "@/components/reports/ReportCustomizer";
-import TabContentRenderer from "@/components/reports/TabContentRenderer";
+import SectionRenderer from "@/components/reports/SectionRenderer";
 import { fetchUserLayout, saveUserLayout, saveOrgDefaultLayout, resetUserLayout, getDefaultLayout } from "@/lib/report-layout";
-import { ReportLayoutConfig, SectionConfig, TabName } from "@/lib/report-layout-constants";
+import { ReportLayoutConfig, SectionConfig } from "@/lib/report-layout-constants";
 
 
 type Preset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
@@ -85,7 +85,6 @@ const Reports: React.FC = () => {
   const [comparing, setComparing] = useState(false);
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [layout, setLayout] = useState<ReportLayoutConfig>(getDefaultLayout());
   const [editMode, setEditMode] = useState(false);
 
@@ -197,15 +196,12 @@ const Reports: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handleSectionsChange = (tab: TabName, newSections: SectionConfig[]) => {
+  const handleSectionsChange = (newSections: SectionConfig[]) => {
     setLayout(prev => {
       if (!prev) return prev;
       return {
         ...prev,
-        tabs: {
-          ...prev.tabs,
-          [tab]: newSections
-        }
+        sections: newSections
       };
     });
   };
@@ -410,23 +406,6 @@ const Reports: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-px mb-6 sticky top-0 bg-background/95 backdrop-blur z-20 overflow-x-auto scrollbar-hide">
-            {(["overview", "calls", "pipeline", ...(isAdmin ? ["team"] : [])] as TabName[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setActiveTab(t)}
-                className={cn(
-                  "px-4 py-2.5 text-sm font-bold capitalize transition-colors border-b-2 whitespace-nowrap",
-                  activeTab === t
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-slate-300 dark:hover:border-slate-700"
-                )}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
           <ReportCustomizer
             editMode={editMode}
             isAdmin={isAdmin}
@@ -435,11 +414,12 @@ const Reports: React.FC = () => {
             onSaveAsDefault={handleSaveAsDefault}
           />
 
-          {activeTab === "overview" && layout && (
-            <TabContentRenderer
-              sections={layout.tabs.overview}
+          {layout && layout.sections && (
+            <SectionRenderer
+              sections={layout.sections}
               editMode={editMode}
-              onSectionsChange={(s) => handleSectionsChange("overview", s)}
+              isAdmin={isAdmin}
+              onSectionsChange={handleSectionsChange}
               components={{
                 ...buildStatComponents({
                   summary, compSummary: comparing ? compSummary : undefined,
@@ -449,43 +429,13 @@ const Reports: React.FC = () => {
                 call_volume: <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />,
                 conversion_funnel: <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />,
                 communications_stats: <CommunicationsStats summary={summary} compSummary={comparing ? compSummary : undefined} range={range} loading={loading} comparing={comparing} />,
-                calling_heatmap: <CallingHeatmap volume={volume} loading={loading} />
-              }}
-            />
-          )}
-
-          {activeTab === "calls" && layout && (
-            <TabContentRenderer
-              sections={layout.tabs.calls}
-              editMode={editMode}
-              onSectionsChange={(s) => handleSectionsChange("calls", s)}
-              components={{
+                calling_heatmap: <CallingHeatmap volume={volume} loading={loading} />,
                 call_flow_analysis: <CallFlowAnalysis volume={volume} loading={loading} />,
                 call_duration_analysis: <CallDurationAnalysis breakdown={breakdown} loading={loading} />,
-                disposition_deep_dive: <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />
-              }}
-            />
-          )}
-
-          {activeTab === "pipeline" && layout && (
-            <TabContentRenderer
-              sections={layout.tabs.pipeline}
-              editMode={editMode}
-              onSectionsChange={(s) => handleSectionsChange("pipeline", s)}
-              components={{
+                disposition_deep_dive: <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />,
                 policies_sold: <PoliciesSoldChart summary={summary} volume={volume} compVolume={comparing ? compVolume : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />,
                 campaign_performance: <CampaignPerformance performance={performance} loading={loading} />,
-                lead_source_roi: <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />
-              }}
-            />
-          )}
-
-          {activeTab === "team" && isAdmin && layout && (
-            <TabContentRenderer
-              sections={layout.tabs.team}
-              editMode={editMode}
-              onSectionsChange={(s) => handleSectionsChange("team", s)}
-              components={{
+                lead_source_roi: <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />,
                 agent_performance_cards: <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />,
                 agent_efficiency: <AgentEfficiency summary={summary} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />,
                 goal_tracking: <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
