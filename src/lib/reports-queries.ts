@@ -59,10 +59,24 @@ export async function fetchCallsRaw(range: DateRange, orgId?: string | null, age
 }
 
 export async function fetchDispositions(orgId?: string | null) {
-  let q = supabase.from("dispositions").select("id, name, color, pipeline_stage_id");
+  let q = supabase.from("dispositions").select("id, name, color, pipeline_stage_id, auto_add_to_dnc, callback_scheduler, appointment_scheduler");
   if (orgId) q = q.eq("organization_id", orgId);
   const { data } = await q;
   return data || [];
+}
+
+export async function fetchActiveLeadsCount(orgId?: string | null): Promise<number> {
+  let q = supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .not("status", "in", "('Sold','DNC','Not Interested')");
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { count, error } = await q;
+  if (error) {
+    console.error("fetchActiveLeadsCount error:", error);
+    return 0;
+  }
+  return count || 0;
 }
 
 export async function fetchPipelineStages(orgId?: string | null) {

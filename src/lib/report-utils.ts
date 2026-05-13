@@ -68,11 +68,43 @@ export const CONTACTED_DURATION_THRESHOLD = 45;
 export function isContactedCall(
   duration: number | null,
   dispositionName: string | null,
+  dncSet?: Set<string>
 ): boolean {
   if ((duration ?? 0) > CONTACTED_DURATION_THRESHOLD) return true;
   if (dispositionName) {
     const lower = dispositionName.toLowerCase();
-    if (lower === "dnc" || lower === "do not call") return true;
+    if (dncSet?.has(lower)) return true;
+    if (!dncSet && (lower === "dnc" || lower === "do not call")) return true; // Legacy fallback
   }
   return false;
+}
+
+export function buildDNCDispositionSet(
+  dispositions: Array<{ name: string; auto_add_to_dnc?: boolean | null }>
+): Set<string> {
+  const dnc = new Set<string>();
+  for (const d of dispositions) {
+    if (d.auto_add_to_dnc) dnc.add(d.name.toLowerCase());
+  }
+  return dnc;
+}
+
+export function buildCallbackDispositionSet(
+  dispositions: Array<{ name: string; callback_scheduler?: boolean | null }>
+): Set<string> {
+  const callback = new Set<string>();
+  for (const d of dispositions) {
+    if (d.callback_scheduler) callback.add(d.name.toLowerCase());
+  }
+  return callback;
+}
+
+export function buildAppointmentDispositionSet(
+  dispositions: Array<{ name: string; appointment_scheduler?: boolean | null }>
+): Set<string> {
+  const appointment = new Set<string>();
+  for (const d of dispositions) {
+    if (d.appointment_scheduler) appointment.add(d.name.toLowerCase());
+  }
+  return appointment;
 }

@@ -125,6 +125,13 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-13 | [DONE] | Expanded KPI Stats Cards — 20 Metrics with Customization Support**
+  *What:* Expanded the Reports Overview dashboard from a fixed 4-card KPI grid to a flexible 20-metric grid integrated fully into the Phase 4B customization engine. All 20 metrics can now be reordered or toggled via drag-and-drop.
+  *Metrics Supported:* Total Leads, Active Leads, Total Calls, Calls Per Day, Leads Called, DNC Added, Follow-Ups Set, Call Duration, Average Talk Time, Talk Time Per Call, Appointments Set, Appointments Per Day, Calls Per Appointment, Show Rate, Converted to Client, Policies Sold, Close Rate, Talk Time Per Sale, Dials Per Sale, Appointments Per Sale.
+  *Architecture:* Replaced legacy `KPICards.tsx` with a reusable `StatCard` and dynamic `StatsGrid`. Added new data fetches (`fetchActiveLeadsCount`) and integrated `auto_add_to_dnc`, `callback_scheduler`, and `appointment_scheduler` boolean flags into the `dispositions` fetch. Replaced all remaining string-matching logic with strictly data-driven boolean classification sets in `report-utils.ts` (`buildDNCDispositionSet`, `buildCallbackDispositionSet`, `buildAppointmentDispositionSet`).
+  *Layout engine update:* Modified `TabContentRenderer` to auto-detect and bundle sequential `stat_*` components into a responsive CSS grid (`grid-cols-2 md:grid-cols-4`), supporting seamless layout flow without breaking drag-and-drop constraints. `DraggableSection` updated to support stat cards natively.
+  *Files:* `src/lib/reports-queries.ts`, `src/lib/report-utils.ts`, `src/components/reports/StatCard.tsx` [NEW], `src/components/reports/StatsGrid.tsx` [NEW], `src/pages/Reports.tsx`, `src/components/reports/TabContentRenderer.tsx`, `src/components/reports/DraggableSection.tsx`, `src/lib/report-layout-constants.ts`. Deleted `src/components/reports/KPICards.tsx`.
+
 - **2026-05-13 | [DONE] | Phase 4B: Reports Customization Engine**
   *What:* Built a drag-and-drop customization engine for the Reports dashboard allowing users to reorder sections, toggle visibility, and persist preferences.
   *Architecture:* Added `report_layouts` table (uuid id, user_id, organization_id, layout jsonb). Unique partial indexes ensure one layout per user per org, and one org default per org.

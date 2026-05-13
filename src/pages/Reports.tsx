@@ -17,10 +17,11 @@ import {
   fetchLeadSourceCosts, downloadCSV,
   AgentProfile,
   fetchReportCallSummary, fetchReportCallVolumeTimeseries, fetchReportDispositionBreakdown, fetchReportCampaignPerformance,
+  fetchDispositions, fetchActiveLeadsCount,
   ReportCallSummary, ReportCallVolumeTimeseries, ReportDispositionBreakdown, ReportCampaignPerformance
 } from "@/lib/reports-queries";
 
-import KPICards from "@/components/reports/KPICards";
+import { buildStatComponents } from "@/components/reports/StatsGrid";
 import AgentPerformanceCards from "@/components/reports/AgentPerformanceCards";
 import CallVolumeChart from "@/components/reports/CallVolumeChart";
 import DispositionsPieChart from "@/components/reports/DispositionsPieChart";
@@ -98,12 +99,15 @@ const Reports: React.FC = () => {
   const [volume, setVolume] = useState<ReportCallVolumeTimeseries>();
   const [compVolume, setCompVolume] = useState<ReportCallVolumeTimeseries>();
   const [breakdown, setBreakdown] = useState<ReportDispositionBreakdown>();
+  const [compBreakdown, setCompBreakdown] = useState<ReportDispositionBreakdown>();
   const [performance, setPerformance] = useState<ReportCampaignPerformance>();
 
   // Aux Data
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [dispositions, setDispositions] = useState<any[]>([]);
+  const [activeLeadsCount, setActiveLeadsCount] = useState<number>(0);
   const [goals, setGoals] = useState<any[]>([]);
   const [leadCosts, setLeadCosts] = useState<any[]>([]);
   const [scorecards, setScorecards] = useState<any[]>([]);
@@ -143,7 +147,7 @@ const Reports: React.FC = () => {
     if (!orgId) return;
     setLoading(true);
     try {
-      const [a, l, sess, g, lc, sumData, volData, brkData, perfData] = await Promise.all([
+      const [a, l, sess, g, lc, sumData, volData, brkData, perfData, dispData, leadsCount] = await Promise.all([
         fetchProfiles(orgId),
         fetchLeads(range, orgId, effectiveAgent),
         fetchDialerSessions(range, orgId, effectiveAgent),
@@ -153,6 +157,8 @@ const Reports: React.FC = () => {
         fetchReportCallVolumeTimeseries(orgId, range, effectiveAgent),
         fetchReportDispositionBreakdown(orgId, range, effectiveAgent),
         fetchReportCampaignPerformance(orgId, range, effectiveAgent),
+        fetchDispositions(orgId),
+        fetchActiveLeadsCount(orgId)
       ]);
 
       let scQuery = supabase.from("agent_scorecards").select("*").order("week_start", { ascending: false }).limit(200);
@@ -161,6 +167,7 @@ const Reports: React.FC = () => {
 
       setAgents(a); setLeads(l); setSessions(sess); setGoals(g);
       setLeadCosts(lc); setScorecards(sc || []);
+      setDispositions(dispData); setActiveLeadsCount(leadsCount);
 
       setSummary(sumData);
       setVolume(volData);
@@ -168,15 +175,18 @@ const Reports: React.FC = () => {
       setPerformance(perfData);
 
       if (comparing) {
-        const [cSum, cVol] = await Promise.all([
+        const [cSum, cVol, cBrk] = await Promise.all([
           fetchReportCallSummary(orgId, compRange, effectiveAgent),
           fetchReportCallVolumeTimeseries(orgId, compRange, effectiveAgent),
+          fetchReportDispositionBreakdown(orgId, compRange, effectiveAgent)
         ]);
         setCompSummary(cSum);
         setCompVolume(cVol);
+        setCompBreakdown(cBrk);
       } else {
         setCompSummary(undefined);
         setCompVolume(undefined);
+        setCompBreakdown(undefined);
       }
     } catch (e) {
       console.error("Reports fetch error:", e);
@@ -431,7 +441,11 @@ const Reports: React.FC = () => {
               editMode={editMode}
               onSectionsChange={(s) => handleSectionsChange("overview", s)}
               components={{
-                kpi_cards: <KPICards summary={summary} compSummary={comparing ? compSummary : undefined} comparing={comparing} loading={loading} />,
+                ...buildStatComponents({
+                  summary, compSummary: comparing ? compSummary : undefined,
+                  breakdown, compBreakdown: comparing ? compBreakdown : undefined,
+                  sessions, activeLeadsCount, dispositions, dateRange: range, comparing, loading
+                }),
                 call_volume: <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />,
                 conversion_funnel: <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />,
                 communications_stats: <CommunicationsStats summary={summary} compSummary={comparing ? compSummary : undefined} range={range} loading={loading} comparing={comparing} />,

@@ -53,29 +53,57 @@ const TabContentRenderer: React.FC<Props> = ({
     onSectionsChange(newSections);
   };
 
+  const renderSections = () => {
+    const rendered: React.ReactNode[] = [];
+    let currentGrid: React.ReactNode[] = [];
+
+    const flushGrid = () => {
+      if (currentGrid.length > 0) {
+        rendered.push(
+          <div key={`grid-${rendered.length}`} className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            {currentGrid}
+          </div>
+        );
+        currentGrid = [];
+      }
+    };
+
+    sections.forEach((section) => {
+      const content = components[section.id];
+      if (!content && !section.id.startsWith("stat_")) return null;
+
+      const element = (
+        <DraggableSection
+          key={section.id}
+          id={section.id}
+          visible={section.visible}
+          editMode={editMode}
+          isDragging={draggedId === section.id}
+          dragOverId={dragOverId}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onToggleVisibility={handleToggleVisibility}
+        >
+          {content}
+        </DraggableSection>
+      );
+
+      if (section.id.startsWith("stat_")) {
+        currentGrid.push(element);
+      } else {
+        flushGrid();
+        rendered.push(element);
+      }
+    });
+
+    flushGrid();
+    return rendered;
+  };
+
   return (
     <div className="space-y-4" onDragOver={(e) => e.preventDefault()}>
-      {sections.map((section) => {
-        const content = components[section.id];
-        if (!content) return null; // Silently skip removed components
-
-        return (
-          <DraggableSection
-            key={section.id}
-            id={section.id}
-            visible={section.visible}
-            editMode={editMode}
-            isDragging={draggedId === section.id}
-            dragOverId={dragOverId}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            onToggleVisibility={handleToggleVisibility}
-          >
-            {content}
-          </DraggableSection>
-        );
-      })}
+      {renderSections()}
     </div>
   );
 };

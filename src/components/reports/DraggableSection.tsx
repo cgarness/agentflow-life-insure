@@ -37,8 +37,8 @@ const DraggableSection: React.FC<Props> = ({
   onToggleVisibility, onDragStart, onDragOver, onDrop,
   isDragging, dragOverId
 }) => {
-  const isKpi = id === "kpi_cards";
   const isTarget = dragOverId === id;
+  const isStat = id.startsWith("stat_");
 
   if (!editMode) {
     return visible ? <>{children}</> : null;
@@ -47,55 +47,51 @@ const DraggableSection: React.FC<Props> = ({
   return (
     <div 
       className={cn(
-        "relative transition-all duration-200 border-2 rounded-xl group/section",
+        "relative transition-all duration-200 rounded-xl group/section",
+        isStat ? "" : "border-2",
         !visible && "opacity-60 grayscale-[0.5]",
-        isTarget && !isKpi ? "border-primary border-t-[4px] shadow-lg scale-[1.01]" : "border-transparent",
+        isTarget ? "border-primary border-t-[4px] shadow-lg scale-[1.01]" : "border-transparent",
         isDragging && "opacity-30"
       )}
-      draggable={!isKpi}
+      draggable
       onDragStart={(e) => {
-        if (isKpi) return;
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", id);
         onDragStart(id);
       }}
       onDragOver={(e) => {
-        if (isKpi) return;
         e.preventDefault();
         onDragOver(id);
       }}
       onDrop={(e) => {
-        if (isKpi) return;
         e.preventDefault();
         onDrop(id);
       }}
     >
-      <div className="absolute -left-3 top-0 bottom-0 flex items-center justify-center w-8 z-20 group/handle">
-        {!isKpi && (
-          <div className="p-1 rounded-md bg-white border border-slate-200 shadow-sm text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing dark:bg-slate-800 dark:border-slate-700 dark:hover:text-slate-200 opacity-0 group-hover/section:opacity-100 transition-opacity">
-            <GripVertical className="w-4 h-4" />
-          </div>
-        )}
+      <div className={cn("absolute top-0 bottom-0 flex items-center justify-center w-8 z-20 group/handle", isStat ? "-left-2" : "-left-3")}>
+        <div className="p-1 rounded-md bg-white border border-slate-200 shadow-sm text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing dark:bg-slate-800 dark:border-slate-700 dark:hover:text-slate-200 opacity-0 group-hover/section:opacity-100 transition-opacity">
+          <GripVertical className="w-4 h-4" />
+        </div>
       </div>
 
-      <div className="absolute right-4 top-4 flex items-center justify-center z-20 group/toggle">
-        {!isKpi && (
-          <button 
-            onClick={() => onToggleVisibility(id)}
-            className="p-1.5 rounded-full bg-white border border-slate-200 shadow-sm text-slate-400 hover:text-primary hover:border-primary/30 transition-all dark:bg-slate-800 dark:border-slate-700 opacity-0 group-hover/section:opacity-100"
-          >
-            {visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-          </button>
-        )}
+      <div className={cn("absolute flex items-center justify-center z-20 group/toggle", isStat ? "right-2 top-2" : "right-4 top-4")}>
+        <button 
+          onClick={() => onToggleVisibility(id)}
+          className="p-1.5 rounded-full bg-white border border-slate-200 shadow-sm text-slate-400 hover:text-primary hover:border-primary/30 transition-all dark:bg-slate-800 dark:border-slate-700 opacity-0 group-hover/section:opacity-100"
+        >
+          {visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+        </button>
       </div>
 
       {visible ? (
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto h-full">
           {children}
         </div>
       ) : (
-        <div className="h-16 bg-card border rounded-xl flex items-center px-6 shadow-sm">
-          <p className="text-sm font-bold text-muted-foreground line-through">{SECTION_NAMES[id] || id}</p>
+        <div className={cn("bg-card border rounded-xl flex items-center shadow-sm", isStat ? "h-[110px] justify-center px-2" : "h-16 px-6")}>
+          <p className="text-sm font-bold text-muted-foreground line-through text-center">
+            {SECTION_NAMES[id] || id.replace('stat_', '').replace(/_/g, ' ')}
+          </p>
         </div>
       )}
     </div>
