@@ -25,12 +25,6 @@ export const STAT_CATEGORIES: Record<StatCategory, { label: string; color: strin
   efficiency:  { label: "Efficiency",  color: "#888780" },
 };
 
-export interface StatTrend {
-  value: number;
-  label: string;
-  isGoodUp: boolean;
-}
-
 export interface StatResult {
   id: string;
   label: string;
@@ -39,16 +33,13 @@ export interface StatResult {
   subtitle?: string;
   noData?: boolean;
   comingSoon?: boolean;
-  trend?: StatTrend;
-  /** when true, render value at 16px instead of 22px (used for agent names) */
+  /** when true, render value at 16px instead of 20px (used for agent names) */
   smallValue?: boolean;
 }
 
 export interface StatDataSources {
   summary?: ReportCallSummary;
-  compSummary?: ReportCallSummary;
   breakdown?: ReportDispositionBreakdown;
-  compBreakdown?: ReportDispositionBreakdown;
   volume?: ReportCallVolumeTimeseries;
   sessions?: { duration_seconds?: number }[];
   agents?: AgentProfile[];
@@ -60,12 +51,9 @@ export interface StatDataSources {
     appointment_scheduler?: boolean;
   }[];
   dateRange?: { from?: Date; to?: Date };
-  comparing: boolean;
 }
 
 // ─── Formatters ────────────────────────────────────────────────────────────
-const NO_DATA: Omit<StatResult, "id" | "label" | "category"> = { value: "—", noData: true };
-
 const fmtPct = (n: number): string => {
   if (n === 0) return "0%";
   return `${n.toFixed(1)}%`;
@@ -107,17 +95,6 @@ const sumDispoByFlag = (
 
 // ─── Compute helpers ───────────────────────────────────────────────────────
 const safeDiv = (n: number, d: number): number | null => (d > 0 ? n / d : null);
-
-const trend = (
-  current: number,
-  comp: number | undefined,
-  comparing: boolean,
-  isGoodUp = true,
-): StatTrend | undefined => {
-  if (!comparing || comp === undefined || comp === 0) return undefined;
-  const pct = ((current - comp) / comp) * 100;
-  return { value: pct, label: "vs prior", isGoodUp };
-};
 
 interface Aggregates {
   total: number;
@@ -259,10 +236,9 @@ export const STAT_DEFINITION_MAP: Record<string, StatDefinition> = STAT_DEFINITI
 // ─── Main computation ──────────────────────────────────────────────────────
 export function computeAllStats(data: StatDataSources): Map<string, StatResult> {
   const result = new Map<string, StatResult>();
-  const { summary, compSummary, breakdown, compBreakdown, volume, sessions, agents, activeLeadsCount, dispositions, dateRange, comparing } = data;
+  const { summary, breakdown, volume, sessions, agents, activeLeadsCount, dispositions, dateRange } = data;
 
   const A = aggregate(summary, breakdown, dispositions);
-  const C = aggregate(compSummary, compBreakdown, dispositions);
 
   // Session hours
   const totalSessionSeconds = (sessions ?? []).reduce((acc, s) => acc + (s.duration_seconds ?? 0), 0);
@@ -298,18 +274,9 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   }
 
   // ── VOLUME ────────────────────────────────────────────────────────────
-  put("stat_total_dials", {
-    value: fmtCount(A.total),
-    trend: trend(A.total, comparing ? C.total : undefined, comparing),
-  });
-  put("stat_outbound", {
-    value: fmtCount(summary?.outbound ?? 0),
-    trend: trend(summary?.outbound ?? 0, compSummary?.outbound, comparing),
-  });
-  put("stat_inbound", {
-    value: fmtCount(summary?.inbound ?? 0),
-    trend: trend(summary?.inbound ?? 0, compSummary?.inbound, comparing),
-  });
+  put("stat_total_dials", { value: fmtCount(A.total) });
+  put("stat_outbound", { value: fmtCount(summary?.outbound ?? 0) });
+  put("stat_inbound", { value: fmtCount(summary?.inbound ?? 0) });
 
   // Calls today
   {
@@ -336,7 +303,6 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
         anyMatch = true;
       }
     }
-    // If date range doesn't include any of current week, show —
     const rangeIncludesWeek = !!(dateRange?.from && dateRange?.to)
       && dateRange.to >= startOfWeekFor(year, week)
       && dateRange.from <= endOfWeekFor(year, week);
@@ -352,33 +318,28 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
     const v = safeDiv(A.total, totalSessionHours);
     put("stat_calls_per_hour", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
-  put("stat_session_time", { value: totalSessionSeconds > 0 ? fmtDuration(totalSessionSeconds) : "—", noData: totalSessionSeconds === 0 });
+  put("stat_session_time", {
+    value: totalSessionSeconds > 0 ? fmtDuration(totalSessionSeconds) : "—",
+    noData: totalSessionSeconds === 0,
+  });
 
   // ── CONTACT ────────────────────────────────────────────────────────────
-  put("stat_total_contacted", {
-    value: fmtCount(A.contacted),
-    trend: trend(A.contacted, comparing ? C.contacted : undefined, comparing),
-  });
+  put("stat_total_contacted", { value: fmtCount(A.contacted) });
   {
     const r = safeDiv(A.contacted, A.total);
-    const cr = safeDiv(C.contacted, C.total);
     put("stat_contact_rate", r === null
       ? { value: "—", noData: true }
-      : {
-          value: fmtPct(r * 100),
-          subtitle: `${fmtCount(A.contacted)} contacted`,
-          trend: trend(r, comparing ? cr ?? undefined : undefined, comparing),
-        });
+      : { value: fmtPct(r * 100), subtitle: `${fmtCount(A.contacted)} contacted` });
   }
-  put("stat_dnc_count", { value: fmtCount(A.dnc), trend: trend(A.dnc, comparing ? C.dnc : undefined, comparing, false) });
+  put("stat_dnc_count", { value: fmtCount(A.dnc) });
   {
     const r = safeDiv(A.dnc, A.total);
-    const cr = safeDiv(C.dnc, C.total);
-    put("stat_dnc_rate", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing, false) });
+    put("stat_dnc_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
-  put("stat_total_talk_time", { value: A.totalDuration > 0 ? fmtDuration(A.totalDuration) : "—", noData: A.totalDuration === 0 });
+  put("stat_total_talk_time", {
+    value: A.totalDuration > 0 ? fmtDuration(A.totalDuration) : "—",
+    noData: A.totalDuration === 0,
+  });
   {
     const v = safeDiv(A.totalDuration, A.total);
     put("stat_avg_duration_all", v === null ? { value: "—", noData: true } : { value: fmtDuration(v) });
@@ -394,57 +355,33 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   }
 
   // ── APPOINTMENT ─────────────────────────────────────────────────────────
-  put("stat_appointments_set", {
-    value: fmtCount(A.appts),
-    trend: trend(A.appts, comparing ? C.appts : undefined, comparing),
-  });
+  put("stat_appointments_set", { value: fmtCount(A.appts) });
   {
     const r = safeDiv(A.appts, A.total);
-    const cr = safeDiv(C.appts, C.total);
-    put("stat_appt_set_rate", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing) });
+    put("stat_appt_set_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
     const r = safeDiv(A.appts, A.contacted);
-    const cr = safeDiv(C.appts, C.contacted);
-    put("stat_contacted_to_appt", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing) });
+    put("stat_contacted_to_appt", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
 
   // ── CONVERSION ──────────────────────────────────────────────────────────
-  put("stat_policies_sold", {
-    value: fmtCount(A.converted),
-    trend: trend(A.converted, comparing ? C.converted : undefined, comparing),
-  });
+  put("stat_policies_sold", { value: fmtCount(A.converted) });
   {
     const r = safeDiv(A.converted, A.total);
-    const cr = safeDiv(C.converted, C.total);
-    put("stat_call_to_close", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing) });
+    put("stat_call_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
     const r = safeDiv(A.converted, A.contacted);
-    const cr = safeDiv(C.converted, C.contacted);
-    put("stat_contacted_to_close", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing) });
+    put("stat_contacted_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
     const r = safeDiv(A.converted, A.appts);
-    const cr = safeDiv(C.converted, C.appts);
-    put("stat_appt_to_close", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing) });
+    put("stat_appt_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
     const r = safeDiv(A.total, A.converted);
-    const cr = safeDiv(C.total, C.converted);
-    put("stat_dials_per_sale", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtCount(r), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing, false) });
+    put("stat_dials_per_sale", r === null ? { value: "—", noData: true } : { value: fmtCount(r) });
   }
   {
     const byHour = volume?.by_hour ?? [];
@@ -452,7 +389,9 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
       (acc, e) => (e.converted > 0 && (!acc || e.converted > acc.converted) ? { hour: e.hour, converted: e.converted } : acc),
       null,
     );
-    put("stat_best_closing_hour", best ? { value: fmtHour(best.hour), subtitle: `${fmtCount(best.converted)} sales` } : { value: "—", noData: true });
+    put("stat_best_closing_hour", best
+      ? { value: fmtHour(best.hour), subtitle: `${fmtCount(best.converted)} sales` }
+      : { value: "—", noData: true });
   }
   {
     const byDow = volume?.by_day_of_week ?? [];
@@ -470,25 +409,17 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
     value: activeLeadsCount !== undefined ? fmtCount(activeLeadsCount) : "—",
     noData: activeLeadsCount === undefined,
   });
-  put("stat_leads_converted", {
-    value: fmtCount(A.converted),
-    trend: trend(A.converted, comparing ? C.converted : undefined, comparing),
-  });
+  put("stat_leads_converted", { value: fmtCount(A.converted) });
   {
     const r = safeDiv(A.callbacks, A.contacted);
-    const cr = safeDiv(C.callbacks, C.contacted);
-    put("stat_callback_rate", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), trend: trend(r, comparing ? cr ?? undefined : undefined, comparing) });
+    put("stat_callback_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
     const ni = breakdown?.by_disposition.find((d) => d.disposition_name.toLowerCase() === "not interested");
     if (!ni) put("stat_not_interested_rate", { value: "—", noData: true });
     else {
       const r = safeDiv(ni.count, A.total);
-      put("stat_not_interested_rate", r === null
-        ? { value: "—", noData: true }
-        : { value: fmtPct(r * 100), trend: undefined });
+      put("stat_not_interested_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
     }
   }
 
@@ -534,24 +465,15 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   // ── EFFICIENCY ─────────────────────────────────────────────────────────
   {
     const v = safeDiv(A.total, A.contacted);
-    const cv = safeDiv(C.total, C.contacted);
-    put("stat_dials_per_contact", v === null
-      ? { value: "—", noData: true }
-      : { value: fmtCount(v), trend: trend(v, comparing ? cv ?? undefined : undefined, comparing, false) });
+    put("stat_dials_per_contact", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
   {
     const v = safeDiv(A.total, A.appts);
-    const cv = safeDiv(C.total, C.appts);
-    put("stat_dials_per_appt", v === null
-      ? { value: "—", noData: true }
-      : { value: fmtCount(v), trend: trend(v, comparing ? cv ?? undefined : undefined, comparing, false) });
+    put("stat_dials_per_appt", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
   {
     const v = safeDiv(A.totalDuration / 60, A.converted);
-    const cv = safeDiv(C.totalDuration / 60, C.converted);
-    put("stat_talk_mins_per_sale", v === null
-      ? { value: "—", noData: true }
-      : { value: fmtCount(v), trend: trend(v, comparing ? cv ?? undefined : undefined, comparing, false) });
+    put("stat_talk_mins_per_sale", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
 
   return result;
@@ -559,7 +481,6 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
 
 // Helpers for week-range checks
 function startOfWeekFor(year: number, week: number): Date {
-  // ISO week: week 1 contains Jan 4
   const jan4 = new Date(year, 0, 4);
   const jan4Day = jan4.getDay() || 7;
   const mondayWeek1 = new Date(jan4);

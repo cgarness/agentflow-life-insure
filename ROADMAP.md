@@ -5,6 +5,18 @@
 
 ---
 
+## Work Log — 2026-05-13: Reports Visual Polish — Category Grouping + Uniform Grid + Remove Compare Mode
+
+- **Category grouping**: `SectionRenderer.tsx` now renders visible stat cards grouped into labeled category rows in this order: Volume → Contact → Conversion → Appointment → Pipeline → Agent → Efficiency. Each group shows an 11px uppercase section label. Empty categories (all stats hidden) are skipped entirely — no phantom headers. User's within-category ordering from saved layout is preserved.
+- **Uniform 5-column grid**: Stat card grid changed from `auto-fill / minmax(180px, 1fr)` to fixed responsive columns: `2` (mobile) → `3` (md) → `4` (lg) → `5` (xl). Gap 8px between cards, 16px (mb-4) between category groups. Cards never stretch to fill partial rows.
+- **Compact card sizing**: `StatCard.tsx` padding tightened to `10px 12px` (was `12px 14px`), value font-size reduced to 20px (was 22px), agent-name smallValue stays 16px, minHeight 80px. Left border, zero border-radius, and category color accent all preserved.
+- **Default layout reordered by category**: `report-layout-constants.ts` DEFAULT_VISIBLE_STATS updated to 20 stats grouped Volume / Contact / Conversion / Appointments / Pipeline / Agent / Coming Soon. Migration-safe: saved layouts are untouched (only new users or reset-to-default pick up this order).
+- **Compare Mode removed entirely**: Removed `comparing` state, `compSummary` / `compVolume` / `compBreakdown` state variables, secondary comparison RPC fetches, Compare Mode toggle UI (toggle switch + label), comparison date-range banner, and `comparisonRange()` utility from `Reports.tsx`. Removed compare params from `StatDataSources`, `computeAllStats`, and `StatsGrid.tsx`. Removed trend display from `StatCard.tsx`. Removed dual-series rendering from `CallVolumeChart.tsx` and `PoliciesSoldChart.tsx`. Removed compare props from `CommunicationsStats.tsx`. Note: Compare Mode can be rebuilt later with proper architecture.
+- **TypeScript**: `npx tsc --noEmit` → 0 errors. No component over 200 lines (SectionRenderer 180, StatCard 63, StatsGrid 63).
+- **Files touched**: `src/lib/stat-computations.ts`, `src/lib/report-layout-constants.ts`, `src/components/reports/StatCard.tsx`, `src/components/reports/StatsGrid.tsx`, `src/components/reports/SectionRenderer.tsx`, `src/components/reports/CallVolumeChart.tsx`, `src/components/reports/CommunicationsStats.tsx`, `src/components/reports/PoliciesSoldChart.tsx`, `src/pages/Reports.tsx`.
+
+---
+
 ## Work Log — 2026-05-13: Stat Library Expansion (20 → 62)
 
 - **Stat registry**: New `src/lib/stat-computations.ts` defines all 62 stats as a single `STAT_DEFINITIONS` array with `id / label / category / invertTrend / comingSoon`. `computeAllStats(data)` returns a `Map<id, StatResult>` with zero-protection on every division (denominator 0 → `{ value: "—", noData: true }`).
