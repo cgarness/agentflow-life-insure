@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { downloadCSV, Grouping, groupByDate } from "@/lib/reports-queries";
+import { isConvertedCall, isContactedCall } from "@/lib/report-utils";
 import ReportSection from "./ReportSection";
 
 interface Props {
@@ -9,15 +10,16 @@ interface Props {
   dispositions: any[];
   grouping: Grouping;
   loading: boolean;
+  convertedSet: Set<string>;
 }
 
-const DispositionsPieChart: React.FC<Props> = ({ calls, dispositions, grouping, loading }) => {
+const DispositionsPieChart: React.FC<Props> = ({ calls, dispositions, grouping, loading, convertedSet }) => {
   const [showTrend, setShowTrend] = useState(false);
 
   const { pieData, funnel, totalCalls, trendData, trendNames } = useMemo(() => {
     const dispMap = new Map(dispositions.map(d => [d.name, d.color || "#3B82F6"]));
     const counts = new Map<string, number>();
-    let connected = 0, positive = 0, sold = 0;
+    let connected = 0, sold = 0;
 
     // Trend data
     const byDateDisp = new Map<string, Map<string, number>>();
@@ -25,10 +27,8 @@ const DispositionsPieChart: React.FC<Props> = ({ calls, dispositions, grouping, 
     calls.forEach(c => {
       const name = c.disposition_name || "No Disposition";
       counts.set(name, (counts.get(name) || 0) + 1);
-      if ((c.duration || 0) > 0) connected++;
-      const dn = (c.disposition_name || "").toLowerCase();
-      if (dn.includes("sold") || dn.includes("interested") || dn.includes("appointment")) positive++;
-      if (dn.includes("sold") || dn.includes("policy")) sold++;
+      if (isContactedCall(c.duration, c.disposition_name)) connected++;
+      if (isConvertedCall(c.disposition_name, convertedSet)) sold++;
 
       if (c.started_at) {
         const dateKey = groupByDate(c.started_at, grouping);
@@ -45,9 +45,8 @@ const DispositionsPieChart: React.FC<Props> = ({ calls, dispositions, grouping, 
 
     const funnel = [
       { stage: "Total Calls", value: total, pct: "100%" },
-      { stage: "Connected", value: connected, pct: total > 0 ? `${Math.round(connected / total * 100)}%` : "0%" },
-      { stage: "Positive Outcome", value: positive, pct: connected > 0 ? `${Math.round(positive / connected * 100)}%` : "0%" },
-      { stage: "Sold", value: sold, pct: positive > 0 ? `${Math.round(sold / positive * 100)}%` : "0%" },
+      { stage: "Contacted", value: connected, pct: total > 0 ? `${Math.round(connected / total * 100)}%` : "0%" },
+      { stage: "Converted", value: sold, pct: connected > 0 ? `${Math.round(sold / connected * 100)}%` : "0%" },
     ];
 
     const topDisps = pieData.slice(0, 5).map(d => d.name);

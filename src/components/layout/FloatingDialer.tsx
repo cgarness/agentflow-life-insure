@@ -7,7 +7,8 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
 import { useNavigate } from "react-router-dom";
-import { triggerWin, isSaleDisposition } from "@/lib/win-trigger";
+import { triggerWin } from "@/lib/win-trigger";
+import { isConvertedDisposition } from "@/lib/report-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
@@ -40,6 +41,7 @@ interface DispositionRow {
   callback_scheduler: boolean;
   automation_trigger: boolean;
   automation_id: string | null;
+  pipeline_stage_id: string | null;
 }
 
 interface RecentCall {
@@ -315,10 +317,22 @@ const FloatingDialer: React.FC = () => {
   useEffect(() => {
     supabase
       .from("dispositions")
-      .select("id, name, color, require_notes, min_note_chars, callback_scheduler, automation_trigger, automation_id")
+      .select("id, name, color, require_notes, min_note_chars, callback_scheduler, automation_trigger, automation_id, pipeline_stage_id")
       .order("sort_order")
       .then(({ data }) => {
         if (data) setDispositions(data);
+      });
+  }, []);
+
+  // Pipeline stages for conversion detection
+  const [pipelineStagesForConversion, setPipelineStagesForConversion] = useState<Array<{ id: string; convert_to_client: boolean }>>([]);
+  useEffect(() => {
+    supabase
+      .from("pipeline_stages")
+      .select("id, convert_to_client")
+      .eq("pipeline_type", "lead")
+      .then(({ data }) => {
+        if (data) setPipelineStagesForConversion(data as Array<{ id: string; convert_to_client: boolean }>);
       });
   }, []);
 
@@ -765,7 +779,7 @@ const FloatingDialer: React.FC = () => {
         } catch { /* ignored */ }
       }
 
-      if (isSaleDisposition(disp.name) && user && profile) {
+      if (isConvertedDisposition(disp, pipelineStagesForConversion) && user && profile) {
         triggerWin({
           agentId: user.id,
           agentName: `${profile.first_name} ${profile.last_name}`,

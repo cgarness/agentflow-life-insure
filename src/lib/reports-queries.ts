@@ -35,78 +35,103 @@ export function formatHours(seconds: number): string {
   return `${h}h ${m}m`;
 }
 
-export async function fetchProfiles(): Promise<AgentProfile[]> {
-  const { data } = await supabase
+export async function fetchProfiles(orgId?: string | null): Promise<AgentProfile[]> {
+  let q = supabase
     .from("profiles")
     .select("id, first_name, last_name, role, email")
     .eq("status", "Active")
     .order("first_name");
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return (data || []) as AgentProfile[];
 }
 
-export async function fetchCallsRaw(range: DateRange, agentId?: string) {
+export async function fetchCallsRaw(range: DateRange, orgId?: string | null, agentId?: string) {
   let q = supabase
     .from("calls")
     .select("id, agent_id, started_at, duration, direction, disposition_name, disposition_id, outcome, contact_name, contact_id, contact_phone, campaign_id, campaign_lead_id")
     .gte("started_at", startOfDay(range.start).toISOString())
     .lte("started_at", endOfDay(range.end).toISOString());
+  if (orgId) q = q.eq("organization_id", orgId);
   if (agentId) q = q.eq("agent_id", agentId);
   const { data } = await q;
   return data || [];
 }
 
-export async function fetchDispositions() {
-  const { data } = await supabase.from("dispositions").select("id, name, color");
+export async function fetchDispositions(orgId?: string | null) {
+  let q = supabase.from("dispositions").select("id, name, color, pipeline_stage_id");
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
-export async function fetchCampaignsWithStats() {
-  const { data } = await supabase
+export async function fetchPipelineStages(orgId?: string | null) {
+  let q = supabase
+    .from("pipeline_stages")
+    .select("id, convert_to_client")
+    .eq("pipeline_type", "lead");
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
+  return data || [];
+}
+
+export async function fetchCampaignsWithStats(orgId?: string | null) {
+  let q = supabase
     .from("campaigns")
     .select("id, name, type, status, total_leads, leads_contacted, leads_converted")
     .gt("total_leads", 0)
     .order("leads_converted", { ascending: false });
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
-export async function fetchLeads(range: DateRange, agentId?: string) {
+export async function fetchLeads(range: DateRange, orgId?: string | null, agentId?: string) {
   let q = supabase
     .from("leads")
     .select("id, lead_source, status, last_contacted_at, created_at, assigned_agent_id, phone, state")
     .gte("created_at", startOfDay(range.start).toISOString())
     .lte("created_at", endOfDay(range.end).toISOString());
+  if (orgId) q = q.eq("organization_id", orgId);
   if (agentId) q = q.eq("assigned_agent_id", agentId);
   const { data } = await q;
   return data || [];
 }
 
-export async function fetchDialerSessions(range: DateRange, agentId?: string) {
+export async function fetchDialerSessions(range: DateRange, orgId?: string | null, agentId?: string) {
   let q = supabase
     .from("dialer_sessions")
     .select("id, agent_id, started_at, ended_at, calls_made, calls_connected, policies_sold, total_talk_time")
     .gte("started_at", startOfDay(range.start).toISOString())
     .lte("started_at", endOfDay(range.end).toISOString());
+  if (orgId) q = q.eq("organization_id", orgId);
   if (agentId) q = q.eq("agent_id", agentId);
   const { data } = await q;
   return data || [];
 }
 
-export async function fetchGoals() {
-  const { data } = await supabase.from("goals").select("*");
+export async function fetchGoals(orgId?: string | null) {
+  let q = supabase.from("goals").select("*");
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
-export async function fetchCampaignLeads(range: DateRange) {
-  const { data } = await supabase
+export async function fetchCampaignLeads(range: DateRange, orgId?: string | null) {
+  let q = supabase
     .from("campaign_leads")
     .select("id, campaign_id, call_attempts, first_name, last_name, status, disposition, created_at, state")
     .gte("created_at", startOfDay(range.start).toISOString())
     .lte("created_at", endOfDay(range.end).toISOString());
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
-export async function fetchLeadSourceCosts() {
-  const { data } = await supabase.from("lead_source_costs").select("*");
+export async function fetchLeadSourceCosts(orgId?: string | null) {
+  let q = supabase.from("lead_source_costs").select("*");
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
@@ -118,11 +143,13 @@ export async function upsertLeadSourceCost(leadSource: string, cost: number) {
   if (error) throw error;
 }
 
-export async function fetchSavedReports() {
-  const { data } = await supabase
+export async function fetchSavedReports(orgId?: string | null) {
+  let q = supabase
     .from("saved_reports")
     .select("*")
     .order("created_at", { ascending: false });
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
@@ -136,11 +163,13 @@ export async function deleteSavedReport(id: string) {
   if (error) throw error;
 }
 
-export async function fetchScheduledReports() {
-  const { data } = await supabase
+export async function fetchScheduledReports(orgId?: string | null) {
+  let q = supabase
     .from("scheduled_reports")
     .select("*")
     .order("created_at", { ascending: false });
+  if (orgId) q = q.eq("organization_id", orgId);
+  const { data } = await q;
   return data || [];
 }
 
@@ -186,7 +215,3 @@ export function getAgentName(agents: AgentProfile[], id: string): string {
   return a ? `${a.first_name} ${a.last_name?.charAt(0) || ""}.` : "Unknown";
 }
 
-export function isSoldDisposition(name: string | null): boolean {
-  const dn = (name || "").toLowerCase();
-  return dn.includes("sold") || dn.includes("policy");
-}

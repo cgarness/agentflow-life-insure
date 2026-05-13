@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentProfile, Grouping, getAgentName, downloadCSV } from "@/lib/reports-queries";
+import { isContactedCall } from "@/lib/report-utils";
 import ReportSection from "./ReportSection";
 
 interface Props {
@@ -23,7 +24,7 @@ const CallVolumeChart: React.FC<Props> = ({ calls, compCalls, agents, grouping, 
         const cur = byAgent.get(name) || { calls: 0, totalDur: 0, connected: 0 };
         cur.calls++;
         cur.totalDur += (call.duration || 0);
-        if ((call.duration || 0) > 0) cur.connected++;
+        if (isContactedCall(call.duration, call.disposition_name)) cur.connected++;
         byAgent.set(name, cur);
       });
       return byAgent;

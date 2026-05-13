@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { Phone, MessageSquare, Mail, Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDuration, formatHours, downloadCSV, DateRange } from "@/lib/reports-queries";
+import { isContactedCall } from "@/lib/report-utils";
 import { differenceInDays } from "date-fns";
 import ReportSection from "./ReportSection";
 
@@ -21,7 +22,7 @@ const CommunicationsStats: React.FC<Props> = ({ calls, compCalls, range, loading
   const compute = (c: any[], r: DateRange) => {
     const outbound = c.filter(x => x.direction === "outbound").length;
     const inbound = c.filter(x => x.direction === "inbound").length;
-    const withDur = c.filter(x => (x.duration || 0) > 0);
+    const withDur = c.filter(x => isContactedCall(x.duration, x.disposition_name));
     const avgDur = withDur.length > 0 ? withDur.reduce((s, x) => s + (x.duration || 0), 0) / withDur.length : 0;
     const answerRate = c.length > 0 ? Math.round(withDur.length / c.length * 100) : 0;
     const days = Math.max(1, differenceInDays(r.end, r.start) + 1);

@@ -14,11 +14,12 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   DateRange, Grouping, autoGrouping,
-  fetchProfiles, fetchCallsRaw, fetchDispositions,
+  fetchProfiles, fetchCallsRaw, fetchDispositions, fetchPipelineStages,
   fetchCampaignsWithStats, fetchLeads, fetchDialerSessions, fetchGoals,
   fetchCampaignLeads, fetchLeadSourceCosts, downloadCSV,
   AgentProfile,
 } from "@/lib/reports-queries";
+import { buildConvertedDispositionSet } from "@/lib/report-utils";
 
 import AgentPerformanceCards from "@/components/reports/AgentPerformanceCards";
 import CallVolumeChart from "@/components/reports/CallVolumeChart";
@@ -82,6 +83,7 @@ const Reports: React.FC = () => {
   const { formatDate } = useBranding();
   const navigate = useNavigate();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
+  const orgId = profile?.organization_id ?? null;
 
   // Controls
   const [preset, setPreset] = useState<Preset>("30d");
@@ -109,6 +111,7 @@ const Reports: React.FC = () => {
   const [campaignLeads, setCampaignLeads] = useState<any[]>([]);
   const [leadCosts, setLeadCosts] = useState<any[]>([]);
   const [scorecards, setScorecards] = useState<any[]>([]);
+  const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [outcomesData, setOutcomesData] = useState<any[]>([]);
   const [outcomesTotal, setOutcomesTotal] = useState(0);
@@ -121,6 +124,11 @@ const Reports: React.FC = () => {
 
   const nonAdminAgents = useMemo(() => agents, [agents]);
   const compRange = useMemo(() => comparisonRange(range), [range]);
+
+  const convertedSet = useMemo(
+    () => buildConvertedDispositionSet(dispositions, pipelineStages),
+    [dispositions, pipelineStages],
+  );
 
   useEffect(() => {
     if (preset !== "custom") {
@@ -142,22 +150,28 @@ const Reports: React.FC = () => {
     setLoading(true);
     try {
       const [a, c, d, camp, l, sess, g, cl, lc] = await Promise.all([
-        fetchProfiles(),
-        fetchCallsRaw(range, effectiveAgent),
-        fetchDispositions(),
-        fetchCampaignsWithStats(),
-        fetchLeads(range, effectiveAgent),
-        fetchDialerSessions(range, effectiveAgent),
-        fetchGoals(),
-        fetchCampaignLeads(range),
-        fetchLeadSourceCosts(),
+        fetchProfiles(orgId),
+        fetchCallsRaw(range, orgId, effectiveAgent),
+        fetchDispositions(orgId),
+        fetchCampaignsWithStats(orgId),
+        fetchLeads(range, orgId, effectiveAgent),
+        fetchDialerSessions(range, orgId, effectiveAgent),
+        fetchGoals(orgId),
+        fetchCampaignLeads(range, orgId),
+        fetchLeadSourceCosts(orgId),
       ]);
 
-      const { data: sc } = await supabase.from("agent_scorecards").select("*").order("week_start", { ascending: false }).limit(200);
+      // Pipeline stages: isolated try/catch so failure doesn't crash reports
+      let ps: any[] = [];
+      try { ps = await fetchPipelineStages(orgId); } catch (e) { console.warn("Failed to fetch pipeline stages:", e); }
+
+      let scQuery = supabase.from("agent_scorecards").select("*").order("week_start", { ascending: false }).limit(200);
+      if (orgId) scQuery = scQuery.eq("organization_id", orgId);
+      const { data: sc } = await scQuery;
 
       setAgents(a); setCalls(c); setDispositions(d); setCampaigns(camp);
       setLeads(l); setSessions(sess); setGoals(g); setCampaignLeads(cl);
-      setLeadCosts(lc); setScorecards(sc || []);
+      setLeadCosts(lc); setScorecards(sc || []); setPipelineStages(ps);
 
       let outcomesQuery = supabase
         .from('calls')
@@ -165,6 +179,7 @@ const Reports: React.FC = () => {
         .gte("started_at", startOfDay(range.start).toISOString())
         .lte("started_at", endOfDay(range.end).toISOString())
         .not('disposition_name', 'is', null);
+      if (orgId) outcomesQuery = outcomesQuery.eq("organization_id", orgId);
         
       if (effectiveAgent) {
         outcomesQuery = outcomesQuery.eq("agent_id", effectiveAgent);
@@ -191,7 +206,7 @@ const Reports: React.FC = () => {
       }
 
       if (comparing) {
-        const cc = await fetchCallsRaw(compRange, effectiveAgent);
+        const cc = await fetchCallsRaw(compRange, orgId, effectiveAgent);
         setCompCalls(cc);
       } else {
         setCompCalls([]);
@@ -202,7 +217,7 @@ const Reports: React.FC = () => {
       setLoading(false);
       setOutcomesLoading(false);
     }
-  }, [range, effectiveAgent, comparing, compRange]);
+  }, [range, orgId, effectiveAgent, comparing, compRange]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -433,7 +448,7 @@ const Reports: React.FC = () => {
       ) : (
         <>
           {isAdmin && (
-            <AgentPerformanceCards calls={activeCalls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
+            <AgentPerformanceCards calls={activeCalls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} convertedSet={convertedSet} />
           )}
 
           <CallVolumeChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
@@ -449,14 +464,14 @@ const Reports: React.FC = () => {
                 <p className="text-sm text-muted-foreground text-center">No call data available for this period</p>
               </div>
             ) : (
-              <DispositionsPieChart calls={activeCalls} dispositions={dispositions} grouping={grouping} loading={loading} />
+              <DispositionsPieChart calls={activeCalls} dispositions={dispositions} grouping={grouping} loading={loading} convertedSet={convertedSet} />
             )}
-            <PoliciesSoldChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
+            <PoliciesSoldChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} convertedSet={convertedSet} />
           </div>
 
           <div className="space-y-6">
             <CampaignPerformance campaigns={campaigns} loading={loading} />
-            <LeadSourceTable leads={activeLeads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts().then(setLeadCosts)} />
+            <LeadSourceTable leads={activeLeads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts(orgId).then(setLeadCosts)} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -464,13 +479,13 @@ const Reports: React.FC = () => {
             <CallingHeatmap calls={activeCalls} loading={loading} />
           </div>
 
-          <CallDurationAnalysis calls={activeCalls} dispositions={dispositions} loading={loading} />
+          <CallDurationAnalysis calls={activeCalls} dispositions={dispositions} loading={loading} convertedSet={convertedSet} />
 
           {isAdmin && (
-            <AgentEfficiency calls={activeCalls} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />
+            <AgentEfficiency calls={activeCalls} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} convertedSet={convertedSet} />
           )}
 
-          <CallFlowAnalysis calls={activeCalls} campaignLeads={campaignLeads} loading={loading} />
+          <CallFlowAnalysis calls={activeCalls} campaignLeads={campaignLeads} loading={loading} convertedSet={convertedSet} />
 
           <DispositionDeepDive calls={activeCalls} dispositions={dispositions} agents={agents} campaigns={campaigns} loading={loading} />
 

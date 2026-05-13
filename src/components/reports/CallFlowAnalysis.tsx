@@ -2,16 +2,17 @@ import React, { useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ComposedChart } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { parseISO } from "date-fns";
-import { downloadCSV, isSoldDisposition } from "@/lib/reports-queries";
+import { downloadCSV } from "@/lib/reports-queries";
+import { isConvertedCall, isContactedCall } from "@/lib/report-utils";
 import { Lightbulb } from "lucide-react";
 import ReportSection from "./ReportSection";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const fmtHour = (h: number) => `${h > 12 ? h - 12 : h || 12}${h >= 12 ? "PM" : "AM"}`;
 
-interface Props { calls: any[]; campaignLeads: any[]; loading: boolean; }
+interface Props { calls: any[]; campaignLeads: any[]; loading: boolean; convertedSet: Set<string>; }
 
-const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading }) => {
+const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading, convertedSet }) => {
   const [view, setView] = useState<"hourly" | "daily" | "firstVsFollow" | "speed">("hourly");
 
   const { hourlyData, dailyData, firstVsFollow, speedInsight } = useMemo(() => {
@@ -22,8 +23,8 @@ const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading }) =>
       if (h >= 6 && h <= 21) {
         const b = hourBuckets[h - 6];
         b.calls++;
-        if ((c.duration || 0) > 0) b.answered++;
-        if (isSoldDisposition(c.disposition_name)) b.sold++;
+        if (isContactedCall(c.duration, c.disposition_name)) b.answered++;
+        if (isConvertedCall(c.disposition_name, convertedSet)) b.sold++;
       }
     });
     const hourlyData = hourBuckets.map(b => ({
@@ -36,8 +37,8 @@ const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading }) =>
     calls.forEach(c => {
       const dow = parseISO(c.started_at).getDay();
       dayBuckets[dow].calls++;
-      if ((c.duration || 0) > 0) dayBuckets[dow].answered++;
-      if (isSoldDisposition(c.disposition_name)) dayBuckets[dow].sold++;
+      if (isContactedCall(c.duration, c.disposition_name)) dayBuckets[dow].answered++;
+      if (isConvertedCall(c.disposition_name, convertedSet)) dayBuckets[dow].sold++;
     });
     const dailyData = dayBuckets.map(b => ({
       day: b.day, calls: b.calls,

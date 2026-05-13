@@ -109,6 +109,7 @@ import { DialerActions } from "@/components/dialer/DialerActions";
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
+import { isConvertedDisposition } from "@/lib/report-utils";
 
 /* ─── Types ─── */
 
@@ -124,6 +125,7 @@ interface Disposition {
   automationName?: string;
   campaignAction: 'none' | 'remove_from_queue' | 'remove_from_campaign';
   dncAutoAdd: boolean;
+  pipeline_stage_id?: string | null;
 }
 
 interface HistoryItem {
@@ -814,6 +816,7 @@ export default function DialerPage() {
         automationName: d.automationName,
         campaignAction: d.campaignAction || 'none',
         dncAutoAdd: d.dncAutoAdd || false,
+        pipeline_stage_id: d.pipelineStageId ?? null,
       }));
     },
     staleTime: 1000 * 60 * 10, // 10 minutes
@@ -836,6 +839,19 @@ export default function DialerPage() {
     queryKey: ["leadStages"],
     queryFn: pipelineSupabaseApi.getLeadStages,
     staleTime: 1000 * 60 * 60, // 1 hour
+  });
+
+  // Pipeline stages for conversion detection (convert_to_client)
+  const { data: pipelineStagesForConversion = [] } = useQuery({
+    queryKey: ["pipelineStagesConversion"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("pipeline_stages")
+        .select("id, convert_to_client")
+        .eq("pipeline_type", "lead");
+      return (data || []) as Array<{ id: string; convert_to_client: boolean }>;
+    },
+    staleTime: 1000 * 60 * 60,
   });
 
   // Resolve the "best" number to display when lead or override changes
@@ -2650,7 +2666,7 @@ export default function DialerPage() {
           campaignLeadId: currentLead.id,
         });
         toast.success("Call saved successfully", { id: toastId });
-        if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
+        if (selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
@@ -2677,7 +2693,7 @@ export default function DialerPage() {
       if (success) {
         setShouldAdvanceAfterModal(true);
         toast.success("Saved successfully", { id: toastId });
-        if (selectedDisp && selectedDisp.name.toLowerCase().includes("sold")) {
+        if (selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});

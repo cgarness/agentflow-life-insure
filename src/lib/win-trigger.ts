@@ -90,11 +90,24 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
     })
   );
 }
+import { isConvertedDisposition } from "@/lib/report-utils";
 
 /**
- * Check if a disposition name indicates a sale
+ * @deprecated Use `isConvertedDisposition()` from `report-utils.ts` directly.
+ * Kept as a thin alias for backward compatibility.
  */
-export function isSaleDisposition(dispositionName: string): boolean {
-  const lower = dispositionName.toLowerCase();
-  return lower.includes("sold") || lower.includes("policy");
+export { isConvertedDisposition };
+
+/**
+ * Check if a disposition indicates a sale (data-driven).
+ * Requires the full disposition object and pipeline stages array.
+ *
+ * Legacy callers that only have a name should migrate to the
+ * `isConvertedCall` + `buildConvertedDispositionSet` pattern.
+ */
+export function isSaleDisposition(
+  disposition: { pipeline_stage_id?: string | null } | null | undefined,
+  pipelineStages: Array<{ id: string; convert_to_client: boolean }>,
+): boolean {
+  return isConvertedDisposition(disposition, pipelineStages);
 }

@@ -125,6 +125,17 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-13 | [DONE] | Phase 2: Reports Data Integrity — Conversion Logic + Connected Definition + Org Scoping**
+  *What:* Replaced all fragile string-matching (`includes("sold")`, `isSoldDisposition()`, `isSaleDisposition()`) and duration-based (`duration > 0`) logic across the entire codebase with data-driven helpers backed by `pipeline_stages.convert_to_client` and a 45-second connected threshold.
+  *New Module:* `src/lib/report-utils.ts` — centralized `buildConvertedDispositionSet()`, `isConvertedCall()`, `isConvertedDisposition()`, `isContactedCall()`.
+  *Data Layer:* `reports-queries.ts` — all fetch functions now accept `orgId?` for defense-in-depth org scoping. Added `fetchPipelineStages()`. Removed legacy `isSoldDisposition()`.
+  *Reports Page:* `Reports.tsx` orchestrates org-aware data fetching, builds `convertedSet` from pipeline metadata, and passes it to all child components.
+  *Report Components (9 files):* `AgentEfficiency`, `CallFlowAnalysis`, `PoliciesSoldChart`, `AgentPerformanceCards`, `DispositionsPieChart` (also removed "Positive Outcome" funnel stage), `CallVolumeChart`, `CommunicationsStats`, `CallingHeatmap`, `CallDurationAnalysis`.
+  *Dialer/Business Logic (4 files):* `DialerPage.tsx` — fetches pipeline stages, uses `isConvertedDisposition()` for policy-sold stat increment. `FloatingDialer.tsx` — same pattern for win trigger. `win-trigger.ts` — `isSaleDisposition()` re-signatured to accept disposition object + pipeline stages array. `supabase-users.ts` — `getPerformance()` now fetches dispositions + stages to build converted set.
+  *Skipped (per user decision):* `GeographicHeatmap.tsx` (unused), `LeadSourceTable.tsx` (operates on lead status), `supabase-dispositions.ts:161` (out of scope).
+  *Verification:* `tsc --noEmit` → 0 errors. grep confirms no legacy `isSoldDisposition` (except skipped GeographicHeatmap), no `duration > 0` in active report components, no `includes("sold")` in dialer/trigger files, all fetches pass orgId.
+  *Files:* `src/lib/report-utils.ts` [NEW], `src/lib/reports-queries.ts`, `src/pages/Reports.tsx`, `src/components/reports/{AgentEfficiency,CallFlowAnalysis,PoliciesSoldChart,AgentPerformanceCards,DispositionsPieChart,CallVolumeChart,CommunicationsStats,CallingHeatmap,CallDurationAnalysis}.tsx`, `src/pages/DialerPage.tsx`, `src/components/layout/FloatingDialer.tsx`, `src/lib/win-trigger.ts`, `src/lib/supabase-users.ts`.
+
 - **2026-05-12 | [DONE] | Wire Notifications System End-to-End — panel, push, auto-triggers, cleanup**
   *What:* Reconnected the unified notifications system from DB → Realtime → context → panel UI → browser push. Five threads in one cut:
   1. **TopBar.tsx** no longer maintains a private `notifications` `useState` + one-shot fetch; it consumes `notifications`, `unreadCount`, `markRead`, `markAllRead`, `deleteNotification` directly from `NotificationContext`. Mark-all-read and per-row delete now flow through context (Realtime UPDATE/DELETE keeps state in sync). Action-URL click now `markRead → setNotifOpen(false) → navigate` so the panel closes on navigate. Bell badge now pulses (`animate-pulse`) and caps at `99+`. Per-row `×` button uses `opacity-0 group-hover:opacity-100` reveal with `stopPropagation`.

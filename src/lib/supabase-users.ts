@@ -459,10 +459,10 @@ export const usersSupabaseApi = {
     sunday.setHours(0, 0, 0, 0);
     const startOfWeek = sunday.toISOString();
 
-    const [{ data: calls }, { data: apps }, { data: winsData }] = await Promise.all([
+    const [{ data: calls }, { data: apps }, { data: winsData }, { data: disps }, { data: stages }] = await Promise.all([
       supabase
         .from("calls")
-        .select("outcome, duration, created_at")
+        .select("outcome, duration, created_at, disposition_name")
         .eq("agent_id", userId)
         .gte("created_at", startOfMonth),
       supabase
@@ -476,10 +476,29 @@ export const usersSupabaseApi = {
         .select("premium_amount")
         .eq("agent_id", userId)
         .gte("created_at", startOfMonth),
+      supabase
+        .from("dispositions")
+        .select("id, name, pipeline_stage_id"),
+      supabase
+        .from("pipeline_stages")
+        .select("id, convert_to_client")
+        .eq("pipeline_type", "lead"),
     ]);
 
+    // Build a converted disposition name set (data-driven)
+    const stageMap = new Map((stages || []).map((s: any) => [s.id, s.convert_to_client]));
+    const convertedNames = new Set<string>();
+    for (const d of (disps || [])) {
+      if (d.pipeline_stage_id && stageMap.get(d.pipeline_stage_id)) {
+        convertedNames.add((d.name || "").toLowerCase());
+      }
+    }
+
     const callsMonthly = calls?.length || 0;
-    const policiesMonthly = calls?.filter(c => (c.outcome || "").toLowerCase().includes("sold")).length || 0;
+    const policiesMonthly = calls?.filter(c => {
+      const name = (c.disposition_name || c.outcome || "").toLowerCase();
+      return convertedNames.has(name);
+    }).length || 0;
     const talkTimeMonthlyHours = (calls?.reduce((sum, c) => sum + (c.duration || 0), 0) || 0) / 3600;
     const premiumMonthly = (winsData ?? []).reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0);
 

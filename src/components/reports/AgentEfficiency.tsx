@@ -1,14 +1,15 @@
 import React, { useMemo, useState } from "react";
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, getAgentName, formatDuration, formatHours, downloadCSV, isSoldDisposition } from "@/lib/reports-queries";
+import { AgentProfile, getAgentName, formatDuration, formatHours, downloadCSV } from "@/lib/reports-queries";
+import { isConvertedCall, isContactedCall } from "@/lib/report-utils";
 import ReportSection from "./ReportSection";
 
-interface Props { calls: any[]; sessions: any[]; agents: AgentProfile[]; currentUserId?: string; isAdmin: boolean; loading: boolean; }
+interface Props { calls: any[]; sessions: any[]; agents: AgentProfile[]; currentUserId?: string; isAdmin: boolean; loading: boolean; convertedSet: Set<string>; }
 
 type SortKey = "name" | "totalCalls" | "connected" | "answerRate" | "avgDuration" | "convRate" | "talkTime" | "callsPerHour";
 
-const AgentEfficiency: React.FC<Props> = ({ calls, sessions, agents, currentUserId, isAdmin, loading }) => {
+const AgentEfficiency: React.FC<Props> = ({ calls, sessions, agents, currentUserId, isAdmin, loading, convertedSet }) => {
   const [sortKey, setSortKey] = useState<SortKey>("convRate");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -16,8 +17,8 @@ const AgentEfficiency: React.FC<Props> = ({ calls, sessions, agents, currentUser
     const nonAdmin = agents;
     return nonAdmin.map(agent => {
       const ac = calls.filter(c => c.agent_id === agent.id);
-      const connected = ac.filter(c => (c.duration || 0) > 0);
-      const sold = ac.filter(c => isSoldDisposition(c.disposition_name));
+      const connected = ac.filter(c => isContactedCall(c.duration, c.disposition_name));
+      const sold = ac.filter(c => isConvertedCall(c.disposition_name, convertedSet));
       const withDisp = ac.filter(c => c.disposition_name);
       const totalTalkTime = ac.reduce((s, c) => s + (c.duration || 0), 0);
       const as_ = sessions.filter(s => s.agent_id === agent.id);

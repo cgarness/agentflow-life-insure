@@ -3,6 +3,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Skeleton } from "@/components/ui/skeleton";
 import { parseISO } from "date-fns";
 import { downloadCSV } from "@/lib/reports-queries";
+import { isContactedCall } from "@/lib/report-utils";
 import { Lightbulb } from "lucide-react";
 import ReportSection from "./ReportSection";
 
@@ -25,7 +26,7 @@ const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
       const hour = d.getHours();
       if (hour >= 8 && hour <= 20) {
         volume[day][hour - 8]++;
-        if ((c.duration || 0) > 0) answered[day][hour - 8]++;
+        if (isContactedCall(c.duration, c.disposition_name)) answered[day][hour - 8]++;
       }
     });
 

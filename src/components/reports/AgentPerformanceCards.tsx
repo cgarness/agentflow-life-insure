@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, isSoldDisposition, DateRange } from "@/lib/reports-queries";
+import { AgentProfile, DateRange } from "@/lib/reports-queries";
+import { isConvertedCall } from "@/lib/report-utils";
 import { startOfDay, isToday, startOfMonth, endOfMonth, subDays, parseISO, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -11,9 +12,10 @@ interface Props {
   selectedAgent: string;
   onSelectAgent: (id: string) => void;
   loading: boolean;
+  convertedSet: Set<string>;
 }
 
-const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selectedAgent, onSelectAgent, loading }) => {
+const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selectedAgent, onSelectAgent, loading, convertedSet }) => {
   const nonAdmin = useMemo(() => agents, [agents]);
 
   const agentStats = useMemo(() => {
@@ -26,7 +28,7 @@ const AgentPerformanceCards: React.FC<Props> = ({ calls, agents, goals, selected
       const agentCalls = calls.filter(c => c.agent_id === agent.id);
       const todayCalls = agentCalls.filter(c => c.started_at >= todayStart);
       const monthCalls = agentCalls.filter(c => c.started_at >= monthStart && c.started_at <= monthEnd);
-      const monthSold = monthCalls.filter(c => isSoldDisposition(c.disposition_name)).length;
+      const monthSold = monthCalls.filter(c => isConvertedCall(c.disposition_name, convertedSet)).length;
 
       // Streak: consecutive days with calls
       const callDates = new Set(agentCalls.map(c => startOfDay(parseISO(c.started_at)).toISOString()));

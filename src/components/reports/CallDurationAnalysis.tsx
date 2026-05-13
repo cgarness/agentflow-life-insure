@@ -2,9 +2,10 @@ import React, { useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { downloadCSV, formatDuration } from "@/lib/reports-queries";
+import { isConvertedCall } from "@/lib/report-utils";
 import ReportSection from "./ReportSection";
 
-interface Props { calls: any[]; dispositions: any[]; loading: boolean; }
+interface Props { calls: any[]; dispositions: any[]; loading: boolean; convertedSet?: Set<string>; }
 
 const DURATION_RANGES = [
   { label: "0-30s", min: 0, max: 30 },
@@ -16,7 +17,7 @@ const DURATION_RANGES = [
   { label: "20m+", min: 1200, max: Infinity },
 ];
 
-const CallDurationAnalysis: React.FC<Props> = ({ calls, dispositions, loading }) => {
+const CallDurationAnalysis: React.FC<Props> = ({ calls, dispositions, loading, convertedSet }) => {
   const [view, setView] = useState<"histogram" | "byDisp" | "trend">("histogram");
 
   const { histogram, byDisposition, insight } = useMemo(() => {
@@ -38,7 +39,9 @@ const CallDurationAnalysis: React.FC<Props> = ({ calls, dispositions, loading })
       .map(([name, v]) => ({ name, avgDuration: v.count > 0 ? +(v.total / v.count).toFixed(0) : 0, color: dispColorMap.get(name) || "hsl(var(--primary))" }))
       .sort((a, b) => b.avgDuration - a.avgDuration);
 
-    const soldAvg = byDisposition.find(d => d.name.toLowerCase().includes("sold"));
+    const soldAvg = convertedSet
+      ? byDisposition.find(d => convertedSet.has(d.name.toLowerCase()))
+      : byDisposition.find(d => d.name.toLowerCase().includes("sold"));
     const niAvg = byDisposition.find(d => d.name.toLowerCase().includes("not interested"));
     let insight = "";
     if (soldAvg && niAvg && niAvg.avgDuration > 0) {

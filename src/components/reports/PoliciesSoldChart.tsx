@@ -2,7 +2,8 @@ import React, { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { TrendingUp, Trophy, User, Calendar, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, Grouping, groupByDate, downloadCSV, getAgentName, isSoldDisposition } from "@/lib/reports-queries";
+import { AgentProfile, Grouping, groupByDate, downloadCSV, getAgentName } from "@/lib/reports-queries";
+import { isConvertedCall } from "@/lib/report-utils";
 import { parseISO } from "date-fns";
 import ReportSection from "./ReportSection";
 
@@ -16,11 +17,12 @@ interface Props {
   selectedAgent?: string;
   loading: boolean;
   comparing: boolean;
+  convertedSet: Set<string>;
 }
 
-const PoliciesSoldChart: React.FC<Props> = ({ calls, compCalls, agents, grouping, selectedAgent, loading, comparing }) => {
+const PoliciesSoldChart: React.FC<Props> = ({ calls, compCalls, agents, grouping, selectedAgent, loading, comparing, convertedSet }) => {
   const { chartData, agentNames, summary } = useMemo(() => {
-    const soldCalls = calls.filter(c => isSoldDisposition(c.disposition_name));
+    const soldCalls = calls.filter(c => isConvertedCall(c.disposition_name, convertedSet));
     const grouped = new Map<string, Map<string, number>>();
     const agentSales = new Map<string, number>();
     const daySales = new Map<string, number>();
@@ -64,7 +66,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ calls, compCalls, agents, grouping
         avgPerAgent: agentsWithSales > 0 ? +(soldCalls.length / agentsWithSales).toFixed(1) : 0,
       },
     };
-  }, [calls, agents, grouping, selectedAgent]);
+  }, [calls, agents, grouping, selectedAgent, convertedSet]);
 
   const handleExport = () => {
     downloadCSV("policies-sold", ["Date", ...agentNames], chartData.map(d => [d.date, ...agentNames.map(n => String(d[n] || 0))]));
