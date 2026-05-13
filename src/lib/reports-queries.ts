@@ -215,3 +215,105 @@ export function getAgentName(agents: AgentProfile[], id: string): string {
   return a ? `${a.first_name} ${a.last_name?.charAt(0) || ""}.` : "Unknown";
 }
 
+// ─── Phase 3 RPC Data Shapes & Fetchers ─────────────────────────────────────
+
+export interface ReportCallSummary {
+  total_calls: number;
+  outbound: number;
+  inbound: number;
+  contacted: number;
+  converted: number;
+  total_duration_seconds: number;
+  avg_duration_seconds: number;
+  answer_rate_pct: number;
+  conversion_rate_pct: number;
+  calls_by_agent: {
+    agent_id: string;
+    total: number;
+    contacted: number;
+    converted: number;
+    total_duration: number;
+    avg_duration: number;
+  }[];
+  calls_by_direction: { outbound: number; inbound: number };
+}
+
+export interface ReportCallVolumeTimeseries {
+  by_hour: { hour: number; total: number; contacted: number; converted: number }[];
+  by_day_of_week: { dow: number; dow_name: string; total: number; contacted: number; converted: number }[];
+  by_date: { date: string; total: number; contacted: number; converted: number }[];
+  heatmap: { dow: number; hour: number; total: number; contacted: number }[];
+}
+
+export interface ReportDispositionBreakdown {
+  by_disposition: { disposition_name: string; color: string; count: number; avg_duration: number; is_converted: boolean }[];
+  by_agent: { agent_id: string; dispositions: Record<string, number> }[];
+  by_campaign: { campaign_id: string; campaign_name: string; dispositions: Record<string, number> }[];
+  duration_histogram: { range: string; count: number }[];
+}
+
+export interface ReportCampaignPerformance {
+  campaigns: { campaign_id: string; campaign_name: string; campaign_type: string; total_leads: number; contacted: number; converted: number; conversion_rate_pct: number }[];
+  by_lead_source: { lead_source: string; total: number; contacted: number; converted: number; conversion_rate_pct: number }[];
+}
+
+export async function fetchReportCallSummary(orgId: string, range: DateRange, agentId?: string): Promise<ReportCallSummary> {
+  const { data, error } = await supabase.rpc("rpc_report_call_summary", {
+    p_org_id: orgId,
+    p_start_date: range.start.toISOString(),
+    p_end_date: range.end.toISOString(),
+    p_agent_id: agentId || null
+  });
+  if (error || !data) {
+    console.error("fetchReportCallSummary error:", error);
+    return {
+      total_calls: 0, outbound: 0, inbound: 0, contacted: 0, converted: 0,
+      total_duration_seconds: 0, avg_duration_seconds: 0, answer_rate_pct: 0, conversion_rate_pct: 0,
+      calls_by_agent: [], calls_by_direction: { outbound: 0, inbound: 0 }
+    };
+  }
+  return data as unknown as ReportCallSummary;
+}
+
+export async function fetchReportCallVolumeTimeseries(orgId: string, range: DateRange, agentId?: string): Promise<ReportCallVolumeTimeseries> {
+  const { data, error } = await supabase.rpc("rpc_report_call_volume_timeseries", {
+    p_org_id: orgId,
+    p_start_date: range.start.toISOString(),
+    p_end_date: range.end.toISOString(),
+    p_agent_id: agentId || null
+  });
+  if (error || !data) {
+    console.error("fetchReportCallVolumeTimeseries error:", error);
+    return { by_hour: [], by_day_of_week: [], by_date: [], heatmap: [] };
+  }
+  return data as unknown as ReportCallVolumeTimeseries;
+}
+
+export async function fetchReportDispositionBreakdown(orgId: string, range: DateRange, agentId?: string): Promise<ReportDispositionBreakdown> {
+  const { data, error } = await supabase.rpc("rpc_report_disposition_breakdown", {
+    p_org_id: orgId,
+    p_start_date: range.start.toISOString(),
+    p_end_date: range.end.toISOString(),
+    p_agent_id: agentId || null
+  });
+  if (error || !data) {
+    console.error("fetchReportDispositionBreakdown error:", error);
+    return { by_disposition: [], by_agent: [], by_campaign: [], duration_histogram: [] };
+  }
+  return data as unknown as ReportDispositionBreakdown;
+}
+
+export async function fetchReportCampaignPerformance(orgId: string, range: DateRange, agentId?: string): Promise<ReportCampaignPerformance> {
+  const { data, error } = await supabase.rpc("rpc_report_campaign_performance", {
+    p_org_id: orgId,
+    p_start_date: range.start.toISOString(),
+    p_end_date: range.end.toISOString(),
+    p_agent_id: agentId || null
+  });
+  if (error || !data) {
+    console.error("fetchReportCampaignPerformance error:", error);
+    return { campaigns: [], by_lead_source: [] };
+  }
+  return data as unknown as ReportCampaignPerformance;
+}
+
