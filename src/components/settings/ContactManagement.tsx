@@ -20,6 +20,7 @@ import {
 import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
   CheckCircle2, MinusCircle, Lock, AlertTriangle,
+  Eye, EyeOff, ChevronDown, ChevronUp,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -1303,6 +1304,15 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [userContactLayout, setUserContactLayout] = useState<ContactFieldLayout | undefined>(undefined);
+  const [fieldVisibility, setFieldVisibility] = useState<Record<string, Record<string, boolean>>>({});
+  const [showHidden, setShowHidden] = useState(false);
+  const visibilitySaveTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const currentVis = fieldVisibility[activeType] || {};
+    const hasHidden = Object.values(currentVis).includes(false);
+    setShowHidden(hasHidden);
+  }, [activeType]);
 
   const fetchCustomFields = useCallback(async () => {
     const oid = settings?.organizationId;
@@ -1340,6 +1350,9 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
         const rawSettings = data?.settings as Record<string, unknown> | undefined;
         const blob = rawSettings?.[CONTACT_FIELD_LAYOUT_KEY];
         setUserContactLayout(sanitizeContactFieldLayoutFromSettings(blob));
+        
+        const fVis = (rawSettings?.fieldVisibility as Record<string, Record<string, boolean>>) || {};
+        setFieldVisibility(fVis);
       } catch (e) {
         console.error(e);
         if (!cancelled) setUserContactLayout({});
@@ -1395,14 +1408,66 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     setItems([...orderedItems, ...missingFields]);
   }, [settings, activeType, customFields, userContactLayout]);
 
-  const handleDrop = (idx: number) => {
-    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return; }
-    const reordered = [...items];
-    const [moved] = reordered.splice(dragIdx, 1);
-    reordered.splice(idx, 0, moved);
-    setItems(reordered);
+  const currentVis = fieldVisibility[activeType] || {};
+  
+  const isFieldVisible = (id: string) => {
+    if (id === "firstName" || id === "phone") return true;
+    return currentVis[id] !== false;
+  };
+
+  const visibleFields = items.filter(i => isFieldVisible(i.id));
+  const hiddenFields = items.filter(i => !isFieldVisible(i.id));
+
+  const handleDrop = (visibleIdx: number) => {
+    if (dragIdx === null || dragIdx === visibleIdx) { setDragIdx(null); setOverIdx(null); return; }
+    const reorderedVisible = [...visibleFields];
+    const [moved] = reorderedVisible.splice(dragIdx, 1);
+    reorderedVisible.splice(visibleIdx, 0, moved);
+    
+    setItems([...reorderedVisible, ...hiddenFields]);
     setDragIdx(null);
     setOverIdx(null);
+  };
+
+  const saveVisibilityToSupabase = async (newVis: Record<string, Record<string, boolean>>) => {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from('user_preferences')
+        .select('settings')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const currentSettings = (data as any)?.settings || {};
+      const newSettings = {
+        ...currentSettings,
+        fieldVisibility: newVis
+      };
+      await supabase.from('user_preferences').upsert(
+        { user_id: user.id, settings: newSettings },
+        { onConflict: 'user_id' }
+      );
+      sonnerToast.success("Field visibility saved");
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error saving visibility", variant: "destructive" });
+    }
+  };
+
+  const toggleVisibility = (id: string, isVisible: boolean) => {
+    if (id === "firstName" || id === "phone") return;
+
+    setFieldVisibility(prev => {
+      const typeVis = { ...(prev[activeType] || {}) };
+      typeVis[id] = isVisible;
+      const next = { ...prev, [activeType]: typeVis };
+      
+      if (visibilitySaveTimer.current) clearTimeout(visibilitySaveTimer.current);
+      visibilitySaveTimer.current = setTimeout(() => {
+        saveVisibilityToSupabase(next);
+      }, 1500);
+
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -1471,10 +1536,12 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
       </div>
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        {items.length === 0 ? (
+        {visibleFields.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground italic">No fields configured for this type.</div>
         ) : (
-          items.map((item, idx) => (
+          visibleFields.map((item, idx) => {
+            const isProtected = item.id === "firstName" || item.id === "phone";
+            return (
             <div
               key={item.id}
               draggable
@@ -1486,15 +1553,83 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
             >
               <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
               <div className="flex-1 flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">{item.name}</span>
-                {item.isCustom ? (
-                  <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded border border-blue-500/20 uppercase tracking-tight">Custom</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{item.name}</span>
+                  {item.isCustom ? (
+                    <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded border border-blue-500/20 uppercase tracking-tight">Custom</span>
+                  ) : (
+                    <span className="text-[10px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border uppercase tracking-tight">Standard</span>
+                  )}
+                </div>
+                {isProtected ? (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button disabled className="p-1.5 text-muted-foreground/40 cursor-not-allowed">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>This field cannot be hidden</p></TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 ) : (
-                  <span className="text-[10px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border uppercase tracking-tight">Standard</span>
+                  <button
+                    onClick={() => toggleVisibility(item.id, false)}
+                    className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
+                    title="Hide field"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
                 )}
               </div>
             </div>
-          ))
+          )})
+        )}
+      </div>
+
+      {/* Hidden Fields Section */}
+      <div className="mt-6 border border-border rounded-xl bg-muted/20 overflow-hidden">
+        <button
+          onClick={() => setShowHidden(!showHidden)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-muted/40 hover:bg-muted/60 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">Hidden Fields</span>
+            <span className="text-xs bg-card border border-border px-2 py-0.5 rounded-full font-medium text-muted-foreground">
+              {hiddenFields.length}
+            </span>
+          </div>
+          {showHidden ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+        
+        {showHidden && hiddenFields.length > 0 && (
+          <div className="border-t border-border">
+            {hiddenFields.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 hover:bg-accent/30 transition-all opacity-75"
+              >
+                <div className="w-4 h-4 shrink-0" /> {/* Spacer for grip */}
+                <div className="flex-1 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground line-through">{item.name}</span>
+                    {item.isCustom ? (
+                      <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded border border-blue-500/20 uppercase tracking-tight">Custom</span>
+                    ) : (
+                      <span className="text-[10px] font-bold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border uppercase tracking-tight">Standard</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => toggleVisibility(item.id, true)}
+                    className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
+                    title="Restore field"
+                  >
+                    <EyeOff className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

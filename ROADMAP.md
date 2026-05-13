@@ -5,6 +5,17 @@
 
 ---
 
+## Work Log — 2026-05-13: BUILD: Per-User Field Visibility Toggles in Field Layout
+
+- **Per-User Visibility**: Added visibility toggling for contact fields in the Field Layout settings. Users can now hide fields (e.g. `weight`, `carrier`) per-user, stored in `user_preferences.settings.fieldVisibility`.
+- **Hidden Fields Tray**: Hidden fields are moved to a collapsible "Hidden Fields" section at the bottom of the UI, keeping the primary layout clean.
+- **Protected Fields**: Enforced `firstName` and `phone` as always-visible and non-toggleable across all contact types (lead, client, recruit).
+- **Persistence**: Implemented a 1500ms debounced auto-save pattern for visibility toggles, deep-merging updates into the user's JSONB preferences blob in Supabase.
+- **TypeScript**: `npx tsc --noEmit` → 0 errors.
+- **Files touched**: `src/components/settings/ContactManagement.tsx`.
+
+---
+
 ## Work Log — 2026-05-13: BUILD: Clean Stat Card Block — No Category Labels, Color Legend Only
 
 - **Visual Refactor**: Removed category section labels (ACTIVITY, RESULTS, PIPELINE, TEAM) from the main stat cards view to achieve a cleaner, more unified aesthetic.
