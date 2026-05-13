@@ -243,6 +243,7 @@ export interface ReportCallSummary {
   conversion_rate_pct: number;
   calls_by_agent: {
     agent_id: string;
+    agent_name: string;
     total: number;
     contacted: number;
     converted: number;

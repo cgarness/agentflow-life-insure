@@ -2830,3 +2830,51 @@ A security audit identified three settings tables with overly permissive RLS pol
 
 **Files touched:** `supabase/migrations/20260512130000_fix_settings_rls_cross_org_leak.sql` (new), `ROADMAP.md`.
 
+---
+
+## Work Log — 2026-05-13
+
+### BUGFIX: Reports No-Data Redirect Removal + RPC Data Accuracy Audit `[DONE]`
+
+**What was done:**
+
+Removed the full-page dialer redirect/CTA that hid the entire Reports dashboard when no call data existed, and fixed 7 data accuracy bugs identified during the audit.
+
+**Bugs Fixed:**
+
+| # | Bug | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | Full-page "Launch Dialer Engine" CTA hides dashboard when `total_calls === 0` | HIGH | Removed `hasData` check and CTA block from Reports.tsx. Dashboard always renders. |
+| 2 | `is_contacted` RPC definition uses `d.name ILIKE 'dnc'` string matching | HIGH | Changed to `d.auto_add_to_dnc = true` in all 4 RPCs |
+| 3 | `calls_by_agent` missing `agent_name` → Top Performer stat always shows undefined | HIGH | Added `JOIN profiles` to `agent_stats` CTE in `rpc_report_call_summary` |
+| 4 | `dateRange` prop type mismatch (`from/to` vs `start/end`) → Calls per Day always = Total Calls | HIGH | Changed StatsGrid interface to `{ start?: Date; end?: Date }` |
+| 5 | Disposition breakdown `INNER JOIN` excludes undispositioned calls | MEDIUM | Changed to `LEFT JOIN` with `COALESCE(d.name, '[No Disposition]')` |
+| 6 | No loading skeletons for stat cards | MEDIUM | Added skeleton placeholder rendering in `buildStatComponents()` when `loading=true` |
+| 7 | `useNavigate` import left in Reports.tsx after redirect removal | LOW | Removed import and declaration |
+| 8 | `d.color_hex` column doesn't exist (should be `d.color`) | HIGH | Fixed in `rpc_report_disposition_breakdown` |
+
+**Verification Results (prod `jncvvsvckxhqgqvkppmj`, org `a0000000-...0001`, 30-day window):**
+
+| Metric | Raw SQL | RPC Result | Match? |
+|--------|---------|------------|--------|
+| total_calls | 8 | 8 | ✅ |
+| outbound | 4 | 4 | ✅ |
+| inbound | 4 | 4 | ✅ |
+| contacted | 2 | 2 | ✅ |
+| converted | 0 | 0 | ✅ |
+| agent_name | — | "Chris Garness" | ✅ (was undefined) |
+| by_date totals | 3+1+4 = 8 | 3+1+4 = 8 | ✅ |
+| by_disposition (with LEFT JOIN) | 8 [No Disposition] | 8 [No Disposition] | ✅ (was 0) |
+
+**Migrations applied:**
+- `20260513180000_fix_reports_rpcs_data_accuracy.sql` — main fix (4 RPCs)
+- `fix_disposition_breakdown_color_column` — hotfix for `color_hex` → `color`
+
+**TypeScript:** `npx tsc --noEmit` → 0 errors
+
+**Files touched:**
+- `src/pages/Reports.tsx` — removed redirect CTA, `useNavigate`, `hasData`
+- `src/components/reports/StatsGrid.tsx` — fixed `dateRange` prop, added loading skeletons
+- `src/lib/reports-queries.ts` — added `agent_name` to `ReportCallSummary.calls_by_agent` type
+- `supabase/migrations/20260513180000_fix_reports_rpcs_data_accuracy.sql` (new)
+

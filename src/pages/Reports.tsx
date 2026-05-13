@@ -6,7 +6,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
@@ -66,7 +65,6 @@ const PRESET_LABELS: Record<Preset, string> = {
 const Reports: React.FC = () => {
   const { profile, user } = useAuth();
   const { formatDate } = useBranding();
-  const navigate = useNavigate();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
   const orgId = profile?.organization_id ?? null;
 
@@ -212,7 +210,7 @@ const Reports: React.FC = () => {
     downloadCSV("reports-summary", ["Metric", "Value"], rows);
   };
 
-  const hasData = (summary?.total_calls || 0) > 0 || leads.length > 0;
+
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
@@ -341,59 +339,49 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      {!hasData && !loading ? (
-        <div className="flex flex-col items-center justify-center py-32 text-center bg-white dark:bg-slate-900/50 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800 shadow-inner">
-          <div className="p-6 bg-slate-100 dark:bg-slate-800 rounded-full mb-6">
-            <BarChart3 className="w-12 h-12 text-slate-300 dark:text-slate-600" />
-          </div>
-          <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-2 tracking-tight">Intelligence Stream Empty</h2>
-          <p className="text-slate-500 max-w-sm mb-8 font-medium">We couldn't find any performance data for the selected parameters. Start your outreach to populate this dashboard.</p>
-          <Button 
-            onClick={() => navigate("/dialer")}
-            className="h-12 px-8 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 transition-all hover:scale-105 active:scale-95"
-          >
-            Launch Dialer Engine
-          </Button>
+      {comparing && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-accent/50 rounded-lg px-3 py-2">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary" /> {formatDate(range.start)} – {formatDate(range.end)}</span>
+          <span>vs</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary/30" /> {formatDate(compRange.start)} – {formatDate(compRange.end)}</span>
         </div>
-      ) : (
-        <>
-          <ReportCustomizer
-            editMode={editMode}
-            isAdmin={isAdmin}
-            onSave={handleSaveLayout}
-            onReset={handleResetLayout}
-            onSaveAsDefault={handleSaveAsDefault}
-          />
+      )}
 
-          {layout && layout.sections && (
-            <SectionRenderer
-              sections={layout.sections}
-              editMode={editMode}
-              isAdmin={isAdmin}
-              onSectionsChange={handleSectionsChange}
-              components={{
-                ...buildStatComponents({
-                  summary, breakdown, volume, sessions, agents, activeLeadsCount, dispositions,
-                  dateRange: { from: range.start, to: range.end },
-                  loading,
-                }),
-                call_volume: <CallVolumeChart volume={volume} grouping={grouping} onGroupingChange={setGrouping} loading={loading} />,
-                conversion_funnel: <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />,
-                communications_stats: <CommunicationsStats summary={summary} range={range} loading={loading} />,
-                calling_heatmap: <CallingHeatmap volume={volume} loading={loading} />,
-                call_flow_analysis: <CallFlowAnalysis volume={volume} loading={loading} />,
-                call_duration_analysis: <CallDurationAnalysis breakdown={breakdown} loading={loading} />,
-                disposition_deep_dive: <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />,
-                policies_sold: <PoliciesSoldChart summary={summary} volume={volume} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} />,
-                campaign_performance: <CampaignPerformance performance={performance} loading={loading} />,
-                lead_source_roi: <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />,
-                agent_performance_cards: <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />,
-                agent_efficiency: <AgentEfficiency summary={summary} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />,
-                goal_tracking: <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
-              }}
-            />
-          )}
-        </>
+      <ReportCustomizer
+        editMode={editMode}
+        isAdmin={isAdmin}
+        onSave={handleSaveLayout}
+        onReset={handleResetLayout}
+        onSaveAsDefault={handleSaveAsDefault}
+      />
+
+      {layout && layout.sections && (
+        <SectionRenderer
+          sections={layout.sections}
+          editMode={editMode}
+          isAdmin={isAdmin}
+          onSectionsChange={handleSectionsChange}
+          components={{
+            ...buildStatComponents({
+              summary, breakdown, volume, sessions, agents, activeLeadsCount, dispositions,
+              dateRange: { from: range.start, to: range.end },
+              loading,
+            }),
+            call_volume: <CallVolumeChart volume={volume} grouping={grouping} onGroupingChange={setGrouping} loading={loading} />,
+            conversion_funnel: <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />,
+            communications_stats: <CommunicationsStats summary={summary} range={range} loading={loading} />,
+            calling_heatmap: <CallingHeatmap volume={volume} loading={loading} />,
+            call_flow_analysis: <CallFlowAnalysis volume={volume} loading={loading} />,
+            call_duration_analysis: <CallDurationAnalysis breakdown={breakdown} loading={loading} />,
+            disposition_deep_dive: <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />,
+            policies_sold: <PoliciesSoldChart summary={summary} volume={volume} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} />,
+            campaign_performance: <CampaignPerformance performance={performance} loading={loading} />,
+            lead_source_roi: <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />,
+            agent_performance_cards: <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />,
+            agent_efficiency: <AgentEfficiency summary={summary} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />,
+            goal_tracking: <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
+          }}
+        />
       )}
 
       <CustomReportBuilder open={showMyReports} onClose={() => setShowMyReports(false)} agents={agents} userId={user?.id || ""} onLoadReport={() => {}} />
