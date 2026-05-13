@@ -95,19 +95,20 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
       <div className="relative">
         {url ? (
           <div className="flex items-center gap-4">
-            <label 
-              className={`${previewSize} overflow-hidden flex items-center justify-center bg-accent border border-border ${commonClasses}`}
+            <div 
+              className={`relative ${previewSize} overflow-hidden flex items-center justify-center bg-accent border border-border ${commonClasses}`}
               title="Click to change"
             >
               <img src={url} alt={label} className="w-full h-full object-cover" />
-              <input
-                type="file"
-                accept={accept}
-                className="sr-only"
-                disabled={disabled}
-                onChange={handleFileChange}
-              />
-            </label>
+              {!disabled && (
+                <input
+                  type="file"
+                  accept={accept}
+                  className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                  onChange={handleFileChange}
+                />
+              )}
+            </div>
             <div>
               <p className="text-sm text-foreground">{name}</p>
               <button
@@ -117,29 +118,30 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
                   onChange(null, null);
                 }}
                 disabled={disabled}
-                className="text-xs mt-1 font-medium text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                className="text-xs mt-1 font-medium text-destructive disabled:cursor-not-allowed disabled:opacity-50 relative z-20"
               >
                 Remove
               </button>
             </div>
           </div>
         ) : (
-          <label
+          <div
             onDragOver={e => e.preventDefault()}
             onDrop={handleDrop}
-            className={`block rounded-md ${dropPadding} text-center border-2 border-dashed border-border bg-transparent ${commonClasses}`}
+            className={`relative block rounded-md ${dropPadding} text-center border-2 border-dashed border-border bg-transparent ${commonClasses}`}
           >
             <Icon className={`${iconSize} mx-auto text-muted-foreground`} />
             <p className="text-sm text-muted-foreground">{dropText}</p>
             <p className="text-xs mt-1 text-muted-foreground">{hint}</p>
-            <input
-              type="file"
-              accept={accept}
-              className="sr-only"
-              disabled={disabled}
-              onChange={handleFileChange}
-            />
-          </label>
+            {!disabled && (
+              <input
+                type="file"
+                accept={accept}
+                className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                onChange={handleFileChange}
+              />
+            )}
+          </div>
         )}
       </div>
     </div>
