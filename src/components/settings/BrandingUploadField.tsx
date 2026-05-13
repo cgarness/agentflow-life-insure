@@ -85,7 +85,6 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
     ? "JPG, PNG, SVG — max 5MB"
     : "ICO, PNG — max 1MB — recommended 64×64px";
 
-  const uploadId = `upload-${kind}`;
   const commonClasses = `transition-colors ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:opacity-80"}`;
 
   return (
@@ -97,17 +96,26 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
         {url ? (
           <div className="flex items-center gap-4">
             <label 
-              htmlFor={uploadId}
               className={`${previewSize} overflow-hidden flex items-center justify-center bg-accent border border-border ${commonClasses}`}
               title="Click to change"
             >
               <img src={url} alt={label} className="w-full h-full object-cover" />
+              <input
+                type="file"
+                accept={accept}
+                className="sr-only"
+                disabled={disabled}
+                onChange={handleFileChange}
+              />
             </label>
             <div>
               <p className="text-sm text-foreground">{name}</p>
               <button
                 type="button"
-                onClick={() => onChange(null, null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(null, null);
+                }}
                 disabled={disabled}
                 className="text-xs mt-1 font-medium text-destructive disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -117,7 +125,6 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
           </div>
         ) : (
           <label
-            htmlFor={uploadId}
             onDragOver={e => e.preventDefault()}
             onDrop={handleDrop}
             className={`block rounded-md ${dropPadding} text-center border-2 border-dashed border-border bg-transparent ${commonClasses}`}
@@ -125,18 +132,15 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
             <Icon className={`${iconSize} mx-auto text-muted-foreground`} />
             <p className="text-sm text-muted-foreground">{dropText}</p>
             <p className="text-xs mt-1 text-muted-foreground">{hint}</p>
+            <input
+              type="file"
+              accept={accept}
+              className="sr-only"
+              disabled={disabled}
+              onChange={handleFileChange}
+            />
           </label>
         )}
-        
-        <input
-          id={uploadId}
-          ref={inputRef}
-          type="file"
-          accept={accept}
-          className="hidden"
-          disabled={disabled}
-          onChange={handleFileChange}
-        />
       </div>
     </div>
   );
