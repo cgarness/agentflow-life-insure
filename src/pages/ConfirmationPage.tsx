@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Mail, ArrowRight } from "lucide-react";
 import AnimatedBackground from "@/components/AnimatedBackground";
+import Logo from "@/components/shared/Logo";
 
 const ConfirmationPage: React.FC = () => {
   const location = useLocation();
@@ -35,9 +36,8 @@ const ConfirmationPage: React.FC = () => {
           }} />
 
           {/* Wordmark */}
-          <div style={{ marginBottom: '24px' }}>
-            <span style={{ color: '#F1F5F9', fontWeight: 800, fontSize: '30px', fontFamily: '-apple-system, sans-serif' }}>Agent</span>
-            <span style={{ color: '#3B82F6', fontWeight: 800, fontSize: '30px', fontFamily: '-apple-system, sans-serif', textShadow: '0 0 20px rgba(59,130,246,0.7)' }}>Flow</span>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+            <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5" />
           </div>
 
           <div style={{ 

@@ -5,16 +5,20 @@
 
 ---
 
-## Work Log — 2026-05-13: BUILD: Per-User Field Visibility Toggles in Field Layout
+## Work Log — 2026-05-13: BUILD: Implementing AgentFlow Brand Identity
 
-- **Per-User Visibility**: Added visibility toggling for contact fields in the Field Layout settings. Users can now hide fields (e.g. `weight`, `carrier`) per-user, stored in `user_preferences.settings.fieldVisibility`.
-- **Hidden Fields Tray**: Hidden fields are moved to a collapsible "Hidden Fields" section at the bottom of the UI, keeping the primary layout clean.
-- **Protected Fields**: Enforced `firstName` and `phone` as always-visible and non-toggleable across all contact types (lead, client, recruit).
-- **Persistence**: Implemented a 1500ms debounced auto-save pattern for visibility toggles, deep-merging updates into the user's JSONB preferences blob in Supabase.
-- **TypeScript**: `npx tsc --noEmit` → 0 errors.
-- **Files touched**: `src/components/settings/ContactManagement.tsx`.
+- **Platform-Wide Rebranding**: Replaced legacy "AF" text-based placeholders and hardcoded "AgentFlow" text logos with new high-fidelity assets (`agentflow-icon.png`, `agentflow-wordmark.png`, `agentflow-logo-full.png`). Assets were verified for transparency and placed in `/public/`.
+- **Logo Component Update**: Refactored `Logo.tsx` fallback behavior to use the new icon and wordmark assets as defaults when no company-specific branding is present. Removed legacy `mixBlendMode` styling as the new assets are background-transparent.
+- **UI Updates**:
+    - **Sidebar**: Replaced "AF" fallback with `agentflow-icon.png`. Kept company name as text next to it for clarity.
+    - **MarketingNav**: Replaced text-based logo with `agentflow-logo-full.png`.
+    - **Authentication Pages**: Standardized `LoginPage`, `ForgotPassword`, `ResetPassword`, and `ConfirmationPage` to use the `Logo` component instead of hardcoded text placeholders.
+- **Email Branding**: Replaced CSS-based text logos in `send-invite-email`, `send-welcome-email`, and `confirmation_template.txt` with hosted image assets (`https://fflagent.com/agentflow-logo-full.png`) for professional consistency across all email clients.
+- **Site Metadata**: Updated `index.html` favicon link and page title to "AgentFlow".
+- **Files touched**: `index.html`, `src/components/shared/Logo.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/marketing/MarketingNav.tsx`, `src/pages/ForgotPassword.tsx`, `src/pages/ResetPassword.tsx`, `src/pages/ConfirmationPage.tsx`, `supabase/functions/send-invite-email/index.ts`, `supabase/functions/send-welcome-email/index.ts`, `supabase/functions/send-welcome-email/confirmation_template.txt`.
 
 ---
+
 
 ## Work Log — 2026-05-13: BUILD: Clean Stat Card Block — No Category Labels, Color Legend Only
 

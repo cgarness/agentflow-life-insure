@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
+import Logo from "@/components/shared/Logo";
 
 const ResetPassword: React.FC = () => {
   const navigate = useNavigate();
@@ -65,8 +66,8 @@ const ResetPassword: React.FC = () => {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4">
-            <span className="text-primary-foreground font-bold text-xl">AF</span>
+          <div className="flex justify-center mb-4">
+            <Logo variant="icon" iconClassName="h-12 w-12" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">Set New Password</h1>
           <p className="text-sm text-muted-foreground mt-1">Choose a strong password for your account</p>

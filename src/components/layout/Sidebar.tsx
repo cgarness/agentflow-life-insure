@@ -48,12 +48,18 @@ const Sidebar: React.FC = () => {
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
       <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
         <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
-          <Logo 
-            variant={collapsed ? "icon" : "full"} 
-            className={collapsed ? "gap-0" : "gap-3"}
-            iconClassName="h-8 w-8"
-            textClassName="h-3.5"
-          />
+          <div className="flex items-center gap-3">
+            <img 
+              src={branding.logoUrl || "/agentflow-icon.png"} 
+              alt={branding.companyName || "AgentFlow"}
+              className="h-8 w-8 object-contain"
+            />
+            {!collapsed && (
+              <span className="font-bold text-lg tracking-tight text-slate-100 whitespace-nowrap">
+                {branding.companyName || "AgentFlow"}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

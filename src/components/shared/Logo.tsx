@@ -46,18 +46,16 @@ const Logo: React.FC<LogoProps> = ({
   }
 
   // Fallback to original AgentFlow branding
-  const iconSrc = isDark ? "/icon-dark.png" : "/icon-white.png";
-  const textSrc = isDark ? "/logo-text-dark.png" : "/logo-text-white.png";
-  const blendMode = isDark ? "screen" : "multiply";
+  const iconSrc = "/agentflow-icon.png";
+  const textSrc = "/agentflow-wordmark.png";
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
       {showIcon && (
         <img
           src={iconSrc}
-          alt="AgentFlow Icon"
+          alt="AgentFlow"
           className={cn("h-8 w-8 object-contain", iconClassName)}
-          style={{ mixBlendMode: blendMode as any }}
         />
       )}
       {showText && (
@@ -65,7 +63,6 @@ const Logo: React.FC<LogoProps> = ({
           src={textSrc}
           alt="AgentFlow"
           className={cn("h-5 object-contain", textClassName)}
-          style={{ mixBlendMode: blendMode as any }}
         />
       )}
     </div>

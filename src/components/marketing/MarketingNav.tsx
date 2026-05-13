@@ -44,7 +44,11 @@ const MarketingNav: React.FC = () => {
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Left – Logo */}
         <Link to="/landing" className="flex items-center">
-          <Logo variant="full" iconClassName="h-9 w-9" textClassName="h-4" />
+          <img 
+            src="/agentflow-logo-full.png" 
+            alt="AgentFlow" 
+            className="h-8 w-auto object-contain" 
+          />
         </Link>
 
         {/* Center – Desktop nav */}

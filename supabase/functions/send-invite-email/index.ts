@@ -63,12 +63,9 @@ serve(async (req: Request) => {
             text-align: center;
         }
         .logo {
-            font-size: 32px;
-            font-weight: 800;
+            padding: 0;
             margin-bottom: 24px;
         }
-        .logo-agent { color: #F1F5F9; }
-        .logo-flow { color: #3B82F6; }
         .hero {
             padding: 0 40px 40px;
             text-align: center;
@@ -129,7 +126,7 @@ serve(async (req: Request) => {
     <div class="container">
         <div class="header">
             <div class="logo">
-                <span class="logo-agent">Agent</span><span class="logo-flow">Flow</span>
+                <img src="https://fflagent.com/agentflow-logo-full.png" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" />
             </div>
         </div>
         
