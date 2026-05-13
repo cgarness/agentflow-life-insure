@@ -125,6 +125,14 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-13 | [DONE] | Phase 4B: Reports Customization Engine**
+  *What:* Built a drag-and-drop customization engine for the Reports dashboard allowing users to reorder sections, toggle visibility, and persist preferences.
+  *Architecture:* Added `report_layouts` table (uuid id, user_id, organization_id, layout jsonb). Unique partial indexes ensure one layout per user per org, and one org default per org.
+  *Persistence Chain:* `fetchUserLayout` loads the user's layout. If none, loads org default. If none, loads hardcoded `DEFAULT_LAYOUT`. A `mergeWithDefault` helper automatically appends newly shipped components to existing user layouts to prevent orphaned features.
+  *UI Flow:* A subtle top banner activates in "Edit Mode". Sections are wrapped in `DraggableSection` which surfaces Grip and Eye toggles. Users drag to reorder and toggle visibility. Hidden sections collapse to a slim grayed-out placeholder indicating they are inactive. "Done" saves to DB.
+  *Admin Capabilities:* Admins get a "Set as org default" button which saves their current layout as the baseline for all users without a personal layout.
+  *Files:* `supabase/migrations/20260513130000_report_layouts.sql`, `src/lib/report-layout-constants.ts`, `src/lib/report-layout.ts`, `src/components/reports/DraggableSection.tsx`, `src/components/reports/ReportCustomizer.tsx`, `src/components/reports/TabContentRenderer.tsx`, `src/pages/Reports.tsx`.
+
 - **2026-05-13 | [DONE] | Phase 4A: Reports Tab UX Overhaul (Layout + Polish)**
   *What:* Restructured the Reports page from a single long scroll into a structured, tabbed layout. Built foundational UI for the future customization engine.
   *Tab Structure:* Split metrics into 4 tabs (Overview, Calls, Pipeline, Team). `Reports.tsx` now conditionally renders components based on `activeTab`. Team tab is restricted to Admins/Team Leaders.
