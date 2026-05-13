@@ -52,7 +52,7 @@ const Sidebar: React.FC = () => {
             variant={collapsed ? "icon" : "full"} 
             className={collapsed ? "gap-0" : "gap-3"}
             iconClassName="h-8 w-8"
-            textClassName="h-3.5 invert brightness-200" // Invert and brighten to make the dark logo text white
+            textClassName="h-3.5"
           />
         </div>
       </div>

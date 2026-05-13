@@ -63,7 +63,7 @@ const LoginPage: React.FC = () => {
 
           {/* Wordmark */}
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
-            <Logo variant="full" iconClassName="h-12 w-12" textClassName="h-6 invert brightness-200" />
+            <Logo variant="full" iconClassName="h-12 w-12" textClassName="h-6" />
           </div>
 
           {/* Underline bar */}

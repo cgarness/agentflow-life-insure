@@ -38,7 +38,7 @@ export default function AuthCallback() {
         fontFamily: "Inter, sans-serif"
       }}>
         <div style={{ marginBottom: "24px" }}>
-          <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5 invert brightness-200" />
+          <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5" />
         </div>
         <div style={{
           width: "48px", height: "48px", border: "3px solid #334155",
@@ -59,7 +59,7 @@ export default function AuthCallback() {
         fontFamily: "Inter, sans-serif", padding: "24px"
       }}>
         <div style={{ marginBottom: "32px" }}>
-          <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5 invert brightness-200" />
+          <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5" />
         </div>
         <div style={{
           width: "80px", height: "80px", borderRadius: "50%",
@@ -93,7 +93,7 @@ export default function AuthCallback() {
       fontFamily: "Inter, sans-serif", padding: "24px"
     }}>
       <div style={{ marginBottom: "32px" }}>
-        <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5 invert brightness-200" />
+        <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5" />
       </div>
       <div style={{
         width: "80px", height: "80px", borderRadius: "50%",
