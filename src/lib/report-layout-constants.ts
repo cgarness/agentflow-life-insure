@@ -1,38 +1,58 @@
+import { STAT_DEFINITIONS, STAT_CATEGORIES as STAT_CATEGORY_META } from "@/lib/stat-computations";
+
 export interface SectionConfig {
   id: string;
   visible: boolean;
 }
 
 export interface ReportLayoutConfig {
-  version: 2;
+  version: 3;
   sections: SectionConfig[];
 }
 
+/** Category color map (re-exported for convenience). */
+export const STAT_CATEGORIES = STAT_CATEGORY_META;
+
+/** First 20 stat IDs that ship visible by default — order matters. */
+export const DEFAULT_VISIBLE_STATS: string[] = [
+  "stat_total_dials",
+  "stat_contact_rate",
+  "stat_policies_sold",
+  "stat_contacted_to_close",
+  "stat_appointments_set",
+  "stat_appt_to_close",
+  "stat_dials_per_sale",
+  "stat_calls_per_hour",
+  "stat_call_to_close",
+  "stat_total_talk_time",
+  "stat_speed_to_contact",
+  "stat_contacted_to_appt",
+  "stat_avg_talk_contacted",
+  "stat_dnc_rate",
+  "stat_unique_leads",
+  "stat_callback_rate",
+  "stat_active_leads",
+  "stat_first_dial_contact",
+  "stat_calls_per_day",
+  "stat_top_performer",
+];
+
+const ALL_STAT_IDS = STAT_DEFINITIONS.map((d) => d.id);
+
+const buildDefaultStatSections = (): SectionConfig[] => {
+  const visibleSet = new Set(DEFAULT_VISIBLE_STATS);
+  const visibleOrdered: SectionConfig[] = DEFAULT_VISIBLE_STATS.map((id) => ({ id, visible: true }));
+  const hiddenOrdered: SectionConfig[] = ALL_STAT_IDS
+    .filter((id) => !visibleSet.has(id))
+    .map((id) => ({ id, visible: false }));
+  return [...visibleOrdered, ...hiddenOrdered];
+};
+
 export const DEFAULT_LAYOUT: ReportLayoutConfig = {
-  version: 2,
+  version: 3,
   sections: [
-    // 20 stat cards
-    { id: "stat_total_dials", visible: true },
-    { id: "stat_contact_rate", visible: true },
-    { id: "stat_policies_sold", visible: true },
-    { id: "stat_contacted_to_close", visible: true },
-    { id: "stat_appointments_set", visible: true },
-    { id: "stat_appt_to_close", visible: true },
-    { id: "stat_dials_per_sale", visible: true },
-    { id: "stat_calls_per_hour", visible: true },
-    { id: "stat_call_to_close", visible: true },
-    { id: "stat_total_talk_time", visible: true },
-    { id: "stat_speed_to_contact", visible: true },
-    { id: "stat_contacted_to_appt", visible: true },
-    { id: "stat_avg_talk_time", visible: true },
-    { id: "stat_dnc_rate", visible: true },
-    { id: "stat_unique_leads", visible: true },
-    { id: "stat_callback_rate", visible: true },
-    { id: "stat_active_leads", visible: true },
-    { id: "stat_first_dial_contact", visible: true },
-    { id: "stat_calls_per_day", visible: true },
-    { id: "stat_top_performer", visible: true },
-    
+    ...buildDefaultStatSections(),
+
     // Paired sections
     { id: "call_volume", visible: true },
     { id: "conversion_funnel", visible: true },
@@ -44,10 +64,27 @@ export const DEFAULT_LAYOUT: ReportLayoutConfig = {
     { id: "policies_sold", visible: true },
     { id: "campaign_performance", visible: true },
     { id: "lead_source_roi", visible: true },
-    
+
     // Team sections (Admin/Team Leader only)
     { id: "agent_performance_cards", visible: true },
     { id: "agent_efficiency", visible: true },
-    { id: "goal_tracking", visible: true }
-  ]
+    { id: "goal_tracking", visible: true },
+  ],
 };
+
+/**
+ * Migrate a saved layout to the latest version, appending any newly registered
+ * stat IDs as hidden so the user doesn't lose access to them.
+ */
+export function migrateLayout(saved: { version?: number; sections?: SectionConfig[] } | null | undefined): ReportLayoutConfig {
+  if (!saved || !saved.sections) return DEFAULT_LAYOUT;
+  const known = new Set(saved.sections.map((s) => s.id));
+  const appended: SectionConfig[] = [];
+  for (const id of ALL_STAT_IDS) {
+    if (!known.has(id)) appended.push({ id, visible: false });
+  }
+  return {
+    version: 3,
+    sections: [...saved.sections, ...appended],
+  };
+}

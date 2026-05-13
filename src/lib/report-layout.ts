@@ -26,7 +26,7 @@ function mergeWithDefault(fetched: any): ReportLayoutConfig {
       seen.add(s.id);
       return true;
     });
-  } else if (fetched.version === 2 && Array.isArray(fetched.sections)) {
+  } else if ((fetched.version === 2 || fetched.version === 3) && Array.isArray(fetched.sections)) {
     fetchedSections = fetched.sections;
   } else {
     // Unknown format or missing sections

@@ -1,6 +1,7 @@
 import React from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { STAT_CATEGORIES, StatCategory } from "@/lib/stat-computations";
 
 interface Trend {
   value: number;
@@ -13,41 +14,68 @@ interface StatCardProps {
   value: string;
   subtitle?: string;
   trend?: Trend;
+  category?: StatCategory;
   comingSoon?: boolean;
+  noData?: boolean;
+  smallValue?: boolean;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, subtitle, trend, comingSoon }) => {
+const StatCard: React.FC<StatCardProps> = ({
+  label, value, subtitle, trend, category, comingSoon, noData, smallValue,
+}) => {
+  const accent = comingSoon
+    ? "var(--color-border-tertiary, hsl(var(--border)))"
+    : category ? STAT_CATEGORIES[category].color : "hsl(var(--border))";
+
+  const muted = comingSoon || noData;
+  const trendGood = trend
+    ? (trend.value > 0 && trend.isGoodUp !== false) || (trend.value < 0 && trend.isGoodUp === false)
+    : false;
+
   return (
-    <div className="group relative overflow-hidden bg-card border border-border/50 rounded-[1.5rem] p-5 flex flex-col justify-between shadow-sm hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:-translate-y-1 min-h-[120px]">
-      {/* Background accent */}
-      <div className={cn(
-        "absolute top-0 right-0 w-24 h-24 -mr-12 -mt-12 rounded-full blur-2xl transition-opacity opacity-0 group-hover:opacity-100",
-        trend ? (
-          ((trend.value > 0 && trend.isGoodUp !== false) || (trend.value < 0 && trend.isGoodUp === false))
-            ? "bg-emerald-500/10"
-            : "bg-rose-500/10"
-        ) : "bg-primary/5"
-      )} />
-      
-      <div className="relative z-10">
-        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.1em] mb-2">{label}</p>
-        <p className={cn("text-3xl font-black tracking-tighter leading-none", comingSoon ? "text-muted-foreground/40" : "text-foreground")}>
+    <div
+      className={cn(
+        "group relative bg-card border border-border/50 flex flex-col justify-between transition-all",
+        comingSoon && "opacity-50",
+      )}
+      style={{
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: 0,
+        padding: "12px 14px",
+        minHeight: 88,
+      }}
+    >
+      <div>
+        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.08em] mb-1 truncate">{label}</p>
+        <p
+          className={cn(
+            "font-medium tracking-tight leading-tight truncate",
+            muted ? "text-muted-foreground" : "text-foreground",
+          )}
+          style={{ fontSize: smallValue ? 16 : 22 }}
+          title={value}
+        >
           {value}
         </p>
+        {comingSoon && (
+          <p className="text-[10px] text-muted-foreground/70 mt-0.5">Coming soon</p>
+        )}
       </div>
 
-      <div className="relative z-10 flex items-center justify-between mt-4">
+      <div className="flex items-center justify-between mt-2 gap-2">
         <div className="flex-1 min-w-0">
-          {subtitle && <p className="text-[11px] text-muted-foreground font-semibold truncate pr-2">{subtitle}</p>}
+          {subtitle && !comingSoon && (
+            <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p>
+          )}
         </div>
         {trend && trend.value !== 0 && (
-          <div className={cn(
-            "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black",
-            ((trend.value > 0 && trend.isGoodUp !== false) || (trend.value < 0 && trend.isGoodUp === false)) 
-              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
-              : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-          )}>
-            {trend.value > 0 ? <TrendingUp className="w-3 h-3 stroke-[3]" /> : <TrendingDown className="w-3 h-3 stroke-[3]" />}
+          <div
+            className={cn(
+              "flex items-center gap-0.5 text-[10px] font-semibold",
+              trendGood ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+            )}
+          >
+            {trend.value > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
             <span>{Math.abs(trend.value).toFixed(1)}%</span>
           </div>
         )}

@@ -1,7 +1,21 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 2, 2026
+**Owner:** Chris Garness | **Last Updated:** May 13, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-13: Stat Library Expansion (20 → 62)
+
+- **Stat registry**: New `src/lib/stat-computations.ts` defines all 62 stats as a single `STAT_DEFINITIONS` array with `id / label / category / invertTrend / comingSoon`. `computeAllStats(data)` returns a `Map<id, StatResult>` with zero-protection on every division (denominator 0 → `{ value: "—", noData: true }`).
+- **Categories & colors** (left-border accent on every card): volume `#378ADD`, contact `#1D9E75`, appointment `#7F77DD`, conversion `#639922`, pipeline `#D85A30`, agent `#BA7517`, efficiency `#888780`. Coming Soon cards use neutral border + `opacity: 0.5`.
+- **Layout**: `report-layout-constants.ts` bumped to **version 3**. Default ships 20 visible + 42 hidden. `migrateLayout()` appends new stat IDs as hidden so older saved layouts don't lose access. v2 / v1 layouts still merge via `report-layout.ts → mergeWithDefault` (v3 accepted).
+- **Visuals**: `StatCard.tsx` rewritten — compact padding (`12px 14px`), 22px value (16px for agent names), 10px uppercase label, 11px subtitle, no rounded corners, category left border. `SectionRenderer.tsx` swaps the fixed 4-col stat grid for `grid-template-columns: repeat(auto-fill, minmax(180px, 1fr))` with 10px gap.
+- **Edit mode picker**: In edit mode `SectionRenderer` renders an **Available stats — toggle to add** panel below visible cards, hidden stats grouped by category with a colored dot, label, and an eye-off button to flip `visible`.
+- **Classification (no string matching)**: appointments / DNC / callbacks all use the disposition boolean flags (`appointment_scheduler`, `auto_add_to_dnc`, `callback_scheduler`). Only `stat_not_interested_rate` does an exact case-insensitive name match (per spec).
+- **Coming Soon (20 stats)**: `stat_unique_leads`, `stat_new_leads_dialed`, `stat_followup_calls`, `stat_voicemails_left`, `stat_first_dial_contact`, `stat_followup_contact_rate`, `stat_avg_dials_to_contact`, `stat_speed_to_contact`, `stat_longest_call`, `stat_shortest_connected`, `stat_appts_kept`, `stat_appt_noshow_rate`, `stat_avg_dials_to_appt`, `stat_avg_days_to_close`, `stat_leads_contacted`, `stat_callbacks_completed`, `stat_callback_conv_rate`, `stat_lead_exhaustion`, `stat_agents_active`, `stat_sessions_per_sale`, `stat_cost_per_lead`, `stat_cost_per_appt`, `stat_cost_per_sale`.
+- **Files touched**: created `src/lib/stat-computations.ts`; updated `src/lib/report-layout-constants.ts`, `src/lib/report-layout.ts`, `src/components/reports/StatCard.tsx`, `src/components/reports/StatsGrid.tsx`, `src/components/reports/SectionRenderer.tsx`, `src/pages/Reports.tsx`.
+- **TypeScript**: `npx tsc --noEmit` → 0 errors. No component over 200 lines (StatsGrid 70, StatCard 87, SectionRenderer 191).
 
 ---
 
