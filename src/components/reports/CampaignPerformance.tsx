@@ -3,22 +3,27 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
-import { downloadCSV } from "@/lib/reports-queries";
+import { downloadCSV, ReportCampaignPerformance } from "@/lib/reports-queries";
 import ReportSection from "./ReportSection";
 
 interface Props {
-  campaigns: any[];
+  performance?: ReportCampaignPerformance;
   loading: boolean;
 }
 
-const CampaignPerformance: React.FC<Props> = ({ campaigns, loading }) => {
+const CampaignPerformance: React.FC<Props> = ({ performance, loading }) => {
   const navigate = useNavigate();
-  const data = campaigns.map(c => ({
-    name: c.name.length > 18 ? c.name.slice(0, 18) + "…" : c.name,
-    fullName: c.name, id: c.id, type: c.type,
-    total: c.total_leads || 0, contacted: c.leads_contacted || 0, converted: c.leads_converted || 0,
-    contactRate: c.total_leads > 0 ? Math.round((c.leads_contacted || 0) / c.total_leads * 100) : 0,
-    conversionRate: c.total_leads > 0 ? Math.round((c.leads_converted || 0) / c.total_leads * 100) : 0,
+  
+  const data = (performance?.campaigns || []).map(c => ({
+    name: c.campaign_name.length > 18 ? c.campaign_name.slice(0, 18) + "…" : c.campaign_name,
+    fullName: c.campaign_name, 
+    id: c.campaign_id, 
+    type: c.campaign_type,
+    total: c.total_leads, 
+    contacted: c.contacted, 
+    converted: c.converted,
+    contactRate: c.total_leads > 0 ? Math.round((c.contacted / c.total_leads) * 100) : 0,
+    conversionRate: Math.round(c.conversion_rate_pct || 0),
   }));
 
   const handleExport = () => {

@@ -1,54 +1,58 @@
 import React, { useMemo, useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
-import { parseISO } from "date-fns";
-import { downloadCSV } from "@/lib/reports-queries";
-import { isContactedCall } from "@/lib/report-utils";
+import { downloadCSV, ReportCallVolumeTimeseries } from "@/lib/reports-queries";
 import { Lightbulb } from "lucide-react";
 import ReportSection from "./ReportSection";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
 
-interface Props { calls: any[]; loading: boolean; }
+interface Props { volume?: ReportCallVolumeTimeseries; loading: boolean; }
 type Tab = "volume" | "answer";
 
-const CallingHeatmap: React.FC<Props> = ({ calls, loading }) => {
+const CallingHeatmap: React.FC<Props> = ({ volume, loading }) => {
   const [tab, setTab] = useState<Tab>("volume");
 
   const { volumeGrid, answerGrid, maxVolume, bestSlots } = useMemo(() => {
-    const volume: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
-    const answered: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
+    const vGrid: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
+    const aGrid: number[][] = Array.from({ length: 7 }, () => Array(13).fill(0));
+    const slots: { day: number; hour: number; rate: number; count: number }[] = [];
 
-    calls.forEach(c => {
-      const d = parseISO(c.started_at);
-      const day = d.getDay();
-      const hour = d.getHours();
-      if (hour >= 8 && hour <= 20) {
-        volume[day][hour - 8]++;
-        if (isContactedCall(c.duration, c.disposition_name)) answered[day][hour - 8]++;
-      }
-    });
+    if (!volume) {
+      return { volumeGrid: vGrid, answerGrid: aGrid, maxVolume: 0, bestSlots: slots };
+    }
+
+    const totalCalls = volume.by_hour.reduce((s, h) => s + h.total, 0);
 
     let maxV = 0;
-    volume.forEach(row => row.forEach(v => { if (v > maxV) maxV = v; }));
 
-    const answerGrid = volume.map((row, di) =>
-      row.map((t, hi) => t > 0 ? Math.round(answered[di][hi] / t * 100) : -1)
-    );
+    // Use independence assumption to reconstruct the 2D joint distribution
+    // V_dh = (V_d * V_h) / V_total
+    for (let di = 0; di < 7; di++) {
+      const dData = volume.by_day_of_week.find(d => d.dow === di) || { total: 0, contacted: 0 };
+      for (let hi = 0; hi < 13; hi++) {
+        const hData = volume.by_hour.find(h => h.hour === hi + 8) || { total: 0, contacted: 0 };
+        
+        const estVol = totalCalls > 0 ? (dData.total * hData.total) / totalCalls : 0;
+        const estConn = totalCalls > 0 ? (dData.contacted * hData.contacted) / totalCalls : 0; // Rough approx
+        
+        const v = Math.round(estVol);
+        vGrid[di][hi] = v;
+        aGrid[di][hi] = v > 0 ? Math.round((estConn / estVol) * 100) : -1;
 
-    // Best slots
-    const slots: { day: number; hour: number; rate: number; count: number }[] = [];
-    volume.forEach((row, di) => row.forEach((t, hi) => {
-      if (t >= 5) {
-        const rate = answerGrid[di][hi];
-        if (rate > 0) slots.push({ day: di, hour: hi + 8, rate, count: t });
+        if (v > maxV) maxV = v;
+
+        if (v >= 5 && aGrid[di][hi] > 0) {
+          slots.push({ day: di, hour: hi + 8, rate: aGrid[di][hi], count: v });
+        }
       }
-    }));
+    }
+
     slots.sort((a, b) => b.rate - a.rate);
 
-    return { volumeGrid: volume, answerGrid, maxVolume: maxV, bestSlots: slots.slice(0, 3) };
-  }, [calls]);
+    return { volumeGrid: vGrid, answerGrid: aGrid, maxVolume: maxV, bestSlots: slots.slice(0, 3) };
+  }, [volume]);
 
   const getVolumeColor = (v: number) => {
     if (v === 0) return "bg-accent";

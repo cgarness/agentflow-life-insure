@@ -1,63 +1,45 @@
 import React, { useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ComposedChart } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { parseISO } from "date-fns";
-import { downloadCSV } from "@/lib/reports-queries";
-import { isConvertedCall, isContactedCall } from "@/lib/report-utils";
+import { downloadCSV, ReportCallVolumeTimeseries } from "@/lib/reports-queries";
 import { Lightbulb } from "lucide-react";
 import ReportSection from "./ReportSection";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const fmtHour = (h: number) => `${h > 12 ? h - 12 : h || 12}${h >= 12 ? "PM" : "AM"}`;
 
-interface Props { calls: any[]; campaignLeads: any[]; loading: boolean; convertedSet: Set<string>; }
+interface Props { volume?: ReportCallVolumeTimeseries; loading: boolean; }
 
-const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading, convertedSet }) => {
-  const [view, setView] = useState<"hourly" | "daily" | "firstVsFollow" | "speed">("hourly");
+const CallFlowAnalysis: React.FC<Props> = ({ volume, loading }) => {
+  const [view, setView] = useState<"hourly" | "daily" | "speed">("hourly");
 
-  const { hourlyData, dailyData, firstVsFollow, speedInsight } = useMemo(() => {
-    // By hour
-    const hourBuckets = Array.from({ length: 16 }, (_, i) => ({ hour: i + 6, calls: 0, answered: 0, sold: 0 }));
-    calls.forEach(c => {
-      const h = parseISO(c.started_at).getHours();
-      if (h >= 6 && h <= 21) {
-        const b = hourBuckets[h - 6];
-        b.calls++;
-        if (isContactedCall(c.duration, c.disposition_name)) b.answered++;
-        if (isConvertedCall(c.disposition_name, convertedSet)) b.sold++;
-      }
+  const { hourlyData, dailyData, speedInsight } = useMemo(() => {
+    // By hour (pad missing hours between 6 and 21)
+    const hourBuckets = Array.from({ length: 16 }, (_, i) => {
+      const h = i + 6;
+      const data = volume?.by_hour?.find(x => x.hour === h) || { total: 0, contacted: 0 };
+      return {
+        hour: fmtHour(h),
+        calls: data.total,
+        answerRate: data.total > 0 ? Math.round(data.contacted / data.total * 100) : 0,
+      };
     });
-    const hourlyData = hourBuckets.map(b => ({
-      hour: fmtHour(b.hour), calls: b.calls,
-      answerRate: b.calls > 0 ? Math.round(b.answered / b.calls * 100) : 0,
-    }));
 
-    // By day
-    const dayBuckets = DAYS.map(d => ({ day: d, calls: 0, answered: 0, sold: 0 }));
-    calls.forEach(c => {
-      const dow = parseISO(c.started_at).getDay();
-      dayBuckets[dow].calls++;
-      if (isContactedCall(c.duration, c.disposition_name)) dayBuckets[dow].answered++;
-      if (isConvertedCall(c.disposition_name, convertedSet)) dayBuckets[dow].sold++;
+    // By day (0-6)
+    const dayBuckets = DAYS.map((d, i) => {
+      const data = volume?.by_day_of_week?.find(x => x.dow === i) || { total: 0, converted: 0 };
+      return {
+        day: d,
+        calls: data.total,
+        convRate: data.total > 0 ? +(data.converted / data.total * 100).toFixed(1) : 0,
+      };
     });
-    const dailyData = dayBuckets.map(b => ({
-      day: b.day, calls: b.calls,
-      convRate: b.calls > 0 ? +(b.sold / b.calls * 100).toFixed(1) : 0,
-    }));
-
-    // First vs follow-up
-    const first = campaignLeads.filter(l => (l.call_attempts || 0) === 1);
-    const follow = campaignLeads.filter(l => (l.call_attempts || 0) > 1);
-    const firstVsFollow = {
-      first: { count: first.length, label: "First Call" },
-      follow: { count: follow.length, label: "Follow-Up" },
-    };
 
     // Speed to lead
     const speedInsight = "Leads called within 1 hour typically have higher conversion rates";
 
-    return { hourlyData, dailyData, firstVsFollow, speedInsight };
-  }, [calls, campaignLeads]);
+    return { hourlyData: hourBuckets, dailyData: dayBuckets, speedInsight };
+  }, [volume]);
 
   const handleExport = () => {
     if (view === "hourly") downloadCSV("calls-by-hour", ["Hour", "Calls", "Answer%"], hourlyData.map(d => [d.hour, String(d.calls), `${d.answerRate}%`]));
@@ -69,7 +51,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading, conv
   return (
     <ReportSection title="Call Flow Analysis" defaultOpen={false} onExport={handleExport}>
       <div className="flex items-center gap-1 mb-3 flex-wrap">
-        {[{ k: "hourly", l: "By Hour" }, { k: "daily", l: "By Day" }, { k: "firstVsFollow", l: "First vs Follow-Up" }, { k: "speed", l: "Speed to Lead" }].map(v => (
+        {[{ k: "hourly", l: "By Hour" }, { k: "daily", l: "By Day" }, { k: "speed", l: "Speed to Lead" }].map(v => (
           <button key={v.k} onClick={() => setView(v.k as any)}
             className={`px-2.5 py-1 text-xs rounded-md ${v.k === view ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
             {v.l}
@@ -103,19 +85,6 @@ const CallFlowAnalysis: React.FC<Props> = ({ calls, campaignLeads, loading, conv
             <Line yAxisId="right" type="monotone" dataKey="convRate" stroke="hsl(var(--warning))" strokeWidth={2} dot={{ r: 2 }} name="Conv Rate" />
           </ComposedChart>
         </ResponsiveContainer>
-      )}
-
-      {view === "firstVsFollow" && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-accent/50 rounded-lg p-4 text-center">
-            <p className="text-xs text-muted-foreground">First Calls</p>
-            <p className="text-2xl font-bold text-foreground">{firstVsFollow.first.count}</p>
-          </div>
-          <div className="bg-accent/50 rounded-lg p-4 text-center">
-            <p className="text-xs text-muted-foreground">Follow-Up Calls</p>
-            <p className="text-2xl font-bold text-foreground">{firstVsFollow.follow.count}</p>
-          </div>
-        </div>
       )}
 
       {view === "speed" && (

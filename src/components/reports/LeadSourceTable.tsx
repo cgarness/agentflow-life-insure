@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Trophy } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { downloadCSV, upsertLeadSourceCost } from "@/lib/reports-queries";
+import { downloadCSV, upsertLeadSourceCost, ReportCampaignPerformance } from "@/lib/reports-queries";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
 
 interface Props {
-  leads: any[];
+  performance?: ReportCampaignPerformance;
   costs: any[];
   loading: boolean;
   isAdmin: boolean;
@@ -18,7 +18,7 @@ interface Props {
 
 type SortKey = "source" | "total" | "contacted" | "converted" | "rate";
 
-const LeadSourceTable: React.FC<Props> = ({ leads, costs, loading, isAdmin, onCostsChanged }) => {
+const LeadSourceTable: React.FC<Props> = ({ performance, costs, loading, isAdmin, onCostsChanged }) => {
   const [sortKey, setSortKey] = useState<SortKey>("rate");
   const [sortAsc, setSortAsc] = useState(false);
   const [editingCosts, setEditingCosts] = useState(false);
@@ -31,26 +31,22 @@ const LeadSourceTable: React.FC<Props> = ({ leads, costs, loading, isAdmin, onCo
   }, [costs]);
 
   const data = useMemo(() => {
-    const bySource = new Map<string, { total: number; contacted: number; converted: number }>();
-    leads.forEach(l => {
-      const src = l.lead_source || "Unknown";
-      const cur = bySource.get(src) || { total: 0, contacted: 0, converted: 0 };
-      cur.total++;
-      if (l.last_contacted_at) cur.contacted++;
-      const s = (l.status || "").toLowerCase();
-      if (s.includes("won") || s.includes("sold") || s.includes("client")) cur.converted++;
-      bySource.set(src, cur);
-    });
-    return Array.from(bySource.entries()).map(([source, v]) => {
+    const bySource = performance?.by_lead_source || [];
+    return bySource.map(v => {
+      const source = v.lead_source || "Unknown";
       const cost = costMap.get(source) || 0;
       return {
-        source, ...v,
+        source, 
+        total: v.total,
+        contacted: v.contacted,
+        converted: v.converted,
         rate: v.total > 0 ? +(v.converted / v.total * 100).toFixed(1) : 0,
-        cost, cpl: v.total > 0 ? +(cost / v.total).toFixed(2) : 0,
+        cost, 
+        cpl: v.total > 0 ? +(cost / v.total).toFixed(2) : 0,
         cpc: v.converted > 0 ? +(cost / v.converted).toFixed(2) : 0,
       };
     });
-  }, [leads, costMap]);
+  }, [performance, costMap]);
 
   const sorted = useMemo(() => {
     const s = [...data];

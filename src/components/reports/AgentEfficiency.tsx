@@ -1,26 +1,25 @@
 import React, { useMemo, useState } from "react";
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, getAgentName, formatDuration, formatHours, downloadCSV } from "@/lib/reports-queries";
-import { isConvertedCall, isContactedCall } from "@/lib/report-utils";
+import { AgentProfile, formatDuration, formatHours, downloadCSV, ReportCallSummary } from "@/lib/reports-queries";
 import ReportSection from "./ReportSection";
 
-interface Props { calls: any[]; sessions: any[]; agents: AgentProfile[]; currentUserId?: string; isAdmin: boolean; loading: boolean; convertedSet: Set<string>; }
+interface Props { summary?: ReportCallSummary; sessions: any[]; agents: AgentProfile[]; currentUserId?: string; isAdmin: boolean; loading: boolean; }
 
 type SortKey = "name" | "totalCalls" | "connected" | "answerRate" | "avgDuration" | "convRate" | "talkTime" | "callsPerHour";
 
-const AgentEfficiency: React.FC<Props> = ({ calls, sessions, agents, currentUserId, isAdmin, loading, convertedSet }) => {
+const AgentEfficiency: React.FC<Props> = ({ summary, sessions, agents, currentUserId, isAdmin, loading }) => {
   const [sortKey, setSortKey] = useState<SortKey>("convRate");
   const [sortAsc, setSortAsc] = useState(false);
 
   const data = useMemo(() => {
+    if (!summary) return [];
     const nonAdmin = agents;
     return nonAdmin.map(agent => {
-      const ac = calls.filter(c => c.agent_id === agent.id);
-      const connected = ac.filter(c => isContactedCall(c.duration, c.disposition_name));
-      const sold = ac.filter(c => isConvertedCall(c.disposition_name, convertedSet));
-      const withDisp = ac.filter(c => c.disposition_name);
-      const totalTalkTime = ac.reduce((s, c) => s + (c.duration || 0), 0);
+      const agentData = summary.calls_by_agent.find(a => a.agent_id === agent.id) || {
+        total: 0, contacted: 0, converted: 0, total_duration: 0, avg_duration: 0
+      };
+
       const as_ = sessions.filter(s => s.agent_id === agent.id);
       const totalSessionTime = as_.reduce((s, sess) => {
         if (sess.started_at && sess.ended_at) {
@@ -28,24 +27,23 @@ const AgentEfficiency: React.FC<Props> = ({ calls, sessions, agents, currentUser
         }
         return s;
       }, 0);
-      const callsPerHour = totalSessionTime > 0 ? +(ac.length / (totalSessionTime / 3600)).toFixed(1) : 0;
+      const callsPerHour = totalSessionTime > 0 ? +(agentData.total / (totalSessionTime / 3600)).toFixed(1) : 0;
 
       return {
         id: agent.id,
         name: `${agent.first_name} ${agent.last_name?.charAt(0) || ""}.`,
         initials: `${agent.first_name?.charAt(0) || ""}${agent.last_name?.charAt(0) || ""}`,
-        totalCalls: ac.length,
-        connected: connected.length,
-        answerRate: ac.length > 0 ? Math.round(connected.length / ac.length * 100) : 0,
-        avgDuration: connected.length > 0 ? Math.round(totalTalkTime / connected.length) : 0,
-        convRate: ac.length > 0 ? +(sold.length / ac.length * 100).toFixed(1) : 0,
-        dispRate: ac.length > 0 ? Math.round(withDisp.length / ac.length * 100) : 0,
-        talkTime: totalTalkTime,
+        totalCalls: agentData.total,
+        connected: agentData.contacted,
+        answerRate: agentData.total > 0 ? Math.round(agentData.contacted / agentData.total * 100) : 0,
+        avgDuration: Math.round(agentData.avg_duration),
+        convRate: agentData.total > 0 ? +(agentData.converted / agentData.total * 100).toFixed(1) : 0,
+        talkTime: agentData.total_duration,
         callsPerHour,
-        sold: sold.length,
+        sold: agentData.converted,
       };
     });
-  }, [calls, sessions, agents]);
+  }, [summary, sessions, agents]);
 
   const sorted = useMemo(() => {
     const s = [...data];

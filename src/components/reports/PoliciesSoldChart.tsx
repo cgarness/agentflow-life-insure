@@ -2,74 +2,82 @@ import React, { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { TrendingUp, Trophy, User, Calendar, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, Grouping, groupByDate, downloadCSV, getAgentName } from "@/lib/reports-queries";
-import { isConvertedCall } from "@/lib/report-utils";
-import { parseISO } from "date-fns";
+import { Grouping, groupByDate, downloadCSV, ReportCallVolumeTimeseries, ReportCallSummary, AgentProfile } from "@/lib/reports-queries";
 import ReportSection from "./ReportSection";
 
 const LINE_COLORS = ["hsl(var(--success))", "hsl(var(--primary))", "hsl(var(--warning))", "hsl(var(--destructive))", "#8b5cf6", "#06b6d4", "#ec4899"];
 
 interface Props {
-  calls: any[];
-  compCalls?: any[];
+  summary?: ReportCallSummary;
+  volume?: ReportCallVolumeTimeseries;
+  compVolume?: ReportCallVolumeTimeseries;
   agents: AgentProfile[];
   grouping: Grouping;
   selectedAgent?: string;
   loading: boolean;
   comparing: boolean;
-  convertedSet: Set<string>;
 }
 
-const PoliciesSoldChart: React.FC<Props> = ({ calls, compCalls, agents, grouping, selectedAgent, loading, comparing, convertedSet }) => {
-  const { chartData, agentNames, summary } = useMemo(() => {
-    const soldCalls = calls.filter(c => isConvertedCall(c.disposition_name, convertedSet));
-    const grouped = new Map<string, Map<string, number>>();
-    const agentSales = new Map<string, number>();
-    const daySales = new Map<string, number>();
-    const hourSales = new Map<number, number>();
+const PoliciesSoldChart: React.FC<Props> = ({ summary, volume, compVolume, agents, grouping, selectedAgent, loading, comparing }) => {
+  const { chartData, stats } = useMemo(() => {
+    const grouped = new Map<string, number>();
+    const compGrouped = new Map<string, number>();
 
-    soldCalls.forEach(c => {
-      const dateKey = groupByDate(c.started_at, grouping);
-      const agentName = getAgentName(agents, c.agent_id);
-      if (!grouped.has(dateKey)) grouped.set(dateKey, new Map());
-      grouped.get(dateKey)!.set(agentName, (grouped.get(dateKey)!.get(agentName) || 0) + 1);
-      agentSales.set(agentName, (agentSales.get(agentName) || 0) + 1);
-      const dayKey = groupByDate(c.started_at, "daily");
-      daySales.set(dayKey, (daySales.get(dayKey) || 0) + 1);
-      const hour = parseISO(c.started_at).getHours();
-      hourSales.set(hour, (hourSales.get(hour) || 0) + 1);
+    volume?.by_date?.forEach(d => {
+      const dateKey = groupByDate(d.date, grouping);
+      grouped.set(dateKey, (grouped.get(dateKey) || 0) + d.converted);
     });
 
-    const allAgentNames = selectedAgent
-      ? [getAgentName(agents, selectedAgent)]
-      : Array.from(new Set(soldCalls.map(c => getAgentName(agents, c.agent_id))));
+    compVolume?.by_date?.forEach(d => {
+      const dateKey = groupByDate(d.date, grouping);
+      compGrouped.set(dateKey, (compGrouped.get(dateKey) || 0) + d.converted);
+    });
 
-    const chartData = Array.from(grouped.entries()).map(([date, am]) => {
-      const row: any = { date };
-      allAgentNames.forEach(n => { row[n] = am.get(n) || 0; });
-      return row;
-    }).sort((a, b) => a.date.localeCompare(b.date));
+    const chartData = Array.from(grouped.entries()).map(([date, converted]) => ({
+      date,
+      Total: converted,
+      Previous: compGrouped.get(date) || 0
+    })).sort((a, b) => a.date.localeCompare(b.date));
 
     let topPerformer = { name: "N/A", count: 0 };
-    agentSales.forEach((count, name) => { if (count > topPerformer.count) topPerformer = { name, count }; });
-    let bestDay = { date: "N/A", count: 0 };
-    daySales.forEach((count, date) => { if (count > bestDay.count) bestDay = { date, count }; });
-    let bestHour = { hour: 0, count: 0 };
-    hourSales.forEach((count, hour) => { if (count > bestHour.count) bestHour = { hour, count }; });
+    let agentsWithSales = 0;
+    summary?.calls_by_agent?.forEach(a => {
+      if (a.converted > 0) agentsWithSales++;
+      if (a.converted > topPerformer.count) {
+        const ag = agents.find(ag => ag.id === a.agent_id);
+        const name = ag ? `${ag.first_name} ${ag.last_name?.charAt(0) || ""}.` : "Unknown";
+        topPerformer = { name, count: a.converted };
+      }
+    });
 
-    const agentsWithSales = agentSales.size;
+    let bestDay = { date: "N/A", count: 0 };
+    volume?.by_date?.forEach(d => {
+      if (d.converted > bestDay.count) bestDay = { date: d.date, count: d.converted };
+    });
+
+    let bestHour = { hour: 0, count: 0 };
+    volume?.by_hour?.forEach(h => {
+      if (h.converted > bestHour.count) bestHour = { hour: h.hour, count: h.converted };
+    });
+
+    const totalSold = summary?.converted || 0;
+
     return {
-      chartData, agentNames: allAgentNames,
-      summary: {
-        total: soldCalls.length,
-        topPerformer, bestDay, bestHour,
-        avgPerAgent: agentsWithSales > 0 ? +(soldCalls.length / agentsWithSales).toFixed(1) : 0,
+      chartData,
+      stats: {
+        total: totalSold,
+        topPerformer,
+        bestDay,
+        bestHour,
+        avgPerAgent: agentsWithSales > 0 ? +(totalSold / agentsWithSales).toFixed(1) : 0,
       },
     };
-  }, [calls, agents, grouping, selectedAgent, convertedSet]);
+  }, [summary, volume, compVolume, grouping, agents]);
 
   const handleExport = () => {
-    downloadCSV("policies-sold", ["Date", ...agentNames], chartData.map(d => [d.date, ...agentNames.map(n => String(d[n] || 0))]));
+    downloadCSV("policies-sold", ["Date", "Total Sold", "Previous Sold"], 
+      chartData.map(d => [d.date, String(d.Total || 0), String(d.Previous || 0)])
+    );
   };
 
   if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-[350px]" /></div>;
@@ -87,20 +95,19 @@ const PoliciesSoldChart: React.FC<Props> = ({ calls, compCalls, agents, grouping
             <XAxis dataKey="date" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
             <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} allowDecimals={false} />
             <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
-            {agentNames.length > 1 && <Legend />}
-            {agentNames.map((name, i) => (
-              <Line key={name} type="monotone" dataKey={name} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={2} dot={{ r: 2 }} />
-            ))}
+            {comparing && <Legend />}
+            <Line type="monotone" dataKey="Total" stroke={LINE_COLORS[0]} strokeWidth={3} dot={{ r: 4 }} />
+            {comparing && <Line type="monotone" dataKey="Previous" stroke="hsl(var(--primary)/0.4)" strokeWidth={2} strokeDasharray="4 4" dot={false} />}
           </LineChart>
         </ResponsiveContainer>
       )}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
         {[
-          { icon: TrendingUp, label: "Total Sold", value: String(summary.total) },
-          { icon: Trophy, label: "Top Performer", value: `${summary.topPerformer.name} (${summary.topPerformer.count})` },
-          { icon: User, label: "Avg/Agent", value: String(summary.avgPerAgent) },
-          { icon: Calendar, label: "Best Day", value: `${summary.bestDay.date} (${summary.bestDay.count})` },
-          { icon: Clock, label: "Best Hour", value: `${fmtHour(summary.bestHour.hour)} (${summary.bestHour.count})` },
+          { icon: TrendingUp, label: "Total Sold", value: String(stats.total) },
+          { icon: Trophy, label: "Top Performer", value: `${stats.topPerformer.name} (${stats.topPerformer.count})` },
+          { icon: User, label: "Avg/Agent", value: String(stats.avgPerAgent) },
+          { icon: Calendar, label: "Best Day", value: stats.bestDay.count > 0 ? `${stats.bestDay.date} (${stats.bestDay.count})` : "N/A" },
+          { icon: Clock, label: "Best Hour", value: stats.bestHour.count > 0 ? `${fmtHour(stats.bestHour.hour)} (${stats.bestHour.count})` : "N/A" },
           { icon: Clock, label: "Avg Deal Cycle", value: "N/A" },
         ].map(s => (
           <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center">

@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, getAgentName, downloadCSV } from "@/lib/reports-queries";
+import { AgentProfile, getAgentName, downloadCSV, ReportDispositionBreakdown } from "@/lib/reports-queries";
 import ReportSection from "./ReportSection";
 
-interface Props { calls: any[]; dispositions: any[]; agents: AgentProfile[]; campaigns: any[]; loading: boolean; }
+interface Props { breakdown?: ReportDispositionBreakdown; dispositions: any[]; agents: AgentProfile[]; loading: boolean; }
 
 const COLORS = ["#3B82F6", "#22C55E", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899", "#6B7280"];
 
-const DispositionDeepDive: React.FC<Props> = ({ calls, dispositions, agents, campaigns, loading }) => {
+const DispositionDeepDive: React.FC<Props> = ({ breakdown, dispositions, agents, loading }) => {
   const [view, setView] = useState<"byAgent" | "byCampaign">("byAgent");
   const [normalized, setNormalized] = useState(false);
 
@@ -16,40 +16,31 @@ const DispositionDeepDive: React.FC<Props> = ({ calls, dispositions, agents, cam
   const dispColorMap = useMemo(() => new Map(dispositions.map((d, i) => [d.name, d.color || COLORS[i % COLORS.length]])), [dispositions]);
 
   const { agentData, campaignData, topPaths } = useMemo(() => {
+    if (!breakdown) return { agentData: [], campaignData: [], topPaths: [] };
+
     // By agent
-    const byAgent = new Map<string, Map<string, number>>();
-    const nonAdminAgents = agents;
-    nonAdminAgents.forEach(a => byAgent.set(getAgentName(agents, a.id), new Map()));
-    calls.forEach(c => {
-      const name = getAgentName(agents, c.agent_id);
-      if (!byAgent.has(name)) byAgent.set(name, new Map());
-      const dn = c.disposition_name || "Other";
-      byAgent.get(name)!.set(dn, (byAgent.get(name)!.get(dn) || 0) + 1);
-    });
-    const agentData = Array.from(byAgent.entries()).map(([name, dm]) => {
-      const row: any = { name };
-      const total = Array.from(dm.values()).reduce((s, v) => s + v, 0);
+    const agentData = (breakdown.by_agent || []).map(a => {
+      const row: any = { name: getAgentName(agents, a.agent_id) };
+      const total = Object.values(a.dispositions).reduce((sum, val) => sum + val, 0);
+      
       dispNames.forEach(d => {
-        row[d] = normalized && total > 0 ? +((dm.get(d) || 0) / total * 100).toFixed(1) : (dm.get(d) || 0);
+        row[d] = normalized && total > 0 
+          ? +(((a.dispositions[d] || 0) / total) * 100).toFixed(1) 
+          : (a.dispositions[d] || 0);
       });
       return row;
     });
 
     // By campaign
-    const campaignMap = new Map(campaigns.map(c => [c.id, c.name]));
-    const byCampaign = new Map<string, Map<string, number>>();
-    calls.forEach(c => {
-      if (!c.campaign_id) return;
-      const cName = campaignMap.get(c.campaign_id) || "Unknown";
-      if (!byCampaign.has(cName)) byCampaign.set(cName, new Map());
-      const dn = c.disposition_name || "Other";
-      byCampaign.get(cName)!.set(dn, (byCampaign.get(cName)!.get(dn) || 0) + 1);
-    });
-    const campaignData = Array.from(byCampaign.entries()).map(([name, dm]) => {
+    const campaignData = (breakdown.by_campaign || []).map(c => {
+      const name = c.campaign_name || "Unknown";
       const row: any = { name: name.length > 15 ? name.slice(0, 15) + "…" : name };
-      const total = Array.from(dm.values()).reduce((s, v) => s + v, 0);
+      const total = Object.values(c.dispositions).reduce((sum, val) => sum + val, 0);
+      
       dispNames.forEach(d => {
-        row[d] = normalized && total > 0 ? +((dm.get(d) || 0) / total * 100).toFixed(1) : (dm.get(d) || 0);
+        row[d] = normalized && total > 0 
+          ? +(((c.dispositions[d] || 0) / total) * 100).toFixed(1) 
+          : (c.dispositions[d] || 0);
       });
       return row;
     });
@@ -58,7 +49,7 @@ const DispositionDeepDive: React.FC<Props> = ({ calls, dispositions, agents, cam
     const topPaths = ["No Answer → Call Back → Interested → Sold", "Interested → Appointment Set → Sold", "Call Back → Interested → Sold"];
 
     return { agentData, campaignData, topPaths };
-  }, [calls, dispositions, agents, campaigns, normalized, dispNames]);
+  }, [breakdown, dispositions, agents, normalized, dispNames]);
 
   const handleExport = () => {
     const d = view === "byAgent" ? agentData : campaignData;

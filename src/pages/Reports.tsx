@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Download, BarChart3, CalendarIcon, FileText, Bookmark, Clock, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { Download, BarChart3, CalendarIcon, Bookmark, Clock, X } from "lucide-react";
 import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, differenceInDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,12 +13,12 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   DateRange, Grouping, autoGrouping,
-  fetchProfiles, fetchCallsRaw, fetchDispositions, fetchPipelineStages,
-  fetchCampaignsWithStats, fetchLeads, fetchDialerSessions, fetchGoals,
-  fetchCampaignLeads, fetchLeadSourceCosts, downloadCSV,
+  fetchProfiles, fetchLeads, fetchDialerSessions, fetchGoals,
+  fetchLeadSourceCosts, downloadCSV,
   AgentProfile,
+  fetchReportCallSummary, fetchReportCallVolumeTimeseries, fetchReportDispositionBreakdown, fetchReportCampaignPerformance,
+  ReportCallSummary, ReportCallVolumeTimeseries, ReportDispositionBreakdown, ReportCampaignPerformance
 } from "@/lib/reports-queries";
-import { buildConvertedDispositionSet } from "@/lib/report-utils";
 
 import AgentPerformanceCards from "@/components/reports/AgentPerformanceCards";
 import CallVolumeChart from "@/components/reports/CallVolumeChart";
@@ -63,21 +62,6 @@ const PRESET_LABELS: Record<Preset, string> = {
   month: "This Month", lastMonth: "Last Month", custom: "Custom",
 };
 
-// State abbreviation to full name for the filter badge
-const STATE_NAMES: Record<string, string> = {
-  AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",
-  CO:"Colorado",CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",
-  HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",
-  KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",
-  MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",
-  MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",
-  NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",
-  OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",
-  SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",
-  VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",
-  DC:"District of Columbia",
-};
-
 const Reports: React.FC = () => {
   const { profile, user } = useAuth();
   const { formatDate } = useBranding();
@@ -93,29 +77,27 @@ const Reports: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [grouping, setGrouping] = useState<Grouping>("daily");
   const [comparing, setComparing] = useState(false);
-  const [stateFilter, setStateFilter] = useState<string | null>(null);
 
   // Panels
   const [showMyReports, setShowMyReports] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
 
-  // Data
+  // RPC Data
+  const [summary, setSummary] = useState<ReportCallSummary>();
+  const [compSummary, setCompSummary] = useState<ReportCallSummary>();
+  const [volume, setVolume] = useState<ReportCallVolumeTimeseries>();
+  const [compVolume, setCompVolume] = useState<ReportCallVolumeTimeseries>();
+  const [breakdown, setBreakdown] = useState<ReportDispositionBreakdown>();
+  const [performance, setPerformance] = useState<ReportCampaignPerformance>();
+
+  // Aux Data
   const [agents, setAgents] = useState<AgentProfile[]>([]);
-  const [calls, setCalls] = useState<any[]>([]);
-  const [compCalls, setCompCalls] = useState<any[]>([]);
-  const [dispositions, setDispositions] = useState<any[]>([]);
-  const [campaigns, setCampaigns] = useState<any[]>([]);
   const [leads, setLeads] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [goals, setGoals] = useState<any[]>([]);
-  const [campaignLeads, setCampaignLeads] = useState<any[]>([]);
   const [leadCosts, setLeadCosts] = useState<any[]>([]);
   const [scorecards, setScorecards] = useState<any[]>([]);
-  const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [outcomesData, setOutcomesData] = useState<any[]>([]);
-  const [outcomesTotal, setOutcomesTotal] = useState(0);
-  const [outcomesLoading, setOutcomesLoading] = useState(true);
 
   const effectiveAgent = useMemo(() => {
     if (!isAdmin && profile?.id) return profile.id;
@@ -124,11 +106,6 @@ const Reports: React.FC = () => {
 
   const nonAdminAgents = useMemo(() => agents, [agents]);
   const compRange = useMemo(() => comparisonRange(range), [range]);
-
-  const convertedSet = useMemo(
-    () => buildConvertedDispositionSet(dispositions, pipelineStages),
-    [dispositions, pipelineStages],
-  );
 
   useEffect(() => {
     if (preset !== "custom") {
@@ -147,139 +124,65 @@ const Reports: React.FC = () => {
   }, [preset, customStart, customEnd]);
 
   const fetchData = useCallback(async () => {
+    if (!orgId) return;
     setLoading(true);
     try {
-      const [a, c, d, camp, l, sess, g, cl, lc] = await Promise.all([
+      const [a, l, sess, g, lc, sumData, volData, brkData, perfData] = await Promise.all([
         fetchProfiles(orgId),
-        fetchCallsRaw(range, orgId, effectiveAgent),
-        fetchDispositions(orgId),
-        fetchCampaignsWithStats(orgId),
         fetchLeads(range, orgId, effectiveAgent),
         fetchDialerSessions(range, orgId, effectiveAgent),
         fetchGoals(orgId),
-        fetchCampaignLeads(range, orgId),
         fetchLeadSourceCosts(orgId),
+        fetchReportCallSummary(orgId, range, effectiveAgent),
+        fetchReportCallVolumeTimeseries(orgId, range, effectiveAgent),
+        fetchReportDispositionBreakdown(orgId, range, effectiveAgent),
+        fetchReportCampaignPerformance(orgId, range, effectiveAgent),
       ]);
-
-      // Pipeline stages: isolated try/catch so failure doesn't crash reports
-      let ps: any[] = [];
-      try { ps = await fetchPipelineStages(orgId); } catch (e) { console.warn("Failed to fetch pipeline stages:", e); }
 
       let scQuery = supabase.from("agent_scorecards").select("*").order("week_start", { ascending: false }).limit(200);
       if (orgId) scQuery = scQuery.eq("organization_id", orgId);
       const { data: sc } = await scQuery;
 
-      setAgents(a); setCalls(c); setDispositions(d); setCampaigns(camp);
-      setLeads(l); setSessions(sess); setGoals(g); setCampaignLeads(cl);
-      setLeadCosts(lc); setScorecards(sc || []); setPipelineStages(ps);
+      setAgents(a); setLeads(l); setSessions(sess); setGoals(g);
+      setLeadCosts(lc); setScorecards(sc || []);
 
-      let outcomesQuery = supabase
-        .from('calls')
-        .select('disposition_name')
-        .gte("started_at", startOfDay(range.start).toISOString())
-        .lte("started_at", endOfDay(range.end).toISOString())
-        .not('disposition_name', 'is', null);
-      if (orgId) outcomesQuery = outcomesQuery.eq("organization_id", orgId);
-        
-      if (effectiveAgent) {
-        outcomesQuery = outcomesQuery.eq("agent_id", effectiveAgent);
-      }
-
-      const { data: outcomeRows, error: outcomesError } = await outcomesQuery;
-      if (!outcomesError && outcomeRows) {
-        const counts: Record<string, number> = {};
-        outcomeRows.forEach(row => {
-          const key = row.disposition_name || 'No Disposition';
-          counts[key] = (counts[key] || 0) + 1;
-        });
-        const total = Object.values(counts).reduce((a, b) => a + b, 0);
-        const formatted = Object.entries(counts)
-          .sort((a, b) => b[1] - a[1])
-          .map(([name, value]) => ({
-            name,
-            value,
-            pct: total > 0 ? `${Math.round((value / total) * 100)}%` : '0%'
-          }));
-        setOutcomesData(formatted);
-        setOutcomesTotal(total);
-        setOutcomesLoading(false);
-      }
+      setSummary(sumData);
+      setVolume(volData);
+      setBreakdown(brkData);
+      setPerformance(perfData);
 
       if (comparing) {
-        const cc = await fetchCallsRaw(compRange, orgId, effectiveAgent);
-        setCompCalls(cc);
+        const [cSum, cVol] = await Promise.all([
+          fetchReportCallSummary(orgId, compRange, effectiveAgent),
+          fetchReportCallVolumeTimeseries(orgId, compRange, effectiveAgent),
+        ]);
+        setCompSummary(cSum);
+        setCompVolume(cVol);
       } else {
-        setCompCalls([]);
+        setCompSummary(undefined);
+        setCompVolume(undefined);
       }
     } catch (e) {
       console.error("Reports fetch error:", e);
     } finally {
       setLoading(false);
-      setOutcomesLoading(false);
     }
   }, [range, orgId, effectiveAgent, comparing, compRange]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // State-filtered data: when a state is selected on the map, filter calls and leads
-  const filteredCalls = useMemo(() => {
-    try {
-      if (!stateFilter) return calls;
-      const contactState = new Map<string, string>();
-      for (const l of leads) {
-        if (typeof l.state === 'string') {
-          const st = l.state.trim().toUpperCase();
-          if (st && l.id) contactState.set(l.id, st.length === 2 ? st : "");
-        }
-      }
-      const clState = new Map<string, string>();
-      for (const cl of campaignLeads) {
-        if (typeof cl.state === 'string') {
-          const st = cl.state.trim().toUpperCase();
-          if (st && cl.id) clState.set(cl.id, st.length === 2 ? st : "");
-        }
-      }
-      return calls.filter(c => {
-        const s1 = c.contact_id ? contactState.get(c.contact_id) : undefined;
-        const s2 = c.campaign_lead_id ? clState.get(c.campaign_lead_id) : undefined;
-        return s1 === stateFilter || s2 === stateFilter;
-      });
-    } catch (e) {
-      console.error("Error in filteredCalls:", e);
-      return calls;
-    }
-  }, [calls, leads, campaignLeads, stateFilter]);
-
-  const filteredLeads = useMemo(() => {
-    try {
-      if (!stateFilter) return leads;
-      return leads.filter(l => {
-        if (typeof l.state !== 'string') return false;
-        return l.state.trim().toUpperCase() === stateFilter;
-      });
-    } catch (e) {
-      console.error("Error in filteredLeads:", e);
-      return leads;
-    }
-  }, [leads, stateFilter]);
-
   const handleExportAll = () => {
-    const c = stateFilter ? filteredCalls : calls;
-    const l = stateFilter ? filteredLeads : leads;
     const rows = [
-      ["Total Calls", String(c.length)],
-      ["Outbound", String(c.filter(x => x.direction === "outbound").length)],
-      ["Inbound", String(c.filter(x => x.direction === "inbound").length)],
-      ["Total Leads", String(l.length)],
+      ["Total Calls", String(summary?.total_calls || 0)],
+      ["Outbound", String(summary?.outbound || 0)],
+      ["Inbound", String(summary?.inbound || 0)],
+      ["Total Leads", String(leads.length)],
       ["Period", `${formatDate(range.start)} - ${formatDate(range.end)}`],
-      ...(stateFilter ? [["State Filter", STATE_NAMES[stateFilter] || stateFilter]] : []),
     ];
     downloadCSV("reports-summary", ["Metric", "Value"], rows);
   };
 
-  const activeCalls = stateFilter ? filteredCalls : calls;
-  const activeLeads = stateFilter ? filteredLeads : leads;
-  const hasData = activeCalls.length > 0 || activeLeads.length > 0;
+  const hasData = (summary?.total_calls || 0) > 0 || leads.length > 0;
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
@@ -298,14 +201,6 @@ const Reports: React.FC = () => {
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <p className="text-slate-400 font-medium text-lg">Comprehensive intelligence and growth metrics</p>
-              {stateFilter && (
-                <Badge className="bg-primary/20 text-primary-foreground border-primary/30 px-3 py-1 text-xs uppercase font-bold tracking-wider hover:bg-primary/30 transition-all cursor-default">
-                  Region: {STATE_NAMES[stateFilter] || stateFilter}
-                  <button onClick={() => setStateFilter(null)} className="ml-2 hover:text-white transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </Badge>
-              )}
             </div>
           </div>
 
@@ -448,50 +343,37 @@ const Reports: React.FC = () => {
       ) : (
         <>
           {isAdmin && (
-            <AgentPerformanceCards calls={activeCalls} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} convertedSet={convertedSet} />
+            <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
           )}
 
-          <CallVolumeChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
+          <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {outcomesLoading ? (
-              <div className="bg-card rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6 shadow-sm">
-                <div className="h-6 w-48 bg-muted animate-pulse rounded mb-4" />
-                <div className="h-[350px] bg-muted animate-pulse rounded" />
-              </div>
-            ) : outcomesData.length === 0 ? (
-              <div className="bg-card rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6 shadow-sm flex items-center justify-center h-[200px]">
-                <p className="text-sm text-muted-foreground text-center">No call data available for this period</p>
-              </div>
-            ) : (
-              <DispositionsPieChart calls={activeCalls} dispositions={dispositions} grouping={grouping} loading={loading} convertedSet={convertedSet} />
-            )}
-            <PoliciesSoldChart calls={activeCalls} compCalls={comparing ? compCalls : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} convertedSet={convertedSet} />
+            <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />
+            <PoliciesSoldChart summary={summary} volume={volume} compVolume={comparing ? compVolume : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
           </div>
 
           <div className="space-y-6">
-            <CampaignPerformance campaigns={campaigns} loading={loading} />
-            <LeadSourceTable leads={activeLeads} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => fetchLeadSourceCosts(orgId).then(setLeadCosts)} />
+            <CampaignPerformance performance={performance} loading={loading} />
+            <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <CommunicationsStats calls={activeCalls} compCalls={comparing ? compCalls : undefined} range={range} loading={loading} comparing={comparing} />
-            <CallingHeatmap calls={activeCalls} loading={loading} />
+            <CommunicationsStats summary={summary} compSummary={comparing ? compSummary : undefined} range={range} loading={loading} comparing={comparing} />
+            <CallingHeatmap volume={volume} loading={loading} />
           </div>
 
-          <CallDurationAnalysis calls={activeCalls} dispositions={dispositions} loading={loading} convertedSet={convertedSet} />
+          <CallDurationAnalysis breakdown={breakdown} loading={loading} />
 
           {isAdmin && (
-            <AgentEfficiency calls={activeCalls} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} convertedSet={convertedSet} />
+            <AgentEfficiency summary={summary} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />
           )}
 
-          <CallFlowAnalysis calls={activeCalls} campaignLeads={campaignLeads} loading={loading} convertedSet={convertedSet} />
+          <CallFlowAnalysis volume={volume} loading={loading} />
 
-          <DispositionDeepDive calls={activeCalls} dispositions={dispositions} agents={agents} campaigns={campaigns} loading={loading} />
+          <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />
 
           <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
-
-
         </>
       )}
 
