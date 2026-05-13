@@ -13,32 +13,34 @@ export interface ReportLayoutConfig {
 /** Category color map (re-exported for convenience). */
 export const STAT_CATEGORIES = STAT_CATEGORY_META;
 
+export const MAX_VISIBLE_STATS = 20;
+
 /** First 20 stat IDs that ship visible by default — ordered by category. */
 export const DEFAULT_VISIBLE_STATS: string[] = [
-  // Volume
+  // Activity (blue)
   "stat_total_dials",
   "stat_calls_per_hour",
   "stat_calls_per_day",
-  // Contact
   "stat_contact_rate",
   "stat_total_talk_time",
-  "stat_avg_talk_contacted",
-  "stat_dnc_rate",
-  "stat_callback_rate",
-  // Conversion
+
+  // Results (green)
   "stat_policies_sold",
   "stat_contacted_to_close",
   "stat_call_to_close",
   "stat_dials_per_sale",
   "stat_appt_to_close",
-  // Appointments
   "stat_appointments_set",
   "stat_contacted_to_appt",
-  // Pipeline
+
+  // Pipeline (teal)
   "stat_active_leads",
-  // Agent
+  "stat_callback_rate",
+  "stat_dnc_rate",
+
+  // Team (amber)
   "stat_top_performer",
-  // Coming soon (visible but muted)
+  "stat_avg_talk_contacted",
   "stat_speed_to_contact",
   "stat_unique_leads",
   "stat_first_dial_contact",
@@ -82,6 +84,7 @@ export const DEFAULT_LAYOUT: ReportLayoutConfig = {
 /**
  * Migrate a saved layout to the latest version, appending any newly registered
  * stat IDs as hidden so the user doesn't lose access to them.
+ * Also enforces the MAX_VISIBLE_STATS cap.
  */
 export function migrateLayout(saved: { version?: number; sections?: SectionConfig[] } | null | undefined): ReportLayoutConfig {
   if (!saved || !saved.sections) return DEFAULT_LAYOUT;
@@ -90,8 +93,23 @@ export function migrateLayout(saved: { version?: number; sections?: SectionConfi
   for (const id of ALL_STAT_IDS) {
     if (!known.has(id)) appended.push({ id, visible: false });
   }
+  
+  const allSections = [...saved.sections, ...appended];
+  
+  // Cap visible stats at 20
+  let visibleStatCount = 0;
+  for (const s of allSections) {
+    if (s.id.startsWith("stat_") && s.visible) {
+      if (visibleStatCount >= MAX_VISIBLE_STATS) {
+        s.visible = false;
+      } else {
+        visibleStatCount++;
+      }
+    }
+  }
+
   return {
     version: 3,
-    sections: [...saved.sections, ...appended],
+    sections: allSections,
   };
 }

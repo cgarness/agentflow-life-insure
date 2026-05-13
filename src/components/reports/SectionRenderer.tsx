@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import DraggableSection from "./DraggableSection";
-import { SectionConfig } from "@/lib/report-layout-constants";
+import { SectionConfig, MAX_VISIBLE_STATS } from "@/lib/report-layout-constants";
 import { StatCategory, STAT_CATEGORIES, STAT_DEFINITION_MAP } from "@/lib/stat-computations";
 import { EyeOff } from "lucide-react";
+import { toast } from "sonner";
 
 interface Props {
   sections: SectionConfig[];
@@ -13,7 +14,7 @@ interface Props {
 }
 
 const TEAM_SECTIONS = ["agent_performance_cards", "agent_efficiency", "goal_tracking"];
-const CATEGORY_ORDER: StatCategory[] = ["volume", "contact", "conversion", "appointment", "pipeline", "agent", "efficiency"];
+const CATEGORY_ORDER: StatCategory[] = ["activity", "results", "pipeline", "team"];
 
 const SectionRenderer: React.FC<Props> = ({
   sections, components, editMode, isAdmin, onSectionsChange,
@@ -40,6 +41,17 @@ const SectionRenderer: React.FC<Props> = ({
   };
 
   const handleToggleVisibility = (id: string) => {
+    const section = sections.find(s => s.id === id);
+    if (!section) return;
+
+    if (!section.visible && id.startsWith("stat_")) {
+      const visibleCount = sections.filter(s => s.id.startsWith("stat_") && s.visible).length;
+      if (visibleCount >= MAX_VISIBLE_STATS) {
+        toast.error(`Maximum ${MAX_VISIBLE_STATS} stats — hide one to add another.`);
+        return;
+      }
+    }
+
     onSectionsChange(sections.map(s => s.id === id ? { ...s, visible: !s.visible } : s));
   };
 

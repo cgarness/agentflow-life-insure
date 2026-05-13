@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { ReportLayoutConfig, DEFAULT_LAYOUT, SectionConfig } from "./report-layout-constants";
+import { ReportLayoutConfig, DEFAULT_LAYOUT, SectionConfig, MAX_VISIBLE_STATS } from "./report-layout-constants";
 
 export function getDefaultLayout(): ReportLayoutConfig {
   return JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
@@ -109,6 +109,15 @@ export async function saveUserLayout(orgId: string, layout: ReportLayoutConfig):
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     
+    // Enforce 20 visible stats cap before saving
+    let visibleCount = 0;
+    layout.sections.forEach(s => {
+      if (s.id.startsWith("stat_") && s.visible) {
+        if (visibleCount >= MAX_VISIBLE_STATS) s.visible = false;
+        else visibleCount++;
+      }
+    });
+
     const { data: existing } = await supabase
       .from("report_layouts")
       .select("id")
@@ -128,6 +137,15 @@ export async function saveUserLayout(orgId: string, layout: ReportLayoutConfig):
 
 export async function saveOrgDefaultLayout(orgId: string, layout: ReportLayoutConfig): Promise<void> {
   try {
+    // Enforce 20 visible stats cap before saving
+    let visibleCount = 0;
+    layout.sections.forEach(s => {
+      if (s.id.startsWith("stat_") && s.visible) {
+        if (visibleCount >= MAX_VISIBLE_STATS) s.visible = false;
+        else visibleCount++;
+      }
+    });
+
     const { data: existing } = await supabase
       .from("report_layouts")
       .select("id")

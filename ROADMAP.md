@@ -5,6 +5,16 @@
 
 ---
 
+## Work Log — 2026-05-13: BUILD: Fix Total Dials + Consolidate to 4 Category Groups + Cap at 20 Visible Cards
+
+- **Total Dials Data Integrity**: Redefined "Total Dials" as Outbound Calls only. Inbound calls no longer inflate dial metrics. Updated `stat-computations.ts` so all downstream stats (e.g. `contact_rate`, `call_to_close`, `dnc_rate`, `appt_set_rate`, `calls_per_day`, `calls_per_hour`, `dials_per_sale`, `dials_per_contact`, `dials_per_appt`, `not_interested_rate`) accurately divide against `outbound` instead of total calls.
+- **Category Simplification**: Consolidated the previous 7 categories into 4 clean groups (`activity`, `results`, `pipeline`, `team`) with new distinct colors. Reassigned all 62 `STAT_DEFINITIONS` to match these 4 new groups. Updated `SectionRenderer.tsx` and `report-layout-constants.ts` to respect the new `CATEGORY_ORDER`.
+- **UI Constraints**: Implemented a maximum cap of 20 visible stat cards. Enforced locally in `report-layout-constants.ts` (`MAX_VISIBLE_STATS = 20`) and guarded in `saveUserLayout` / `saveOrgDefaultLayout` via backend save constraint. Enhanced `SectionRenderer.tsx` with a branded `sonner` toast notification (`"Maximum 20 stats — hide one to add another."`) when a user attempts to activate a 21st stat.
+- **TypeScript**: `npx tsc --noEmit` → 0 errors.
+- **Files touched**: `src/lib/stat-computations.ts`, `src/lib/report-layout-constants.ts`, `src/lib/report-layout.ts`, `src/components/reports/SectionRenderer.tsx`.
+
+---
+
 ## Work Log — 2026-05-13: Reports Visual Polish — Category Grouping + Uniform Grid + Remove Compare Mode
 
 - **Category grouping**: `SectionRenderer.tsx` now renders visible stat cards grouped into labeled category rows in this order: Volume → Contact → Conversion → Appointment → Pipeline → Agent → Efficiency. Each group shows an 11px uppercase section label. Empty categories (all stats hidden) are skipped entirely — no phantom headers. User's within-category ordering from saved layout is preserved.

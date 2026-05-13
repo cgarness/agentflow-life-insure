@@ -7,22 +7,16 @@ import type {
 import { differenceInDays, format, getISOWeek, getISOWeekYear } from "date-fns";
 
 export type StatCategory =
-  | "volume"
-  | "contact"
-  | "appointment"
-  | "conversion"
+  | "activity"
+  | "results"
   | "pipeline"
-  | "agent"
-  | "efficiency";
+  | "team";
 
 export const STAT_CATEGORIES: Record<StatCategory, { label: string; color: string }> = {
-  volume:      { label: "Volume",      color: "#378ADD" },
-  contact:     { label: "Contact",     color: "#1D9E75" },
-  appointment: { label: "Appointment", color: "#7F77DD" },
-  conversion:  { label: "Conversion",  color: "#639922" },
-  pipeline:    { label: "Pipeline",    color: "#D85A30" },
-  agent:       { label: "Agent",       color: "#BA7517" },
-  efficiency:  { label: "Efficiency",  color: "#888780" },
+  activity:    { label: "Activity",    color: "#378ADD" },
+  results:     { label: "Results",     color: "#639922" },
+  pipeline:    { label: "Pipeline",    color: "#1D9E75" },
+  team:        { label: "Team",        color: "#BA7517" },
 };
 
 export interface StatResult {
@@ -98,6 +92,7 @@ const safeDiv = (n: number, d: number): number | null => (d > 0 ? n / d : null);
 
 interface Aggregates {
   total: number;
+  outbound: number;
   contacted: number;
   converted: number;
   appts: number;
@@ -117,6 +112,7 @@ const aggregate = (
   const cbSet = dispoFlagSet(dispositions, "callback_scheduler");
   return {
     total: s?.total_calls ?? 0,
+    outbound: s?.outbound ?? 0,
     contacted: s?.contacted ?? 0,
     converted: s?.converted ?? 0,
     appts: sumDispoByFlag(bd, apptSet),
@@ -151,81 +147,75 @@ export interface StatDefinition {
 }
 
 export const STAT_DEFINITIONS: StatDefinition[] = [
-  // Volume (blue)
-  { id: "stat_total_dials",       label: "Total dials",        category: "volume" },
-  { id: "stat_outbound",          label: "Outbound calls",     category: "volume" },
-  { id: "stat_inbound",           label: "Inbound calls",      category: "volume" },
-  { id: "stat_calls_today",       label: "Calls today",        category: "volume" },
-  { id: "stat_calls_this_week",   label: "Calls this week",    category: "volume" },
-  { id: "stat_calls_per_day",     label: "Calls per day",      category: "volume" },
-  { id: "stat_calls_per_hour",    label: "Calls per hour",     category: "volume" },
-  { id: "stat_session_time",      label: "Session time",       category: "volume" },
-  { id: "stat_unique_leads",      label: "Unique leads dialed",category: "volume", comingSoon: true },
-  { id: "stat_new_leads_dialed",  label: "New leads dialed",   category: "volume", comingSoon: true },
-  { id: "stat_followup_calls",    label: "Follow-up calls",    category: "volume", comingSoon: true },
-  { id: "stat_voicemails_left",   label: "Voicemails left",    category: "volume", comingSoon: true },
+  // Activity (blue)
+  { id: "stat_total_dials",       label: "Total dials",        category: "activity" },
+  { id: "stat_outbound",          label: "Outbound calls",     category: "activity" },
+  { id: "stat_inbound",           label: "Inbound calls",      category: "activity" },
+  { id: "stat_calls_today",       label: "Calls today",        category: "activity" },
+  { id: "stat_calls_this_week",   label: "Calls this week",    category: "activity" },
+  { id: "stat_calls_per_day",     label: "Calls per day",      category: "activity" },
+  { id: "stat_calls_per_hour",    label: "Calls per hour",     category: "activity" },
+  { id: "stat_session_time",      label: "Session time",       category: "activity" },
+  { id: "stat_unique_leads",      label: "Unique leads dialed",category: "activity", comingSoon: true },
+  { id: "stat_new_leads_dialed",  label: "New leads dialed",   category: "activity", comingSoon: true },
+  { id: "stat_followup_calls",    label: "Follow-up calls",    category: "activity", comingSoon: true },
+  { id: "stat_voicemails_left",   label: "Voicemails left",    category: "activity", comingSoon: true },
+  { id: "stat_total_contacted",   label: "Total contacted",    category: "activity" },
+  { id: "stat_contact_rate",      label: "Contact rate",       category: "activity" },
+  { id: "stat_first_dial_contact",label: "First dial contact rate", category: "activity", comingSoon: true },
+  { id: "stat_followup_contact_rate", label: "Follow-up contact rate", category: "activity", comingSoon: true },
+  { id: "stat_avg_dials_to_contact",label: "Avg dials to contact", category: "activity", comingSoon: true },
+  { id: "stat_speed_to_contact",  label: "Speed to contact",   category: "activity", comingSoon: true },
+  { id: "stat_total_talk_time",   label: "Total talk time",    category: "activity" },
+  { id: "stat_avg_duration_all",  label: "Avg call duration",  category: "activity" },
+  { id: "stat_avg_talk_contacted",label: "Avg talk time",      category: "activity" },
+  { id: "stat_longest_call",      label: "Longest call",       category: "activity", comingSoon: true },
+  { id: "stat_shortest_connected",label: "Shortest connected", category: "activity", comingSoon: true },
+  { id: "stat_talk_time_ratio",   label: "Talk time ratio",    category: "activity" },
+  { id: "stat_dnc_count",         label: "DNC count",          category: "activity" },
+  { id: "stat_dnc_rate",          label: "DNC rate",           category: "activity", invertTrend: true },
 
-  // Contact (teal)
-  { id: "stat_total_contacted",        label: "Total contacted",         category: "contact" },
-  { id: "stat_contact_rate",           label: "Contact rate",            category: "contact" },
-  { id: "stat_first_dial_contact",     label: "First dial contact rate", category: "contact", comingSoon: true },
-  { id: "stat_followup_contact_rate",  label: "Follow-up contact rate",  category: "contact", comingSoon: true },
-  { id: "stat_avg_dials_to_contact",   label: "Avg dials to contact",    category: "contact", comingSoon: true },
-  { id: "stat_speed_to_contact",       label: "Speed to contact",        category: "contact", comingSoon: true },
-  { id: "stat_dnc_count",              label: "DNC count",               category: "contact" },
-  { id: "stat_dnc_rate",               label: "DNC rate",                category: "contact", invertTrend: true },
-  { id: "stat_total_talk_time",        label: "Total talk time",         category: "contact" },
-  { id: "stat_avg_duration_all",       label: "Avg call duration",       category: "contact" },
-  { id: "stat_avg_talk_contacted",     label: "Avg talk time",           category: "contact" },
-  { id: "stat_longest_call",           label: "Longest call",            category: "contact", comingSoon: true },
-  { id: "stat_shortest_connected",     label: "Shortest connected",      category: "contact", comingSoon: true },
-  { id: "stat_talk_time_ratio",        label: "Talk time ratio",         category: "contact" },
+  // Results (green)
+  { id: "stat_policies_sold",     label: "Policies sold",      category: "results" },
+  { id: "stat_call_to_close",     label: "Call to close rate", category: "results" },
+  { id: "stat_contacted_to_close",label: "Contacted to close", category: "results" },
+  { id: "stat_appt_to_close",     label: "Appt to close rate", category: "results" },
+  { id: "stat_dials_per_sale",    label: "Dials per sale",     category: "results", invertTrend: true },
+  { id: "stat_avg_days_to_close", label: "Avg days to close",  category: "results", comingSoon: true, invertTrend: true },
+  { id: "stat_best_closing_hour", label: "Best closing hour",  category: "results" },
+  { id: "stat_best_closing_day",  label: "Best closing day",   category: "results" },
+  { id: "stat_appointments_set",  label: "Appointments set",   category: "results" },
+  { id: "stat_appt_set_rate",     label: "Appt set rate",      category: "results" },
+  { id: "stat_contacted_to_appt", label: "Contacted to appt",  category: "results" },
+  { id: "stat_appts_kept",        label: "Appointments kept",  category: "results", comingSoon: true },
+  { id: "stat_appt_noshow_rate",  label: "Appt no-show rate",  category: "results", comingSoon: true, invertTrend: true },
+  { id: "stat_avg_dials_to_appt", label: "Avg dials to appt",  category: "results", comingSoon: true, invertTrend: true },
+  { id: "stat_not_interested_rate",label: "Not interested rate", category: "results", invertTrend: true },
 
-  // Appointment (purple)
-  { id: "stat_appointments_set",   label: "Appointments set",   category: "appointment" },
-  { id: "stat_appt_set_rate",      label: "Appt set rate",      category: "appointment" },
-  { id: "stat_contacted_to_appt",  label: "Contacted to appt",  category: "appointment" },
-  { id: "stat_appts_kept",         label: "Appointments kept",  category: "appointment", comingSoon: true },
-  { id: "stat_appt_noshow_rate",   label: "Appt no-show rate",  category: "appointment", comingSoon: true, invertTrend: true },
-  { id: "stat_avg_dials_to_appt",  label: "Avg dials to appt",  category: "appointment", comingSoon: true, invertTrend: true },
+  // Pipeline (teal)
+  { id: "stat_active_leads",      label: "Active leads",       category: "pipeline" },
+  { id: "stat_leads_contacted",   label: "Leads contacted",    category: "pipeline", comingSoon: true },
+  { id: "stat_leads_converted",   label: "Leads converted",    category: "pipeline" },
+  { id: "stat_callback_rate",     label: "Callback rate",      category: "pipeline" },
+  { id: "stat_callbacks_completed",label: "Callbacks completed",category: "pipeline", comingSoon: true },
+  { id: "stat_callback_conv_rate",label: "Callback conv rate", category: "pipeline", comingSoon: true },
+  { id: "stat_lead_exhaustion",   label: "Lead exhaustion rate",category: "pipeline", comingSoon: true, invertTrend: true },
 
-  // Conversion (green)
-  { id: "stat_policies_sold",      label: "Policies sold",       category: "conversion" },
-  { id: "stat_call_to_close",      label: "Call to close rate",  category: "conversion" },
-  { id: "stat_contacted_to_close", label: "Contacted to close",  category: "conversion" },
-  { id: "stat_appt_to_close",      label: "Appt to close rate",  category: "conversion" },
-  { id: "stat_dials_per_sale",     label: "Dials per sale",      category: "conversion", invertTrend: true },
-  { id: "stat_avg_days_to_close",  label: "Avg days to close",   category: "conversion", comingSoon: true, invertTrend: true },
-  { id: "stat_best_closing_hour",  label: "Best closing hour",   category: "conversion" },
-  { id: "stat_best_closing_day",   label: "Best closing day",    category: "conversion" },
-
-  // Pipeline (coral)
-  { id: "stat_active_leads",        label: "Active leads",        category: "pipeline" },
-  { id: "stat_leads_contacted",     label: "Leads contacted",     category: "pipeline", comingSoon: true },
-  { id: "stat_leads_converted",     label: "Leads converted",     category: "pipeline" },
-  { id: "stat_callback_rate",       label: "Callback rate",       category: "pipeline" },
-  { id: "stat_callbacks_completed", label: "Callbacks completed", category: "pipeline", comingSoon: true },
-  { id: "stat_callback_conv_rate",  label: "Callback conv rate",  category: "pipeline", comingSoon: true },
-  { id: "stat_not_interested_rate", label: "Not interested rate", category: "pipeline", invertTrend: true },
-  { id: "stat_lead_exhaustion",     label: "Lead exhaustion rate",category: "pipeline", comingSoon: true, invertTrend: true },
-
-  // Agent (amber)
-  { id: "stat_top_performer",       label: "Top performer",    category: "agent" },
-  { id: "stat_top_dialer",          label: "Top dialer",       category: "agent" },
-  { id: "stat_best_contact_agent",  label: "Best contact rate",category: "agent" },
-  { id: "stat_best_conv_agent",     label: "Best conv rate",   category: "agent" },
-  { id: "stat_avg_calls_agent",     label: "Avg calls/agent",  category: "agent" },
-  { id: "stat_avg_sales_agent",     label: "Avg sales/agent",  category: "agent" },
-  { id: "stat_agents_active",       label: "Agents active",    category: "agent", comingSoon: true },
-
-  // Efficiency (gray)
-  { id: "stat_dials_per_contact",   label: "Dials per contact",   category: "efficiency", invertTrend: true },
-  { id: "stat_dials_per_appt",      label: "Dials per appt",      category: "efficiency", invertTrend: true },
-  { id: "stat_talk_mins_per_sale",  label: "Talk mins per sale",  category: "efficiency", invertTrend: true },
-  { id: "stat_sessions_per_sale",   label: "Sessions per sale",   category: "efficiency", comingSoon: true, invertTrend: true },
-  { id: "stat_cost_per_lead",       label: "Cost per lead",       category: "efficiency", comingSoon: true, invertTrend: true },
-  { id: "stat_cost_per_appt",       label: "Cost per appt",       category: "efficiency", comingSoon: true, invertTrend: true },
-  { id: "stat_cost_per_sale",       label: "Cost per sale",       category: "efficiency", comingSoon: true, invertTrend: true },
+  // Team (amber)
+  { id: "stat_top_performer",     label: "Top performer",      category: "team" },
+  { id: "stat_top_dialer",        label: "Top dialer",         category: "team" },
+  { id: "stat_best_contact_agent",label: "Best contact rate",  category: "team" },
+  { id: "stat_best_conv_agent",   label: "Best conv rate",     category: "team" },
+  { id: "stat_avg_calls_agent",   label: "Avg calls/agent",    category: "team" },
+  { id: "stat_avg_sales_agent",   label: "Avg sales/agent",    category: "team" },
+  { id: "stat_agents_active",     label: "Agents active",      category: "team", comingSoon: true },
+  { id: "stat_dials_per_contact", label: "Dials per contact",  category: "team", invertTrend: true },
+  { id: "stat_dials_per_appt",    label: "Dials per appt",     category: "team", invertTrend: true },
+  { id: "stat_talk_mins_per_sale",label: "Talk mins per sale", category: "team", invertTrend: true },
+  { id: "stat_sessions_per_sale", label: "Sessions per sale",  category: "team", comingSoon: true, invertTrend: true },
+  { id: "stat_cost_per_lead",     label: "Cost per lead",      category: "team", comingSoon: true, invertTrend: true },
+  { id: "stat_cost_per_appt",     label: "Cost per appt",      category: "team", comingSoon: true, invertTrend: true },
+  { id: "stat_cost_per_sale",     label: "Cost per sale",      category: "team", comingSoon: true, invertTrend: true },
 ];
 
 export const STAT_DEFINITION_MAP: Record<string, StatDefinition> = STAT_DEFINITIONS.reduce(
@@ -273,8 +263,10 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
     if (def.comingSoon) put(def.id, { value: "—", comingSoon: true });
   }
 
-  // ── VOLUME ────────────────────────────────────────────────────────────
-  put("stat_total_dials", { value: fmtCount(A.total) });
+  // IMPORTANT: total_dials = outbound only. Inbound calls are not dials.
+  
+  // ── ACTIVITY ────────────────────────────────────────────────────────────
+  put("stat_total_dials", { value: fmtCount(A.outbound) });
   put("stat_outbound", { value: fmtCount(summary?.outbound ?? 0) });
   put("stat_inbound", { value: fmtCount(summary?.inbound ?? 0) });
 
@@ -311,11 +303,11 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   }
 
   put("stat_calls_per_day", {
-    value: daysInRange > 0 ? fmtCount(A.total / daysInRange) : "—",
+    value: daysInRange > 0 ? fmtCount(A.outbound / daysInRange) : "—",
     noData: daysInRange === 0,
   });
   {
-    const v = safeDiv(A.total, totalSessionHours);
+    const v = safeDiv(A.outbound, totalSessionHours);
     put("stat_calls_per_hour", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
   put("stat_session_time", {
@@ -326,14 +318,14 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   // ── CONTACT ────────────────────────────────────────────────────────────
   put("stat_total_contacted", { value: fmtCount(A.contacted) });
   {
-    const r = safeDiv(A.contacted, A.total);
+    const r = safeDiv(A.contacted, A.outbound);
     put("stat_contact_rate", r === null
       ? { value: "—", noData: true }
       : { value: fmtPct(r * 100), subtitle: `${fmtCount(A.contacted)} contacted` });
   }
   put("stat_dnc_count", { value: fmtCount(A.dnc) });
   {
-    const r = safeDiv(A.dnc, A.total);
+    const r = safeDiv(A.dnc, A.outbound);
     put("stat_dnc_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   put("stat_total_talk_time", {
@@ -357,7 +349,7 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   // ── APPOINTMENT ─────────────────────────────────────────────────────────
   put("stat_appointments_set", { value: fmtCount(A.appts) });
   {
-    const r = safeDiv(A.appts, A.total);
+    const r = safeDiv(A.appts, A.outbound);
     put("stat_appt_set_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
@@ -368,7 +360,7 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
   // ── CONVERSION ──────────────────────────────────────────────────────────
   put("stat_policies_sold", { value: fmtCount(A.converted) });
   {
-    const r = safeDiv(A.converted, A.total);
+    const r = safeDiv(A.converted, A.outbound);
     put("stat_call_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
@@ -380,7 +372,7 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
     put("stat_appt_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
   }
   {
-    const r = safeDiv(A.total, A.converted);
+    const r = safeDiv(A.outbound, A.converted);
     put("stat_dials_per_sale", r === null ? { value: "—", noData: true } : { value: fmtCount(r) });
   }
   {
@@ -418,7 +410,7 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
     const ni = breakdown?.by_disposition.find((d) => d.disposition_name.toLowerCase() === "not interested");
     if (!ni) put("stat_not_interested_rate", { value: "—", noData: true });
     else {
-      const r = safeDiv(ni.count, A.total);
+      const r = safeDiv(ni.count, A.outbound);
       put("stat_not_interested_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
     }
   }
@@ -464,11 +456,11 @@ export function computeAllStats(data: StatDataSources): Map<string, StatResult> 
 
   // ── EFFICIENCY ─────────────────────────────────────────────────────────
   {
-    const v = safeDiv(A.total, A.contacted);
+    const v = safeDiv(A.outbound, A.contacted);
     put("stat_dials_per_contact", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
   {
-    const v = safeDiv(A.total, A.appts);
+    const v = safeDiv(A.outbound, A.appts);
     put("stat_dials_per_appt", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
   }
   {
