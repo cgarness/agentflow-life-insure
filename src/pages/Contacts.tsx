@@ -1034,7 +1034,8 @@ const Contacts: React.FC = () => {
 
   // Sync contact view state with URL parameters (handles initial load, browser back button, and dynamic deep links)
   useEffect(() => {
-    const contactId = searchParams.get("contact");
+    // Support legacy '?id=' format from older notifications alongside the standard '?contact='
+    const contactId = searchParams.get("contact") || searchParams.get("id");
     
     // Always keep pendingContactId in sync for `fetchData` to use as a fallback during pagination/filters
     pendingContactId.current = contactId;
