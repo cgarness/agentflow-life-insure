@@ -125,6 +125,18 @@
 
 ## 3. Work Log (Recent History)
 
+- **2026-05-13 | [DONE] | Phase 4A: Reports Tab UX Overhaul (Layout + Polish)**
+  *What:* Restructured the Reports page from a single long scroll into a structured, tabbed layout. Built foundational UI for the future customization engine.
+  *Tab Structure:* Split metrics into 4 tabs (Overview, Calls, Pipeline, Team). `Reports.tsx` now conditionally renders components based on `activeTab`. Team tab is restricted to Admins/Team Leaders.
+  *KPICards:* Added a new `KPICards.tsx` component (Total Calls, Contacted, Converted, Talk Time) on the Overview tab, absorbing the standalone Chris G. "CALLS/SOLD" top card concept.
+  *Auto-Collapse:* Updated `ReportSection.tsx` to accept a `hasData` prop. Empty sections now auto-collapse and display a "No data" badge. Sections with data default to open.
+  *Component Refactoring:* Purged the deprecated "Common Paths to Sale" section from `DispositionDeepDive.tsx`. Formatted date labels in `CallVolumeChart.tsx` (using `date-fns` `format`) to be human-readable, and updated export logic. Stripped unused SMS/Email lock icon placeholders from `CommunicationsStats.tsx`.
+  *Visual Polish:* Consistent `gap-4`/`space-y-4` layout spacing and uniform `rounded-xl` borders across `ReportSection.tsx`.
+  *Data Fixes:* Fixed Call Volume Trends bug by modifying `20260513120000_reports_performance_rpcs.sql` (`rpc_report_call_volume_timeseries`) to include `ORDER BY call_date ASC` on the `by_date` CTE so timeseries graphs render chronologically.
+  *Verification:* `tsc --noEmit` clean. RPC update pushed to DB via MCP `execute_sql`. Component line limit (<200) strictly maintained.
+  *Files:* `src/pages/Reports.tsx`, `src/components/reports/KPICards.tsx` [NEW], `src/components/reports/ReportSection.tsx`, `src/components/reports/CallVolumeChart.tsx`, `src/components/reports/DispositionDeepDive.tsx`, `src/components/reports/CommunicationsStats.tsx`, `supabase/migrations/20260513120000_reports_performance_rpcs.sql`.
+
+
 - **2026-05-13 | [DONE] | Phase 2: Reports Data Integrity — Conversion Logic + Connected Definition + Org Scoping**
   *What:* Replaced all fragile string-matching (`includes("sold")`, `isSoldDisposition()`, `isSaleDisposition()`) and duration-based (`duration > 0`) logic across the entire codebase with data-driven helpers backed by `pipeline_stages.convert_to_client` and a 45-second connected threshold.
   *New Module:* `src/lib/report-utils.ts` — centralized `buildConvertedDispositionSet()`, `isConvertedCall()`, `isConvertedDisposition()`, `isContactedCall()`.

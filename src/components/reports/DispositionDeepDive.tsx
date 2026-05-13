@@ -15,8 +15,8 @@ const DispositionDeepDive: React.FC<Props> = ({ breakdown, dispositions, agents,
   const dispNames = useMemo(() => dispositions.slice(0, 8).map(d => d.name), [dispositions]);
   const dispColorMap = useMemo(() => new Map(dispositions.map((d, i) => [d.name, d.color || COLORS[i % COLORS.length]])), [dispositions]);
 
-  const { agentData, campaignData, topPaths } = useMemo(() => {
-    if (!breakdown) return { agentData: [], campaignData: [], topPaths: [] };
+  const { agentData, campaignData } = useMemo(() => {
+    if (!breakdown) return { agentData: [], campaignData: [] };
 
     // By agent
     const agentData = (breakdown.by_agent || []).map(a => {
@@ -45,10 +45,7 @@ const DispositionDeepDive: React.FC<Props> = ({ breakdown, dispositions, agents,
       return row;
     });
 
-    // Top paths to sold
-    const topPaths = ["No Answer → Call Back → Interested → Sold", "Interested → Appointment Set → Sold", "Call Back → Interested → Sold"];
-
-    return { agentData, campaignData, topPaths };
+    return { agentData, campaignData };
   }, [breakdown, dispositions, agents, normalized, dispNames]);
 
   const handleExport = () => {
@@ -92,16 +89,6 @@ const DispositionDeepDive: React.FC<Props> = ({ breakdown, dispositions, agents,
         </ResponsiveContainer>
       )}
 
-      <div className="mt-4 border-t pt-3">
-        <p className="text-xs font-medium text-muted-foreground mb-2">Common Paths to Sale</p>
-        <div className="space-y-1.5">
-          {topPaths.map((p, i) => (
-            <div key={i} className="text-xs text-foreground bg-accent/50 rounded px-3 py-1.5">
-              {i + 1}. {p}
-            </div>
-          ))}
-        </div>
-      </div>
     </ReportSection>
   );
 };

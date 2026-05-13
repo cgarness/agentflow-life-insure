@@ -148,6 +148,7 @@ BEGIN
                COUNT(*) FILTER (WHERE is_converted) as converted
         FROM base_calls
         GROUP BY call_date
+        ORDER BY call_date ASC
     ),
     heatmap AS (
         SELECT dow,

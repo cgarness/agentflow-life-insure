@@ -3,6 +3,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Respons
 import { Skeleton } from "@/components/ui/skeleton";
 import { Grouping, downloadCSV, ReportCallVolumeTimeseries } from "@/lib/reports-queries";
 import ReportSection from "./ReportSection";
+import { format, parseISO } from "date-fns";
 
 interface Props {
   volume?: ReportCallVolumeTimeseries;
@@ -24,8 +25,17 @@ const CallVolumeChart: React.FC<Props> = ({ volume, compVolume, grouping, onGrou
     // Map comp data by date index assuming equal length or matching dates
     return primary.map((d, i) => {
       const c = comp[i] || { total: 0, contacted: 0, converted: 0 };
+      
+      let formattedName = d.date;
+      try {
+        formattedName = format(parseISO(d.date), "MMM d");
+      } catch (e) {
+        // Fallback if parsing fails
+      }
+
       return {
-        name: d.date,
+        name: formattedName,
+        fullDate: d.date,
         calls: d.total,
         contacted: d.contacted,
         converted: d.converted,
@@ -36,7 +46,7 @@ const CallVolumeChart: React.FC<Props> = ({ volume, compVolume, grouping, onGrou
 
   const handleExport = () => {
     downloadCSV("call-volume-timeseries", ["Date", "Calls", "Contacted", "Converted"],
-      data.map(d => [d.name, String(d.calls), String(d.contacted), String(d.converted)]));
+      data.map(d => [d.fullDate, String(d.calls), String(d.contacted), String(d.converted)]));
   };
 
   if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-[280px]" /></div>;

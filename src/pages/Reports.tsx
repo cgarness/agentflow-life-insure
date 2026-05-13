@@ -20,6 +20,7 @@ import {
   ReportCallSummary, ReportCallVolumeTimeseries, ReportDispositionBreakdown, ReportCampaignPerformance
 } from "@/lib/reports-queries";
 
+import KPICards from "@/components/reports/KPICards";
 import AgentPerformanceCards from "@/components/reports/AgentPerformanceCards";
 import CallVolumeChart from "@/components/reports/CallVolumeChart";
 import DispositionsPieChart from "@/components/reports/DispositionsPieChart";
@@ -77,6 +78,10 @@ const Reports: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [grouping, setGrouping] = useState<Grouping>("daily");
   const [comparing, setComparing] = useState(false);
+
+  // Tabs
+  type Tab = "overview" | "calls" | "pipeline" | "team";
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
 
   // Panels
   const [showMyReports, setShowMyReports] = useState(false);
@@ -342,38 +347,58 @@ const Reports: React.FC = () => {
         </div>
       ) : (
         <>
-          {isAdmin && (
-            <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-px mb-6 sticky top-0 bg-background/95 backdrop-blur z-20 overflow-x-auto scrollbar-hide">
+            {(["overview", "calls", "pipeline", ...(isAdmin ? ["team"] : [])] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setActiveTab(t)}
+                className={cn(
+                  "px-4 py-2.5 text-sm font-bold capitalize transition-colors border-b-2 whitespace-nowrap",
+                  activeTab === t
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-slate-300 dark:hover:border-slate-700"
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "overview" && (
+            <div className="space-y-4">
+              <KPICards summary={summary} compSummary={comparing ? compSummary : undefined} comparing={comparing} loading={loading} />
+              <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
+              <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <CommunicationsStats summary={summary} compSummary={comparing ? compSummary : undefined} range={range} loading={loading} comparing={comparing} />
+                <CallingHeatmap volume={volume} loading={loading} />
+              </div>
+            </div>
           )}
 
-          <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />
-            <PoliciesSoldChart summary={summary} volume={volume} compVolume={comparing ? compVolume : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
-          </div>
-
-          <div className="space-y-6">
-            <CampaignPerformance performance={performance} loading={loading} />
-            <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <CommunicationsStats summary={summary} compSummary={comparing ? compSummary : undefined} range={range} loading={loading} comparing={comparing} />
-            <CallingHeatmap volume={volume} loading={loading} />
-          </div>
-
-          <CallDurationAnalysis breakdown={breakdown} loading={loading} />
-
-          {isAdmin && (
-            <AgentEfficiency summary={summary} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />
+          {activeTab === "calls" && (
+            <div className="space-y-4">
+              <CallFlowAnalysis volume={volume} loading={loading} />
+              <CallDurationAnalysis breakdown={breakdown} loading={loading} />
+              <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />
+            </div>
           )}
 
-          <CallFlowAnalysis volume={volume} loading={loading} />
+          {activeTab === "pipeline" && (
+            <div className="space-y-4">
+              <PoliciesSoldChart summary={summary} volume={volume} compVolume={comparing ? compVolume : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />
+              <CampaignPerformance performance={performance} loading={loading} />
+              <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />
+            </div>
+          )}
 
-          <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />
-
-          <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
+          {activeTab === "team" && isAdmin && (
+            <div className="space-y-4">
+              <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />
+              <AgentEfficiency summary={summary} sessions={sessions} agents={agents} currentUserId={user?.id} isAdmin={isAdmin} loading={loading} />
+              <GoalTracking scorecards={scorecards} agents={agents} selectedAgent={effectiveAgent} loading={loading} />
+            </div>
+          )}
         </>
       )}
 
