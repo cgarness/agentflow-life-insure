@@ -242,15 +242,19 @@ const Reports: React.FC = () => {
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
       {/* Slim & Premium Header */}
-      <div className="bg-card border rounded-[2rem] p-6 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 text-primary border border-primary/20">
-              <BarChart3 className="w-6 h-6" />
+      <div className="relative overflow-hidden bg-card/60 backdrop-blur-xl border border-primary/10 rounded-[2.5rem] p-6 shadow-xl shadow-primary/5">
+        {/* Subtle decorative background elements */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -ml-32 -mb-32 pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="flex items-center gap-5">
+            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20 border border-white/10">
+              <BarChart3 className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">Performance Analytics</h1>
-              <p className="text-sm text-muted-foreground font-medium">Comprehensive intelligence and growth metrics</p>
+              <h1 className="text-2xl md:text-3xl font-black tracking-tight text-foreground leading-none mb-1.5">Performance Analytics</h1>
+              <p className="text-sm text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Comprehensive intelligence and growth metrics</p>
             </div>
           </div>
 
