@@ -1032,24 +1032,21 @@ const Contacts: React.FC = () => {
     }
   }, [location.state, leads]);
 
-  // Sync contact view state with URL parameters (handles initial load and browser back button)
+  // Sync contact view state with URL parameters (handles initial load, browser back button, and dynamic deep links)
   useEffect(() => {
     const contactId = searchParams.get("contact");
+    
+    // Always keep pendingContactId in sync for `fetchData` to use as a fallback during pagination/filters
+    pendingContactId.current = contactId;
+
     if (!contactId) {
       // If contact param is missing, clear all selected contact states to unmount the detail view
       setSelectedLead(null);
       setSelectedClient(null);
       setSelectedRecruit(null);
       setSelectedAgent(null);
-      pendingContactId.current = null;
       return;
     }
-    pendingContactId.current = contactId;
-  }, [searchParams]);
-
-  useEffect(() => {
-    const contactId = pendingContactId.current;
-    if (!contactId) return;
 
     // Check leads
     if (leads.length > 0) {
@@ -1104,7 +1101,7 @@ const Contacts: React.FC = () => {
     });
 
     return () => { isCancelled = true; };
-  }, [leads, clients, recruits, agents, loading]);
+  }, [searchParams, leads, clients, recruits, agents, loading]);
 
   // ===== Lead CRUD =====
   const handleAddLead = async (data: Partial<Lead>, meta?: AddLeadSaveMeta) => {
