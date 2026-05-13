@@ -40,6 +40,8 @@ const statusOptions = [
   { label: "Offline", color: "bg-muted-foreground/50", dotClass: "bg-muted-foreground/50" },
 ];
 
+import Logo from "@/components/shared/Logo";
+
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
   const { user, profile, logout, isLoading, isImpersonating, impersonatedUser } = useAuth();
@@ -107,7 +109,7 @@ const TopBar: React.FC = () => {
 
         {/* Breadcrumb */}
         <div className="hidden sm:flex items-center gap-2 text-sm shrink-0">
-          <span className="text-muted-foreground">AgentFlow</span>
+          <Logo variant="full" iconClassName="h-6 w-6" textClassName="h-3" />
           <span className="text-muted-foreground">/</span>
           <span className="font-semibold text-foreground">{currentPage}</span>
         </div>

@@ -32,6 +32,8 @@ const MAIN_MENU = [
 const CORE_MAIN_MENU = MAIN_MENU.slice(0, -1);
 const SETTINGS_MENU_ITEM = MAIN_MENU[MAIN_MENU.length - 1];
 
+import Logo from "@/components/shared/Logo";
+
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { branding } = useBranding();
@@ -46,10 +48,12 @@ const Sidebar: React.FC = () => {
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
       <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
         <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-primary">
-            {branding.logoUrl ? <img src={branding.logoUrl} className="w-full h-full object-cover rounded-lg" alt="L" /> : <span className="text-white font-bold text-sm">AF</span>}
-          </div>
-          {!collapsed && <span className="font-bold text-base text-sidebar-accent-foreground">{branding.companyName || "AgentFlow"}</span>}
+          <Logo 
+            variant={collapsed ? "icon" : "full"} 
+            className={collapsed ? "gap-0" : "gap-3"}
+            iconClassName="h-8 w-8"
+            textClassName="h-3.5 invert brightness-200" // Invert and brighten to make the dark logo text white
+          />
         </div>
       </div>
 

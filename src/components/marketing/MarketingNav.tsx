@@ -6,14 +6,7 @@ import { Menu, X } from "lucide-react";
 /* ──────────────────────────────────────────────
    AF LOGO COMPONENT
    ────────────────────────────────────────────── */
-export const AFLogo = ({ size = 36 }: { size?: number }) => (
-  <div
-    className="rounded-lg bg-primary flex items-center justify-center font-bold text-primary-foreground select-none"
-    style={{ width: size, height: size, fontSize: size * 0.4 }}
-  >
-    AF
-  </div>
-);
+import Logo from "@/components/shared/Logo";
 
 /* ──────────────────────────────────────────────
    NAV LINKS DATA
@@ -50,9 +43,8 @@ const MarketingNav: React.FC = () => {
     <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-background/70 border-b border-border/40">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Left – Logo */}
-        <Link to="/landing" className="flex items-center gap-2.5">
-          <AFLogo />
-          <span className="font-bold text-lg text-foreground">AgentFlow</span>
+        <Link to="/landing" className="flex items-center">
+          <Logo variant="full" iconClassName="h-9 w-9" textClassName="h-4" />
         </Link>
 
         {/* Center – Desktop nav */}

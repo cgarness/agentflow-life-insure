@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { resolvePostAuthPath } from "@/lib/onboarding-wizard";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import AnimatedBackground from "@/components/AnimatedBackground";
+import Logo from "@/components/shared/Logo";
 
 const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -61,9 +62,8 @@ const LoginPage: React.FC = () => {
           }} />
 
           {/* Wordmark */}
-          <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-            <span style={{ color: '#F1F5F9', fontWeight: 800, fontSize: '30px', fontFamily: '-apple-system, sans-serif' }}>Agent</span>
-            <span style={{ color: '#3B82F6', fontWeight: 800, fontSize: '30px', fontFamily: '-apple-system, sans-serif', textShadow: '0 0 20px rgba(59,130,246,0.7)' }}>Flow</span>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+            <Logo variant="full" iconClassName="h-12 w-12" textClassName="h-6 invert brightness-200" />
           </div>
 
           {/* Underline bar */}

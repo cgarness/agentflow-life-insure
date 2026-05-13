@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePostAuthPath } from "@/lib/onboarding-wizard";
+import Logo from "@/components/shared/Logo";
+
 export default function AuthCallback() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
@@ -35,8 +37,8 @@ export default function AuthCallback() {
         alignItems: "center", justifyContent: "center",
         fontFamily: "Inter, sans-serif"
       }}>
-        <div style={{ marginBottom: "24px", color: "#3B82F6", fontSize: "18px", fontWeight: 600 }}>
-          ⚡ AgentFlow
+        <div style={{ marginBottom: "24px" }}>
+          <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5 invert brightness-200" />
         </div>
         <div style={{
           width: "48px", height: "48px", border: "3px solid #334155",
@@ -56,8 +58,8 @@ export default function AuthCallback() {
         alignItems: "center", justifyContent: "center",
         fontFamily: "Inter, sans-serif", padding: "24px"
       }}>
-        <div style={{ marginBottom: "32px", color: "#3B82F6", fontSize: "18px", fontWeight: 600 }}>
-          ⚡ AgentFlow
+        <div style={{ marginBottom: "32px" }}>
+          <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5 invert brightness-200" />
         </div>
         <div style={{
           width: "80px", height: "80px", borderRadius: "50%",
@@ -90,8 +92,8 @@ export default function AuthCallback() {
       alignItems: "center", justifyContent: "center",
       fontFamily: "Inter, sans-serif", padding: "24px"
     }}>
-      <div style={{ marginBottom: "32px", color: "#3B82F6", fontSize: "18px", fontWeight: 600 }}>
-        ⚡ AgentFlow
+      <div style={{ marginBottom: "32px" }}>
+        <Logo variant="full" iconClassName="h-10 w-10" textClassName="h-5 invert brightness-200" />
       </div>
       <div style={{
         width: "80px", height: "80px", borderRadius: "50%",

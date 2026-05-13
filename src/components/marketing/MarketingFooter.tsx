@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Globe, Linkedin, Facebook } from "lucide-react";
-import { AFLogo } from "./MarketingNav";
+import Logo from "@/components/shared/Logo";
 
 const MarketingFooter: React.FC = () => {
   return (
@@ -9,9 +9,8 @@ const MarketingFooter: React.FC = () => {
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
         {/* Brand */}
         <div>
-          <div className="flex items-center gap-2.5 mb-4">
-            <AFLogo size={32} />
-            <span className="font-bold text-lg">AgentFlow</span>
+          <div className="flex items-center mb-4">
+            <Logo variant="full" iconClassName="h-8 w-8" textClassName="h-3.5" />
           </div>
           <p className="text-sm text-muted-foreground mb-4">
             The all-in-one CRM for life insurance professionals.
