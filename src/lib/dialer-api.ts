@@ -364,6 +364,7 @@ export async function saveCall(data: {
   campaign_id?: string;
   duration_seconds: number;
   disposition: string;
+  disposition_id?: string | null; // UUID FK — preferred over name-string lookup
   notes: string;
   outcome: string;
   caller_id_used?: string;
@@ -422,18 +423,38 @@ export async function saveCall(data: {
 
   // 3. Pipeline stage transition: if the disposition is linked to a pipeline stage,
   // update the lead's status to the stage name.
+  // Prefer the UUID FK (disposition_id) over the fragile name-string match.
   if (data.disposition) {
     try {
-      const dispQuery = supabase
-        .from("dispositions")
-        .select("pipeline_stage_id")
-        .ilike("name", data.disposition);
+      let dispRow: { pipeline_stage_id: string | null } | null = null;
 
-      if (organizationId) {
-        dispQuery.eq("organization_id", organizationId);
+      if (data.disposition_id) {
+        // Fast path: look up directly by UUID PK — no name matching
+        const dispQuery = supabase
+          .from("dispositions")
+          .select("pipeline_stage_id")
+          .eq("id", data.disposition_id);
+
+        if (organizationId) {
+          dispQuery.eq("organization_id", organizationId);
+        }
+
+        const { data: row } = await dispQuery.maybeSingle();
+        dispRow = row;
+      } else {
+        // Fallback: name-string match (for callers that don't yet pass disposition_id)
+        const dispQuery = supabase
+          .from("dispositions")
+          .select("pipeline_stage_id")
+          .ilike("name", data.disposition);
+
+        if (organizationId) {
+          dispQuery.eq("organization_id", organizationId);
+        }
+
+        const { data: row } = await dispQuery.maybeSingle();
+        dispRow = row;
       }
-
-      const { data: dispRow } = await dispQuery.maybeSingle();
 
       if (dispRow?.pipeline_stage_id) {
         // Fetch the linked pipeline stage name
