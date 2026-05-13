@@ -69,13 +69,6 @@ const SectionRenderer: React.FC<Props> = ({
     }
   }
 
-  // Group visible stats by category, preserving user order within each category
-  const byCat = new Map<string, SectionConfig[]>(CATEGORY_ORDER.map(c => [c, []]));
-  for (const s of visibleStatSections) {
-    const cat = STAT_DEFINITION_MAP[s.id]?.category;
-    if (cat) byCat.get(cat)?.push(s);
-  }
-
   // Group hidden stats by category for the edit-mode picker
   const hiddenByCategory = new Map<string, SectionConfig[]>();
   for (const s of hiddenStatSections) {
@@ -120,27 +113,35 @@ const SectionRenderer: React.FC<Props> = ({
 
   return (
     <div className="space-y-0" onDragOver={(e) => e.preventDefault()}>
-      {/* Category-grouped stat cards */}
+      {/* Flat grid of stat cards */}
       <div className="mb-4">
-        {CATEGORY_ORDER.map((cat) => {
-          const items = byCat.get(cat) ?? [];
-          if (!items.length) return null;
-          const meta = STAT_CATEGORIES[cat];
-          return (
-            <div key={cat} className="mb-4">
-              <p className="text-[11px] uppercase tracking-[0.5px] text-muted-foreground font-semibold mb-2">
-                {meta.label}
-              </p>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-                {items.map((s) => (
-                  <DraggableSection key={s.id} {...dragProps(s)}>
-                    {components[s.id]}
-                  </DraggableSection>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+          {visibleStatSections.map((s) => (
+            <DraggableSection key={s.id} {...dragProps(s)}>
+              {components[s.id]}
+            </DraggableSection>
+          ))}
+        </div>
+
+        {/* Color Legend - only in non-edit mode */}
+        {!editMode && visibleStatSections.length > 0 && (
+          <div className="flex gap-4 flex-wrap mt-2 mb-6">
+            {CATEGORY_ORDER.map((cat) => {
+              const meta = STAT_CATEGORIES[cat];
+              return (
+                <div key={cat} className="flex items-center gap-1.5">
+                  <div 
+                    className="w-[3px] h-[14px] rounded-full" 
+                    style={{ backgroundColor: meta.color }} 
+                  />
+                  <span className="text-[11px] text-muted-foreground/80 font-medium uppercase tracking-wider">
+                    {meta.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Edit-mode picker: hidden stats grouped by category */}

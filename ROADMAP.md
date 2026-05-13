@@ -5,6 +5,16 @@
 
 ---
 
+## Work Log — 2026-05-13: BUILD: Clean Stat Card Block — No Category Labels, Color Legend Only
+
+- **Visual Refactor**: Removed category section labels (ACTIVITY, RESULTS, PIPELINE, TEAM) from the main stat cards view to achieve a cleaner, more unified aesthetic.
+- **Flat Grid**: Rendered all 20 visible stat cards in a single flat block with responsive column counts (5 cols on desktop, 2 on mobile).
+- **Color Legend**: Added a subtle color legend below the stat block explaining the left-border category colors (Activity: blue, Results: green, Pipeline: teal, Team: amber). Hidden in edit mode to reduce clutter.
+- **Preserved Edit Mode**: Kept category grouping and colored indicators in the "Available stats" picker during edit mode to help users browse and select metrics.
+- **TypeScript**: `npx tsc --noEmit` → 0 errors.
+
+---
+
 ## Work Log — 2026-05-13: BUILD: Fix Total Dials + Consolidate to 4 Category Groups + Cap at 20 Visible Cards
 
 - **Total Dials Data Integrity**: Redefined "Total Dials" as Outbound Calls only. Inbound calls no longer inflate dial metrics. Updated `stat-computations.ts` so all downstream stats (e.g. `contact_rate`, `call_to_close`, `dnc_rate`, `appt_set_rate`, `calls_per_day`, `calls_per_hour`, `dials_per_sale`, `dials_per_contact`, `dials_per_appt`, `not_interested_rate`) accurately divide against `outbound` instead of total calls.
