@@ -424,7 +424,9 @@ const Reports: React.FC = () => {
                 ...buildStatComponents({
                   summary, compSummary: comparing ? compSummary : undefined,
                   breakdown, compBreakdown: comparing ? compBreakdown : undefined,
-                  sessions, activeLeadsCount, dispositions, dateRange: range, comparing, loading
+                  volume, sessions, agents, activeLeadsCount, dispositions,
+                  dateRange: { from: range.start, to: range.end },
+                  comparing, loading,
                 }),
                 call_volume: <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />,
                 conversion_funnel: <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />,
