@@ -2878,3 +2878,15 @@ Removed the full-page dialer redirect/CTA that hid the entire Reports dashboard 
 - `src/lib/reports-queries.ts` — added `agent_name` to `ReportCallSummary.calls_by_agent` type
 - `supabase/migrations/20260513180000_fix_reports_rpcs_data_accuracy.sql` (new)
 
+### BUGFIX: Fix "comparing is not defined" crash on Reports page `[DONE]`
+
+**What was done:**
+Removed orphaned Compare Mode variables (`comparing`, `compRange`) that were still referenced in the UI after the Compare Mode feature was removed. This was causing a runtime crash on the Reports page.
+
+**Verification:**
+- `npx tsc --noEmit` runs with 0 errors.
+- Verified zero remaining active-code references to `comparing`, `compSummary`, `compVolume`, `compBreakdown`, `compPerformance`, `comparePeriod`, `compareData`, or `comparison`.
+- Tested the Reports page and confirmed it renders correctly without crashing.
+
+**Files touched:**
+- `src/pages/Reports.tsx`

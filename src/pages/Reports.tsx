@@ -339,13 +339,6 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      {comparing && (
-        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-accent/50 rounded-lg px-3 py-2">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary" /> {formatDate(range.start)} – {formatDate(range.end)}</span>
-          <span>vs</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary/30" /> {formatDate(compRange.start)} – {formatDate(compRange.end)}</span>
-        </div>
-      )}
 
       <ReportCustomizer
         editMode={editMode}
